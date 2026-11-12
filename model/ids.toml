@@ -15,14 +15,21 @@
 # state: a capability that is not built does not get a row, and every row in this
 # file is built.
 #
-# The first row is the template's own Prism application in `app/` (TC-01).
+# The `KN` rows are the decisions of the Hologram AI kernel in `app/`, numbered
+# as the kernel numbers them: the number is the first byte of a request.
 # A capability starts with a row here; `just new-capability` writes the row,
 # its scenario and its failing test in the order `AGENTS.md` sets out.
 
 spec = "template/1"
 
 [[id]]
-id = "TC-01"
+id = "KN-05"
 level = "build"
-suite = "contract"
-statement = "The checker answers conformant exactly when every universal policy file's observed digest equals its locked digest"
+suite = "kernel"
+statement = "A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal"
+
+[[id]]
+id = "KN-06"
+level = "build"
+suite = "kernel"
+statement = "A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file"

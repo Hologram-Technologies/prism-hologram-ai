@@ -45,10 +45,10 @@ test:
 deny:
     cargo deny --all-features check
 
-# The template's own Prism application, the contract checker. The model must
+# The Hologram AI kernel, this repository's Prism application. The model must
 # be canonical and locked. `prismpm verify` builds the holo, replaying its
 # acceptance vectors in the compiled guest, then has the Lean kernel and
-# leanchecker check every theorem (`TC-01`) and the generated code against the
+# leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
 #
 # A pull request or a merge queue run may reuse the proof a run kept for

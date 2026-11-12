@@ -18,11 +18,12 @@ The three honesty levels (R2):
 `cargo xtask audit-limits` fails if any code path returns an error the
 model does not sanction.
 
-## contract
+## kernel
 
 | ID | Level | Statement |
 | --- | --- | --- |
-| `TC-01` | `build` | The checker answers conformant exactly when every universal policy file's observed digest equals its locked digest |
+| `KN-05` | `build` | A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal |
+| `KN-06` | `build` | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file |
 
 ## Cited authorities
 

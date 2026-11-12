@@ -1,0 +1,29 @@
+\begin{lexlean}{Kernel.Wire}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: fieldFrom,
+  parameters: [value : Bytes, offset : Nat, remaining : Nat, accumulated : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => accumulated
+    | Nat.succ rest => (match (Foundation.Bytes::byteAt value offset)
+      | Option.none => accumulated
+      | Option.some byte => (fieldFrom value (offset + 1) rest ((prim multiply accumulated 256 : Nat) + (prim to_nat byte : Nat))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: fieldAt,
+  parameters: [value : Bytes, offset : Nat, width : Nat],
+  result: Nat,
+  body: (fieldFrom value offset width 0),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

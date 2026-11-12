@@ -1,44 +1,63 @@
 {
-  "name": "Template contract",
-  "shortName": "Contract",
-  "live": "https://uor-foundation.github.io/template/",
-  "purpose": "Checks each universal policy file of a UOR template repository against its locked digest. Send the six expected and observed digests; it answers conformant, or names every file that drifted, and invalid request for anything else.",
-  "inputLabel": "Expected and observed digests",
-  "placeholder": "hex: followed by 384 bytes",
-  "submitLabel": "Check",
+  "name": "Hologram AI kernel",
+  "shortName": "AI kernel",
+  "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Decision 5 admits a buffer by its label and length. Decision 6 accepts a tensor's byte range in a file. Anything else answers invalid request.",
+  "inputLabel": "Decision request",
+  "placeholder": "hex: followed by 81 bytes",
+  "submitLabel": "Decide",
   "outputLabel": "Verdict",
   "answers": {
     "positive": [
-      "conformant"
+      "admit",
+      "accept"
     ],
     "negative": [
-      "drift:*"
+      "refuse",
+      "reject"
     ],
     "refusal": "invalid request"
   },
   "promise": {
-    "headline": "Says conformant exactly when every policy file matches its lock.",
-    "detail": "Each of the six universal policy files is compared with the digest the lock records, and any file that drifted is named."
+    "headline": "Admits a buffer exactly when its label and its length are the ones expected.",
+    "detail": "A buffer's label is the BLAKE3 hash of its bytes. The kernel compares all 32 bytes of the expected and observed labels and the declared and observed lengths, and admits only when every one is equal."
   },
-  "claim": "TC-01: the checker answers conformant exactly when every universal policy file's observed digest equals its locked digest.",
+  "claim": "KN-05: a buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal.",
   "proposition": {
-    "name": "Conformant",
-    "text": "Conformant observation :=\n  SameDigest devcontainer.expected devcontainer.observed\n  /\\ SameDigest bootstrap.expected bootstrap.observed\n  /\\ SameDigest agents.expected agents.observed\n  /\\ SameDigest verification.expected verification.observed\n  /\\ SameDigest prismpmLock.expected prismpmLock.observed\n  /\\ SameDigest templateContract.expected templateContract.observed\n\nSameDigest left right :=\n  left.w0 = right.w0 /\\ left.w1 = right.w1 /\\ left.w2 = right.w2 /\\ left.w3 = right.w3",
-    "plain": "Every one of the six universal policy files has the digest the lock says it has."
+    "name": "Admitted",
+    "text": "Admitted claim :=\n  SameLabel claim.expected claim.observed\n  /\\ claim.declaredLength = claim.observedLength\n\nSameLabel left right :=\n  left.w0 = right.w0 /\\ left.w1 = right.w1 /\\ left.w2 = right.w2 /\\ left.w3 = right.w3",
+    "plain": "The observed label is the expected label, word for word, and the observed length is the declared length."
   },
   "theorems": [
     {
-      "name": "conformant_decides",
-      "statement": "conformant observation = true ↔ Conformant observation, for every observation",
+      "name": "admitted_decides",
+      "statement": "admitted claim = true ↔ Admitted claim, for every claim",
       "how": "Proved by simplification over the record fields, checked by the Lean kernel by prismpm verify in CI",
-      "where": "app/src/Contract.lex.tex"
+      "where": "app/src/Kernel/Admission.lex.tex"
+    },
+    {
+      "name": "within_decides",
+      "statement": "within fileLength previousEnd offset length = true ↔ previousEnd ≤ offset ∧ offset + length ≤ fileLength, for every four numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by prismpm verify in CI",
+      "where": "app/src/Kernel/Range.lex.tex"
+    },
+    {
+      "name": "all_accepted_ordered",
+      "statement": "allAccepted fileLength previousEnd spans = true ↔ Ordered fileLength previousEnd spans, for every list of ranges",
+      "how": "Proved by induction over the list, checked by the Lean kernel by prismpm verify in CI",
+      "where": "app/src/Kernel/Range.lex.tex"
     }
   ],
   "pinned": [
     {
-      "name": "contract_tc_01",
-      "what": "The theorem's statement and axioms, the six files the proposition names against template-contract.json, that a drifted file is named in the verdict, and that the verdict is decided by conformant. A string-matching test, not a theorem: a planted defect fails it.",
-      "where": "crates/conformance/tests/contract.rs"
+      "name": "kernel_kn_05",
+      "what": "The theorem's statement and axioms, the four label words and two lengths the proposition compares, the request offsets they are read from, that decision 5 is routed to this answer, and that the verdict is decided by admitted. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_06",
+      "what": "The theorems' statements and axioms, that the decided function never adds offset to length, the request offsets the span is read from, that decision 6 is routed to this answer, that the verdict is decided by accepted, and the example that rejects a range overflowing 64 bits. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
     }
   ],
   "trusted": [
@@ -65,14 +84,14 @@
   ],
   "attestations": {
     "proof": {
-      "id": "not recorded for the template's own app; an instance records the UOR MCP server's attestation here",
-      "url": "https://github.com/UOR-Foundation/template/actions/workflows/bootstrap.yml"
+      "id": "printed by prismpm verify in every bootstrap run",
+      "url": "https://github.com/Hologram-Technologies/prism-hologram-ai/actions/workflows/bootstrap.yml"
     },
     "build": {
-      "id": "printed by prismpm verify in every pages run; an instance records it here",
-      "url": "https://github.com/UOR-Foundation/template/actions/workflows/pages.yml"
+      "id": "printed by prismpm verify in every pages run",
+      "url": "https://github.com/Hologram-Technologies/prism-hologram-ai/actions/workflows/pages.yml"
     }
   },
-  "repository": "https://github.com/UOR-Foundation/template",
-  "report": "https://github.com/UOR-Foundation/template/blob/main/TEMPLATE-VERIFICATION.md"
+  "repository": "https://github.com/Hologram-Technologies/prism-hologram-ai",
+  "report": "https://github.com/Hologram-Technologies/prism-hologram-ai/blob/main/KERNEL-VERIFICATION.md"
 }

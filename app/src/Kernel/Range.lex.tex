@@ -1,0 +1,122 @@
+\begin{lexlean}{Kernel.Range}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: within,
+  parameters: [fileLength : Nat, previousEnd : Nat, offset : Nat, length : Nat],
+  result: Bool,
+  body: ((previousEnd <=? offset) && ((offset <=? fileLength) && (length <=? (prim subtract fileLength offset : Nat))))
+}
+
+definition{
+  name: Within,
+  parameters: [fileLength : Nat, previousEnd : Nat, offset : Nat, length : Nat],
+  result: Prop,
+  body: ((previousEnd <= offset) /\ ((offset + length) <= fileLength))
+}
+
+theorem{
+  name: within_decides,
+  parameters: [fileLength : Nat, previousEnd : Nat, offset : Nat, length : Nat],
+  statement: (((within fileLength previousEnd offset length) = true) <-> (Within fileLength previousEnd offset length)),
+  proof: linear_arithmetic{definitions: [Within, within]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+structure{
+  name: Span,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: fileLength, type: Nat},
+    {name: previousEnd, type: Nat},
+    {name: offset, type: Nat},
+    {name: length, type: Nat}
+  ]
+}
+
+definition{
+  name: accepted,
+  parameters: [span : Span],
+  result: Bool,
+  body: (within (project span fileLength) (project span previousEnd) (project span offset) (project span length))
+}
+
+definition{
+  name: Accepted,
+  parameters: [span : Span],
+  result: Prop,
+  body: (((project span previousEnd) <= (project span offset)) /\ (((project span offset) + (project span length)) <= (project span fileLength)))
+}
+
+theorem{
+  name: accepted_decides,
+  parameters: [span : Span],
+  statement: (((accepted span) = true) <-> (Accepted span)),
+  proof: simplify{definitions: [Accepted, Within, accepted, within_decides]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+definition{
+  name: allAccepted,
+  parameters: [fileLength : Nat, previousEnd : Nat, spans : (List (Nat * Nat))],
+  result: Bool,
+  body: (match spans
+    | List.nil => true
+    | List.cons head rest => ((within fileLength previousEnd (first head) (second head)) && (allAccepted fileLength ((first head) + (second head)) rest))),
+  recursive_argument: spans
+}
+
+definition{
+  name: Ordered,
+  parameters: [fileLength : Nat, previousEnd : Nat, spans : (List (Nat * Nat))],
+  result: Prop,
+  body: (match spans
+    | List.nil => (0 = 0)
+    | List.cons head rest => ((Within fileLength previousEnd (first head) (second head)) /\ (Ordered fileLength ((first head) + (second head)) rest))),
+  recursive_argument: spans
+}
+
+theorem{
+  name: all_accepted_ordered,
+  parameters: [fileLength : Nat, previousEnd : Nat, spans : (List (Nat * Nat))],
+  statement: (((allAccepted fileLength previousEnd spans) = true) <-> (Ordered fileLength previousEnd spans)),
+  proof: induction{
+    branches: [
+      {proof: simplify{definitions: [Ordered, allAccepted]}, binders: [], constructor: nil},
+      {
+        proof: simplify{
+          definitions: [Bool.and_eq_true, Ordered, allAccepted, hypothesis, within_decides]
+        },
+        binders: [head, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [previousEnd],
+    scrutinee: spans
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+definition{
+  name: spanAt,
+  parameters: [value : Bytes],
+  result: Span,
+  body: (record Span {fileLength := (Kernel.Wire::fieldAt value 1 8), previousEnd := (Kernel.Wire::fieldAt value 9 8), offset := (Kernel.Wire::fieldAt value 17 8), length := (Kernel.Wire::fieldAt value 25 8)}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: answer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (accepted (spanAt value)) then (prim utf8_encode "accept" : Bytes) else (prim utf8_encode "reject" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

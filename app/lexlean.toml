@@ -1,9 +1,9 @@
 spec = "lexlean/project/1"
-name = "prism-template-contract"
+name = "prism-hologram-ai"
 language = "1.2"
-module_prefix = "PrismTemplateContract"
+module_prefix = "HologramAi"
 source_roots = ["src"]
-entrypoints = ["src/Contract.lex.tex"]
+entrypoints = ["src/Kernel.lex.tex"]
 build_root = ".lexlean"
 lockfile = "lexlean.lock"
 lean_workspace = "."

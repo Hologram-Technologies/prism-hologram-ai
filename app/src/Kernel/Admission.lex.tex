@@ -1,0 +1,95 @@
+\begin{lexlean}{Kernel.Admission}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+structure{
+  name: Label,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: w0, type: Nat},
+    {name: w1, type: Nat},
+    {name: w2, type: Nat},
+    {name: w3, type: Nat}
+  ]
+}
+
+structure{
+  name: Claim,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: expected, type: Label},
+    {name: observed, type: Label},
+    {name: declaredLength, type: Nat},
+    {name: observedLength, type: Nat}
+  ]
+}
+
+definition{
+  name: sameLabel,
+  parameters: [left : Label, right : Label],
+  result: Bool,
+  body: (((project left w0) =? (project right w0)) && (((project left w1) =? (project right w1)) && (((project left w2) =? (project right w2)) && ((project left w3) =? (project right w3)))))
+}
+
+definition{
+  name: SameLabel,
+  parameters: [left : Label, right : Label],
+  result: Prop,
+  body: (((project left w0) = (project right w0)) /\ (((project left w1) = (project right w1)) /\ (((project left w2) = (project right w2)) /\ ((project left w3) = (project right w3)))))
+}
+
+definition{
+  name: admitted,
+  parameters: [claim : Claim],
+  result: Bool,
+  body: ((sameLabel (project claim expected) (project claim observed)) && ((project claim declaredLength) =? (project claim observedLength)))
+}
+
+definition{
+  name: Admitted,
+  parameters: [claim : Claim],
+  result: Prop,
+  body: ((SameLabel (project claim expected) (project claim observed)) /\ ((project claim declaredLength) = (project claim observedLength)))
+}
+
+theorem{
+  name: admitted_decides,
+  parameters: [claim : Claim],
+  statement: (((admitted claim) = true) <-> (Admitted claim)),
+  proof: simplify{
+    definitions: [Admitted, Bool.and_eq_true, Nat.beq_eq, SameLabel, admitted, sameLabel]
+  },
+  axioms: [propext]
+}
+
+definition{
+  name: labelAt,
+  parameters: [value : Bytes, offset : Nat],
+  result: Label,
+  body: (record Label {w0 := (Kernel.Wire::fieldAt value offset 8), w1 := (Kernel.Wire::fieldAt value (offset + 8) 8), w2 := (Kernel.Wire::fieldAt value (offset + 16) 8), w3 := (Kernel.Wire::fieldAt value (offset + 24) 8)}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: claimAt,
+  parameters: [value : Bytes],
+  result: Claim,
+  body: (record Claim {expected := (labelAt value 1), observed := (labelAt value 33), declaredLength := (Kernel.Wire::fieldAt value 65 8), observedLength := (Kernel.Wire::fieldAt value 73 8)}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: answer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 81) then (if (admitted (claimAt value)) then (prim utf8_encode "admit" : Bytes) else (prim utf8_encode "refuse" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

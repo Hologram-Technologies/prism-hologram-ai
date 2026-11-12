@@ -1,6 +1,6 @@
-name = "PrismTemplateContract"
+name = "HologramAi"
 version = "0.1.0"
-defaultTargets = ["PrismTemplateContract"]
+defaultTargets = ["HologramAi"]
 
 [[lean_lib]]
-name = "PrismTemplateContract"
+name = "HologramAi"
