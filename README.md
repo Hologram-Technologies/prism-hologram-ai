@@ -9,7 +9,7 @@ planes, each trusted in a different way:
 
 | Plane | What it is | How it is trusted |
 | --- | --- | --- |
-| Kernel | A Prism holo: every decision the app makes about what it may load and run, written in LexLean. | Proved by Lean. Examples replayed in the compiled guest. |
+| Kernel | A Prism holo: every decision the app makes about what it may load and run, written in LexLean. | Proved by Lean, in proof modules beside the app. Examples replayed in the compiled guest. |
 | Engine | Rust compiled to WebAssembly on the [hologram](https://github.com/Hologram-Technologies/hologram) runtime: download, hashing, compile, inference, ONNX import. | Tested against external authorities. Not proved. |
 | Page | The interface and its workers. | Tested by browser journeys. Not proved. |
 
@@ -72,9 +72,10 @@ just vv
 ```
 
 `just vv` is the whole acceptance boundary: formatting, the claim register, the
-template contract, lints, tests, dependency policy, and `prismpm verify`, which
-builds the holo, replays its examples in the compiled guest and has the Lean
-kernel check every theorem.
+template contract, lints, tests, dependency policy, `lexlean verify` over the
+proof modules, which has the Lean kernel check every theorem, and
+`prismpm verify`, which builds the holo and replays its examples in the
+compiled guest.
 
 To add a capability, follow [AGENTS.md](AGENTS.md): register it, write its
 scenario and a failing test, build it, then plant the defect the test exists to
@@ -89,7 +90,8 @@ just new-capability KN-06 build kernel "<the statement>"
 | Path | Purpose |
 | --- | --- |
 | `app/src/Kernel.lex.tex` | The kernel's entry: routes a request to its decision, and carries the examples. |
-| `app/src/Kernel/` | One module per decision, and the wire format they share. |
+| `app/src/Kernel/` | One module per decision, and the wire format they share. Only what the guest executes. |
+| `app/src/Proofs/` | The propositions and theorems about those modules, kept outside the application's build. |
 | `app/src/Foundation/` | The template's byte and text-application library. |
 | `model/` | The claim, authority and ledger registers. |
 | `features/suites/` | One scenario per registered claim. |

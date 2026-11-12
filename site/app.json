@@ -31,21 +31,21 @@
   "theorems": [
     {
       "name": "admitted_decides",
-      "statement": "admitted claim = true ↔ Admitted claim, for every claim",
-      "how": "Proved by simplification over the record fields, checked by the Lean kernel by prismpm verify in CI",
-      "where": "app/src/Kernel/Admission.lex.tex"
+      "statement": "Kernel.Admission::admitted claim = true ↔ Admitted claim, for every claim",
+      "how": "Proved by simplification over the record fields, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Admission.lex.tex"
     },
     {
       "name": "within_decides",
-      "statement": "within fileLength previousEnd offset length = true ↔ previousEnd ≤ offset ∧ offset + length ≤ fileLength, for every four numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by prismpm verify in CI",
-      "where": "app/src/Kernel/Range.lex.tex"
+      "statement": "Kernel.Range::within fileLength previousEnd offset length = true ↔ previousEnd ≤ offset ∧ offset + length ≤ fileLength, for every four numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Range.lex.tex"
     },
     {
       "name": "all_accepted_ordered",
       "statement": "allAccepted fileLength previousEnd spans = true ↔ Ordered fileLength previousEnd spans, for every list of ranges",
-      "how": "Proved by induction over the list, checked by the Lean kernel by prismpm verify in CI",
-      "where": "app/src/Kernel/Range.lex.tex"
+      "how": "Proved by induction over the list, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Range.lex.tex"
     }
   ],
   "pinned": [

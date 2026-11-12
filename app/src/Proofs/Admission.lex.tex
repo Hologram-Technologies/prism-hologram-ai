@@ -1,0 +1,39 @@
+\begin{lexlean}{Proofs.Admission}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Admission}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: SameLabel,
+  parameters: [left : Kernel.Admission::Label, right : Kernel.Admission::Label],
+  result: Prop,
+  body: (((project left w0) = (project right w0)) /\ (((project left w1) = (project right w1)) /\ (((project left w2) = (project right w2)) /\ ((project left w3) = (project right w3)))))
+}
+
+definition{
+  name: Admitted,
+  parameters: [claim : Kernel.Admission::Claim],
+  result: Prop,
+  body: ((SameLabel (project claim expected) (project claim observed)) /\ ((project claim declaredLength) = (project claim observedLength)))
+}
+
+theorem{
+  name: admitted_decides,
+  parameters: [claim : Kernel.Admission::Claim],
+  statement: (((Kernel.Admission::admitted claim) = true) <-> (Admitted claim)),
+  proof: simplify{
+    definitions: [
+      Admitted,
+      Bool.and_eq_true,
+      Nat.beq_eq,
+      SameLabel,
+      Kernel.Admission::admitted,
+      Kernel.Admission::sameLabel
+    ]
+  },
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -46,7 +46,13 @@ deny:
     cargo deny --all-features check
 
 # The Hologram AI kernel, this repository's Prism application. The model must
-# be canonical and locked. `prismpm verify` builds the holo, replaying its
+# be canonical and locked. The modules under `app/src/Kernel` hold only what the
+# guest executes; the propositions and theorems about them are in
+# `app/src/Proofs`, outside the application's module graph, because the SDK
+# gives that graph's Lean build a fixed 600 seconds and the arithmetic and
+# induction proofs exceed it there (`PP5007`). `lexlean verify` has the Lean
+# kernel and leanchecker check every proof module, each with its exact axiom
+# policy; `failglob` makes an empty match an error, not a vacuous pass. `prismpm verify` builds the holo, replaying its
 # acceptance vectors in the compiled guest, then has the Lean kernel and
 # leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
@@ -59,7 +65,9 @@ deny:
 app:
     #!/usr/bin/env bash
     set -euo pipefail
-    (cd app && lexlean fmt --check && lexlean lock --check)
+    shopt -s failglob
+    (cd app && lexlean fmt --all --check && lexlean lock --check)
+    (cd app && lexlean verify src/Proofs/*.lex.tex)
     case "${PRISM_PROOF_EVENT:-}" in
       pull_request|merge_group)
         if [[ -s .prism-proof/attestation ]]; then

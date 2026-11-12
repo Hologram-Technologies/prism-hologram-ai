@@ -1,8 +1,10 @@
 //! The `kernel` suite: one test per scenario in `features/suites/kernel.feature`.
 //!
-//! The proofs are checked by the Lean kernel when `just vv` runs
-//! `prismpm verify` on `app/`, and the examples are replayed in the compiled
-//! guest by the same command. What these tests hold fixed is the claim each
+//! The app's modules under `app/src/Kernel` hold only what the guest executes.
+//! The propositions and theorems about them are in `app/src/Proofs`, which
+//! import the executable definitions and are checked by the Lean kernel when
+//! `just vv` runs `lexlean verify` on them. The examples are replayed in the
+//! compiled guest by `prismpm verify` in the same recipe. What these tests hold fixed is the claim each
 //! proof is about: the theorem's exact statement and axioms, the proposition it
 //! decides, the request bytes the proposition is read from, and that the
 //! verdict the application returns is decided by the function the theorem is
@@ -35,6 +37,55 @@ fn declaration<'a>(model: &'a str, name: &str) -> &'a str {
     &model[start..start + end]
 }
 
+/// The proofs count only if the gate checks them. The `app` recipe must verify
+/// every module under `app/src/Proofs`, by a glob that fails when it matches
+/// nothing, and no theorem may sit where that command does not look.
+fn assert_proofs_are_gated() {
+    let justfile = model("Justfile");
+    assert!(
+        justfile.contains("shopt -s failglob")
+            && justfile.contains("lexlean verify src/Proofs/*.lex.tex"),
+        "the app recipe must run lexlean verify over every proof module"
+    );
+    // The executable modules are discovered, not listed: a list would go stale
+    // the first time a decision was added, and a module nobody reads reports
+    // nothing.
+    let mut modules = vec!["app/src/Kernel.lex.tex".to_string()];
+    let mut found: Vec<String> = std::fs::read_dir(root().join("app/src/Kernel"))
+        .expect("app/src/Kernel")
+        .map(|entry| entry.expect("a directory entry").file_name())
+        .map(|name| format!("app/src/Kernel/{}", name.to_string_lossy()))
+        .collect();
+    found.sort();
+    assert!(
+        found.len() >= 3,
+        "app/src/Kernel holds the wire format and one module per decision: {found:?}"
+    );
+    modules.extend(found);
+
+    // The generated guest puts every executable module's declarations in one
+    // Rust namespace, so a name declared in two of them does not compile.
+    let mut seen = std::collections::BTreeMap::new();
+    for module in &modules {
+        let text = model(module);
+        assert!(
+            !text.contains("\ntheorem{"),
+            "{module} holds a theorem the proof gate does not read"
+        );
+        for line in text.lines() {
+            let Some(name) = line
+                .strip_prefix("  name: ")
+                .and_then(|rest| rest.strip_suffix(','))
+            else {
+                continue;
+            };
+            if let Some(first) = seen.insert(name.to_string(), module.clone()) {
+                panic!("`{name}` is declared in both {first} and {module}");
+            }
+        }
+    }
+}
+
 /// The lowercase hex of `text`, as an example's response is written in the model.
 fn hex(text: &str) -> String {
     text.bytes().map(|b| format!("{b:02x}")).collect()
@@ -43,21 +94,28 @@ fn hex(text: &str) -> String {
 /// `KN-05`: A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal
 #[test]
 fn kernel_kn_05() {
+    assert_proofs_are_gated();
     let admission = model("app/src/Kernel/Admission.lex.tex");
+    let proofs = model("app/src/Proofs/Admission.lex.tex");
 
-    let decides = declaration(&admission, "admitted_decides");
+    // The theorem is about the function the guest executes, by its
+    // qualified name, not about a copy of it.
+    let decides = declaration(&proofs, "admitted_decides");
     assert!(
-        decides.contains("statement: (((admitted claim) = true) <-> (Admitted claim)),"),
+        decides.contains(
+            "statement: (((Kernel.Admission::admitted claim) = true) <-> (Admitted claim)),"
+        ),
         "KN-05's statement changed: admitted must be true exactly when Admitted holds:\n{decides}"
     );
     assert!(
-        decides.contains("parameters: [claim : Claim],") && decides.contains("axioms: [propext]"),
+        decides.contains("parameters: [claim : Kernel.Admission::Claim],")
+            && decides.contains("axioms: [propext]"),
         "KN-05 quantifies over every claim and rests on propext only:\n{decides}"
     );
 
     // A label is four 64-bit words, the widest a Nat is compiled to, and two
     // labels are the same only when every word is.
-    let same = declaration(&admission, "SameLabel");
+    let same = declaration(&proofs, "SameLabel");
     for word in ["w0", "w1", "w2", "w3"] {
         assert!(
             same.contains(&format!("((project left {word}) = (project right {word}))")),
@@ -66,7 +124,7 @@ fn kernel_kn_05() {
     }
 
     // The proposition is both halves: the labels and the lengths.
-    let admitted = declaration(&admission, "Admitted");
+    let admitted = declaration(&proofs, "Admitted");
     assert!(
         admitted.contains("(SameLabel (project claim expected) (project claim observed))"),
         "Admitted must require the expected and observed labels to be the same"
@@ -102,7 +160,7 @@ fn kernel_kn_05() {
         );
     }
 
-    let answer = declaration(&admission, "answer");
+    let answer = declaration(&admission, "admissionAnswer");
     assert!(
         answer.contains("(if ((Foundation.Bytes::byteLength value) =? 81) then"),
         "a request that is not exactly 81 bytes must not reach the decision"
@@ -119,7 +177,7 @@ fn kernel_kn_05() {
     let kernel = model("app/src/Kernel.lex.tex");
     let route = declaration(&kernel, "route");
     assert!(
-        route.contains("(if (tag =? 5) then (Kernel.Admission::answer value)"),
+        route.contains("(if (tag =? 5) then (Kernel.Admission::admissionAnswer value)"),
         "decision 5 must be routed to the admission answer:\n{route}"
     );
 
@@ -136,15 +194,17 @@ fn kernel_kn_05() {
 /// `KN-06`: A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file
 #[test]
 fn kernel_kn_06() {
+    assert_proofs_are_gated();
     let range = model("app/src/Kernel/Range.lex.tex");
+    let proofs = model("app/src/Proofs/Range.lex.tex");
 
     // The arithmetic claim, over four numbers: the decided function is true
     // exactly when the range starts at or after the previous end and ends
     // within the file.
-    let decides = declaration(&range, "within_decides");
+    let decides = declaration(&proofs, "within_decides");
     assert!(
         decides.contains(
-            "statement: (((within fileLength previousEnd offset length) = true) <-> \
+            "statement: (((Kernel.Range::within fileLength previousEnd offset length) = true) <-> \
              (Within fileLength previousEnd offset length)),"
         ),
         "KN-06's arithmetic statement changed: within must be true exactly when Within holds:\n{decides}"
@@ -155,7 +215,7 @@ fn kernel_kn_06() {
         ) && decides.contains("axioms: [Classical.choice, Quot.sound, propext]"),
         "KN-06 quantifies over every four numbers and rests on Lean's three standard axioms:\n{decides}"
     );
-    let proposition = declaration(&range, "Within");
+    let proposition = declaration(&proofs, "Within");
     assert!(
         proposition
             .contains("body: ((previousEnd <= offset) /\\ ((offset + length) <= fileLength))"),
@@ -175,13 +235,13 @@ fn kernel_kn_06() {
     );
 
     // The same claim over the request's four fields.
-    let span = declaration(&range, "accepted_decides");
+    let span = declaration(&proofs, "accepted_decides");
     assert!(
-        span.contains("statement: (((accepted span) = true) <-> (Accepted span)),")
-            && span.contains("parameters: [span : Span],"),
+        span.contains("statement: (((Kernel.Range::accepted span) = true) <-> (Accepted span)),")
+            && span.contains("parameters: [span : Kernel.Range::Span],"),
         "accepted must be true exactly when Accepted holds, for every span:\n{span}"
     );
-    let accepted_prop = declaration(&range, "Accepted");
+    let accepted_prop = declaration(&proofs, "Accepted");
     assert!(
         accepted_prop.contains(
             "body: (((project span previousEnd) <= (project span offset)) /\\ \
@@ -201,7 +261,7 @@ fn kernel_kn_06() {
     // The claim over a whole file: every range accepted in turn, each one's
     // end becoming the next one's previous end, exactly when the list is
     // ordered and inside the file.
-    let all = declaration(&range, "all_accepted_ordered");
+    let all = declaration(&proofs, "all_accepted_ordered");
     assert!(
         all.contains(
             "statement: (((allAccepted fileLength previousEnd spans) = true) <-> \
@@ -210,7 +270,7 @@ fn kernel_kn_06() {
             && all.contains("scrutinee: spans"),
         "the list claim must hold for every file length, previous end and list:\n{all}"
     );
-    let ordered = declaration(&range, "Ordered");
+    let ordered = declaration(&proofs, "Ordered");
     assert!(
         ordered.contains(
             "| List.cons head rest => ((Within fileLength previousEnd (first head) (second head)) /\\ \
@@ -218,10 +278,10 @@ fn kernel_kn_06() {
         ),
         "Ordered must require each range within bounds and pass its end to the next:\n{ordered}"
     );
-    let all_accepted = declaration(&range, "allAccepted");
+    let all_accepted = declaration(&proofs, "allAccepted");
     assert!(
         all_accepted.contains(
-            "| List.cons head rest => ((within fileLength previousEnd (first head) (second head)) && \
+            "| List.cons head rest => ((Kernel.Range::within fileLength previousEnd (first head) (second head)) && \
              (allAccepted fileLength ((first head) + (second head)) rest))"
         ),
         "allAccepted must fold the same within the single decision uses:\n{all_accepted}"
@@ -239,7 +299,7 @@ fn kernel_kn_06() {
         ),
         "the span must be read from offsets 1, 9, 17 and 25:\n{span_at}"
     );
-    let answer = declaration(&range, "answer");
+    let answer = declaration(&range, "rangeAnswer");
     assert!(
         answer.contains("(if ((Foundation.Bytes::byteLength value) =? 33) then"),
         "a request that is not exactly 33 bytes must not reach the decision"
@@ -256,7 +316,7 @@ fn kernel_kn_06() {
     let kernel = model("app/src/Kernel.lex.tex");
     let route = declaration(&kernel, "route");
     assert!(
-        route.contains("(if (tag =? 6) then (Kernel.Range::answer value)"),
+        route.contains("(if (tag =? 6) then (Kernel.Range::rangeAnswer value)"),
         "decision 6 must be routed to the range answer:\n{route}"
     );
 

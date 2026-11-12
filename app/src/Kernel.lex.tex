@@ -12,7 +12,7 @@ definition{
   name: route,
   parameters: [tag : Nat, value : Bytes],
   result: Bytes,
-  body: (if (tag =? 5) then (Kernel.Admission::answer value) else (if (tag =? 6) then (Kernel.Range::answer value) else (prim utf8_encode "invalid request" : Bytes))),
+  body: (if (tag =? 5) then (Kernel.Admission::admissionAnswer value) else (if (tag =? 6) then (Kernel.Range::rangeAnswer value) else (prim utf8_encode "invalid request" : Bytes))),
   axioms: [Quot.sound, propext]
 }
 

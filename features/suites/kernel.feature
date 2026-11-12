@@ -7,15 +7,15 @@ Feature: kernel
 
   @KN-05 @build
   Scenario: A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal
-    Given the admission model in app/src/Kernel/Admission.lex.tex
-    When the Lean kernel checks admitted_decides during prismpm verify
+    Given the admission model in app/src/Kernel/Admission.lex.tex and its proofs in app/src/Proofs/Admission.lex.tex
+    When the Lean kernel checks admitted_decides during lexlean verify in the gate
     Then admitted is true exactly when all four label words and the two lengths are equal
     And the verdict the application returns for decision 5 is decided by that same admitted
 
   @KN-06 @build
   Scenario: A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file
-    Given the range model in app/src/Kernel/Range.lex.tex
-    When the Lean kernel checks accepted_decides and all_accepted_ordered during prismpm verify
+    Given the range model in app/src/Kernel/Range.lex.tex and its proofs in app/src/Proofs/Range.lex.tex
+    When the Lean kernel checks within_decides, accepted_decides and all_accepted_ordered during lexlean verify in the gate
     Then accepted is true exactly when the previous end is at most the offset and the offset plus the length is at most the file length
     And a list of ranges is all accepted exactly when each starts at or after the end of the one before it and ends within the file
     And the verdict the application returns for decision 6 is decided by that same accepted
