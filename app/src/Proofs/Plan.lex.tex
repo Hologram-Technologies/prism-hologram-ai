@@ -1,0 +1,53 @@
+\begin{lexlean}{Proofs.Plan}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Plan}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Planned,
+  parameters: [
+    budget : Nat,
+    contextBytes : Nat,
+    layerBytes : Nat,
+    layers : Nat,
+    stageLayers : Nat,
+    stageCount : Nat
+  ],
+  result: Prop,
+  body: (((1 <= stageLayers) /\ (stageLayers <= layers)) /\ (((contextBytes + (prim multiply stageLayers layerBytes : Nat)) <= budget) /\ (((stageLayers < layers) -> (budget < (contextBytes + (prim multiply (stageLayers + 1) layerBytes : Nat)))) /\ ((1 <= stageCount) /\ (((prim multiply (prim subtract stageCount 1 : Nat) stageLayers : Nat) < layers) /\ (layers <= (prim multiply stageCount stageLayers : Nat)))))))
+}
+
+theorem{
+  name: planned_decides,
+  parameters: [
+    budget : Nat,
+    contextBytes : Nat,
+    layerBytes : Nat,
+    layers : Nat,
+    stageLayers : Nat,
+    stageCount : Nat
+  ],
+  statement: (((Kernel.Plan::planned budget contextBytes layerBytes layers stageLayers stageCount) = true) <-> (Planned budget contextBytes layerBytes layers stageLayers stageCount)),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Plan::planned,
+      Kernel.Plan::stageFits,
+      Kernel.Plan::stageLargest,
+      Kernel.Plan::stagesCover,
+      Planned
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: can_run_decides,
+  parameters: [budget : Nat, contextBytes : Nat, layerBytes : Nat],
+  statement: (((Kernel.Plan::canRun budget contextBytes layerBytes) = true) <-> ((contextBytes + layerBytes) <= budget)),
+  proof: linear_arithmetic{definitions: [Kernel.Plan::canRun]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

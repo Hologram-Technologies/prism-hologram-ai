@@ -886,3 +886,284 @@ fn kernel_kn_11() {
         );
     }
 }
+
+/// `KN-07`: A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not
+#[test]
+fn kernel_kn_07() {
+    assert_proofs_are_gated();
+    let trim = model("app/src/Kernel/Trim.lex.tex");
+    let proofs = model("app/src/Proofs/Trim.lex.tex");
+
+    // What a right trim is: nothing dropped that was not there, what remains
+    // fits, and, when anything was dropped, the newest dropped pair is one of
+    // them and putting it back would pass the context.
+    let trimmed_prop = declaration(&proofs, "Trimmed");
+    assert!(
+        trimmed_prop.contains(
+            "body: ((dropped <= total) /\\ \
+             (((fixed + (prim subtract total dropped : Nat)) <= context) /\\ \
+             ((0 < dropped) -> ((last <= dropped) /\\ \
+             (context < ((fixed + (prim subtract total dropped : Nat)) + last))))))"
+        ),
+        "Trimmed must require that what remains fits and that restoring the newest dropped pair would not:\n{trimmed_prop}"
+    );
+    let decides = declaration(&proofs, "trimmed_decides");
+    assert!(
+        decides.contains(
+            "statement: (((Kernel.Trim::trimmed context fixed total dropped last) = true) <-> \
+             (Trimmed context fixed total dropped last)),"
+        ),
+        "KN-07's statement changed: trimmed must be true exactly when Trimmed holds:\n{decides}"
+    );
+    assert!(
+        decides.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "trimmed_decides rests on Lean's three standard axioms:\n{decides}"
+    );
+    let fits = declaration(&proofs, "trim_fits_decides");
+    assert!(
+        fits.contains(
+            "statement: (((Kernel.Trim::trimFits context fixed total dropped) = true) <-> \
+             ((fixed + (prim subtract total dropped : Nat)) <= context)),"
+        ),
+        "trimFits must be true exactly when what remains fits the context:\n{fits}"
+    );
+
+    // The decided functions never add: the room is found by subtraction, so
+    // nothing can pass 64 bits.
+    let trim_fits = declaration(&trim, "trimFits");
+    assert!(
+        trim_fits.contains(
+            "body: ((fixed <=? context) && ((prim subtract total dropped : Nat) <=? \
+             (prim subtract context fixed : Nat)))"
+        ),
+        "trimFits must compare what remains with the room left, without a sum:\n{trim_fits}"
+    );
+    let minimal = declaration(&trim, "trimMinimal");
+    assert!(
+        minimal.contains(
+            "body: ((dropped =? 0) || ((last <=? dropped) && \
+             ((prim subtract (prim subtract context fixed : Nat) (prim subtract total dropped : Nat) : Nat) <? last)))"
+        ),
+        "trimMinimal must hold when nothing was dropped or the newest dropped pair exceeds the room left:\n{minimal}"
+    );
+    let trimmed = declaration(&trim, "trimmed");
+    assert!(
+        trimmed.contains(
+            "body: ((dropped <=? total) && ((trimFits context fixed total dropped) && \
+             (trimMinimal context fixed total dropped last)))"
+        ),
+        "trimmed must be all three conditions:\n{trimmed}"
+    );
+
+    // The verdict is trimmed's, read from five numbers, and each refusal says
+    // which condition failed.
+    let numbers = "(Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) \
+                   (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8)";
+    let answer = declaration(&trim, "trimAnswer");
+    assert!(
+        answer.contains(&format!(
+            "(if ((Foundation.Bytes::byteLength value) =? 41) then (if (trimmed {numbers} \
+             (Kernel.Wire::fieldAt value 33 8)) then (prim utf8_encode \"trim\" : Bytes) else"
+        )),
+        "the verdict must be trimmed's, from the five numbers at offsets 1 to 33:\n{answer}"
+    );
+    assert!(
+        answer.contains(&format!(
+            "(if (trimFits {numbers}) then (prim utf8_encode \"drops too many\" : Bytes) else \
+             (prim utf8_encode \"does not fit\" : Bytes)) else \
+             (prim utf8_encode \"too long\" : Bytes)) else \
+             (prim utf8_encode \"dropped exceeds total\" : Bytes))"
+        )),
+        "each refusal must name the condition that failed:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 7) then (Kernel.Trim::trimAnswer value)"),
+        "decision 7 must be routed to the trim answer:\n{route}"
+    );
+
+    // The examples sit on both sides of both boundaries: a dropped pair one
+    // token too big to restore is a right trim, one that would exactly fit is
+    // one drop too many, and what remains may fill the context but not pass it.
+    let application = declaration(&kernel, "application");
+    let head = "000000000000080000000000000000640000000000000bb8";
+    for (dropped, last, verdict) in [
+        ("000000000000044c", "0000000000000031", "trim"),
+        ("000000000000044c", "0000000000000030", "drops too many"),
+        ("000000000000041c", "000000000000012c", "trim"),
+        ("000000000000041b", "000000000000012c", "does not fit"),
+    ] {
+        assert!(
+            application.contains(&format!(
+                "request := 0x07{head}{dropped}{last}, response := 0x{}}}",
+                hex(verdict)
+            )),
+            "no example answers `{verdict}` for {dropped} dropped with a newest dropped pair of {last}"
+        );
+    }
+    for refusal in ["too long", "dropped exceeds total"] {
+        assert!(
+            application.contains(&format!("response := 0x{}}}", hex(refusal))),
+            "no example answers `{refusal}`"
+        );
+    }
+}
+
+/// `KN-03`: A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once
+#[test]
+fn kernel_kn_03() {
+    assert_proofs_are_gated();
+    let plan = model("app/src/Kernel/Plan.lex.tex");
+    let proofs = model("app/src/Proofs/Plan.lex.tex");
+
+    // What a right plan is, with every product written as a product.
+    let planned_prop = declaration(&proofs, "Planned");
+    for (part, meaning) in [
+        (
+            "((1 <= stageLayers) /\\ (stageLayers <= layers))",
+            "a stage of at least one layer and at most all of them",
+        ),
+        (
+            "((contextBytes + (prim multiply stageLayers layerBytes : Nat)) <= budget)",
+            "the context and one stage within the budget",
+        ),
+        (
+            "((stageLayers < layers) -> (budget < (contextBytes + (prim multiply (stageLayers + 1) layerBytes : Nat))))",
+            "one more layer not fitting, unless the stage is the whole model",
+        ),
+        (
+            "((1 <= stageCount) /\\ (((prim multiply (prim subtract stageCount 1 : Nat) stageLayers : Nat) < layers) /\\ \
+             (layers <= (prim multiply stageCount stageLayers : Nat))))",
+            "the stages covering every layer with none empty",
+        ),
+    ] {
+        assert!(
+            planned_prop.contains(part),
+            "Planned must require {meaning}:\n{planned_prop}"
+        );
+    }
+    let decides = declaration(&proofs, "planned_decides");
+    assert!(
+        decides.contains(
+            "statement: (((Kernel.Plan::planned budget contextBytes layerBytes layers stageLayers stageCount) = true) <-> \
+             (Planned budget contextBytes layerBytes layers stageLayers stageCount)),"
+        ),
+        "KN-03's statement changed: planned must be true exactly when Planned holds:\n{decides}"
+    );
+    assert!(
+        decides.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "planned_decides rests on Lean's three standard axioms:\n{decides}"
+    );
+    let can_run = declaration(&proofs, "can_run_decides");
+    assert!(
+        can_run.contains(
+            "statement: (((Kernel.Plan::canRun budget contextBytes layerBytes) = true) <-> \
+             ((contextBytes + layerBytes) <= budget)),"
+        ),
+        "canRun must be true exactly when the context and one layer fit the budget:\n{can_run}"
+    );
+
+    // The products cannot pass 64 bits: the layer count and stage numbers are
+    // bounded by 2^16 and a layer by 2^40 before anything is multiplied.
+    let bounded = declaration(&plan, "planBounded");
+    assert!(
+        bounded.contains(
+            "body: (((layers <=? 65536) && (layerBytes <=? 1099511627776)) && \
+             ((stageLayers <=? 65536) && (stageCount <=? 65536)))"
+        ),
+        "planBounded must bound every factor before a product is formed:\n{bounded}"
+    );
+    let planned = declaration(&plan, "planned");
+    assert!(
+        planned.contains(
+            "body: (((1 <=? stageLayers) && (stageLayers <=? layers)) && \
+             ((stageFits budget contextBytes layerBytes stageLayers) && \
+             ((stageLargest budget contextBytes layerBytes layers stageLayers) && \
+             (stagesCover layers stageLayers stageCount))))"
+        ),
+        "planned must be all four conditions:\n{planned}"
+    );
+    let largest = declaration(&plan, "stageLargest");
+    assert!(
+        largest.contains(
+            "body: ((stageLayers =? layers) || ((prim subtract budget contextBytes : Nat) <? \
+             (prim multiply (stageLayers + 1) layerBytes : Nat)))"
+        ),
+        "stageLargest must hold when the stage is the whole model or one more layer would not fit:\n{largest}"
+    );
+
+    // Bounds first, then whether the model can run at all, then the plan.
+    let numbers: Vec<String> = [1, 9, 17, 25, 33, 41]
+        .iter()
+        .map(|offset| format!("(Kernel.Wire::fieldAt value {offset} 8)"))
+        .collect();
+    let answer = declaration(&plan, "planAnswer");
+    assert!(
+        answer.contains(&format!(
+            "(if ((Foundation.Bytes::byteLength value) =? 49) then (if (planBounded {} {} {} {}) then \
+             (if (canRun {} {} {}) then (if (planned {}) then (prim utf8_encode \"plan\" : Bytes) else",
+            numbers[2],
+            numbers[3],
+            numbers[4],
+            numbers[5],
+            numbers[0],
+            numbers[1],
+            numbers[2],
+            numbers.join(" ")
+        )),
+        "the verdict must be planned's, reached only within the bounds and when one layer fits:\n{answer}"
+    );
+    for refusal in [
+        "stages do not cover",
+        "stage too small",
+        "stage does not fit",
+        "cannot run",
+    ] {
+        assert!(
+            answer.contains(&format!("(prim utf8_encode \"{refusal}\" : Bytes)")),
+            "the answer must be able to say `{refusal}`"
+        );
+    }
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 3) then (Kernel.Plan::planAnswer value)"),
+        "decision 3 must be routed to the plan answer:\n{route}"
+    );
+
+    // The examples: with 3584 MiB of room and 200 MiB layers, a stage of 17
+    // is right, 16 is too small and 18 does not fit; two stages of 17 cover 30
+    // layers, one leaves layers out and a third would be empty.
+    let application = declaration(&kernel, "application");
+    let head = "00000001000000000000000020000000000000000c800000000000000000001e";
+    for (stage, count, verdict) in [
+        ("0000000000000011", "0000000000000002", "plan"),
+        ("0000000000000010", "0000000000000002", "stage too small"),
+        ("0000000000000012", "0000000000000002", "stage does not fit"),
+        (
+            "0000000000000011",
+            "0000000000000001",
+            "stages do not cover",
+        ),
+        (
+            "0000000000000011",
+            "0000000000000003",
+            "stages do not cover",
+        ),
+    ] {
+        assert!(
+            application.contains(&format!(
+                "request := 0x03{head}{stage}{count}, response := 0x{}}}",
+                hex(verdict)
+            )),
+            "no example answers `{verdict}` for a stage of {stage} layers in {count} stages"
+        );
+    }
+    assert!(
+        application.contains(&format!("response := 0x{}}}", hex("cannot run"))),
+        "no example answers `cannot run`"
+    );
+}

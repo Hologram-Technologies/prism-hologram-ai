@@ -1,0 +1,33 @@
+\begin{lexlean}{Proofs.Trim}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Trim}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Trimmed,
+  parameters: [context : Nat, fixed : Nat, total : Nat, dropped : Nat, last : Nat],
+  result: Prop,
+  body: ((dropped <= total) /\ (((fixed + (prim subtract total dropped : Nat)) <= context) /\ ((0 < dropped) -> ((last <= dropped) /\ (context < ((fixed + (prim subtract total dropped : Nat)) + last))))))
+}
+
+theorem{
+  name: trimmed_decides,
+  parameters: [context : Nat, fixed : Nat, total : Nat, dropped : Nat, last : Nat],
+  statement: (((Kernel.Trim::trimmed context fixed total dropped last) = true) <-> (Trimmed context fixed total dropped last)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Trim::trimFits, Kernel.Trim::trimMinimal, Kernel.Trim::trimmed, Trimmed]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: trim_fits_decides,
+  parameters: [context : Nat, fixed : Nat, total : Nat, dropped : Nat],
+  statement: (((Kernel.Trim::trimFits context fixed total dropped) = true) <-> ((fixed + (prim subtract total dropped : Nat)) <= context)),
+  proof: linear_arithmetic{definitions: [Kernel.Trim::trimFits]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

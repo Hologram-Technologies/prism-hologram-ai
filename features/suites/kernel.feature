@@ -62,3 +62,21 @@ Feature: kernel
     Then a request is bound exactly when it lies between the lower and upper bounds
     And the size it is bound to is at least the request and at most the upper bound, for every step
     And a request outside the bounds is refused by name
+
+  @KN-07 @build
+  Scenario: A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not
+    Given the trim model in app/src/Kernel/Trim.lex.tex and its proofs in app/src/Proofs/Trim.lex.tex
+    When the Lean kernel checks trimmed_decides and trim_fits_decides during lexlean verify in the gate
+    Then a proposed trim is accepted exactly when what remains fits the context
+    And, when anything was dropped, restoring the newest dropped pair would pass the context
+    And each refusal names the condition that failed
+    And the verdict the application returns for decision 7 is decided by that same trimmed
+
+  @KN-03 @build
+  Scenario: A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once
+    Given the plan model in app/src/Kernel/Plan.lex.tex and its proofs in app/src/Proofs/Plan.lex.tex
+    When the Lean kernel checks planned_decides and can_run_decides during lexlean verify in the gate
+    Then a proposed plan is accepted exactly when the context and one stage fit the budget
+    And one more layer would not fit, unless the stage is the whole model
+    And the stages cover every layer with none empty
+    And a model whose single layer does not fit beside the context is refused by name

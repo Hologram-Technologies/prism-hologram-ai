@@ -24,9 +24,11 @@ Only the kernel has begun. What exists is listed in
 | Decision | Claim | State |
 | --- | --- | --- |
 | 2, preflight verdict | A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download. | Proved (`supported_decides`, `derived_decides`, `authorised_decides`) |
+| 3, memory plan | A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once. | Proved (`planned_decides`, `can_run_decides`) |
 | 4, quantisation tier | The tier chosen fits in memory whenever any tier does, and more memory never lowers it. | Proved (`tier_fits`, `tier_monotone`, `half_up_bounds`) |
 | 5, hash admission | A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal. | Proved (`admitted_decides`) |
 | 6, tensor range | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file. | Proved (`within_decides`, `accepted_decides`, `all_accepted_ordered`) |
+| 7, context trimming | A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not. | Proved (`trimmed_decides`, `trim_fits_decides`) |
 | 8, decode bucket | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket. | Proved (`fits_decides`, `grow_bounds`) |
 | 9, generation bound | A turn's token budget never exceeds the context that remains and never exceeds the request. | Proved (`has_room_decides`, `budget_within_context`, `budget_within_request`) |
 | 11, shape binding | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound. | Proved (`in_bounds_decides`, `bind_bounds`) |
@@ -124,6 +126,35 @@ Decision 11, 33 bytes:
 | 25 to 32 | step to round up to, or 0 for exact |
 
 It answers the bound size as decimal text, `below minimum` or `above maximum`.
+
+Decision 7, 41 bytes. The engine proposes a trim and the kernel checks it:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `7` |
+| 1 to 8 | context length |
+| 9 to 16 | the fixed part: system prompt, newest user message and reserve |
+| 17 to 24 | total of every question-and-answer pair |
+| 25 to 32 | total of the pairs dropped |
+| 33 to 40 | the newest dropped pair |
+
+It answers `trim`, or the condition that failed: `too long`, `does not fit`,
+`drops too many` or `dropped exceeds total`.
+
+Decision 3, 49 bytes. The engine proposes a stage plan and the kernel checks it:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `3` |
+| 1 to 8 | memory budget in bytes |
+| 9 to 16 | context bytes |
+| 17 to 24 | bytes for one layer, at most 2^40 |
+| 25 to 32 | layers, at most 65536 |
+| 33 to 40 | layers in a stage |
+| 41 to 48 | stages |
+
+It answers `plan`, or `cannot run`, `stage does not fit`, `stage too small` or
+`stages do not cover`.
 
 ## Run the gate
 

@@ -1,0 +1,66 @@
+\begin{lexlean}{Kernel.Plan}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: planBounded,
+  parameters: [layerBytes : Nat, layers : Nat, stageLayers : Nat, stageCount : Nat],
+  result: Bool,
+  body: (((layers <=? 65536) && (layerBytes <=? 1099511627776)) && ((stageLayers <=? 65536) && (stageCount <=? 65536)))
+}
+
+definition{
+  name: canRun,
+  parameters: [budget : Nat, contextBytes : Nat, layerBytes : Nat],
+  result: Bool,
+  body: ((contextBytes <=? budget) && (layerBytes <=? (prim subtract budget contextBytes : Nat)))
+}
+
+definition{
+  name: stageFits,
+  parameters: [budget : Nat, contextBytes : Nat, layerBytes : Nat, stageLayers : Nat],
+  result: Bool,
+  body: ((contextBytes <=? budget) && ((prim multiply stageLayers layerBytes : Nat) <=? (prim subtract budget contextBytes : Nat)))
+}
+
+definition{
+  name: stageLargest,
+  parameters: [budget : Nat, contextBytes : Nat, layerBytes : Nat, layers : Nat, stageLayers : Nat],
+  result: Bool,
+  body: ((stageLayers =? layers) || ((prim subtract budget contextBytes : Nat) <? (prim multiply (stageLayers + 1) layerBytes : Nat)))
+}
+
+definition{
+  name: stagesCover,
+  parameters: [layers : Nat, stageLayers : Nat, stageCount : Nat],
+  result: Bool,
+  body: (((1 <=? stageCount) && ((prim multiply (prim subtract stageCount 1 : Nat) stageLayers : Nat) <? layers)) && (layers <=? (prim multiply stageCount stageLayers : Nat)))
+}
+
+definition{
+  name: planned,
+  parameters: [
+    budget : Nat,
+    contextBytes : Nat,
+    layerBytes : Nat,
+    layers : Nat,
+    stageLayers : Nat,
+    stageCount : Nat
+  ],
+  result: Bool,
+  body: (((1 <=? stageLayers) && (stageLayers <=? layers)) && ((stageFits budget contextBytes layerBytes stageLayers) && ((stageLargest budget contextBytes layerBytes layers stageLayers) && (stagesCover layers stageLayers stageCount))))
+}
+
+definition{
+  name: planAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 49) then (if (planBounded (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8) (Kernel.Wire::fieldAt value 33 8) (Kernel.Wire::fieldAt value 41 8)) then (if (canRun (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8)) then (if (planned (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8) (Kernel.Wire::fieldAt value 33 8) (Kernel.Wire::fieldAt value 41 8)) then (prim utf8_encode "plan" : Bytes) else (if (stageFits (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 33 8)) then (if (stageLargest (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8) (Kernel.Wire::fieldAt value 33 8)) then (prim utf8_encode "stages do not cover" : Bytes) else (prim utf8_encode "stage too small" : Bytes)) else (prim utf8_encode "stage does not fit" : Bytes))) else (prim utf8_encode "cannot run" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

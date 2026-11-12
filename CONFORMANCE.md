@@ -29,6 +29,8 @@ model does not sanction.
 | `KN-02` | `build` | A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download |
 | `KN-04` | `build` | The quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it |
 | `KN-11` | `build` | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound |
+| `KN-07` | `build` | A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not |
+| `KN-03` | `build` | A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once |
 
 ## Cited authorities
 

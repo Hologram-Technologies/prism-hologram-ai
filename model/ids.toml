@@ -63,3 +63,15 @@ id = "KN-11"
 level = "build"
 suite = "kernel"
 statement = "A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound"
+
+[[id]]
+id = "KN-07"
+level = "build"
+suite = "kernel"
+statement = "A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not"
+
+[[id]]
+id = "KN-03"
+level = "build"
+suite = "kernel"
+statement = "A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once"

@@ -23,8 +23,12 @@ The inherited gates and their own planted defects are in
 | `KN-11`: a requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound | `in_bounds_decides` and `bind_bounds`, checked by the Lean kernel | proved |
 | The size a dimension is bound to is a multiple of the step, unless capped at the upper bound | examples only; the proof language does not carry the divisibility argument | tested, not proved |
 | int8 costs one byte for each parameter and int4 half a byte | an assumption of `KN-04`, stated in its model; tensors left unquantised are not counted | assumed |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the seven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
-| The compiled guest gives the stated answer for each example | the 100 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
+| `KN-07`: a proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not | `trimmed_decides` and `trim_fits_decides`, checked by the Lean kernel | proved |
+| `KN-03`: a proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once | `planned_decides` and `can_run_decides`, checked by the Lean kernel | proved |
+| The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; an engine test, not yet written | not proved |
+| A plan exists whenever one layer fits beside the context | the kernel checks a plan, it does not produce one; an engine test, not yet written | not proved |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the nine `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| The compiled guest gives the stated answer for each example | the 90 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
 the request bytes are parsed into that function's arguments correctly is not
@@ -92,12 +96,10 @@ and not built`, as rule R3 requires.
 
 ### The examples
 
-Fifteen. Two admit: the empty buffer under the BLAKE3 hash of the empty input,
-and the three bytes `abc` under theirs. Seven refuse: one bit flipped in each of
-the four label words, the length off by one, the length differing only in its
-top byte, and both label and length different. Six are invalid: one byte short,
-one byte long, empty, decision 0, decision 255, and a request of exactly the
-allocation maximum.
+Nine. Two admit: the empty buffer under the BLAKE3 hash of the empty input,
+and the three bytes `abc` under theirs. Six refuse: one bit flipped in each of
+the four label words, the length off by one, and the length differing only in
+its top byte. One is invalid: one byte short.
 
 ## KN-06, tensor range
 
@@ -141,13 +143,12 @@ and not built`.
 
 ### The examples
 
-Fourteen. Five accept: the first tensor after a 128-byte header filling the
-file, both bounds tight, an empty tensor at the previous end, an empty tensor at
-the end of the file, and the largest range the fields can name. Five reject: a
-start one byte inside the previous tensor, an end one byte past the file, a
-start past the file, and two at the top of the 64-bit field where offset plus
-length exceeds 64 bits. Four are invalid: one byte short, one byte long, and
-each of decisions 5 and 6 sent with the other's length.
+Nine. Four accept: the first tensor after a 128-byte header filling the file,
+both bounds tight, an empty tensor at the end of the file, and the largest
+range the fields can name. Three reject: a start one byte inside the previous
+tensor, an end one byte past the file, and an offset plus length that exceeds
+64 bits. Two are invalid: one byte short, and decision 6 sent with decision
+5's length.
 
 ## KN-08, decode bucket
 
@@ -186,12 +187,11 @@ and not built`.
 
 ### The examples
 
-Fourteen. Ten answer a bucket: the first bucket from nothing, doubling that
-covers the need, a bucket already enough, a smaller need that does not shrink
-it, a need doubling does not reach, doubling capped at the maximum, a bucket at
+Ten. Seven answer a bucket: the first bucket from nothing, doubling that
+covers the need, a smaller need that does not shrink it, doubling capped at
 the maximum, zero, and two at the top of the 64-bit field. One answers
-`context exceeded`, one `bucket exceeds maximum`. Two are invalid: one byte
-short and one byte long.
+`context exceeded`, one `bucket exceeds maximum`. One is invalid: one byte
+short.
 
 ## KN-09, generation bound
 
@@ -225,11 +225,10 @@ and not built`.
 
 ### The examples
 
-Twelve. Eight answer a budget: all the room when no request is made, a request
-that fits, a request cut to the room, one token of room, an empty context, the
-smallest context, and two at the top of the 64-bit field. Two answer
-`context full`: exactly full and past full. Two are invalid: one byte short and
-one byte long.
+Seven. Five answer a budget: all the room when no request is made, a request
+that fits, a request cut to the room, one token of room, and the widest room
+the field can name. One answers `context full`, at exactly full. One is
+invalid: one byte short.
 
 ## KN-02, preflight verdict
 
@@ -269,10 +268,10 @@ and not built`.
 
 ### The examples
 
-Fourteen. One supported, one derived. Three name a missing key, one an
-unsupported feature, two a manifest that does not fit, and two more show the
-order when several things are wrong. Four are invalid: each flag byte set to 2,
-one byte short and one byte long.
+Ten. One supported, one derived. One names a missing key, one an unsupported
+feature, one a manifest that does not fit, and two more show the order when
+several things are wrong. Three are invalid: each flag byte set to 2, and one
+byte short.
 
 ## KN-04, quantisation tier
 
@@ -312,9 +311,9 @@ and not built`.
 
 ### The examples
 
-Fifteen. Five answer `int8`, four `int4`, four `int8 paged`, on each side of
-both boundaries in 4 GiB and at the top of the 64-bit field. Two are invalid:
-one byte short and one byte long.
+Nine. Three answer `int8`, three `int4`, two `int8 paged`, on each side of
+both boundaries in 4 GiB and at the top of the 64-bit field. One is invalid:
+one byte short.
 
 ## KN-11, shape binding
 
@@ -351,11 +350,126 @@ and not built`.
 
 ### The examples
 
-Sixteen. Eleven answer a size: rounded up to a multiple, already a multiple,
-exact for a step of 0 and of 1, the next multiple equal to the upper bound, the
-next multiple past it and so capped, and at the top of the 64-bit field. Three
-are refused: two below the minimum, one of them under bounds that admit nothing,
-and one above the maximum. Two are invalid: one byte short and one byte long.
+Nine. Six answer a size: rounded up to a multiple, exact for a step of 0, the
+next multiple equal to the upper bound, the next multiple past it and so
+capped, and two at the top of the 64-bit field. One answers `below minimum`,
+one `above maximum`. One is invalid: one byte short.
+
+## KN-07, context trimming
+
+The kernel does not compute the trim. The engine proposes one, as five totals:
+the context, the fixed part that is never dropped (the system prompt, the newest
+user message and the reserve), the total of every question-and-answer pair, the
+total of the pairs it dropped, and the size of the newest pair among those. The
+kernel accepts the proposal exactly when it is right: nothing dropped that was
+not there, what remains fits, and, when anything was dropped, putting the newest
+dropped pair back would pass the context. That last condition is what "no fewer
+pairs would have been enough" means when whole pairs are dropped oldest first.
+
+It is a check and not a computation because the statement over a list needs an
+induction whose hypothesis is an implication, and language 1.2 has no proof form
+that can use one. The checked form is proved completely.
+
+The decided functions never add: the room is `context - fixed`, so nothing can
+pass 64 bits. A fixed part larger than the context answers `too long`.
+
+### The proof gate: `lexlean verify src/Proofs/Trim.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `trimFits`, in the executable module, no longer checks that the fixed part fits the context | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Trim (error): omega could not prove the goal`, for both theorems, with the counterexample `fixed - context >= 1` |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| `Trimmed` counts an exact fit as too big to restore | rejected: `Trimmed must require that what remains fits and that restoring the newest dropped pair would not` |
+| The trim theorem weakened from `<->` to `->` | rejected: `KN-07's statement changed: trimmed must be true exactly when Trimmed holds` |
+| `trimFits` forms a sum, which overflows 64 bits | rejected: `trimFits must compare what remains with the room left, without a sum` |
+| `trimMinimal` no longer requires the newest dropped pair to be one of those dropped | rejected: `trimMinimal must hold when nothing was dropped or the newest dropped pair exceeds the room left` |
+| `trimmed` drops the fits condition | rejected: `trimmed must be all three conditions` |
+| Two refusals swapped | rejected: `each refusal must name the condition that failed` |
+| Decision 7 routed to no answer | rejected: `decision 7 must be routed to the trim answer` |
+| The exact-fit example expects `trim` | rejected: `no example answers drops too many for 000000000000044c dropped with a newest dropped pair of 0000000000000030` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-07 is registered
+and not built`.
+
+### The examples
+
+Twelve. Seven are accepted: nothing dropped, a dropped pair far too big to
+restore, one a single token too big, what remains filling the context exactly,
+the fixed part alone filling it, every pair dropped, and the top of the 64-bit
+field. Four are refused, each by name: a dropped pair that would exactly fit
+(`drops too many`), what remains one token over (`does not fit`), a fixed part
+one token over (`too long`), and more dropped than there was
+(`dropped exceeds total`). One is invalid: one byte short.
+
+## KN-03, memory plan
+
+The kernel does not compute the plan. The engine proposes one: how many layers
+in a stage and how many stages. The kernel accepts it exactly when the context
+and one stage fit the budget, one more layer would not fit unless the stage is
+already the whole model, and the stages cover every layer with none empty.
+
+It is a check and not a computation because layers for each stage is a division
+by a variable, which the arithmetic prover does not handle. In the checked form
+each product appears the same way in the decided function and in the statement,
+and the proof is complete.
+
+The layer count and both stage numbers are bounded by 65536 and a layer by 2^40
+bytes before anything is multiplied, so no product can pass 64 bits. A model
+whose single layer does not fit beside the context answers `cannot run`.
+
+### The proof gate: `lexlean verify src/Proofs/Plan.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `stagesCover`, in the executable module, no longer requires at least one stage and none empty | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Plan (error): omega could not prove the goal`, with a counterexample in which the stages reach every layer but the last stage is empty |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| `Planned` drops the largest-stage condition | rejected: `Planned must require one more layer not fitting, unless the stage is the whole model` |
+| The plan theorem weakened from `<->` to `->` | rejected: `KN-03's statement changed: planned must be true exactly when Planned holds` |
+| `planBounded` lets a layer of any size through, so a product can overflow | rejected: `planBounded must bound every factor before a product is formed` |
+| `stageLargest` tests the stage itself, not one more layer | rejected: `stageLargest must hold when the stage is the whole model or one more layer would not fit` |
+| `planned` drops the coverage condition | rejected: `planned must be all four conditions` |
+| The plan is reached without checking that one layer fits | rejected: `the verdict must be planned's, reached only within the bounds and when one layer fits` |
+| Decision 3 routed to no answer | rejected: `decision 3 must be routed to the plan answer` |
+| The too-small example expects `plan` | rejected: `no example answers stage too small for a stage of 0000000000000010 layers in 0000000000000002 stages` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-03 is registered
+and not built`.
+
+### The examples
+
+Twelve. Four are accepted: the whole model in one stage, two stages of 17
+layers for a model of 30, one layer at a time, and the largest numbers the
+bounds admit. Five are refused, each by name: a stage one layer too small, one
+layer too big, one stage that leaves layers out, a third stage that would be
+empty, and a model whose layer does not fit beside the context. Three are
+invalid: more layers than the bound, a layer larger than the bound, and one byte
+short.
+
+## The limit on examples
+
+A holo can carry about 120 examples. The SDK requires them to be one closed
+list (`PP2001: application acceptanceVectors is not a closed list` refuses any
+other shape), and LexLean reads a semantic module with a 128-level nesting
+limit, which a closed list of 133 exceeded (`LLT4001: recursion limit
+exceeded`). A balanced join of shorter lists, which the LexLean specification
+uses for long lists in its own elaborations, is what the SDK refuses.
+
+The kernel therefore carries 90: for each decision every verdict and refusal,
+each boundary from both sides, the top of the 64-bit field, and one malformed
+length; and three that name no decision. Examples removed to fit were second
+instances of a verdict already shown and the one-byte-long malformed lengths.
 
 ## The examples in the compiled guest
 
