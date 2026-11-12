@@ -80,3 +80,12 @@ Feature: kernel
     And one more layer would not fit, unless the stage is the whole model
     And the stages cover every layer with none empty
     And a model whose single layer does not fit beside the context is refused by name
+
+  @KN-01 @build
+  Scenario: Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused
+    Given the journey model in app/src/Kernel/Journey.lex.tex and its proofs in app/src/Proofs/Journey.lex.tex
+    When the Lean kernel checks the eight enters theorems and failed_only_resets during lexlean verify in the gate
+    Then preflight, download, compile, materialize and generating are each entered from exactly one state by exactly one event
+    And ready is entered only from materialize when the labels are verified, or back from generating
+    And failed is entered only by a failure while work is under way, and left only by reset
+    And every other step is refused

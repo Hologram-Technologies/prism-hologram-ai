@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Nine decisions: whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9) and the size a dimension is bound to (11). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Ten decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9) and the size a dimension is bound to (11). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by 81 bytes",
   "submitLabel": "Decide",
@@ -27,6 +27,7 @@
       "dropped exceeds total",
       "drops too many",
       "refuse",
+      "refused",
       "reject",
       "rejected:*",
       "stage does not fit",
@@ -112,6 +113,12 @@
       "statement": "planned = true ↔ the stage fits ∧ one more layer does not, unless it is the whole model ∧ the stages cover every layer, for every six numbers",
       "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
       "where": "app/src/Proofs/Plan.lex.tex"
+    },
+    {
+      "name": "enters_ready",
+      "statement": "next state = ready ↔ (state = materialize ∧ event = labels verified) ∨ (state = generating ∧ (event = turn done ∨ event = cancel turn)), for every state and event",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Journey.lex.tex"
     }
   ],
   "pinned": [
@@ -158,6 +165,11 @@
     {
       "name": "kernel_kn_03",
       "what": "The theorems' statements and axioms, that the decided functions cannot overflow, the request offsets the numbers are read from, the routing, and the examples on both sides of each boundary. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_01",
+      "what": "The nine theorems' statements, which states can fail, the name each state code reads as, that only states and events that exist reach the decision, the routing, and examples that walk the chain and refuse its shortcuts. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Journey}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: working,
+  parameters: [state : Nat],
+  result: Bool,
+  body: (((1 <=? state) && (state <=? 4)) || (state =? 6))
+}
+
+definition{
+  name: nextState,
+  parameters: [state : Nat, event : Nat],
+  result: Nat,
+  body: (if (event =? 10) then 0 else (if (event =? 9) then (if (working state) then 7 else 8) else (if ((state =? 0) && (event =? 1)) then 1 else (if ((state =? 1) && (event =? 2)) then 2 else (if ((state =? 2) && (event =? 3)) then 3 else (if ((state =? 3) && (event =? 4)) then 4 else (if ((state =? 4) && (event =? 5)) then 5 else (if ((state =? 5) && (event =? 6)) then 6 else (if ((state =? 6) && ((event =? 7) || (event =? 8))) then 5 else 8)))))))))
+}
+
+definition{
+  name: stateText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 0) then (prim utf8_encode "idle" : Bytes) else (if (code =? 1) then (prim utf8_encode "preflight" : Bytes) else (if (code =? 2) then (prim utf8_encode "download" : Bytes) else (if (code =? 3) then (prim utf8_encode "compile" : Bytes) else (if (code =? 4) then (prim utf8_encode "materialize" : Bytes) else (if (code =? 5) then (prim utf8_encode "ready" : Bytes) else (if (code =? 6) then (prim utf8_encode "generating" : Bytes) else (if (code =? 7) then (prim utf8_encode "failed" : Bytes) else (prim utf8_encode "refused" : Bytes)))))))))
+}
+
+definition{
+  name: journeyAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 3) then (if (((Kernel.Wire::fieldAt value 1 1) <=? 7) && ((1 <=? (Kernel.Wire::fieldAt value 2 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? 10))) then (stateText (nextState (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1))) else (prim utf8_encode "invalid request" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

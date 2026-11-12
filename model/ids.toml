@@ -75,3 +75,9 @@ id = "KN-03"
 level = "build"
 suite = "kernel"
 statement = "A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once"
+
+[[id]]
+id = "KN-01"
+level = "build"
+suite = "kernel"
+statement = "Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused"

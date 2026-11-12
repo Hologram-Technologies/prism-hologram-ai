@@ -1,0 +1,105 @@
+\begin{lexlean}{Proofs.Journey}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Journey}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: readyBy,
+  parameters: [state : Nat, event : Nat],
+  result: Bool,
+  body: (((state =? 4) && (event =? 5)) || ((state =? 6) && ((event =? 7) || (event =? 8))))
+}
+
+theorem{
+  name: enters_preflight,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 1) <-> ((state = 0) /\ (event = 1))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_download,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 2) <-> ((state = 1) /\ (event = 2))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_compile,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 3) <-> ((state = 2) /\ (event = 3))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_materialize,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 4) <-> ((state = 3) /\ (event = 4))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_generating,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 6) <-> ((state = 5) /\ (event = 6))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_ready,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 5) <-> ((readyBy state event) = true)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_failed,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 7) <-> ((event = 9) /\ ((Kernel.Journey::working state) = true))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: enters_idle,
+  parameters: [state : Nat, event : Nat],
+  statement: (((Kernel.Journey::nextState state event) = 0) <-> (event = 10)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: failed_only_resets,
+  parameters: [event : Nat],
+  statement: ((((Kernel.Journey::nextState 7 event) =? 0) || ((Kernel.Journey::nextState 7 event) =? 8)) = true),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Journey::nextState, Kernel.Journey::working, readyBy]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

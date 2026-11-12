@@ -23,6 +23,7 @@ Only the kernel has begun. What exists is listed in
 
 | Decision | Claim | State |
 | --- | --- | --- |
+| 1, journey | Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused. | Proved one step at a time (the eight `enters_` theorems, `failed_only_resets`); the claim about whole journeys is argued from them, not proved |
 | 2, preflight verdict | A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download. | Proved (`supported_decides`, `derived_decides`, `authorised_decides`) |
 | 3, memory plan | A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once. | Proved (`planned_decides`, `can_run_decides`) |
 | 4, quantisation tier | The tier chosen fits in memory whenever any tier does, and more memory never lowers it. | Proved (`tier_fits`, `tier_monotone`, `half_up_bounds`) |
@@ -43,6 +44,16 @@ A request is a fixed binary layout. Byte 0 names the decision. Each field after
 it is an unsigned big-endian number of fixed width. Each decision accepts one
 exact length; any other request answers `invalid request`. Answers are short
 text.
+
+Decision 1, 3 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `1` |
+| 1 | current state: 0 idle, 1 preflight, 2 download, 3 compile, 4 materialize, 5 ready, 6 generating, 7 failed |
+| 2 | event: 1 start, 2 preflight passed, 3 download done, 4 compile done, 5 labels verified, 6 send, 7 turn done, 8 cancel turn, 9 fail, 10 reset |
+
+It answers the next state by name, or `refused`.
 
 Decision 5, 81 bytes:
 

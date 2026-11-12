@@ -1167,3 +1167,153 @@ fn kernel_kn_03() {
         "no example answers `cannot run`"
     );
 }
+
+/// `KN-01`: Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused
+#[test]
+fn kernel_kn_01() {
+    assert_proofs_are_gated();
+    let journey = model("app/src/Kernel/Journey.lex.tex");
+    let proofs = model("app/src/Proofs/Journey.lex.tex");
+
+    // One way in to each step of the chain: the state before it, and the
+    // event that completes that state. States: 0 idle, 1 preflight,
+    // 2 download, 3 compile, 4 materialize, 5 ready, 6 generating, 7 failed.
+    for (theorem, entered, from, by) in [
+        ("enters_preflight", 1, 0, 1),
+        ("enters_download", 2, 1, 2),
+        ("enters_compile", 3, 2, 3),
+        ("enters_materialize", 4, 3, 4),
+        ("enters_generating", 6, 5, 6),
+    ] {
+        let declared = declaration(&proofs, theorem);
+        assert!(
+            declared.contains(&format!(
+                "statement: (((Kernel.Journey::nextState state event) = {entered}) <-> \
+                 ((state = {from}) /\\ (event = {by}))),"
+            )),
+            "KN-01's {theorem} changed: state {entered} must be entered exactly from state {from} by event {by}:\n{declared}"
+        );
+        assert!(
+            declared.contains("parameters: [state : Nat, event : Nat],"),
+            "{theorem} quantifies over every state and event:\n{declared}"
+        );
+    }
+
+    // Ready has two ways in and no others: from materialize when the labels
+    // are verified, and back from generating when a turn ends or is cancelled.
+    let ready = declaration(&proofs, "enters_ready");
+    assert!(
+        ready.contains(
+            "statement: (((Kernel.Journey::nextState state event) = 5) <-> ((readyBy state event) = true)),"
+        ),
+        "ready must be entered exactly when readyBy holds:\n{ready}"
+    );
+    let ready_by = declaration(&proofs, "readyBy");
+    assert!(
+        ready_by.contains(
+            "body: (((state =? 4) && (event =? 5)) || ((state =? 6) && ((event =? 7) || (event =? 8))))"
+        ),
+        "readyBy must be: from materialize by labels verified, or from generating by turn done or cancel:\n{ready_by}"
+    );
+
+    // Failed is entered only by a failure while work is under way, idle only
+    // by reset, and failed goes nowhere but idle.
+    let failed = declaration(&proofs, "enters_failed");
+    assert!(
+        failed.contains(
+            "statement: (((Kernel.Journey::nextState state event) = 7) <-> \
+             ((event = 9) /\\ ((Kernel.Journey::working state) = true))),"
+        ),
+        "failed must be entered exactly by a fail event from a working state:\n{failed}"
+    );
+    let idle = declaration(&proofs, "enters_idle");
+    assert!(
+        idle.contains(
+            "statement: (((Kernel.Journey::nextState state event) = 0) <-> (event = 10)),"
+        ),
+        "idle must be entered exactly by reset:\n{idle}"
+    );
+    let stuck = declaration(&proofs, "failed_only_resets");
+    assert!(
+        stuck.contains(
+            "statement: ((((Kernel.Journey::nextState 7 event) =? 0) || \
+             ((Kernel.Journey::nextState 7 event) =? 8)) = true),"
+        ),
+        "from failed every event must reset or be refused:\n{stuck}"
+    );
+
+    // The states that can fail are the ones doing work.
+    let working = declaration(&journey, "working");
+    assert!(
+        working.contains("body: (((1 <=? state) && (state <=? 4)) || (state =? 6))"),
+        "working must be preflight to materialize, and generating:\n{working}"
+    );
+
+    // Each code reads as its state, and 8 as refused.
+    let text = declaration(&journey, "stateText");
+    for (code, name) in [
+        (0, "idle"),
+        (1, "preflight"),
+        (2, "download"),
+        (3, "compile"),
+        (4, "materialize"),
+        (5, "ready"),
+        (6, "generating"),
+        (7, "failed"),
+    ] {
+        assert!(
+            text.contains(&format!(
+                "(if (code =? {code}) then (prim utf8_encode \"{name}\" : Bytes) else"
+            )),
+            "state {code} must read `{name}`:\n{text}"
+        );
+    }
+    assert!(
+        text.contains("else (prim utf8_encode \"refused\" : Bytes)"),
+        "any other code must read `refused`:\n{text}"
+    );
+
+    // The answer is nextState's, for a state and an event that exist.
+    let answer = declaration(&journey, "journeyAnswer");
+    assert!(
+        answer.contains(
+            "(if ((Foundation.Bytes::byteLength value) =? 3) then \
+             (if (((Kernel.Wire::fieldAt value 1 1) <=? 7) && ((1 <=? (Kernel.Wire::fieldAt value 2 1)) && \
+             ((Kernel.Wire::fieldAt value 2 1) <=? 10))) then \
+             (stateText (nextState (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1))) else"
+        ),
+        "the next state must be nextState's, from the state and event bytes at offsets 1 and 2:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 1) then (Kernel.Journey::journeyAnswer value)"),
+        "decision 1 must be routed to the journey answer:\n{route}"
+    );
+
+    // The examples walk the whole chain, and refuse the shortcuts: labels
+    // verified from idle or from the middle of a download does not reach ready.
+    let application = declaration(&kernel, "application");
+    for (state, event, next) in [
+        (0, 1, "preflight"),
+        (1, 2, "download"),
+        (2, 3, "compile"),
+        (3, 4, "materialize"),
+        (4, 5, "ready"),
+        (5, 6, "generating"),
+        (6, 7, "ready"),
+        (0, 5, "refused"),
+        (2, 5, "refused"),
+        (7, 10, "idle"),
+        (7, 1, "refused"),
+    ] {
+        assert!(
+            application.contains(&format!(
+                "request := 0x01{state:02x}{event:02x}, response := 0x{}}}",
+                hex(next)
+            )),
+            "no example answers `{next}` for event {event} in state {state}"
+        );
+    }
+}

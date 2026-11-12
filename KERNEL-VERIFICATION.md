@@ -18,6 +18,8 @@ The inherited gates and their own planted defects are in
 | `KN-08`: the decode bucket is at least what is needed, never above the maximum, and never below the current bucket | `grow_bounds`, under the precondition `fits_decides` decides, checked by the Lean kernel, axioms `[Classical.choice, Quot.sound, propext]` | proved |
 | `KN-09`: a turn's token budget never exceeds the context that remains and never exceeds the request | `budget_within_context`, `budget_within_request` and `has_room_decides`, checked by the Lean kernel | proved |
 | A number in an answer is the decimal text of the number computed | `decimal` in `app/src/Kernel/Wire.lex.tex`; examples at 0, 1, 5, 48, 64, 128, 256, 300, 1948, 2048, 8192 and 2^64 - 1 | tested, not proved |
+| `KN-01`: each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused | the eight `enters_` theorems and `failed_only_resets`, checked by the Lean kernel | proved |
+| Ready is reached only after preflight passed, the download finished, the compile finished and every label verified, in that order | follows from the `enters_` theorems by the argument in the `KN-01` section; no theorem states it, because it is a claim about whole sequences of events | argued, not proved |
 | `KN-02`: a model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download | `supported_decides`, `derived_decides` and `authorised_decides`, checked by the Lean kernel | proved |
 | `KN-04`: the quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it | `tier_fits`, `tier_monotone` and `half_up_bounds`, checked by the Lean kernel | proved |
 | `KN-11`: a requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound | `in_bounds_decides` and `bind_bounds`, checked by the Lean kernel | proved |
@@ -27,8 +29,8 @@ The inherited gates and their own planted defects are in
 | `KN-03`: a proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once | `planned_decides` and `can_run_decides`, checked by the Lean kernel | proved |
 | The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; an engine test, not yet written | not proved |
 | A plan exists whenever one layer fits beside the context | the kernel checks a plan, it does not produce one; an engine test, not yet written | not proved |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the nine `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
-| The compiled guest gives the stated answer for each example | the 90 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the ten `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
 the request bytes are parsed into that function's arguments correctly is not
@@ -70,6 +72,81 @@ editing a list.
 | The `lexlean verify src/Proofs/*.lex.tex` line removed from the `app` recipe | rejected: `the app recipe must run lexlean verify over every proof module` |
 | `shopt -s failglob` removed, so an empty match would pass | rejected: the same message |
 | One name declared in two executable modules | rejected: `admissionAnswer is declared in both app/src/Kernel/Admission.lex.tex and app/src/Kernel/Range.lex.tex` |
+
+## KN-01, journey
+
+Eight states: idle, preflight, download, compile, materialize, ready,
+generating and failed. Ten events: start, preflight passed, download done,
+compile done, labels verified, send, turn done, cancel turn, fail and reset. A
+request gives the current state and an event; the answer is the next state, or
+`refused`, which changes nothing. A model the preflight rejects is a fail;
+choosing another model is a reset.
+
+What is proved is one step at a time. Each of preflight, download, compile,
+materialize and generating is entered from exactly one state by exactly one
+event. Ready is entered only from materialize when the labels are verified, or
+back from generating when a turn ends or is cancelled. Failed is entered only
+by a fail while work is under way. Idle is entered only by reset. From failed,
+every event resets or is refused.
+
+### The claim about whole journeys, and why it is not a theorem
+
+The claim that matters to a user is about a sequence: the application is never
+ready unless preflight passed, the download finished, the compile finished and
+every label verified, in that order.
+
+It follows from the theorems. Take any run of accepted steps from idle that
+ends in ready, and look at the last step that entered ready from a state other
+than generating. By `enters_ready` it came from materialize by labels verified.
+The step that entered materialize came, by `enters_materialize`, from compile
+by compile done; that one, by `enters_compile`, from download by download
+done; that one, by `enters_download`, from preflight by preflight passed; and
+that one, by `enters_preflight`, from idle by start. Between them the state did
+not change, since a refused step changes nothing. So the five events occurred,
+in that order.
+
+That argument is an induction over the run, with a hypothesis that is an
+implication, and language 1.2 has no proof form that can use one. A check of a
+proposal, as in `KN-07` and `KN-03`, does not help here: the kernel is given
+one step, not the history. So the argument stands on paper, above, and the
+theorems it rests on are checked.
+
+### The proof gate: `lexlean verify src/Proofs/Journey.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `nextState`, in the executable module, lets materialize be entered from download, skipping compile | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Journey (error): omega could not prove the goal`, at `enters_materialize` |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| The download theorem lets download be entered from idle | rejected: `KN-01's enters_download changed: state 2 must be entered exactly from state 1 by event 2` |
+| The materialize theorem weakened from `<->` to `->` | rejected: `KN-01's enters_materialize changed: state 4 must be entered exactly from state 3 by event 4` |
+| `readyBy` admits ready straight from compile | rejected: `readyBy must be: from materialize by labels verified, or from generating by turn done or cancel` |
+| The ready theorem is about `readyBy` being false | rejected: `ready must be entered exactly when readyBy holds` |
+| The failed theorem no longer requires a working state | rejected: `failed must be entered exactly by a fail event from a working state` |
+| The idle theorem lets idle be entered by start | rejected: `idle must be entered exactly by reset` |
+| From failed, any next state at all is allowed | rejected: `from failed every event must reset or be refused` |
+| Ready counts as a state that can fail | rejected: `working must be preflight to materialize, and generating` |
+| The ready state reads `generating` | rejected: `state 5 must read ready` |
+| A state code that does not exist reaches the decision | rejected: `the next state must be nextState's, from the state and event bytes at offsets 1 and 2` |
+| Decision 1 routed to no answer | rejected: `decision 1 must be routed to the journey answer` |
+| The shortcut example lets labels verified from idle reach ready | rejected: `no example answers refused for event 5 in state 0` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-01 is registered
+and not built`.
+
+### The examples
+
+Eighteen. Eight walk the chain: idle to preflight, download, compile,
+materialize, ready, generating, and back to ready by turn done and by cancel.
+Five are refused: labels verified from idle and from the middle of a download,
+send before anything is loaded, a fail in ready, and start from failed. One
+fails while downloading, and one leaves failed by reset. Three are invalid: a
+state that does not exist, an event that does not exist, and one byte short.
 
 ## KN-05, hash admission
 
@@ -466,7 +543,7 @@ limit, which a closed list of 133 exceeded (`LLT4001: recursion limit
 exceeded`). A balanced join of shorter lists, which the LexLean specification
 uses for long lists in its own elaborations, is what the SDK refuses.
 
-The kernel therefore carries 90: for each decision every verdict and refusal,
+The kernel therefore carries 108: for each decision every verdict and refusal,
 each boundary from both sides, the top of the 64-bit field, and one malformed
 length; and three that name no decision. Examples removed to fit were second
 instances of a verdict already shown and the one-byte-long malformed lengths.
