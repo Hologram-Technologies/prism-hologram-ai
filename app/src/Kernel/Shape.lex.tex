@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Shape}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: inBounds,
+  parameters: [lower : Nat, upper : Nat, requested : Nat],
+  result: Bool,
+  body: ((lower <=? requested) && (requested <=? upper))
+}
+
+definition{
+  name: gapTo,
+  parameters: [requested : Nat, step : Nat],
+  result: Nat,
+  body: (if (step <=? 1) then 0 else (if ((prim remainder requested step 0 : Nat) =? 0) then 0 else (prim subtract step (prim remainder requested step 0 : Nat) : Nat)))
+}
+
+definition{
+  name: bind,
+  parameters: [upper : Nat, requested : Nat, step : Nat],
+  result: Nat,
+  body: (if ((gapTo requested step) <=? (prim subtract upper requested : Nat)) then (requested + (gapTo requested step)) else upper)
+}
+
+definition{
+  name: shapeAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (inBounds (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8)) then (Kernel.Wire::decimal (bind (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8))) else (if ((Kernel.Wire::fieldAt value 17 8) <? (Kernel.Wire::fieldAt value 1 8)) then (prim utf8_encode "below minimum" : Bytes) else (prim utf8_encode "above maximum" : Bytes))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

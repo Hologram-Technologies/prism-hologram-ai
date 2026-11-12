@@ -23,10 +23,13 @@ Only the kernel has begun. What exists is listed in
 
 | Decision | Claim | State |
 | --- | --- | --- |
+| 2, preflight verdict | A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download. | Proved (`supported_decides`, `derived_decides`, `authorised_decides`) |
+| 4, quantisation tier | The tier chosen fits in memory whenever any tier does, and more memory never lowers it. | Proved (`tier_fits`, `tier_monotone`, `half_up_bounds`) |
 | 5, hash admission | A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal. | Proved (`admitted_decides`) |
 | 6, tensor range | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file. | Proved (`within_decides`, `accepted_decides`, `all_accepted_ordered`) |
 | 8, decode bucket | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket. | Proved (`fits_decides`, `grow_bounds`) |
 | 9, generation bound | A turn's token budget never exceeds the context that remains and never exceeds the request. | Proved (`has_room_decides`, `budget_within_context`, `budget_within_request`) |
+| 11, shape binding | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound. | Proved (`in_bounds_decides`, `bind_bounds`) |
 
 The engine and the page are not in this repository yet. The plan and its
 order are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); the
@@ -86,6 +89,41 @@ Decision 9, 25 bytes:
 | 17 to 24 | tokens requested, or 0 for no cap |
 
 It answers the turn's token budget as decimal text, or `context full`.
+
+Decision 2, 5 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `2` |
+| 1 | family recognised, 0 or 1 |
+| 2 | required config keys missing, a count |
+| 3 | manifest fits the recipe, 0 or 1 |
+| 4 | unsupported features flagged, a count |
+
+It answers `supported`, `derived`, or `rejected:` with its reason. Weights may
+download only on the first two.
+
+Decision 4, 17 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `4` |
+| 1 to 8 | parameter count |
+| 9 to 16 | memory budget in bytes |
+
+It answers `int8`, `int4` or `int8 paged`.
+
+Decision 11, 33 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `11` |
+| 1 to 8 | lower bound |
+| 9 to 16 | upper bound |
+| 17 to 24 | requested size |
+| 25 to 32 | step to round up to, or 0 for exact |
+
+It answers the bound size as decimal text, `below minimum` or `above maximum`.
 
 ## Run the gate
 

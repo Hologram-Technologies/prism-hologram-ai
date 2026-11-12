@@ -1,0 +1,32 @@
+\begin{lexlean}{Proofs.Tier}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Tier}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: half_up_bounds,
+  parameters: [parameters : Nat],
+  statement: (((Kernel.Tier::halfUp parameters) <= parameters) /\ (parameters <= ((Kernel.Tier::halfUp parameters) + (Kernel.Tier::halfUp parameters)))),
+  proof: linear_arithmetic{definitions: [Kernel.Tier::halfUp]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: tier_fits,
+  parameters: [parameters : Nat, budget : Nat],
+  statement: (((((Kernel.Tier::tierCode parameters budget) = 2) <-> (parameters <= budget)) /\ (((Kernel.Tier::tierCode parameters budget) = 1) -> ((Kernel.Tier::halfUp parameters) <= budget))) /\ (((Kernel.Tier::halfUp parameters) <= budget) -> (1 <= (Kernel.Tier::tierCode parameters budget)))),
+  proof: linear_arithmetic{definitions: [Kernel.Tier::halfUp, Kernel.Tier::tierCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: tier_monotone,
+  parameters: [parameters : Nat, budget : Nat, larger : Nat],
+  statement: ((budget <= larger) -> ((Kernel.Tier::tierCode parameters budget) <= (Kernel.Tier::tierCode parameters larger))),
+  proof: linear_arithmetic{definitions: [Kernel.Tier::halfUp, Kernel.Tier::tierCode]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

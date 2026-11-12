@@ -558,3 +558,331 @@ fn kernel_kn_09() {
         "no example cuts a request to the room that remains"
     );
 }
+
+/// `KN-02`: A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download
+#[test]
+fn kernel_kn_02() {
+    assert_proofs_are_gated();
+    let preflight = model("app/src/Kernel/Preflight.lex.tex");
+    let proofs = model("app/src/Proofs/Preflight.lex.tex");
+
+    // What it means for a model to be runnable: all three conditions.
+    let runnable = declaration(&proofs, "Runnable");
+    assert!(
+        runnable.contains("body: ((missing = 0) /\\ ((unsupported = 0) /\\ (manifestFits = 1)))"),
+        "Runnable must require no missing key, no unsupported feature and a manifest that fits:\n{runnable}"
+    );
+
+    // Each verdict is decided, about the function the guest executes.
+    let numbers = "recognised missing manifestFits unsupported";
+    for (theorem, left, right) in [
+        (
+            "supported_decides",
+            format!("((Kernel.Preflight::verdictCode {numbers}) = 4)"),
+            "((Runnable missing manifestFits unsupported) /\\ (recognised = 1))",
+        ),
+        (
+            "derived_decides",
+            format!("((Kernel.Preflight::verdictCode {numbers}) = 3)"),
+            "((Runnable missing manifestFits unsupported) /\\ (recognised = 0))",
+        ),
+        (
+            "authorised_decides",
+            format!("((Kernel.Preflight::authorised {numbers}) = true)"),
+            "((Runnable missing manifestFits unsupported) /\\ (recognised <= 1))",
+        ),
+    ] {
+        let declared = declaration(&proofs, theorem);
+        assert!(
+            declared.contains(&format!("statement: ({left} <-> {right}),")),
+            "KN-02's {theorem} changed: it must hold exactly when the model is runnable:\n{declared}"
+        );
+        assert!(
+            declared.contains(
+                "parameters: [recognised : Nat, missing : Nat, manifestFits : Nat, unsupported : Nat],"
+            ) && declared.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+            "{theorem} quantifies over every four numbers and rests on Lean's three standard axioms:\n{declared}"
+        );
+    }
+
+    // Weights may download only on the two verdicts the theorems are about.
+    let authorised = declaration(&preflight, "authorised");
+    assert!(
+        authorised.contains(&format!(
+            "body: (((verdictCode {numbers}) =? 3) || ((verdictCode {numbers}) =? 4))"
+        )),
+        "authorised must be exactly the derived and supported verdicts:\n{authorised}"
+    );
+
+    // Each code has one text, and the answer is the text of the proved code,
+    // read from the four flag bytes the wire format fixes.
+    let text = declaration(&preflight, "verdictText");
+    for (code, verdict) in [
+        (4, "supported"),
+        (3, "derived"),
+        (2, "rejected: manifest does not fit"),
+        (1, "rejected: unsupported feature"),
+        (0, "rejected: missing config key"),
+    ] {
+        assert!(
+            text.contains(&format!(
+                "(if (code =? {code}) then (prim utf8_encode \"{verdict}\" : Bytes) else"
+            )),
+            "verdict {code} must read `{verdict}`:\n{text}"
+        );
+    }
+    let answer = declaration(&preflight, "preflightAnswer");
+    assert!(
+        answer.contains(
+            "(if ((Foundation.Bytes::byteLength value) =? 5) then (verdictText (verdictCode \
+             (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) \
+             (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 1))) else"
+        ),
+        "the verdict must be verdictCode's, from the four flag bytes at offsets 1 to 4:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 2) then (Kernel.Preflight::preflightAnswer value)"),
+        "decision 2 must be routed to the preflight answer:\n{route}"
+    );
+
+    // Every verdict has an example, and a missing key is named before
+    // anything else that is also wrong.
+    let application = declaration(&kernel, "application");
+    for verdict in [
+        "supported",
+        "derived",
+        "rejected: missing config key",
+        "rejected: unsupported feature",
+        "rejected: manifest does not fit",
+    ] {
+        assert!(
+            application.contains(&format!("response := 0x{}}}", hex(verdict))),
+            "no example answers `{verdict}`"
+        );
+    }
+    assert!(
+        application.contains(&format!(
+            "request := 0x0201020005, response := 0x{}}}",
+            hex("rejected: missing config key")
+        )),
+        "no example names the missing key first when everything is wrong"
+    );
+}
+
+/// `KN-04`: The quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it
+#[test]
+fn kernel_kn_04() {
+    assert_proofs_are_gated();
+    let tier = model("app/src/Kernel/Tier.lex.tex");
+    let proofs = model("app/src/Proofs/Tier.lex.tex");
+
+    // The int4 cost is half the parameters, rounded up, and is proved to be so.
+    let half = declaration(&proofs, "half_up_bounds");
+    assert!(
+        half.contains(
+            "statement: (((Kernel.Tier::halfUp parameters) <= parameters) /\\ \
+             (parameters <= ((Kernel.Tier::halfUp parameters) + (Kernel.Tier::halfUp parameters)))),"
+        ),
+        "halfUp must be at most the parameters and at least half of them:\n{half}"
+    );
+
+    // int8 in memory exactly when it fits; int4 in memory only when it fits;
+    // and some tier in memory whenever int4 fits.
+    let fits = declaration(&proofs, "tier_fits");
+    assert!(
+        fits.contains(
+            "statement: (((((Kernel.Tier::tierCode parameters budget) = 2) <-> (parameters <= budget)) /\\ \
+             (((Kernel.Tier::tierCode parameters budget) = 1) -> ((Kernel.Tier::halfUp parameters) <= budget))) /\\ \
+             (((Kernel.Tier::halfUp parameters) <= budget) -> (1 <= (Kernel.Tier::tierCode parameters budget)))),"
+        ),
+        "KN-04's statement changed: the chosen tier must fit, and a tier in memory must be chosen whenever one fits:\n{fits}"
+    );
+    let monotone = declaration(&proofs, "tier_monotone");
+    assert!(
+        monotone.contains(
+            "statement: ((budget <= larger) -> ((Kernel.Tier::tierCode parameters budget) <= \
+             (Kernel.Tier::tierCode parameters larger))),"
+        ),
+        "more memory must never lower the tier:\n{monotone}"
+    );
+    assert!(
+        fits.contains("axioms: [Classical.choice, Quot.sound, propext]")
+            && monotone.contains("axioms: [Quot.sound, propext]"),
+        "each tier theorem declares exactly the axioms Lean observes for it"
+    );
+
+    // The order the theorems are about: paged, int4 in memory, int8 in memory.
+    let code = declaration(&tier, "tierCode");
+    assert!(
+        code.contains(
+            "body: (if (parameters <=? budget) then 2 else (if ((halfUp parameters) <=? budget) then 1 else 0))"
+        ),
+        "tierCode must prefer int8 in memory, then int4 in memory, then paged:\n{code}"
+    );
+    let half_up = declaration(&tier, "halfUp");
+    assert!(
+        half_up.contains(
+            "body: (prim subtract parameters (prim quotient parameters 2 0 : Nat) : Nat)"
+        ),
+        "halfUp must be the parameters less half of them rounded down:\n{half_up}"
+    );
+    let text = declaration(&tier, "tierText");
+    assert!(
+        text.contains(
+            "body: (if (code =? 2) then (prim utf8_encode \"int8\" : Bytes) else \
+             (if (code =? 1) then (prim utf8_encode \"int4\" : Bytes) else \
+             (prim utf8_encode \"int8 paged\" : Bytes)))"
+        ),
+        "each tier code must read as its tier:\n{text}"
+    );
+    let answer = declaration(&tier, "tierAnswer");
+    assert!(
+        answer.contains(
+            "(if ((Foundation.Bytes::byteLength value) =? 17) then (tierText (tierCode \
+             (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8))) else"
+        ),
+        "the tier must be tierCode's, from the two numbers at offsets 1 and 9:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 4) then (Kernel.Tier::tierAnswer value)"),
+        "decision 4 must be routed to the tier answer:\n{route}"
+    );
+
+    // The examples sit on each side of both boundaries in 4 GiB: one parameter
+    // past what int8 holds answers int4, and one past what int4 holds, where
+    // the half rounds up, answers paged.
+    let application = declaration(&kernel, "application");
+    for (parameters, verdict) in [
+        ("0000000100000000", "int8"),
+        ("0000000100000001", "int4"),
+        ("0000000200000000", "int4"),
+        ("0000000200000001", "int8 paged"),
+    ] {
+        assert!(
+            application.contains(&format!(
+                "request := 0x04{parameters}0000000100000000, response := 0x{}}}",
+                hex(verdict)
+            )),
+            "no example answers `{verdict}` for {parameters} parameters in 4 GiB"
+        );
+    }
+}
+
+/// `KN-11`: A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound
+#[test]
+fn kernel_kn_11() {
+    assert_proofs_are_gated();
+    let shape = model("app/src/Kernel/Shape.lex.tex");
+    let proofs = model("app/src/Proofs/Shape.lex.tex");
+
+    let decides = declaration(&proofs, "in_bounds_decides");
+    assert!(
+        decides.contains(
+            "statement: (((Kernel.Shape::inBounds lower upper requested) = true) <-> \
+             ((lower <= requested) /\\ (requested <= upper))),"
+        ),
+        "KN-11's statement changed: inBounds must be true exactly when the request lies within its bounds:\n{decides}"
+    );
+    let bounds = declaration(&proofs, "bind_bounds");
+    assert!(
+        bounds.contains(
+            "statement: ((requested <= upper) -> \
+             ((requested <= (Kernel.Shape::bind upper requested step)) /\\ \
+             ((Kernel.Shape::bind upper requested step) <= upper))),"
+        ),
+        "the bound size must be at least the request and never above the upper bound:\n{bounds}"
+    );
+    assert!(
+        bounds.contains("parameters: [upper : Nat, requested : Nat, step : Nat],")
+            && bounds.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "bind_bounds quantifies over every three numbers, for every step:\n{bounds}"
+    );
+
+    // Rounding up adds only after checking the room below the upper bound,
+    // so the sum cannot pass the bound or 64 bits.
+    let bind = declaration(&shape, "bind");
+    assert!(
+        bind.contains(
+            "body: (if ((gapTo requested step) <=? (prim subtract upper requested : Nat)) then \
+             (requested + (gapTo requested step)) else upper)"
+        ),
+        "bind must check the room before it adds, and cap at the upper bound:\n{bind}"
+    );
+    // A step of 0 or 1 means exact, and the remainder is never taken by zero.
+    let gap = declaration(&shape, "gapTo");
+    assert!(
+        gap.contains(
+            "body: (if (step <=? 1) then 0 else (if ((prim remainder requested step 0 : Nat) =? 0) then 0 else \
+             (prim subtract step (prim remainder requested step 0 : Nat) : Nat)))"
+        ),
+        "gapTo must be the distance to the next multiple of the step, or nothing for a step of 0 or 1:\n{gap}"
+    );
+
+    let answer = declaration(&shape, "shapeAnswer");
+    assert!(
+        answer.contains("(if ((Foundation.Bytes::byteLength value) =? 33) then"),
+        "a request that is not exactly 33 bytes must not reach the decision"
+    );
+    assert!(
+        answer.contains(
+            "(if (inBounds (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) \
+             (Kernel.Wire::fieldAt value 17 8)) then (Kernel.Wire::decimal (bind \
+             (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) \
+             (Kernel.Wire::fieldAt value 25 8))) else"
+        ),
+        "the size must be bind's, computed only when inBounds holds, from offsets 1, 9, 17 and 25:\n{answer}"
+    );
+    assert!(
+        answer.contains(
+            "(if ((Kernel.Wire::fieldAt value 17 8) <? (Kernel.Wire::fieldAt value 1 8)) then \
+             (prim utf8_encode \"below minimum\" : Bytes) else \
+             (prim utf8_encode \"above maximum\" : Bytes))"
+        ),
+        "a request below the lower bound and one above the upper bound must each be named:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 11) then (Kernel.Shape::shapeAnswer value)"),
+        "decision 11 must be routed to the shape answer:\n{route}"
+    );
+
+    // The examples round up to a multiple, cap at the upper bound when the
+    // next multiple is past it, and name both refusals.
+    let application = declaration(&kernel, "application");
+    for refusal in ["below minimum", "above maximum"] {
+        assert!(
+            application.contains(&format!("response := 0x{}}}", hex(refusal))),
+            "no example answers `{refusal}`"
+        );
+    }
+    for (upper, requested, step, size) in [
+        (
+            "0000000000000800",
+            "0000000000000064",
+            "0000000000000040",
+            "128",
+        ),
+        (
+            "00000000000007f8",
+            "00000000000007d0",
+            "0000000000000200",
+            "2040",
+        ),
+    ] {
+        assert!(
+            application.contains(&format!(
+                "request := 0x0b0000000000000001{upper}{requested}{step}, response := 0x{}}}",
+                hex(size)
+            )),
+            "no example binds {requested} to {size}"
+        );
+    }
+}

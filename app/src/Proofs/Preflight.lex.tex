@@ -1,0 +1,41 @@
+\begin{lexlean}{Proofs.Preflight}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Preflight}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Runnable,
+  parameters: [missing : Nat, manifestFits : Nat, unsupported : Nat],
+  result: Prop,
+  body: ((missing = 0) /\ ((unsupported = 0) /\ (manifestFits = 1)))
+}
+
+theorem{
+  name: supported_decides,
+  parameters: [recognised : Nat, missing : Nat, manifestFits : Nat, unsupported : Nat],
+  statement: (((Kernel.Preflight::verdictCode recognised missing manifestFits unsupported) = 4) <-> ((Runnable missing manifestFits unsupported) /\ (recognised = 1))),
+  proof: linear_arithmetic{definitions: [Kernel.Preflight::verdictCode, Runnable]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: derived_decides,
+  parameters: [recognised : Nat, missing : Nat, manifestFits : Nat, unsupported : Nat],
+  statement: (((Kernel.Preflight::verdictCode recognised missing manifestFits unsupported) = 3) <-> ((Runnable missing manifestFits unsupported) /\ (recognised = 0))),
+  proof: linear_arithmetic{definitions: [Kernel.Preflight::verdictCode, Runnable]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: authorised_decides,
+  parameters: [recognised : Nat, missing : Nat, manifestFits : Nat, unsupported : Nat],
+  statement: (((Kernel.Preflight::authorised recognised missing manifestFits unsupported) = true) <-> ((Runnable missing manifestFits unsupported) /\ (recognised <= 1))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Preflight::authorised, Kernel.Preflight::verdictCode, Runnable]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

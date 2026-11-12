@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Tier}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: halfUp,
+  parameters: [parameters : Nat],
+  result: Nat,
+  body: (prim subtract parameters (prim quotient parameters 2 0 : Nat) : Nat)
+}
+
+definition{
+  name: tierCode,
+  parameters: [parameters : Nat, budget : Nat],
+  result: Nat,
+  body: (if (parameters <=? budget) then 2 else (if ((halfUp parameters) <=? budget) then 1 else 0))
+}
+
+definition{
+  name: tierText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 2) then (prim utf8_encode "int8" : Bytes) else (if (code =? 1) then (prim utf8_encode "int4" : Bytes) else (prim utf8_encode "int8 paged" : Bytes)))
+}
+
+definition{
+  name: tierAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 17) then (tierText (tierCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

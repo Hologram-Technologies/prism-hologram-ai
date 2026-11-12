@@ -45,3 +45,21 @@ id = "KN-09"
 level = "build"
 suite = "kernel"
 statement = "A turn token budget never exceeds the context that remains and never exceeds the request"
+
+[[id]]
+id = "KN-02"
+level = "build"
+suite = "kernel"
+statement = "A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download"
+
+[[id]]
+id = "KN-04"
+level = "build"
+suite = "kernel"
+statement = "The quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it"
+
+[[id]]
+id = "KN-11"
+level = "build"
+suite = "kernel"
+statement = "A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound"

@@ -26,6 +26,9 @@ model does not sanction.
 | `KN-06` | `build` | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file |
 | `KN-08` | `build` | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket |
 | `KN-09` | `build` | A turn token budget never exceeds the context that remains and never exceeds the request |
+| `KN-02` | `build` | A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download |
+| `KN-04` | `build` | The quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it |
+| `KN-11` | `build` | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound |
 
 ## Cited authorities
 

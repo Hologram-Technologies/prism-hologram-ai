@@ -18,8 +18,13 @@ The inherited gates and their own planted defects are in
 | `KN-08`: the decode bucket is at least what is needed, never above the maximum, and never below the current bucket | `grow_bounds`, under the precondition `fits_decides` decides, checked by the Lean kernel, axioms `[Classical.choice, Quot.sound, propext]` | proved |
 | `KN-09`: a turn's token budget never exceeds the context that remains and never exceeds the request | `budget_within_context`, `budget_within_request` and `has_room_decides`, checked by the Lean kernel | proved |
 | A number in an answer is the decimal text of the number computed | `decimal` in `app/src/Kernel/Wire.lex.tex`; examples at 0, 1, 5, 48, 64, 128, 256, 300, 1948, 2048, 8192 and 2^64 - 1 | tested, not proved |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | `kernel_kn_05`, `kernel_kn_06`, `kernel_kn_08` and `kernel_kn_09` in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
-| The compiled guest gives the stated answer for each example | the 55 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
+| `KN-02`: a model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download | `supported_decides`, `derived_decides` and `authorised_decides`, checked by the Lean kernel | proved |
+| `KN-04`: the quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it | `tier_fits`, `tier_monotone` and `half_up_bounds`, checked by the Lean kernel | proved |
+| `KN-11`: a requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound | `in_bounds_decides` and `bind_bounds`, checked by the Lean kernel | proved |
+| The size a dimension is bound to is a multiple of the step, unless capped at the upper bound | examples only; the proof language does not carry the divisibility argument | tested, not proved |
+| int8 costs one byte for each parameter and int4 half a byte | an assumption of `KN-04`, stated in its model; tensors left unquantised are not counted | assumed |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the seven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| The compiled guest gives the stated answer for each example | the 100 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
 the request bytes are parsed into that function's arguments correctly is not
@@ -225,6 +230,132 @@ that fits, a request cut to the room, one token of room, an empty context, the
 smallest context, and two at the top of the 64-bit field. Two answer
 `context full`: exactly full and past full. Two are invalid: one byte short and
 one byte long.
+
+## KN-02, preflight verdict
+
+Four flags come from the engine: whether the family is recognised, how many
+required config keys are missing, whether the manifest fits the recipe, and how
+many unsupported features are flagged. `verdictCode` gives one of six codes and
+`verdictText` its text. A model is runnable when no key is missing, no
+unsupported feature is flagged and the manifest fits. A missing key is named
+before an unsupported feature, and that before a manifest that does not fit. A
+flag that is neither 0 nor 1 answers `invalid request`.
+
+Weights may download only when `authorised` holds, and `authorised_decides`
+proves that is exactly when the model is runnable.
+
+### The proof gate: `lexlean verify src/Proofs/Preflight.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `verdictCode`, in the executable module, gives a verdict without checking that the manifest fits | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Preflight (error): omega could not prove the goal`, for each of the three theorems |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| `Runnable` drops the manifest condition | rejected: `Runnable must require no missing key, no unsupported feature and a manifest that fits` |
+| The supported theorem weakened from `<->` to `->` | rejected: `KN-02's supported_decides changed: it must hold exactly when the model is runnable` |
+| Weights authorised on the manifest rejection too | rejected: `authorised must be exactly the derived and supported verdicts` |
+| The supported verdict reads `derived` | rejected: `verdict 4 must read supported` |
+| The first two flags read from each other's bytes | rejected: `the verdict must be verdictCode's, from the four flag bytes at offsets 1 to 4` |
+| Decision 2 routed to no answer | rejected: `decision 2 must be routed to the preflight answer` |
+| The everything-wrong example names the feature, not the missing key | rejected: `no example names the missing key first when everything is wrong` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-02 is registered
+and not built`.
+
+### The examples
+
+Fourteen. One supported, one derived. Three name a missing key, one an
+unsupported feature, two a manifest that does not fit, and two more show the
+order when several things are wrong. Four are invalid: each flag byte set to 2,
+one byte short and one byte long.
+
+## KN-04, quantisation tier
+
+`tierCode` is 2 for int8 in memory when the parameters fit the budget at one
+byte each, 1 for int4 in memory when half of them, rounded up, fit, and 0 for
+int8 paged otherwise. `halfUp` is the parameters less half of them rounded
+down, which cannot overflow, and `half_up_bounds` proves it is the rounded-up
+half.
+
+An earlier wording of this claim, "more memory never gives a lower-quality
+tier", was false: a small budget gives int8 paged and a medium one gives int4.
+The order the theorem is about is paged, int4 in memory, int8 in memory.
+
+### The proof gate: `lexlean verify src/Proofs/Tier.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `tierCode`, in the executable module, answers int8 in memory whenever the rounded-up half fits | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Tier (error): omega could not prove the goal`, with a counterexample in which the parameters exceed the budget |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| The theorem no longer requires a tier in memory when one fits | rejected: `KN-04's statement changed: the chosen tier must fit, and a tier in memory must be chosen whenever one fits` |
+| The monotone theorem compares a tier with itself | rejected: `more memory must never lower the tier` |
+| `tierCode` prefers int4 to int8 | rejected: `tierCode must prefer int8 in memory, then int4 in memory, then paged` |
+| `halfUp` rounds down | rejected: `halfUp must be the parameters less half of them rounded down` |
+| The int8 tier reads `int4` | rejected: `each tier code must read as its tier` |
+| Parameters and budget read from each other's bytes | rejected: `the tier must be tierCode's, from the two numbers at offsets 1 and 9` |
+| Decision 4 routed to no answer | rejected: `decision 4 must be routed to the tier answer` |
+| The odd count just past int4 expects `int4` | rejected: `no example answers int8 paged for 0000000200000001 parameters in 4 GiB` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-04 is registered
+and not built`.
+
+### The examples
+
+Fifteen. Five answer `int8`, four `int4`, four `int8 paged`, on each side of
+both boundaries in 4 GiB and at the top of the 64-bit field. Two are invalid:
+one byte short and one byte long.
+
+## KN-11, shape binding
+
+A request is bound when it lies between the lower and upper bounds. `gapTo` is
+the distance to the next multiple of the step, or nothing for a step of 0 or 1,
+and the remainder is never taken by zero. `bind` adds the gap only after
+checking the room below the upper bound, so the sum cannot pass the bound or 64
+bits; otherwise it answers the upper bound. A request below the lower bound
+answers `below minimum`, one above the upper bound `above maximum`.
+
+### The proof gate: `lexlean verify src/Proofs/Shape.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `bind`, in the executable module, adds the gap without regard to the upper bound | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Shape (error): omega could not prove the goal`, with a counterexample in which the request plus the gap passes the upper bound |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| The in-bounds theorem drops the upper bound | rejected: `KN-11's statement changed: inBounds must be true exactly when the request lies within its bounds` |
+| The bind theorem drops the upper bound | rejected: `the bound size must be at least the request and never above the upper bound` |
+| `bind` adds without checking the room, which overflows 64 bits | rejected: `bind must check the room before it adds, and cap at the upper bound` |
+| A step of 1 is no longer exact | rejected: `gapTo must be the distance to the next multiple of the step, or nothing for a step of 0 or 1` |
+| The size is computed without checking `inBounds` | rejected: `the size must be bind's, computed only when inBounds holds, from offsets 1, 9, 17 and 25` |
+| The two refusals swapped | rejected: `a request below the lower bound and one above the upper bound must each be named` |
+| Decision 11 routed to no answer | rejected: `decision 11 must be routed to the shape answer` |
+| The capped example expects the uncapped multiple | rejected: `no example binds 00000000000007d0 to 2040` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-11 is registered
+and not built`.
+
+### The examples
+
+Sixteen. Eleven answer a size: rounded up to a multiple, already a multiple,
+exact for a step of 0 and of 1, the next multiple equal to the upper bound, the
+next multiple past it and so capped, and at the top of the 64-bit field. Three
+are refused: two below the minimum, one of them under bounds that admit nothing,
+and one above the maximum. Two are invalid: one byte short and one byte long.
 
 ## The examples in the compiled guest
 

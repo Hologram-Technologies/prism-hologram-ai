@@ -36,3 +36,29 @@ Feature: kernel
     And the budget never exceeds a request that was made
     And a context with no room left is refused by name
     And the budget the application returns for decision 9 is the one budget gives
+
+  @KN-02 @build
+  Scenario: A model is supported or derived exactly when no required key is missing, no unsupported feature is flagged and the manifest fits, and only then may weights download
+    Given the preflight model in app/src/Kernel/Preflight.lex.tex and its proofs in app/src/Proofs/Preflight.lex.tex
+    When the Lean kernel checks supported_decides, derived_decides and authorised_decides during lexlean verify in the gate
+    Then the verdict is supported exactly when the model is runnable and its family is recognised
+    And the verdict is derived exactly when the model is runnable and its family is not recognised
+    And weights are authorised exactly when the model is runnable
+    And each rejection names its reason, a missing key first
+
+  @KN-04 @build
+  Scenario: The quantisation tier chosen fits in memory whenever any tier does, and more memory never lowers it
+    Given the tier model in app/src/Kernel/Tier.lex.tex and its proofs in app/src/Proofs/Tier.lex.tex
+    When the Lean kernel checks half_up_bounds, tier_fits and tier_monotone during lexlean verify in the gate
+    Then int8 in memory is chosen exactly when the parameters fit the budget at one byte each
+    And int4 in memory is chosen only when half the parameters, rounded up, fit
+    And a tier in memory is chosen whenever one fits
+    And a larger budget never gives a lower tier in the order paged, int4 in memory, int8 in memory
+
+  @KN-11 @build
+  Scenario: A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound
+    Given the shape model in app/src/Kernel/Shape.lex.tex and its proofs in app/src/Proofs/Shape.lex.tex
+    When the Lean kernel checks in_bounds_decides and bind_bounds during lexlean verify in the gate
+    Then a request is bound exactly when it lies between the lower and upper bounds
+    And the size it is bound to is at least the request and at most the upper bound, for every step
+    And a request outside the bounds is refused by name

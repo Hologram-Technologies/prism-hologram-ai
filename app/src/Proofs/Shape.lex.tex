@@ -1,0 +1,24 @@
+\begin{lexlean}{Proofs.Shape}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Shape}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: in_bounds_decides,
+  parameters: [lower : Nat, upper : Nat, requested : Nat],
+  statement: (((Kernel.Shape::inBounds lower upper requested) = true) <-> ((lower <= requested) /\ (requested <= upper))),
+  proof: linear_arithmetic{definitions: [Kernel.Shape::inBounds]},
+  axioms: [propext]
+}
+
+theorem{
+  name: bind_bounds,
+  parameters: [upper : Nat, requested : Nat, step : Nat],
+  statement: ((requested <= upper) -> ((requested <= (Kernel.Shape::bind upper requested step)) /\ ((Kernel.Shape::bind upper requested step) <= upper))),
+  proof: linear_arithmetic{definitions: [Kernel.Shape::bind]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
