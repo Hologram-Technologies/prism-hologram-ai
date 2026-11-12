@@ -81,3 +81,9 @@ id = "KN-01"
 level = "build"
 suite = "kernel"
 statement = "Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused"
+
+[[id]]
+id = "EN-01"
+level = "build"
+suite = "engine"
+statement = "The kernel client writes each request exactly as the kernel examples have it and reads every answer the kernel gives"

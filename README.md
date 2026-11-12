@@ -17,7 +17,8 @@ The engine and the page never decide policy. They ask the kernel.
 
 ## Status
 
-Only the kernel has begun. What exists is listed in
+The kernel is built, and the engine has its first crate, the client that writes
+the kernel's requests and reads its answers. What exists is listed in
 [CONFORMANCE.md](CONFORMANCE.md), which is generated from
 [model/ids.toml](model/ids.toml); a capability that is not built has no row.
 
@@ -34,7 +35,8 @@ Only the kernel has begun. What exists is listed in
 | 9, generation bound | A turn's token budget never exceeds the context that remains and never exceeds the request. | Proved (`has_room_decides`, `budget_within_context`, `budget_within_request`) |
 | 11, shape binding | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound. | Proved (`in_bounds_decides`, `bind_bounds`) |
 
-The engine and the page are not in this repository yet. The plan and its
+Nothing that downloads, compiles or runs a model is in this repository yet, and
+neither is the page. The plan and its
 order are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); the
 brief it follows is [docs/REBUILD_PROMPT.md](docs/REBUILD_PROMPT.md).
 
@@ -201,10 +203,13 @@ just new-capability KN-06 build kernel "<the statement>"
 | `model/` | The claim, authority and ledger registers. |
 | `features/suites/` | One scenario per registered claim. |
 | `crates/conformance/tests/kernel.rs` | One test per claim, pinning what its theorem says. |
+| `crates/kernel-client/` | The engine's client for the kernel: typed requests in, typed answers out. No dependencies, no allocation, no function that can fail. |
+| `crates/conformance/tests/engine.rs` | The engine's tests, run against the kernel's own examples. |
 | `site/app.json` | What the app page says about the kernel. |
 | `docs/` | The brief and the implementation plan. |
 
-[KERNEL-VERIFICATION.md](KERNEL-VERIFICATION.md) records each gate's planted
+[KERNEL-VERIFICATION.md](KERNEL-VERIFICATION.md) and
+[ENGINE-VERIFICATION.md](ENGINE-VERIFICATION.md) record each gate's planted
 defect. [TEMPLATE-CONTRACT.md](TEMPLATE-CONTRACT.md),
 [VERIFICATION.md](VERIFICATION.md) and
 [TEMPLATE-VERIFICATION.md](TEMPLATE-VERIFICATION.md) are inherited from

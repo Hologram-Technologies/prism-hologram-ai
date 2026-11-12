@@ -1,0 +1,19 @@
+[package]
+name = "hologram-ai-kernel-client"
+description = "Writes requests to the Hologram AI kernel and reads its answers. The engine's only way to ask the kernel for a decision."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# No dependencies. The crate is `no_std` and allocation-free: every request is a
+# fixed-size array and every answer is read from a borrowed slice.
+[dependencies]
+
+[lints]
+workspace = true

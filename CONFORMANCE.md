@@ -18,6 +18,12 @@ The three honesty levels (R2):
 `cargo xtask audit-limits` fails if any code path returns an error the
 model does not sanction.
 
+## engine
+
+| ID | Level | Statement |
+| --- | --- | --- |
+| `EN-01` | `build` | The kernel client writes each request exactly as the kernel examples have it and reads every answer the kernel gives |
+
 ## kernel
 
 | ID | Level | Statement |

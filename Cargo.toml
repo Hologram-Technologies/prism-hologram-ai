@@ -21,6 +21,8 @@ repo-model = { version = "0.1.0", path = "crates/model" }
 # `cargo deny` refuses those (`wildcards = "deny"`). Every internal dependency
 # carries both.
 repo-conformance = { version = "0.1.0", path = "crates/conformance" }
+# The engine. Its crates ship; they use only locked crates.io dependencies (R6).
+hologram-ai-kernel-client = { version = "0.1.0", path = "crates/kernel-client" }
 
 [workspace.lints.rust]
 missing_docs = "deny"
