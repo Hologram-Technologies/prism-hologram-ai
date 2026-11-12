@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Bucket}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: fits,
+  parameters: [needed : Nat, current : Nat, maximum : Nat],
+  result: Bool,
+  body: ((needed <=? maximum) && (current <=? maximum))
+}
+
+definition{
+  name: doubled,
+  parameters: [current : Nat, maximum : Nat],
+  result: Nat,
+  body: (if (current <=? (prim subtract maximum current : Nat)) then (current + current) else maximum)
+}
+
+definition{
+  name: grow,
+  parameters: [needed : Nat, current : Nat, maximum : Nat],
+  result: Nat,
+  body: (if (needed <=? current) then current else (if (needed <=? (doubled current maximum)) then (doubled current maximum) else needed))
+}
+
+definition{
+  name: bucketAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 25) then (if (fits (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8)) then (Kernel.Wire::decimal (grow (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8))) else (if ((Kernel.Wire::fieldAt value 17 8) <? (Kernel.Wire::fieldAt value 9 8)) then (prim utf8_encode "bucket exceeds maximum" : Bytes) else (prim utf8_encode "context exceeded" : Bytes))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

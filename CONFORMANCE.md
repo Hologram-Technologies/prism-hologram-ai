@@ -24,6 +24,8 @@ model does not sanction.
 | --- | --- | --- |
 | `KN-05` | `build` | A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal |
 | `KN-06` | `build` | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file |
+| `KN-08` | `build` | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket |
+| `KN-09` | `build` | A turn token budget never exceeds the context that remains and never exceeds the request |
 
 ## Cited authorities
 

@@ -25,6 +25,8 @@ Only the kernel has begun. What exists is listed in
 | --- | --- | --- |
 | 5, hash admission | A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal. | Proved (`admitted_decides`) |
 | 6, tensor range | A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file. | Proved (`within_decides`, `accepted_decides`, `all_accepted_ordered`) |
+| 8, decode bucket | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket. | Proved (`fits_decides`, `grow_bounds`) |
+| 9, generation bound | A turn's token budget never exceeds the context that remains and never exceeds the request. | Proved (`has_room_decides`, `budget_within_context`, `budget_within_request`) |
 
 The engine and the page are not in this repository yet. The plan and its
 order are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); the
@@ -61,6 +63,29 @@ Decision 6, 33 bytes:
 
 It answers `accept` or `reject`. The caller folds it over a file's tensors in
 order, passing each accepted tensor's end as the next previous end.
+
+Decision 8, 25 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `8` |
+| 1 to 8 | length needed |
+| 9 to 16 | current bucket |
+| 17 to 24 | the model's maximum context |
+
+It answers the new bucket as decimal text, `context exceeded` when the need is
+past the maximum, or `bucket exceeds maximum` when the current bucket already is.
+
+Decision 9, 25 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `9` |
+| 1 to 8 | context length |
+| 9 to 16 | tokens used |
+| 17 to 24 | tokens requested, or 0 for no cap |
+
+It answers the turn's token budget as decimal text, or `context full`.
 
 ## Run the gate
 

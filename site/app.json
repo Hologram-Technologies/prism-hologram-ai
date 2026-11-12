@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Decision 5 admits a buffer by its label and length. Decision 6 accepts a tensor's byte range in a file. Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Decision 5 admits a buffer by its label and length. Decision 6 accepts a tensor's byte range in a file. Decision 8 gives the next attention cache size. Decision 9 gives a turn's token budget. Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by 81 bytes",
   "submitLabel": "Decide",
@@ -14,7 +14,10 @@
     ],
     "negative": [
       "refuse",
-      "reject"
+      "reject",
+      "context exceeded",
+      "bucket exceeds maximum",
+      "context full"
     ],
     "refusal": "invalid request"
   },
@@ -46,6 +49,24 @@
       "statement": "allAccepted fileLength previousEnd spans = true ↔ Ordered fileLength previousEnd spans, for every list of ranges",
       "how": "Proved by induction over the list, checked by the Lean kernel by lexlean verify in CI",
       "where": "app/src/Proofs/Range.lex.tex"
+    },
+    {
+      "name": "grow_bounds",
+      "statement": "needed ≤ maximum ∧ current ≤ maximum → needed ≤ grow ∧ grow ≤ maximum ∧ current ≤ grow, for every three numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Bucket.lex.tex"
+    },
+    {
+      "name": "budget_within_context",
+      "statement": "used < context → used + budget ≤ context ∧ 1 ≤ budget, for every three numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Generation.lex.tex"
+    },
+    {
+      "name": "budget_within_request",
+      "statement": "0 < requested → budget ≤ requested, for every three numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Generation.lex.tex"
     }
   ],
   "pinned": [
@@ -57,6 +78,16 @@
     {
       "name": "kernel_kn_06",
       "what": "The theorems' statements and axioms, that the decided function never adds offset to length, the request offsets the span is read from, that decision 6 is routed to this answer, that the verdict is decided by accepted, and the example that rejects a range overflowing 64 bits. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_08",
+      "what": "The theorems' statements and axioms, the request offsets the numbers are read from, that the answer is computed only when its precondition holds, the routing, and the boundary examples. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_09",
+      "what": "The theorems' statements and axioms, the request offsets the numbers are read from, that the answer is computed only when its precondition holds, the routing, and the boundary examples. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

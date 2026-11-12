@@ -343,3 +343,218 @@ fn kernel_kn_06() {
         "no example rejects a range whose offset plus length exceeds 64 bits"
     );
 }
+
+/// `KN-08`: The decode bucket is at least what is needed, never above the maximum, and never below the current bucket
+#[test]
+fn kernel_kn_08() {
+    assert_proofs_are_gated();
+    let bucket = model("app/src/Kernel/Bucket.lex.tex");
+    let proofs = model("app/src/Proofs/Bucket.lex.tex");
+
+    // The three bounds, stated about the function the guest executes, for
+    // every need and current bucket within the maximum.
+    let bounds = declaration(&proofs, "grow_bounds");
+    assert!(
+        bounds.contains(
+            "statement: ((Fits needed current maximum) -> \
+             (((needed <= (Kernel.Bucket::grow needed current maximum)) /\\ \
+             ((Kernel.Bucket::grow needed current maximum) <= maximum)) /\\ \
+             (current <= (Kernel.Bucket::grow needed current maximum)))),"
+        ),
+        "KN-08's statement changed: the new bucket must cover the need, stay within the maximum and not shrink:\n{bounds}"
+    );
+    assert!(
+        bounds.contains("parameters: [needed : Nat, current : Nat, maximum : Nat],")
+            && bounds.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "KN-08 quantifies over every three numbers and rests on Lean's three standard axioms:\n{bounds}"
+    );
+
+    // The precondition is exactly the two bounds, and it is decided.
+    let fits_prop = declaration(&proofs, "Fits");
+    assert!(
+        fits_prop.contains("body: ((needed <= maximum) /\\ (current <= maximum))"),
+        "Fits must require both the need and the current bucket within the maximum:\n{fits_prop}"
+    );
+    let decides = declaration(&proofs, "fits_decides");
+    assert!(
+        decides.contains(
+            "statement: (((Kernel.Bucket::fits needed current maximum) = true) <-> \
+             (Fits needed current maximum)),"
+        ),
+        "fits must be true exactly when Fits holds:\n{decides}"
+    );
+
+    // Doubling never adds past the maximum: the sum is formed only when the
+    // current bucket is at most the room left, so it cannot overflow 64 bits.
+    let doubled = declaration(&bucket, "doubled");
+    assert!(
+        doubled.contains(
+            "body: (if (current <=? (prim subtract maximum current : Nat)) then \
+             (current + current) else maximum)"
+        ),
+        "doubled must check the room before it adds:\n{doubled}"
+    );
+
+    // The numbers are read from the bytes the wire format fixes, the bucket
+    // is computed only when the request fits, and each refusal is named.
+    let answer = declaration(&bucket, "bucketAnswer");
+    assert!(
+        answer.contains("(if ((Foundation.Bytes::byteLength value) =? 25) then"),
+        "a request that is not exactly 25 bytes must not reach the decision"
+    );
+    let numbers = "(Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) \
+                   (Kernel.Wire::fieldAt value 17 8)";
+    assert!(
+        answer.contains(&format!(
+            "(if (fits {numbers}) then (Kernel.Wire::decimal (grow {numbers})) else"
+        )),
+        "the bucket must be grow's, computed only when fits holds, from offsets 1, 9 and 17:\n{answer}"
+    );
+    assert!(
+        answer.contains(
+            "(if ((Kernel.Wire::fieldAt value 17 8) <? (Kernel.Wire::fieldAt value 9 8)) then \
+             (prim utf8_encode \"bucket exceeds maximum\" : Bytes) else \
+             (prim utf8_encode \"context exceeded\" : Bytes))"
+        ),
+        "a current bucket past the maximum and a need past the maximum must each be named:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 8) then (Kernel.Bucket::bucketAnswer value)"),
+        "decision 8 must be routed to the bucket answer:\n{route}"
+    );
+
+    // The examples exercise both refusals, and the widest number: a need of
+    // 2^64 - 1 must come back as its twenty digits.
+    let application = declaration(&kernel, "application");
+    for refusal in ["context exceeded", "bucket exceeds maximum"] {
+        assert!(
+            application.contains(&format!("response := 0x{}}}", hex(refusal))),
+            "no example answers `{refusal}`"
+        );
+    }
+    let widest = format!(
+        "request := 0x08{needed}{current}{maximum}, response := 0x{digits}}}",
+        needed = "ffffffffffffffff",
+        current = "0000000000000000",
+        maximum = "ffffffffffffffff",
+        digits = hex("18446744073709551615")
+    );
+    assert!(
+        application.contains(&widest),
+        "no example prints the widest 64-bit number"
+    );
+}
+
+/// `KN-09`: A turn token budget never exceeds the context that remains and never exceeds the request
+#[test]
+fn kernel_kn_09() {
+    assert_proofs_are_gated();
+    let generation = model("app/src/Kernel/Generation.lex.tex");
+    let proofs = model("app/src/Proofs/Generation.lex.tex");
+
+    // With room left, the budget fits the context and is at least one token.
+    let context = declaration(&proofs, "budget_within_context");
+    assert!(
+        context.contains(
+            "statement: ((used < context) -> \
+             (((used + (Kernel.Generation::budget context used requested)) <= context) /\\ \
+             (1 <= (Kernel.Generation::budget context used requested)))),"
+        ),
+        "KN-09's statement changed: the budget must fit the context that remains and be at least one:\n{context}"
+    );
+    assert!(
+        context.contains("parameters: [context : Nat, used : Nat, requested : Nat],")
+            && context.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "KN-09 quantifies over every three numbers and rests on Lean's three standard axioms:\n{context}"
+    );
+
+    // A request, when one is made, is never exceeded.
+    let request = declaration(&proofs, "budget_within_request");
+    assert!(
+        request.contains(
+            "statement: ((0 < requested) -> \
+             ((Kernel.Generation::budget context used requested) <= requested)),"
+        ),
+        "the budget must never exceed a request that was made:\n{request}"
+    );
+
+    // "Room left" is decided, and is strict: a full context has none.
+    let has_room = declaration(&proofs, "has_room_decides");
+    assert!(
+        has_room.contains(
+            "statement: (((Kernel.Generation::hasRoom context used) = true) <-> (used < context)),"
+        ),
+        "hasRoom must be true exactly when used is below the context:\n{has_room}"
+    );
+
+    // The room is a subtraction, which cannot overflow, and a request of zero
+    // means no cap.
+    let room = declaration(&generation, "room");
+    assert!(
+        room.contains("body: (prim subtract context used : Nat)"),
+        "room must be the context less what is used:\n{room}"
+    );
+    let budget = declaration(&generation, "budget");
+    assert!(
+        budget.contains(
+            "body: (if (requested =? 0) then (room context used) else \
+             (if (requested <=? (room context used)) then requested else (room context used)))"
+        ),
+        "budget must be the room, capped by a request that was made:\n{budget}"
+    );
+
+    let answer = declaration(&generation, "generationAnswer");
+    assert!(
+        answer.contains("(if ((Foundation.Bytes::byteLength value) =? 25) then"),
+        "a request that is not exactly 25 bytes must not reach the decision"
+    );
+    assert!(
+        answer.contains(
+            "(if (hasRoom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8)) then \
+             (Kernel.Wire::decimal (budget (Kernel.Wire::fieldAt value 1 8) \
+             (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8))) else \
+             (prim utf8_encode \"context full\" : Bytes))"
+        ),
+        "the budget must be budget's, computed only when hasRoom holds, from offsets 1, 9 and 17:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 9) then (Kernel.Generation::generationAnswer value)"),
+        "decision 9 must be routed to the generation answer:\n{route}"
+    );
+
+    // The examples exercise the refusal at exactly full, and a request cut to
+    // the room that remains: 256 asked with 48 left answers 48.
+    let application = declaration(&kernel, "application");
+    assert!(
+        application.contains(&format!("response := 0x{}}}", hex("context full"))),
+        "no example answers `context full`"
+    );
+    let full = format!(
+        "request := 0x09{context}{used}{requested}, response := 0x{answer}}}",
+        context = "0000000000000800",
+        used = "0000000000000800",
+        requested = "0000000000000000",
+        answer = hex("context full")
+    );
+    assert!(
+        application.contains(&full),
+        "no example refuses a context that is exactly full"
+    );
+    let cut = format!(
+        "request := 0x09{context}{used}{requested}, response := 0x{answer}}}",
+        context = "0000000000000800",
+        used = "00000000000007d0",
+        requested = "0000000000000100",
+        answer = hex("48")
+    );
+    assert!(
+        application.contains(&cut),
+        "no example cuts a request to the room that remains"
+    );
+}

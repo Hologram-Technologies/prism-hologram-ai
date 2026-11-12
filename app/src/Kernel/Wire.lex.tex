@@ -25,5 +25,24 @@ definition{
   body: (fieldFrom value offset width 0),
   axioms: [Quot.sound, propext]
 }
+
+definition{
+  name: digitBytes,
+  parameters: [digit : Nat],
+  result: Bytes,
+  body: (if (digit =? 0) then 0x30 else (if (digit =? 1) then 0x31 else (if (digit =? 2) then 0x32 else (if (digit =? 3) then 0x33 else (if (digit =? 4) then 0x34 else (if (digit =? 5) then 0x35 else (if (digit =? 6) then 0x36 else (if (digit =? 7) then 0x37 else (if (digit =? 8) then 0x38 else 0x39)))))))))
+}
+
+definition{
+  name: decimalFrom,
+  parameters: [number : Nat, fuel : Nat],
+  result: Bytes,
+  body: (match fuel
+    | Nat.zero => (digitBytes (prim remainder number 10 0 : Nat))
+    | Nat.succ rest => (if (number <? 10) then (digitBytes number) else (prim append (decimalFrom (prim quotient number 10 0 : Nat) rest) (digitBytes (prim remainder number 10 0 : Nat)) : Bytes))),
+  recursive_argument: fuel
+}
+
+definition{name: decimal, parameters: [number : Nat], result: Bytes, body: (decimalFrom number 19)}
 \end{semanticmodule}
 \end{lexlean}

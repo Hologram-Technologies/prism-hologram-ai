@@ -1,0 +1,32 @@
+\begin{lexlean}{Proofs.Generation}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Generation}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: has_room_decides,
+  parameters: [context : Nat, used : Nat],
+  statement: (((Kernel.Generation::hasRoom context used) = true) <-> (used < context)),
+  proof: linear_arithmetic{definitions: [Kernel.Generation::hasRoom]},
+  axioms: [propext]
+}
+
+theorem{
+  name: budget_within_context,
+  parameters: [context : Nat, used : Nat, requested : Nat],
+  statement: ((used < context) -> (((used + (Kernel.Generation::budget context used requested)) <= context) /\ (1 <= (Kernel.Generation::budget context used requested)))),
+  proof: linear_arithmetic{definitions: [Kernel.Generation::budget, Kernel.Generation::room]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: budget_within_request,
+  parameters: [context : Nat, used : Nat, requested : Nat],
+  statement: ((0 < requested) -> ((Kernel.Generation::budget context used requested) <= requested)),
+  proof: linear_arithmetic{definitions: [Kernel.Generation::budget, Kernel.Generation::room]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

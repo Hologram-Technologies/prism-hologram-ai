@@ -33,3 +33,15 @@ id = "KN-06"
 level = "build"
 suite = "kernel"
 statement = "A tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file"
+
+[[id]]
+id = "KN-08"
+level = "build"
+suite = "kernel"
+statement = "The decode bucket is at least what is needed, never above the maximum, and never below the current bucket"
+
+[[id]]
+id = "KN-09"
+level = "build"
+suite = "kernel"
+statement = "A turn token budget never exceeds the context that remains and never exceeds the request"

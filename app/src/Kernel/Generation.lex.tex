@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Generation}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: hasRoom,
+  parameters: [context : Nat, used : Nat],
+  result: Bool,
+  body: (used <? context)
+}
+
+definition{
+  name: room,
+  parameters: [context : Nat, used : Nat],
+  result: Nat,
+  body: (prim subtract context used : Nat)
+}
+
+definition{
+  name: budget,
+  parameters: [context : Nat, used : Nat, requested : Nat],
+  result: Nat,
+  body: (if (requested =? 0) then (room context used) else (if (requested <=? (room context used)) then requested else (room context used)))
+}
+
+definition{
+  name: generationAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 25) then (if (hasRoom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8)) then (Kernel.Wire::decimal (budget (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8))) else (prim utf8_encode "context full" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

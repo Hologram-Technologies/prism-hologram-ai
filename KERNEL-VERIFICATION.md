@@ -15,8 +15,11 @@ The inherited gates and their own planted defects are in
 | `KN-06`: a tensor byte range is accepted exactly when it starts at or after the previous tensor end and ends within the file | `within_decides` and `accepted_decides`, checked by the Lean kernel, axioms `[Classical.choice, Quot.sound, propext]` | proved |
 | A list of ranges is all accepted exactly when each starts at or after the end of the one before it and ends within the file | `all_accepted_ordered`, by induction over the list, same axioms | proved |
 | Any two ranges of an accepted list, not only neighbours, are disjoint | follows from the ordered form by transitivity; no theorem here states it, because language 1.2 has no proof form that uses an induction hypothesis that is an implication | not proved |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | `kernel_kn_05` and `kernel_kn_06` in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
-| The compiled guest gives the stated answer for each example | the 29 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
+| `KN-08`: the decode bucket is at least what is needed, never above the maximum, and never below the current bucket | `grow_bounds`, under the precondition `fits_decides` decides, checked by the Lean kernel, axioms `[Classical.choice, Quot.sound, propext]` | proved |
+| `KN-09`: a turn's token budget never exceeds the context that remains and never exceeds the request | `budget_within_context`, `budget_within_request` and `has_room_decides`, checked by the Lean kernel | proved |
+| A number in an answer is the decimal text of the number computed | `decimal` in `app/src/Kernel/Wire.lex.tex`; examples at 0, 1, 5, 48, 64, 128, 256, 300, 1948, 2048, 8192 and 2^64 - 1 | tested, not proved |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | `kernel_kn_05`, `kernel_kn_06`, `kernel_kn_08` and `kernel_kn_09` in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| The compiled guest gives the stated answer for each example | the 55 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
 the request bytes are parsed into that function's arguments correctly is not
@@ -37,7 +40,7 @@ Two failures of the SDK's build led here. Both appeared on the first push of
 | Failure | Cause | What changed |
 | --- | --- | --- |
 | `PP5007: application-lean timed out`, on both runners | The SDK gives the Lean build of the application's module graph a fixed 600 seconds. With the arithmetic and induction proofs in that graph the build exceeded it. | The proofs moved out of the application's module graph. The same stage then finished in about four minutes. |
-| `application-cargo-check exited 101`, `error[E0428]: the name answer is defined multiple times` | The generated guest puts every executable module's declarations in one Rust namespace. Two modules each declared `answer`. | They are `admissionAnswer` and `rangeAnswer`. Every executable declaration has a name no other executable module uses. |
+| `application-cargo-check exited 101`, `error[E0428]: the name answer is defined multiple times` | The generated guest puts every executable module's declarations in one Rust namespace. Two modules each declared `answer`. | They are `admissionAnswer` and `rangeAnswer`, and later decisions follow the pattern. Every executable declaration has a name no other executable module uses. |
 
 The proofs are still checked on every gate run. The `app` recipe of the
 `Justfile` runs `lexlean verify src/Proofs/*.lex.tex`, which has the Lean
@@ -140,6 +143,88 @@ start one byte inside the previous tensor, an end one byte past the file, a
 start past the file, and two at the top of the 64-bit field where offset plus
 length exceeds 64 bits. Four are invalid: one byte short, one byte long, and
 each of decisions 5 and 6 sent with the other's length.
+
+## KN-08, decode bucket
+
+`grow` returns the current bucket when it already covers the need; otherwise
+twice the current bucket, capped at the maximum, when that covers the need;
+otherwise the need itself. `doubled` forms `current + current` only after
+checking that the current bucket is at most the room left below the maximum, so
+the sum cannot pass 64 bits.
+
+A need past the maximum answers `context exceeded`. A current bucket already
+past the maximum answers `bucket exceeds maximum`. The bucket is computed only
+when `fits` holds.
+
+### The proof gate: `lexlean verify src/Proofs/Bucket.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `doubled`, in the executable module, returns `current + current` without regard to the maximum | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Bucket (error): omega could not prove the goal`, with a counterexample in which twice the current bucket passes the maximum |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| The statement drops the never-shrinks bound | rejected: `KN-08's statement changed: the new bucket must cover the need, stay within the maximum and not shrink` |
+| `Fits` no longer bounds the current bucket | rejected: `Fits must require both the need and the current bucket within the maximum` |
+| `doubled` adds before checking the room, which overflows 64 bits | rejected: `doubled must check the room before it adds` |
+| The bucket is computed without checking `fits` | rejected: `the bucket must be grow's, computed only when fits holds, from offsets 1, 9 and 17` |
+| The need and the current bucket read from each other's bytes | rejected: the same message |
+| Decision 8 routed to no answer | rejected: `decision 8 must be routed to the bucket answer` |
+| The widest number expected with a digit missing | rejected: `no example prints the widest 64-bit number` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-08 is registered
+and not built`.
+
+### The examples
+
+Fourteen. Ten answer a bucket: the first bucket from nothing, doubling that
+covers the need, a bucket already enough, a smaller need that does not shrink
+it, a need doubling does not reach, doubling capped at the maximum, a bucket at
+the maximum, zero, and two at the top of the 64-bit field. One answers
+`context exceeded`, one `bucket exceeds maximum`. Two are invalid: one byte
+short and one byte long.
+
+## KN-09, generation bound
+
+`budget` is the room that remains, capped by the request when one was made; a
+request of zero means no cap. The room is `context - used`, a subtraction that
+cannot overflow. A context with no room left answers `context full`, and "room
+left" is strict: `used < context`.
+
+### The proof gate: `lexlean verify src/Proofs/Generation.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `budget`, in the executable module, returns the request without regard to the room | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Generation (error): omega could not prove the goal`, with a counterexample in which the request exceeds `context - used` |
+| none | `verified`, with every proof module's axiom policy exact |
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| The statement drops the at-least-one bound | rejected: `KN-09's statement changed: the budget must fit the context that remains and be at least one` |
+| The request bound weakened to a statement that says nothing | rejected: `the budget must never exceed a request that was made` |
+| `hasRoom` stated to admit a context that is exactly full | rejected: `hasRoom must be true exactly when used is below the context` |
+| `budget` ignores the room when a request is made | rejected: `budget must be the room, capped by a request that was made` |
+| The budget is computed without checking `hasRoom` | rejected: `the budget must be budget's, computed only when hasRoom holds, from offsets 1, 9 and 17` |
+| Decision 9 routed to no answer | rejected: `decision 9 must be routed to the generation answer` |
+| The exactly-full example expects a budget | rejected: `no example refuses a context that is exactly full` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-09 is registered
+and not built`.
+
+### The examples
+
+Twelve. Eight answer a budget: all the room when no request is made, a request
+that fits, a request cut to the room, one token of room, an empty context, the
+smallest context, and two at the top of the 64-bit field. Two answer
+`context full`: exactly full and past full. Two are invalid: one byte short and
+one byte long.
 
 ## The examples in the compiled guest
 

@@ -1,0 +1,31 @@
+\begin{lexlean}{Proofs.Bucket}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Bucket}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Fits,
+  parameters: [needed : Nat, current : Nat, maximum : Nat],
+  result: Prop,
+  body: ((needed <= maximum) /\ (current <= maximum))
+}
+
+theorem{
+  name: fits_decides,
+  parameters: [needed : Nat, current : Nat, maximum : Nat],
+  statement: (((Kernel.Bucket::fits needed current maximum) = true) <-> (Fits needed current maximum)),
+  proof: linear_arithmetic{definitions: [Fits, Kernel.Bucket::fits]},
+  axioms: [propext]
+}
+
+theorem{
+  name: grow_bounds,
+  parameters: [needed : Nat, current : Nat, maximum : Nat],
+  statement: ((Fits needed current maximum) -> (((needed <= (Kernel.Bucket::grow needed current maximum)) /\ ((Kernel.Bucket::grow needed current maximum) <= maximum)) /\ (current <= (Kernel.Bucket::grow needed current maximum)))),
+  proof: linear_arithmetic{definitions: [Fits, Kernel.Bucket::doubled, Kernel.Bucket::grow]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
