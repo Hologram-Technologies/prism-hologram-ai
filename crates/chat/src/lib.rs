@@ -17,6 +17,7 @@
 #![forbid(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use hologram_ai_kernel_client::{bucket, generation, journey, trim};
+use hologram_ai_tokenizer::Tokeniser;
 
 /// Whoever holds the verified kernel holo: a request's bytes in, an answer's
 /// bytes out.
@@ -94,8 +95,40 @@ impl Conversation {
     }
 
     /// Remember a finished pair of `tokens`.
+    ///
+    /// The count is the caller's. [`Self::remember_turn`] takes the text
+    /// instead and counts it with the model's own tokeniser, which is what the
+    /// kernel's arithmetic is about.
     pub fn remember(&mut self, tokens: u64) {
         self.pairs.push(tokens);
+    }
+
+    /// Remember a finished turn: what was asked and what was answered, counted
+    /// with the model's own tokeniser.
+    ///
+    /// A pair is a question and its answer together, because that is what a
+    /// trim drops: half a pair is a question whose answer is gone.
+    pub fn remember_turn(&mut self, tokeniser: &Tokeniser, question: &str, answer: &str) {
+        let tokens = tokeniser
+            .count(question)
+            .saturating_add(tokeniser.count(answer));
+        self.remember(tokens);
+    }
+
+    /// How many tokens are never dropped: the system prompt, the newest
+    /// message, and whatever is reserved for the answer.
+    #[must_use]
+    pub const fn fixed(&self) -> u64 {
+        self.fixed
+    }
+
+    /// Set that part from the text it is, counted with the model's own
+    /// tokeniser, plus the tokens reserved for the answer.
+    pub fn fix(&mut self, tokeniser: &Tokeniser, system: &str, newest: &str, reserve: u64) {
+        self.fixed = tokeniser
+            .count(system)
+            .saturating_add(tokeniser.count(newest))
+            .saturating_add(reserve);
     }
 
     /// Take one step of the journey.
