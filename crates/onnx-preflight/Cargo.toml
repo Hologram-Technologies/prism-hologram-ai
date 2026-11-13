@@ -1,0 +1,21 @@
+[package]
+name = "hologram-ai-onnx-preflight"
+description = "Reads an ONNX model's opset and operators from the file, and asks the Hologram AI kernel whether its graph may be imported."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# No dependencies. The file is protocol-buffer wire format, and this crate
+# reads the handful of fields a preflight needs rather than generating a parser
+# for the whole schema: it never builds a graph, so it never needs one.
+[dependencies]
+hologram-ai-kernel-client = { workspace = true }
+
+[lints]
+workspace = true

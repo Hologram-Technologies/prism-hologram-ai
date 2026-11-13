@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use hologram_ai_model_reader::{config, header, Kernel};
+use hologram_ai_onnx_preflight as onnx;
 
 use hologram_ai_kernel_client::{
     admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
@@ -815,4 +816,379 @@ fn engine_fl_07() {
     ] {
         assert_eq!(config::read(bytes), Err(config::ConfigError::NotJson));
     }
+}
+
+// ─── The ONNX preflight ─────────────────────────────────────────────────────
+//
+// The files below are written out here, field by field, from the numbers
+// `onnx.proto` gives: a tag, then a length, then the bytes. Nothing of the
+// reader is used to build them, so a field number read from the wrong place, a
+// length counted wrongly, or a name taken from the wrong field cannot pass.
+
+/// A variable-length number, as the wire format writes one.
+fn proto_number(mut value: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let byte = u8::try_from(value & 0x7f).expect("seven bits");
+        value >>= 7;
+        out.push(if value == 0 { byte } else { byte | 0x80 });
+        if value == 0 {
+            return out;
+        }
+    }
+}
+
+/// A field holding a number.
+fn proto_field_number(field: u64, value: u64) -> Vec<u8> {
+    let mut out = proto_number(field << 3);
+    out.extend(proto_number(value));
+    out
+}
+
+/// A field holding a length and that many bytes.
+fn proto_field_bytes(field: u64, payload: &[u8]) -> Vec<u8> {
+    let mut out = proto_number((field << 3) | 2);
+    out.extend(proto_number(payload.len() as u64));
+    out.extend_from_slice(payload);
+    out
+}
+
+/// One opset declaration: a domain and a version.
+fn opset(domain: &str, version: u64) -> Vec<u8> {
+    let mut out = proto_field_bytes(1, domain.as_bytes());
+    out.extend(proto_field_number(2, version));
+    out
+}
+
+/// One node: its inputs and outputs, its name, its operator and its domain,
+/// written in the order a real file has them.
+fn node(op_type: &[u8], domain: &str) -> Vec<u8> {
+    let mut out = proto_field_bytes(1, b"in");
+    out.extend(proto_field_bytes(2, b"out"));
+    out.extend(proto_field_bytes(3, b"a name"));
+    out.extend(proto_field_bytes(4, op_type));
+    out.extend(proto_field_bytes(6, b"documentation"));
+    out.extend(proto_field_bytes(7, domain.as_bytes()));
+    out
+}
+
+/// A graph of `nodes`, carrying `initializers` tensors.
+fn graph(nodes: &[Vec<u8>], initializers: usize) -> Vec<u8> {
+    let mut out = proto_field_bytes(2, b"the graph");
+    for node in nodes {
+        out.extend(proto_field_bytes(1, node));
+    }
+    for _ in 0..initializers {
+        out.extend(proto_field_bytes(5, &proto_field_bytes(8, b"a tensor")));
+    }
+    out.extend(proto_field_bytes(11, b"an input"));
+    out
+}
+
+/// A model, with the fields a real file carries that a preflight does not need.
+fn onnx_file(opsets: &[Vec<u8>], graph: Option<&[u8]>) -> Vec<u8> {
+    let mut out = proto_field_number(1, 9);
+    out.extend(proto_field_bytes(2, b"a producer"));
+    out.extend(proto_field_bytes(3, b"1.0"));
+    if let Some(graph) = graph {
+        out.extend(proto_field_bytes(7, graph));
+    }
+    for opset in opsets {
+        out.extend(proto_field_bytes(8, opset));
+    }
+    // Two fields a preflight does not read, in encodings it still has to step
+    // over: eight bytes, and four.
+    // Their contents are bytes no tag could be, so a reader that steps over
+    // the wrong number of them reads one of them as a field.
+    out.extend(proto_number((20 << 3) | 1));
+    out.extend([0xff; 8]);
+    out.extend(proto_number((21 << 3) | 5));
+    out.extend([0xff; 4]);
+    out
+}
+
+/// What a builder of this kind implements. Not a claim about any builder here:
+/// no graph is built in this repository.
+const IMPLEMENTED: [&str; 4] = ["MatMul", "Add", "Softmax", "Gelu"];
+
+/// `EN-04`: An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over
+#[test]
+fn engine_en_04() {
+    let nodes = [
+        node(b"MatMul", ""),
+        node(b"Add", ""),
+        node(b"Attention", "com.microsoft"),
+        node(b"MatMul", ""),
+    ];
+    let file = onnx_file(
+        &[opset("", 18), opset("com.microsoft", 1)],
+        Some(&graph(&nodes, 3)),
+    );
+    assert_eq!(
+        onnx::read(&file),
+        Ok(onnx::Model {
+            opset: 18,
+            operators: vec![
+                onnx::Operator {
+                    domain: "".into(),
+                    op_type: "MatMul".into()
+                },
+                onnx::Operator {
+                    domain: "".into(),
+                    op_type: "Add".into()
+                },
+                onnx::Operator {
+                    domain: "com.microsoft".into(),
+                    op_type: "Attention".into()
+                },
+                onnx::Operator {
+                    domain: "".into(),
+                    op_type: "MatMul".into()
+                },
+            ],
+            initializers: 3,
+        }),
+        "the model read is not the model written"
+    );
+
+    // A declaration that names no domain is the default domain's.
+    let bare = onnx_file(
+        &[proto_field_number(2, 17)],
+        Some(&graph(&[node(b"Add", "")], 0)),
+    );
+    assert_eq!(onnx::read(&bare).map(|m| m.opset), Ok(17));
+
+    // A later declaration of a domain replaces an earlier one.
+    let twice = onnx_file(
+        &[opset("", 11), opset("", 21)],
+        Some(&graph(&[node(b"Add", "")], 0)),
+    );
+    assert_eq!(onnx::read(&twice).map(|m| m.opset), Ok(21));
+
+    // A graph with no nodes and no tensors is read, not refused: what may be
+    // done with it is not this crate's to say.
+    let empty = onnx_file(&[opset("", 18)], Some(&graph(&[], 0)));
+    assert_eq!(
+        onnx::read(&empty),
+        Ok(onnx::Model {
+            opset: 18,
+            operators: vec![],
+            initializers: 0
+        })
+    );
+
+    // A node that names no operator is read as one with no name, which no
+    // builder implements.
+    let nameless = onnx_file(
+        &[opset("", 18)],
+        Some(&graph(&[proto_field_bytes(3, b"only a name")], 0)),
+    );
+    assert_eq!(
+        onnx::read(&nameless).map(|m| m.operators),
+        Ok(vec![onnx::Operator {
+            domain: "".into(),
+            op_type: "".into()
+        }])
+    );
+
+    // A version written as a negative number is the large number it stands
+    // for, which is no opset any builder implements.
+    let mut negative = Vec::new();
+    negative.extend(proto_number(2 << 3));
+    negative.extend([0xff; 9]);
+    negative.push(0x01);
+    let signed = onnx_file(&[negative], Some(&graph(&[node(b"Add", "")], 0)));
+    assert_eq!(onnx::read(&signed).map(|m| m.opset), Ok(u64::MAX));
+}
+
+/// `EN-05`: The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear
+#[test]
+fn engine_en_05() {
+    let nodes = [
+        node(b"MatMul", ""),
+        node(b"Resize", ""),
+        node(b"Attention", "com.microsoft"),
+        node(b"Resize", ""),
+        node(b"Add", ""),
+        node(b"MatMul", "com.microsoft"),
+    ];
+    let file = onnx_file(&[opset("", 18)], Some(&graph(&nodes, 0)));
+    let model = onnx::read(&file).expect("the model is read");
+
+    // Three nodes name something this builder does not build: `Resize` twice,
+    // an extension operator, and `MatMul` in a domain that is not the ONNX
+    // one, which is a different operator that happens to share a name.
+    assert_eq!(
+        model.question(&IMPLEMENTED, 7, 21).to_vec(),
+        operators::request(18, 7, 21, 4).to_vec(),
+        "the question put to the kernel is not the one the file counts"
+    );
+    assert_eq!(
+        model.missing(&IMPLEMENTED),
+        vec![
+            onnx::Operator {
+                domain: "".into(),
+                op_type: "Resize".into()
+            },
+            onnx::Operator {
+                domain: "com.microsoft".into(),
+                op_type: "Attention".into()
+            },
+            onnx::Operator {
+                domain: "com.microsoft".into(),
+                op_type: "MatMul".into()
+            },
+        ],
+        "what is missing is not reported once each in the order it appears"
+    );
+
+    // A model every one of whose operators is implemented asks a question with
+    // nothing outstanding, and the opset it declares reaches the kernel as it
+    // is.
+    let whole = onnx_file(
+        &[opset("", 7)],
+        Some(&graph(&[node(b"MatMul", ""), node(b"Gelu", "")], 0)),
+    );
+    let whole = onnx::read(&whole).expect("the model is read");
+    assert_eq!(
+        whole.question(&IMPLEMENTED, 7, 21).to_vec(),
+        operators::request(7, 7, 21, 0).to_vec()
+    );
+    assert!(whole.missing(&IMPLEMENTED).is_empty());
+
+    // A builder that implements nothing counts every node, and one that is
+    // told about an operator of another domain still does not match it: the
+    // list is of ONNX operators.
+    assert_eq!(
+        whole.question(&[], 7, 21).to_vec(),
+        operators::request(7, 7, 21, 2).to_vec()
+    );
+    let extension = onnx_file(
+        &[opset("", 7)],
+        Some(&graph(&[node(b"Attention", "com.microsoft")], 0)),
+    );
+    let extension = onnx::read(&extension).expect("the model is read");
+    assert_eq!(
+        extension.question(&["Attention"], 7, 21).to_vec(),
+        operators::request(7, 7, 21, 1).to_vec()
+    );
+}
+
+/// `FL-08`: A field runs past the end of the file
+#[test]
+fn engine_fl_08() {
+    // A length longer than what follows it.
+    let mut long = proto_number((7 << 3) | 2);
+    long.extend(proto_number(64));
+    long.extend_from_slice(b"short");
+    assert_eq!(onnx::read(&long), Err(onnx::OnnxError::Truncated));
+
+    // A tag with nothing after it, and a tag that does not end.
+    assert_eq!(
+        onnx::read(&proto_number(7 << 3)),
+        Err(onnx::OnnxError::Truncated)
+    );
+    assert_eq!(onnx::read(&[0x80]), Err(onnx::OnnxError::Truncated));
+
+    // Fixed-width fields that run off the end.
+    for (encoding, width) in [(1u64, 7usize), (5, 3)] {
+        let mut file = proto_number((20 << 3) | encoding);
+        file.extend(std::iter::repeat_n(0u8, width));
+        assert_eq!(onnx::read(&file), Err(onnx::OnnxError::Truncated));
+    }
+
+    // A truncation inside the graph, not at the top of the file.
+    let mut node = proto_number((4 << 3) | 2);
+    node.extend(proto_number(9));
+    node.extend_from_slice(b"MatMul");
+    let file = onnx_file(&[opset("", 18)], Some(&proto_field_bytes(1, &node)));
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::Truncated));
+}
+
+/// `FL-09`: A variable-length number does not end within the ten bytes that carry sixty-four bits
+#[test]
+fn engine_fl_09() {
+    let mut forever = vec![0xff; 11];
+    forever.push(0x00);
+    assert_eq!(onnx::read(&forever), Err(onnx::OnnxError::NumberTooLong));
+
+    // Ten bytes are a number; the eleventh is not.
+    let mut ten = vec![0x80; 9];
+    ten.push(0x01);
+    let mut file = proto_number(1 << 3);
+    file.extend(ten);
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::NoGraph));
+}
+
+/// `FL-10`: A field says it is encoded a way the format does not define, so its end cannot be found
+#[test]
+fn engine_fl_10() {
+    for encoding in [3u64, 4, 6, 7] {
+        let mut file = proto_number((20 << 3) | encoding);
+        file.extend_from_slice(&[0; 8]);
+        assert_eq!(
+            onnx::read(&file),
+            Err(onnx::OnnxError::UnknownEncoding),
+            "a field encoded {encoding} was stepped over"
+        );
+    }
+
+    // Inside a node, too, where the reader is one message deeper.
+    let file = onnx_file(
+        &[opset("", 18)],
+        Some(&proto_field_bytes(1, &proto_number((9 << 3) | 6))),
+    );
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::UnknownEncoding));
+}
+
+/// `FL-11`: A name the preflight reads is not text
+#[test]
+fn engine_fl_11() {
+    let file = onnx_file(
+        &[opset("", 18)],
+        Some(&graph(&[node(&[0xff, 0xfe], "")], 0)),
+    );
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::NameNotText));
+
+    // A domain, and an opset's domain, are read the same way.
+    let domain = onnx_file(
+        &[opset("", 18)],
+        Some(&graph(
+            &[{
+                let mut out = proto_field_bytes(4, b"Add");
+                out.extend(proto_field_bytes(7, &[0xff]));
+                out
+            }],
+            0,
+        )),
+    );
+    assert_eq!(onnx::read(&domain), Err(onnx::OnnxError::NameNotText));
+
+    let declared = onnx_file(
+        &[proto_field_bytes(1, &[0x80, 0x01])],
+        Some(&graph(&[node(b"Add", "")], 0)),
+    );
+    assert_eq!(onnx::read(&declared), Err(onnx::OnnxError::NameNotText));
+}
+
+/// `FL-12`: The model carries no graph
+#[test]
+fn engine_fl_12() {
+    let file = onnx_file(&[opset("", 18)], None);
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::NoGraph));
+    assert_eq!(onnx::read(&[]), Err(onnx::OnnxError::NoGraph));
+}
+
+/// `FL-13`: The model declares no opset for the default domain
+#[test]
+fn engine_fl_13() {
+    let file = onnx_file(
+        &[opset("com.microsoft", 1)],
+        Some(&graph(&[node(b"Add", "")], 0)),
+    );
+    assert_eq!(onnx::read(&file), Err(onnx::OnnxError::NoDefaultOpset));
+
+    // No declaration at all is the same: the opset is not something to assume.
+    let none = onnx_file(&[], Some(&graph(&[node(b"Add", "")], 0)));
+    assert_eq!(onnx::read(&none), Err(onnx::OnnxError::NoDefaultOpset));
 }

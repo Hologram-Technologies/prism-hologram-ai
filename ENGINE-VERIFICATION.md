@@ -15,6 +15,13 @@ it can fail: a request is built from typed arguments into a fixed-size array,
 and an answer the kernel is not known to give reads as `Unrecognised`, which a
 caller must handle and cannot mistake for a verdict.
 
+`crates/onnx-preflight` reads an ONNX model's opset and operators out of the
+file and puts the kernel's import question. An ONNX file is a protocol-buffer
+message; this crate reads the handful of fields a preflight needs and steps over
+everything else, so a file written against a newer schema still reads. It builds
+no graph, so it generates no parser for the whole schema and has no dependency
+beyond the kernel client.
+
 `crates/model-reader` reads the two documents a model carries: the safetensors
 header, which says where each tensor's bytes lie, and the config, which says
 what kind of model it is. Both are untrusted bytes, so this is the first crate
@@ -38,6 +45,10 @@ runtime's crates are not published there.
 | `EN-03`: a model config is read into the preflight question | `engine_en_03`, over a whole config and every way of spoiling it this crate counts | tested |
 | `FL-01` to `FL-07`: the reader fails only as `model/failures.toml` lists | `engine_fl_01` to `engine_fl_07` | tested |
 | A tensor's length agrees with its shape and its dtype | not tested: the reader records what the header says and does not multiply it out | not tested |
+| `EN-04`: an ONNX model's opset, operators and tensor count are read from the file | `engine_en_04`, over files written out field by field in the test | tested |
+| `EN-05`: the operators a builder does not implement are counted into the kernel's question | `engine_en_05` | tested |
+| `FL-08` to `FL-13`: the preflight fails only as `model/failures.toml` lists | `engine_fl_08` to `engine_fl_13` | tested |
+| An ONNX file from a hub reads as its publisher meant it | not tested: every file in this suite is written here | not tested |
 | A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
 ## EN-01, the kernel client
@@ -156,6 +167,72 @@ could not fail, so the sum now saturates and says why.
   reads the data, and `EN-02` is about where the bytes lie, not what they are.
 - Whether the tensor manifest fits the family's recipe. That is read from the
   weights, and it reaches the kernel's preflight question as the caller's input.
+
+## EN-04 and EN-05, the ONNX preflight
+
+The files are written out in the tests, field by field, from the numbers
+`onnx.proto` gives: a tag, then a length, then the bytes. None of the reader is
+used to build them, so a field number read from the wrong place, a length
+counted wrongly, or a name taken from the wrong field cannot pass. Each file
+also carries fields a preflight does not need, in each encoding it has to step
+over, and their contents are bytes no tag could be: a reader that steps over the
+wrong number of them reads one of them as a field.
+
+What the tests fix: the opset of the default domain and no other, the operator
+and domain of each node in the order the file has them, the count of tensors the
+graph carries, a later opset declaration replacing an earlier one, a declaration
+that names no domain being the default domain's, a node that names no operator
+reading as one with no name, and a version written as a negative number reading
+as the large number it stands for, which no builder implements.
+
+Which operators a builder implements is not this crate's to say, and no graph is
+built in this repository. The count of what lies outside that set is this
+crate's, and `EN-05` fixes it: an operator of another domain is a different
+operator that happens to share a name, and what is missing is reported once each
+in the order it first appears.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Eighteen defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The opset is read from the field that holds the domain | `engine_en_04` |
+| A node's operator is read from the field that holds its name | `engine_en_04` |
+| A node's domain is read from the field that holds its documentation | `engine_en_05` |
+| The graph is read from the field that holds the opsets | `engine_en_04` |
+| A graph's tensors are counted from the field that holds its nodes | `engine_en_04` |
+| An earlier opset declaration wins over a later one | `engine_en_04` |
+| Every domain's opset is read, not the default domain's | `engine_en_04` |
+| An eight-byte field is stepped over as four | `engine_en_04` |
+| A model with no graph reads as one with an empty graph | `engine_fl_09` |
+| A model with no default opset reads as opset zero | `engine_fl_13` |
+| An operator of another domain counts as the ONNX one of that name | `engine_en_05` |
+| What is missing is reported once for every node that names it | `engine_en_05` |
+| The count of what is missing is the count of what is implemented | `engine_en_05` |
+| A number may run past the bytes that carry sixty-four bits | `engine_fl_09` |
+| A length that reaches past the end is read to the end | `engine_fl_08` |
+| A fixed-width field that runs off the end is accepted | `engine_fl_08` |
+| An undefined encoding is read as a number | `engine_fl_10` |
+| A name that is not text is read as the bytes allow | `engine_fl_11` |
+| none, before and after | passed |
+
+One of them was missed at first, and the test changed rather than the code: the
+fields a preflight steps over were written as zero bytes, and zero bytes read as
+empty fields, so stepping over four of eight left nothing that failed. Their
+contents are now bytes no tag could be.
+
+### What EN-04 and EN-05 do not establish
+
+- That a file from a hub reads as its publisher meant it. Every file here is
+  written in the test.
+- That a model which passes preflight can be built. Nothing here builds a graph,
+  and the set of operators a builder implements is the builder's to declare.
+- How long a preflight takes. No file of a real model's size is read here, and
+  no time is measured.
+- That an operator's attributes, its inputs or its shapes are ones a builder
+  could use. Only the operator's name and domain are read.
 
 ## How the engine may fail
 
