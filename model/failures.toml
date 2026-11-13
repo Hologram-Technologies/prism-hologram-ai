@@ -32,4 +32,58 @@
 
 spec = "template/1"
 
-failure = []
+[[failure]]
+id = "FL-01"
+crate = "model-reader"
+type = "HeaderError"
+variant = "TooShortForLength"
+suite = "engine"
+condition = "The file has fewer than the eight bytes that carry the header length"
+
+[[failure]]
+id = "FL-02"
+crate = "model-reader"
+type = "HeaderError"
+variant = "HeaderExceedsFile"
+suite = "engine"
+condition = "The header length the file declares does not fit inside the file"
+
+[[failure]]
+id = "FL-03"
+crate = "model-reader"
+type = "HeaderError"
+variant = "NotJson"
+suite = "engine"
+condition = "The header bytes are not a JSON object"
+
+[[failure]]
+id = "FL-04"
+crate = "model-reader"
+type = "HeaderError"
+variant = "TensorNotDescribed"
+suite = "engine"
+condition = "A header entry is not an object carrying a dtype, a shape of whole numbers and a pair of data offsets"
+
+[[failure]]
+id = "FL-05"
+crate = "model-reader"
+type = "HeaderError"
+variant = "OffsetsDoNotRunForward"
+suite = "engine"
+condition = "A tensor ends before it starts"
+
+[[failure]]
+id = "FL-06"
+crate = "model-reader"
+type = "HeaderError"
+variant = "RangeRefused"
+suite = "engine"
+condition = "The kernel did not accept a tensor byte range"
+
+[[failure]]
+id = "FL-07"
+crate = "model-reader"
+type = "ConfigError"
+variant = "NotJson"
+suite = "engine"
+condition = "The config bytes are not a JSON object"

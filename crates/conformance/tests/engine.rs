@@ -8,6 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use hologram_ai_model_reader::{config, header, Kernel};
+
 use hologram_ai_kernel_client::{
     admission, bucket, generation, journey, plan, preflight, range, shape, tier, trim,
     INVALID_REQUEST,
@@ -317,5 +319,471 @@ fn engine_en_01() {
             allowed,
             "{verdict:?} and downloading"
         );
+    }
+}
+
+// ─── The model reader ───────────────────────────────────────────────────────
+//
+// The reader turns a model's own two documents into the kernel's questions.
+// The tests below put real files to it: a safetensors file is built here, byte
+// for byte, so what the reader recovers can be compared with where the test put
+// it. Policy is never restated: every answer about a byte range comes from the
+// kernel's own recorded examples, or is the kernel's own text for an accepted
+// range, replayed by a double that keeps what it was asked.
+
+/// A safetensors file: eight bytes of header length, `header` padded with
+/// spaces to `header_length`, then zero bytes to `total`.
+fn safetensors(header: &str, header_length: usize, total: usize) -> Vec<u8> {
+    assert!(
+        header.len() <= header_length,
+        "the header is longer than the length it declares"
+    );
+    let mut out = (header_length as u64).to_le_bytes().to_vec();
+    out.extend_from_slice(header.as_bytes());
+    out.resize(8 + header_length, b' ');
+    assert!(
+        total >= out.len(),
+        "the file is shorter than its own header"
+    );
+    out.resize(total, 0);
+    out
+}
+
+/// Every tensor-range example the kernel carries, as request to answer.
+fn range_examples() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    examples()
+        .into_iter()
+        .filter(|(request, _)| request.first() == Some(&6))
+        .collect()
+}
+
+/// A kernel that answers only what the kernel's own examples record. A test
+/// using it asks nothing the compiled guest has not been seen to answer.
+struct Recorded {
+    answers: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+impl Kernel for Recorded {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        self.answers
+            .get(request)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the kernel has no example for this request: {}",
+                    request
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                )
+            })
+            .clone()
+    }
+}
+
+/// A kernel that accepts every range, in the kernel's own words, and keeps
+/// every request it was asked.
+struct Accepting {
+    accept: Vec<u8>,
+    asked: Vec<Vec<u8>>,
+}
+
+impl Accepting {
+    /// The accepting answer is not written here: it is the answer the kernel
+    /// gives to an example it accepts.
+    fn new() -> Self {
+        let accept = range_examples()
+            .into_values()
+            .find(|answer| range::answer(answer) == range::Verdict::Accept)
+            .expect("the kernel accepts some example range");
+        Self {
+            accept,
+            asked: Vec::new(),
+        }
+    }
+}
+
+impl Kernel for Accepting {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        self.asked.push(request.to_vec());
+        self.accept.clone()
+    }
+}
+
+/// A whole config, as a checkpoint on a hub carries it.
+const WHOLE_CONFIG: &str = r#"{
+  "architectures": ["LlamaForCausalLM"],
+  "hidden_size": 64,
+  "intermediate_size": 128,
+  "max_position_embeddings": 128,
+  "model_type": "llama",
+  "num_attention_heads": 4,
+  "num_hidden_layers": 2,
+  "num_key_value_heads": 2,
+  "rms_norm_eps": 1e-6,
+  "vocab_size": 512
+}"#;
+
+/// `EN-02`: A safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel
+#[test]
+fn engine_en_02() {
+    // One tensor, in a file whose range question is one of the kernel's own
+    // examples: the guest has been seen to accept exactly this range.
+    let one = safetensors(
+        r#"{"model.embed_tokens.weight":{"dtype":"F32","shape":[4,1024],"data_offsets":[0,4096]}}"#,
+        120,
+        4224,
+    );
+    let tensors = header::read(
+        &one,
+        &mut Recorded {
+            answers: range_examples(),
+        },
+    )
+    .expect("the kernel accepts this file's one range");
+    assert_eq!(
+        tensors,
+        vec![header::Tensor {
+            name: "model.embed_tokens.weight".into(),
+            dtype: "F32".into(),
+            shape: vec![4, 1024],
+            offset: 128,
+            length: 4096,
+        }],
+        "the tensor the header describes is not the one that was read"
+    );
+
+    // Three tensors, listed in neither the order their bytes lie nor the order
+    // their names sort, beside the metadata the format reserves.
+    let many = safetensors(
+        r#"{"zebra":{"dtype":"F32","shape":[2],"data_offsets":[8,12]},"__metadata__":{"format":"pt"},"alpha":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]},"mid":{"dtype":"F32","shape":[0],"data_offsets":[12,12]}}"#,
+        232,
+        252,
+    );
+    let mut kernel = Accepting::new();
+    let tensors = header::read(&many, &mut kernel).expect("every range is accepted");
+    assert_eq!(
+        tensors.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+        ["alpha", "zebra", "mid"],
+        "the tensors are not in the order their bytes lie"
+    );
+    assert_eq!(
+        tensors
+            .iter()
+            .map(|t| (t.dtype.as_str(), t.shape.clone(), t.offset, t.length))
+            .collect::<Vec<_>>(),
+        [
+            ("BF16", vec![2, 2], 240, 8),
+            ("F32", vec![2], 248, 4),
+            ("F32", vec![0], 252, 0),
+        ],
+        "a tensor was not placed where the header puts it"
+    );
+
+    // Each tensor was asked about once, in file order, with the previous
+    // tensor's end as its previous end: the fold the kernel's decision is
+    // about. The numbers come from where this test put the tensors.
+    assert_eq!(
+        kernel.asked,
+        [
+            range::request(252, 240, 240, 8).to_vec(),
+            range::request(252, 248, 248, 4).to_vec(),
+            range::request(252, 252, 252, 0).to_vec(),
+        ],
+        "the kernel was not asked about the file the test built"
+    );
+}
+
+/// `EN-03`: A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged
+#[test]
+fn engine_en_03() {
+    let whole = config::read(WHOLE_CONFIG.as_bytes()).expect("a whole config is read");
+    assert_eq!(
+        whole,
+        config::Reading {
+            family_recognised: true,
+            missing_keys: 0,
+            unsupported_features: 0,
+        }
+    );
+    assert_eq!(
+        whole.question(true).to_vec(),
+        preflight::request(true, 0, true, 0).to_vec(),
+        "the question put to the kernel is not the one the config counts"
+    );
+    // What the weights say is the caller's to pass, and it reaches the kernel
+    // as given.
+    assert_eq!(
+        whole.question(false).to_vec(),
+        preflight::request(true, 0, false, 0).to_vec()
+    );
+
+    // Every name the registry carries is recognised, and a name it does not
+    // carry is not. An unnamed decoder is not rejected here: the kernel
+    // answers `derived` for it, which `engine_en_01` pins.
+    for family in config::NAMED_FAMILIES {
+        let named = WHOLE_CONFIG.replace("LlamaForCausalLM", family);
+        assert!(
+            config::read(named.as_bytes())
+                .expect("a whole config is read")
+                .family_recognised,
+            "{family} is in the registry and was not recognised"
+        );
+    }
+    for other in ["GemmaForCausalLM", "llamaforcausallm", ""] {
+        let named = WHOLE_CONFIG.replace("LlamaForCausalLM", other);
+        assert!(
+            !config::read(named.as_bytes())
+                .expect("a whole config is read")
+                .family_recognised,
+            "{other} is not in the registry and was recognised"
+        );
+    }
+    // The architectures key itself may be missing or empty.
+    for lacking in [
+        r#"{"architectures": []}"#,
+        r#"{"architectures": "LlamaForCausalLM"}"#,
+        "{}",
+    ] {
+        assert!(
+            !config::read(lacking.as_bytes())
+                .expect("an object is read")
+                .family_recognised
+        );
+    }
+
+    // Each required key is required: dropping one counts one.
+    for key in config::REQUIRED_KEYS {
+        let without: serde_json::Value = {
+            let mut parsed: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(WHOLE_CONFIG).expect("the whole config parses");
+            parsed.remove(key);
+            parsed.into()
+        };
+        assert_eq!(
+            config::read(without.to_string().as_bytes())
+                .expect("a config is read")
+                .missing_keys,
+            1,
+            "dropping {key} did not count as one missing key"
+        );
+    }
+    assert_eq!(
+        config::read(b"{}").expect("an object is read").missing_keys,
+        config::REQUIRED_KEYS.len() as u8,
+        "an empty config is missing every required key"
+    );
+    // A key that is present and is not a positive whole number is missing:
+    // zero layers, a negative count or a number written as text build nothing.
+    for value in ["0", "-1", "\"64\"", "null", "1.5"] {
+        let spoiled =
+            WHOLE_CONFIG.replace("\"hidden_size\": 64", &format!("\"hidden_size\": {value}"));
+        assert_eq!(
+            config::read(spoiled.as_bytes())
+                .expect("a config is read")
+                .missing_keys,
+            1,
+            "hidden_size {value} was counted as present"
+        );
+    }
+
+    // The gate activation is the one feature this document can ask for that
+    // the recipe does not implement.
+    for activation in ["\"silu\"", "\"swish\"", "null"] {
+        let gated = WHOLE_CONFIG.replace(
+            "\"model_type\": \"llama\"",
+            &format!("\"hidden_act\": {activation}"),
+        );
+        assert_eq!(
+            config::read(gated.as_bytes())
+                .expect("a config is read")
+                .unsupported_features,
+            0,
+            "hidden_act {activation} was flagged"
+        );
+    }
+    for activation in ["\"gelu\"", "\"gelu_pytorch_tanh\"", "7"] {
+        let gated = WHOLE_CONFIG.replace(
+            "\"model_type\": \"llama\"",
+            &format!("\"hidden_act\": {activation}"),
+        );
+        let reading = config::read(gated.as_bytes()).expect("a config is read");
+        assert_eq!(
+            reading.unsupported_features, 1,
+            "hidden_act {activation} was not flagged"
+        );
+        assert_eq!(
+            reading.question(true).to_vec(),
+            preflight::request(true, 0, true, 1).to_vec(),
+            "the flag did not reach the kernel's question"
+        );
+    }
+}
+
+/// `FL-01`: The file has fewer than the eight bytes that carry the header length
+#[test]
+fn engine_fl_01() {
+    let mut kernel = Accepting::new();
+    for short in [&b""[..], b"\x01", b"\x00\x00\x00\x00\x00\x00\x00"] {
+        assert_eq!(
+            header::read(short, &mut kernel),
+            Err(header::HeaderError::TooShortForLength)
+        );
+    }
+    assert!(
+        kernel.asked.is_empty(),
+        "nothing is asked of the kernel about a file with no header"
+    );
+}
+
+/// `FL-02`: The header length the file declares does not fit inside the file
+#[test]
+fn engine_fl_02() {
+    let mut kernel = Accepting::new();
+    let header = r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#;
+    // One byte more of header than the file holds.
+    let mut file = safetensors(header, 64, 72);
+    file.truncate(71);
+    assert_eq!(
+        header::read(&file, &mut kernel),
+        Err(header::HeaderError::HeaderExceedsFile)
+    );
+    // A length no file could hold, and one that overflows the count of bytes.
+    for declared in [u64::MAX, u64::MAX - 7] {
+        let mut file = declared.to_le_bytes().to_vec();
+        file.extend_from_slice(header.as_bytes());
+        assert_eq!(
+            header::read(&file, &mut kernel),
+            Err(header::HeaderError::HeaderExceedsFile)
+        );
+    }
+}
+
+/// `FL-03`: The header bytes are not a JSON object
+#[test]
+fn engine_fl_03() {
+    let mut kernel = Accepting::new();
+    for header in [
+        "",
+        "not json at all",
+        "[1,2,3]",
+        "\"a string\"",
+        "null",
+        r#"{"t":{"dtype":"F32","#,
+    ] {
+        let file = safetensors(header, 64, 128);
+        assert_eq!(
+            header::read(&file, &mut kernel),
+            Err(header::HeaderError::NotJson),
+            "a header of {header:?} was read as an object"
+        );
+    }
+}
+
+/// `FL-04`: A header entry is not an object carrying a dtype, a shape of whole numbers and a pair of data offsets
+#[test]
+fn engine_fl_04() {
+    let mut kernel = Accepting::new();
+    for entry in [
+        "4",
+        "null",
+        r#"{"shape":[1],"data_offsets":[0,4]}"#,
+        r#"{"dtype":"F32","data_offsets":[0,4]}"#,
+        r#"{"dtype":"F32","shape":[1]}"#,
+        r#"{"dtype":7,"shape":[1],"data_offsets":[0,4]}"#,
+        r#"{"dtype":"F32","shape":[-1],"data_offsets":[0,4]}"#,
+        r#"{"dtype":"F32","shape":"1","data_offsets":[0,4]}"#,
+        r#"{"dtype":"F32","shape":[1],"data_offsets":[0]}"#,
+        r#"{"dtype":"F32","shape":[1],"data_offsets":[0,4,8]}"#,
+        r#"{"dtype":"F32","shape":[1],"data_offsets":["0","4"]}"#,
+    ] {
+        let file = safetensors(&format!(r#"{{"t":{entry}}}"#, entry = entry), 96, 160);
+        assert_eq!(
+            header::read(&file, &mut kernel),
+            Err(header::HeaderError::TensorNotDescribed),
+            "an entry of {entry} was read as a tensor"
+        );
+    }
+}
+
+/// `FL-05`: A tensor ends before it starts
+#[test]
+fn engine_fl_05() {
+    let mut kernel = Accepting::new();
+    let file = safetensors(
+        r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[8,4]}}"#,
+        96,
+        160,
+    );
+    assert_eq!(
+        header::read(&file, &mut kernel),
+        Err(header::HeaderError::OffsetsDoNotRunForward)
+    );
+    assert!(
+        kernel.asked.is_empty(),
+        "a tensor that ends before it starts is no question for the kernel"
+    );
+}
+
+/// `FL-06`: The kernel did not accept a tensor byte range
+#[test]
+fn engine_fl_06() {
+    // A tensor that claims one byte more than the file holds: the range
+    // question is one of the kernel's own examples, and the kernel rejects it.
+    let file = safetensors(
+        r#"{"t":{"dtype":"F32","shape":[901],"data_offsets":[0,901]}}"#,
+        92,
+        1000,
+    );
+    assert_eq!(
+        header::read(
+            &file,
+            &mut Recorded {
+                answers: range_examples(),
+            }
+        ),
+        Err(header::HeaderError::RangeRefused(range::Verdict::Reject)),
+        "the kernel's refusal did not reach the caller"
+    );
+
+    // Whatever the kernel answers that is not an acceptance stops the read,
+    // carried as the kernel gave it.
+    struct Says(Vec<u8>);
+    impl Kernel for Says {
+        fn ask(&mut self, _request: &[u8]) -> Vec<u8> {
+            self.0.clone()
+        }
+    }
+    let whole = safetensors(
+        r#"{"t":{"dtype":"F32","shape":[900],"data_offsets":[0,900]}}"#,
+        92,
+        1000,
+    );
+    for (answer, verdict) in [
+        (&b"reject"[..], range::Verdict::Reject),
+        (INVALID_REQUEST, range::Verdict::Invalid),
+        (
+            b"a word the kernel never says",
+            range::Verdict::Unrecognised,
+        ),
+    ] {
+        assert_eq!(
+            header::read(&whole, &mut Says(answer.to_vec())),
+            Err(header::HeaderError::RangeRefused(verdict))
+        );
+    }
+}
+
+/// `FL-07`: The config bytes are not a JSON object
+#[test]
+fn engine_fl_07() {
+    for bytes in [
+        &b""[..],
+        b"not json at all",
+        b"[1,2,3]",
+        b"\"a string\"",
+        b"null",
+        b"{\"architectures\": ",
+    ] {
+        assert_eq!(config::read(bytes), Err(config::ConfigError::NotJson));
     }
 }

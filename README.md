@@ -17,8 +17,9 @@ The engine and the page never decide policy. They ask the kernel.
 
 ## Status
 
-The kernel is built, and the engine has its first crate, the client that writes
-the kernel's requests and reads its answers. What exists is listed in
+The kernel is built. The engine has two crates: the client that writes the
+kernel's requests and reads its answers, and the reader that turns a model's
+safetensors header and config into the questions the kernel answers. What exists is listed in
 [CONFORMANCE.md](CONFORMANCE.md), which is generated from
 [model/ids.toml](model/ids.toml); a capability that is not built has no row.
 
@@ -204,6 +205,8 @@ just new-capability KN-06 build kernel "<the statement>"
 | `features/suites/` | One scenario per registered claim. |
 | `crates/conformance/tests/kernel.rs` | One test per claim, pinning what its theorem says. |
 | `crates/kernel-client/` | The engine's client for the kernel: typed requests in, typed answers out. No dependencies, no allocation, no function that can fail. |
+| `crates/model-reader/` | Reads a model's safetensors header and config into the kernel's questions. The first crate here that can fail, and every way it can is registered. |
+| `model/failures.toml` | Every public failure a shipped crate may return: its type, its variant and when it is returned. |
 | `crates/conformance/tests/engine.rs` | The engine's tests, run against the kernel's own examples. |
 | `site/app.json` | What the app page says about the kernel. |
 | `docs/` | The brief and the implementation plan. |

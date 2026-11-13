@@ -73,6 +73,14 @@ name = "hologram-ai-kernel-client"
 version = "0.1.0"
 
 [[package]]
+name = "hologram-ai-model-reader"
+version = "0.1.0"
+dependencies = [
+ "hologram-ai-kernel-client",
+ "serde_json",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -123,7 +131,9 @@ name = "repo-conformance"
 version = "0.1.0"
 dependencies = [
  "hologram-ai-kernel-client",
+ "hologram-ai-model-reader",
  "repo-model",
+ "serde_json",
 ]
 
 [[package]]

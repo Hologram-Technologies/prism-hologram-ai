@@ -9,11 +9,18 @@ The engine is tested, never proved. What is proved is in
 
 ## What the engine is, so far
 
-One crate, `crates/kernel-client`: it writes the kernel's requests and reads its
-answers. It has no dependencies, uses no allocation and no unsafe code, and no
-function in it can fail: a request is built from typed arguments into a
-fixed-size array, and an answer the kernel is not known to give reads as
-`Unrecognised`, which a caller must handle and cannot mistake for a verdict.
+`crates/kernel-client` writes the kernel's requests and reads its answers. It
+has no dependencies, uses no allocation and no unsafe code, and no function in
+it can fail: a request is built from typed arguments into a fixed-size array,
+and an answer the kernel is not known to give reads as `Unrecognised`, which a
+caller must handle and cannot mistake for a verdict.
+
+`crates/model-reader` reads the two documents a model carries: the safetensors
+header, which says where each tensor's bytes lie, and the config, which says
+what kind of model it is. Both are untrusted bytes, so this is the first crate
+here that can fail, and the first with a dependency: `serde_json` parses them.
+It counts and it measures; it decides nothing. Whether a tensor's bytes lie
+where they claim, and whether a model may run, are put to the kernel.
 
 Nothing that downloads, compiles or runs a model is here yet. That code needs
 the hologram runtime, and rule R6 admits only crates.io dependencies; the
@@ -26,6 +33,11 @@ runtime's crates are not published there.
 | `EN-01`: the kernel client writes each request exactly as the kernel's examples have it and reads every answer the kernel gives | `engine_en_01` in `crates/conformance/tests/engine.rs`, over every example in `app/src/Kernel.lex.tex` | tested |
 | A number in an answer is read only when it is written as the kernel writes one | `decimal_reads_canonical_numbers` and `decimal_refuses_what_the_kernel_never_writes` in `crates/kernel-client/src/lib.rs` | tested |
 | The client accepts no answer text beyond what the kernel gives | not tested: the test reads the answers the examples give, and cannot enumerate text no example contains | not tested |
+| `EN-02`: a safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel | `engine_en_02`, over files built byte for byte in the test | tested |
+| `EN-03`: a model config is read into the preflight question | `engine_en_03`, over a whole config and every way of spoiling it this crate counts | tested |
+| `FL-01` to `FL-07`: the reader fails only as `model/failures.toml` lists | `engine_fl_01` to `engine_fl_07` | tested |
+| A tensor's length agrees with its shape and its dtype | not tested: the reader records what the header says and does not multiply it out | not tested |
+| A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
 ## EN-01, the kernel client
 
@@ -68,6 +80,81 @@ a number one past 64 bits all read as `Unrecognised` for every decision.
 
 Before the crate existed, the scaffolded test failed with `EN-01 is registered
 and not built`, as rule R3 requires.
+
+## EN-02 and EN-03, the model reader
+
+The tests build safetensors files byte for byte: eight bytes of header length,
+a padded JSON header, then the data. What the reader recovers is compared with
+where the test put it, so a header length read the wrong way round, a data start
+that forgets the eight bytes, tensors left in the order the header happens to
+list them, or a previous end that is not the previous tensor's end cannot
+survive.
+
+No answer about a byte range is written in the test. One kernel double answers
+only what the kernel's own examples record, and the files built for it are the
+ones whose range question is an example, so the guest has been seen to answer
+exactly that. The other replays the kernel's own text for an accepted range and
+keeps every request it was asked, which is how the fold over three tensors is
+checked.
+
+The config tests take a whole config and spoil it one way at a time: every name
+in the registry and several outside it, each required key dropped in turn, a key
+present as zero, a negative number, text, `null` and a fraction, and each gate
+activation the recipe implements and several it does not.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Twenty-one defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The header length is read big-endian | `engine_fl_03` |
+| The data starts at the header, not after the eight bytes of length | `engine_en_02` |
+| The tensors are left in the order the header lists them | `engine_en_02` |
+| The tensors are ordered by name instead of by where their bytes lie | `engine_en_02` |
+| Every tensor is asked about from the start of the data | `engine_en_02` |
+| The previous end is the previous tensor's start | `engine_en_02` |
+| The format's own `__metadata__` is read as a tensor | `engine_en_02` |
+| A tensor's length is its end plus its start | `engine_fl_05` |
+| A tensor that ends before it starts is read as an empty one | `engine_fl_05` |
+| A header that is any JSON at all is read | `engine_fl_03` |
+| A file shorter than its header length is read to its end | `engine_fl_02` |
+| A file with no header length reads as an empty header | `engine_fl_01` |
+| The kernel's answer about a range is not read | `engine_fl_06` |
+| Anything the kernel answers but a rejection is an acceptance | `engine_fl_06` |
+| A tensor's dtype is not required | `engine_fl_04` |
+| A family name is recognised whatever its case | `engine_en_03` |
+| A required key that is present but is not a positive number counts as present | `engine_en_03` |
+| A required key of zero counts as present | `engine_en_03` |
+| An activation that is not text is read as absent | `engine_en_03` |
+| The config's own flag is passed to the kernel in place of what the weights say | `engine_en_03` |
+| A config that is any JSON at all is read | `engine_fl_07` |
+| none, before and after | passed |
+
+Before the crate existed, the scaffolded tests failed with `EN-02 is registered
+and not built` and `FL-01 is registered and not built`, as rules R3 and R5
+require.
+
+One defect was planted and missed, and the code changed rather than the record:
+a header length added with wrapping arithmetic instead of checked. No caller can
+see the difference, because a sum that wraps lands before the eight bytes of
+length and a sum that saturates lands past the end of the file, and both are
+refused as a header that does not fit. The checked addition claimed a gate that
+could not fail, so the sum now saturates and says why.
+
+### What EN-02 and EN-03 do not establish
+
+- That the reader is right about a file it has not been given. The files are
+  built here; no checkpoint from a hub is read in this suite.
+- That a multi-tensor file's ranges are ones the compiled guest has answered.
+  The kernel's recorded examples carry no chain of range questions, so the
+  three-tensor fold is checked against a double that accepts, and only the
+  single-tensor files put a question the guest has been seen to answer.
+- That a tensor's bytes are what its name, dtype and shape say. Nothing here
+  reads the data, and `EN-02` is about where the bytes lie, not what they are.
+- Whether the tensor manifest fits the family's recipe. That is read from the
+  weights, and it reaches the kernel's preflight question as the caller's input.
 
 ## How the engine may fail
 

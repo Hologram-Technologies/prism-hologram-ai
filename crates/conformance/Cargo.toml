@@ -13,6 +13,8 @@ repo-model = { workspace = true }
 # The engine suite tests the shipped engine crates; they never depend on this one.
 [dev-dependencies]
 hologram-ai-kernel-client = { workspace = true }
+hologram-ai-model-reader = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

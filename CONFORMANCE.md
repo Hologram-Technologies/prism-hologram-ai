@@ -25,6 +25,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | ID | Level | Statement |
 | --- | --- | --- |
 | `EN-01` | `build` | The kernel client writes each request exactly as the kernel examples have it and reads every answer the kernel gives |
+| `EN-02` | `build` | A safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel |
+| `EN-03` | `build` | A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged |
 
 ## kernel
 
@@ -47,7 +49,15 @@ Every way a shipped crate can fail, from `model/failures.toml`. Each row has a
 negative scenario and a test that names its variant; the gate checks the name,
 not that the test provokes the failure.
 
-None registered: no shipped crate has a function that can fail.
+| ID | Crate | Failure | Condition |
+| --- | --- | --- | --- |
+| `FL-01` | `model-reader` | `HeaderError::TooShortForLength` | The file has fewer than the eight bytes that carry the header length |
+| `FL-02` | `model-reader` | `HeaderError::HeaderExceedsFile` | The header length the file declares does not fit inside the file |
+| `FL-03` | `model-reader` | `HeaderError::NotJson` | The header bytes are not a JSON object |
+| `FL-04` | `model-reader` | `HeaderError::TensorNotDescribed` | A header entry is not an object carrying a dtype, a shape of whole numbers and a pair of data offsets |
+| `FL-05` | `model-reader` | `HeaderError::OffsetsDoNotRunForward` | A tensor ends before it starts |
+| `FL-06` | `model-reader` | `HeaderError::RangeRefused` | The kernel did not accept a tensor byte range |
+| `FL-07` | `model-reader` | `ConfigError::NotJson` | The config bytes are not a JSON object |
 
 ## Cited authorities
 

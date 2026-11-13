@@ -87,3 +87,15 @@ id = "EN-01"
 level = "build"
 suite = "engine"
 statement = "The kernel client writes each request exactly as the kernel examples have it and reads every answer the kernel gives"
+
+[[id]]
+id = "EN-02"
+level = "build"
+suite = "engine"
+statement = "A safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel"
+
+[[id]]
+id = "EN-03"
+level = "build"
+suite = "engine"
+statement = "A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged"

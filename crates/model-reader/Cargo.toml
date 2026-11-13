@@ -1,0 +1,23 @@
+[package]
+name = "hologram-ai-model-reader"
+description = "Reads a model's safetensors header and its config into the questions the Hologram AI kernel answers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# `serde_json` parses two untrusted documents: the safetensors header and the
+# model's config. Both arrive from a download, so the parser is the one place
+# this crate meets bytes it did not write; it is a locked crates.io release
+# (R6), not a parser written here.
+[dependencies]
+hologram-ai-kernel-client = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
