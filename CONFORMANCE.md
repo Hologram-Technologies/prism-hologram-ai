@@ -35,6 +35,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-09` | `build` | A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses |
 | `EN-10` | `build` | The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs |
 | `EN-11` | `build` | A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are |
+| `EN-12` | `build` | Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second |
+| `EN-13` | `build` | Sixteen megabytes of download are labelled at no less than two hundred megabytes a second |
 
 ## kernel
 

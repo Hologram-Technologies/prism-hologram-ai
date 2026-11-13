@@ -186,3 +186,15 @@ Feature: engine
     Given the input that makes chat return ChatError::NoBudget
     When the suite exercises FL-19
     Then The kernel gave no token budget for the turn
+
+  @EN-12 @build
+  Scenario: Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second
+    Given the fixture EN-12 needs
+    When the suite exercises EN-12
+    Then Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second
+
+  @EN-13 @build
+  Scenario: Sixteen megabytes of download are labelled at no less than two hundred megabytes a second
+    Given the fixture EN-13 needs
+    When the suite exercises EN-13
+    Then Sixteen megabytes of download are labelled at no less than two hundred megabytes a second

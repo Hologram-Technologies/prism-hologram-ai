@@ -17,6 +17,8 @@
 // enforces them.
 #![forbid(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeSet;
+
 use hologram_ai_kernel_client::operators;
 
 mod wire;
@@ -102,11 +104,15 @@ impl Model {
     /// refused.
     #[must_use]
     pub fn missing(&self, implemented: &[&str]) -> Vec<Operator> {
+        // Seen in a set, reported in a list: a graph with tens of thousands of
+        // nodes is ordinary, and asking the list whether it already holds each
+        // one would read the whole list once per node.
+        let mut seen = BTreeSet::new();
         let mut out: Vec<Operator> = Vec::new();
         for operator in &self.operators {
             let known = operator.domain == DEFAULT_DOMAIN
                 && implemented.contains(&operator.op_type.as_str());
-            if !known && !out.contains(operator) {
+            if !known && seen.insert((operator.domain.as_str(), operator.op_type.as_str())) {
                 out.push(operator.clone());
             }
         }

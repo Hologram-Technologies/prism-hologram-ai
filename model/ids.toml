@@ -153,3 +153,15 @@ id = "EN-11"
 level = "build"
 suite = "engine"
 statement = "A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are"
+
+[[id]]
+id = "EN-12"
+level = "build"
+suite = "engine"
+statement = "Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second"
+
+[[id]]
+id = "EN-13"
+level = "build"
+suite = "engine"
+statement = "Sixteen megabytes of download are labelled at no less than two hundred megabytes a second"
