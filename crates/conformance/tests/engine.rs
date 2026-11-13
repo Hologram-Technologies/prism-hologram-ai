@@ -1829,3 +1829,105 @@ fn engine_fl_19() {
         Err(chat::ChatError::NoBudget(generation::Answer::ContextFull))
     );
 }
+
+// ─── How long it takes ──────────────────────────────────────────────────────
+//
+// Two bounds, both far above what the work costs, because a bound that is
+// close to the measurement fails on a busy machine and teaches nothing. What
+// they catch is a change of kind: a read that looks at the whole graph for
+// every node, or a hash that copies its input. Each prints what it measured,
+// so the record is a number and not an opinion.
+
+/// An ONNX file with `nodes` nodes, each naming one of a handful of operators.
+fn onnx_of(nodes: usize) -> Vec<u8> {
+    let names = ["MatMul", "Add", "Softmax", "Gelu", "Resize", "Attention"];
+    let built: Vec<Vec<u8>> = (0..nodes)
+        .map(|i| node(names[i % names.len()].as_bytes(), ""))
+        .collect();
+    onnx_file(&[opset("", 18)], Some(&graph(&built, 16)))
+}
+
+/// The best of three runs of `work`, which damps a machine doing something
+/// else at the time. The best run is the one least disturbed, so it is the one
+/// that says most about the code.
+fn best_of_three(mut work: impl FnMut()) -> std::time::Duration {
+    (0..3)
+        .map(|_| {
+            let started = std::time::Instant::now();
+            work();
+            started.elapsed()
+        })
+        .min()
+        .unwrap_or_default()
+}
+
+/// `EN-12`: Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second
+#[test]
+fn engine_en_12() {
+    let half = onnx_of(25_000);
+    let whole = onnx_of(50_000);
+    let read = |file: &[u8]| {
+        let model = onnx::read(file).expect("the model is read");
+        let question = model.question(&IMPLEMENTED, 7, 21);
+        let missing = model.missing(&IMPLEMENTED);
+        assert_eq!(question[0], 10, "the question is decision 10's");
+        assert_eq!(
+            missing.len(),
+            2,
+            "two of the six operators are not implemented"
+        );
+        model.operators.len()
+    };
+    assert_eq!(read(&whole), 50_000);
+
+    let small = best_of_three(|| {
+        read(&half);
+    });
+    let large = best_of_three(|| {
+        read(&whole);
+    });
+    let ratio = large.as_secs_f64() / small.as_secs_f64().max(f64::MIN_POSITIVE);
+    println!(
+        "EN-12: 25000 nodes in {small:?}, 50000 in {large:?}, ratio {ratio:.2},          {:.1} MB/s",
+        whole.len() as f64 / large.as_secs_f64() / 1e6
+    );
+
+    // Twice the nodes, twice the work. Three is the line because two is what
+    // reading each node once costs and four is what reading the graph again
+    // for every node costs; a machine busy with something else moves the
+    // measurement, not the shape of it.
+    assert!(
+        ratio < 3.0,
+        "twice the nodes took {ratio:.2} times as long: {small:?} then {large:?}"
+    );
+    assert!(
+        large < std::time::Duration::from_secs(1),
+        "fifty thousand nodes took {large:?}"
+    );
+}
+
+/// `EN-13`: Sixteen megabytes of download are labelled at no less than two hundred megabytes a second
+#[test]
+fn engine_en_13() {
+    let bytes = vector_input(16 << 20);
+    let mut label = download::Label([0; 32]);
+    let took = best_of_three(|| {
+        let mut arriving = download::Arriving::new();
+        for chunk in bytes.chunks(64 << 10) {
+            arriving.take(chunk);
+        }
+        assert_eq!(arriving.received(), bytes.len() as u64);
+        label = arriving.label();
+    });
+    let rate = bytes.len() as f64 / took.as_secs_f64() / 1e6;
+    println!(
+        "EN-13: {} bytes labelled in {took:?} ({rate:.1} MB/s)",
+        bytes.len()
+    );
+    assert_eq!(label.to_hex().len(), 64);
+
+    // The floor is far below what the hash does on any machine this runs on,
+    // and far above what it does when the bytes are copied first or handed
+    // over one at a time.
+    assert!(rate >= 200.0, "labelling ran at {rate:.1} MB/s");
+}

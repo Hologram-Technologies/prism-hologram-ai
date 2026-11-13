@@ -69,6 +69,9 @@ runtime's crates are not published there.
 | `FL-16` to `FL-19`: the conversation fails only as `model/failures.toml` lists | `engine_fl_16` to `engine_fl_19` | tested |
 | A conversation's token counts are the ones a tokeniser would give | not tested: no tokeniser is here, and the counts are the caller's |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
+| `EN-12`: reading an ONNX model costs time in proportion to its nodes, and fifty thousand are read in under a second | `engine_en_12`, timing 25,000 nodes and 50,000 and comparing | tested |
+| `EN-13`: sixteen megabytes are labelled at no less than two hundred megabytes a second | `engine_en_13` | tested |
+| How long any of this takes on the machine a reader has | not established: the numbers recorded here are this machine's, and the gates are floors far below them |
 | A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
 ## EN-01, the kernel client
@@ -368,6 +371,59 @@ rejected; none was missed.
   records.
 - That a conversation generates anything. Nothing here runs a model: the
   conversation keeps counts and asks what may be done with them.
+
+## EN-12 and EN-13, how long it takes
+
+Two gates, each shaped by what it can actually catch rather than by a number
+that sounds good.
+
+`EN-12` times a graph of 25,000 nodes and one of 50,000, best of three runs
+each, and requires the larger to take less than three times the smaller. Two is
+what reading each node once costs; four is what reading the graph again for
+every node costs. A ratio is machine-independent: a busy machine moves both
+measurements, not the shape of the relation between them. It also requires
+50,000 nodes to be read in under a second, which is the ONNX preflight budget
+this repository was asked for.
+
+`EN-13` requires sixteen megabytes to be labelled at no less than two hundred
+megabytes a second. A floor, not a ratio, because the way to make hashing slow
+is to feed it badly rather than to change its order.
+
+Measured here, in the gate's own debug build, on an AMD Ryzen AI Max 390:
+
+| What | Measured | The gate |
+| --- | --- | --- |
+| 50,000 ONNX nodes, read and asked about | 69 ms, 31.8 MB/s | under 1 s |
+| 25,000 against 50,000 nodes | ratio 1.84 | under 3 |
+| 16 MB labelled, in 64 KB chunks | 4.6 ms, 3650 MB/s | at least 200 MB/s |
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+| Planted defect | Result |
+| --- | --- |
+| Each node is put at the front of the list, moving every one already read | rejected by `engine_en_12`: ratio 4.19 |
+| The hash is given one byte at a time | rejected by `engine_en_13`: 15.1 MB/s |
+| The set of implemented operators is rebuilt for every node | **missed**: the cost is a constant factor, and the ratio is unchanged |
+| Every chunk is copied before it is hashed, behind the whole download | **missed**: the copy allocates pages it never touches, so it costs almost nothing after the first run |
+| none, before and after | passed |
+
+### What EN-12 and EN-13 do not establish
+
+- That the engine is fast on any machine but this one. The numbers above are
+  this machine's; the gates are floors far below them, so a slower machine
+  passes and a faster one is not rewarded.
+- That a constant-factor slowdown is caught. Both missed defects are of that
+  kind: one allocates per node, the other copies per chunk. A gate that caught
+  them would be a gate that failed whenever the machine was busy.
+- Anything about the browser. Nothing here is compiled to WebAssembly, where
+  the hash loses the vector instructions that make it fast natively.
+
+### A planted defect that was left behind
+
+One run of the defect script was killed by a timeout between planting a defect
+and restoring it, and the defect stayed in the working tree. Reading the diff
+before committing found it. The rule it illustrates is the one that found it:
+read what is about to be committed, not what was meant to be committed.
 
 ## How the engine may fail
 
