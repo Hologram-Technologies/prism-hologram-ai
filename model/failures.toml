@@ -1,0 +1,35 @@
+# model/failures.toml --- the failure register (R5).
+#
+# Every public failure of a shipped crate, one row per variant. A shipped crate
+# (any crate under `crates/` without `publish = false`) may return `Result` only
+# over an error type registered here for that crate, and that type must be a
+# closed `enum` whose variants are exactly the rows below for it, in both
+# directions. `cargo xtask audit-limits` enforces this; `CONFORMANCE.md` lists
+# the rows.
+#
+# Fields:
+#   id         `FL-` and a number
+#   crate      the owning crate's directory under `crates/`
+#   type       the error enum, declared in that crate
+#   variant    one variant of it; no catch-all (`Other`, `Unknown`) and no
+#              free text (`String`, `Box<dyn ...>`, `anyhow`)
+#   suite      the Gherkin suite holding its negative scenario
+#   condition  when the failure is returned, in one sentence
+#
+# Every row has a scenario tagged `@FL-NN @build` in
+# `features/suites/<suite>.feature` and a test in
+# `crates/conformance/tests/<suite>.rs` whose name ends in the ID, lowercased
+# with underscores, and whose body names `Type::Variant` (R3, R5). The gate
+# checks that the test names the variant, not that it provokes it.
+#
+# A kernel verdict is an answer, not an engine failure. Where the engine must
+# stop because the kernel refused, it returns one variant carrying the kernel's
+# verdict, so the policy is never restated in Rust.
+#
+# Empty: no shipped crate has a function that can fail. A row is added only in
+# the commit that adds the code that can return it; `just new-failure` writes the
+# row, its scenario and its failing test.
+
+spec = "template/1"
+
+failure = []

@@ -16,6 +16,10 @@
 
 #![no_std]
 #![forbid(unsafe_code)]
+// R5: this crate fails only as `model/failures.toml` lists, and never by
+// `unwrap`, `expect` or `panic!`. `audit-limits` checks these stay; `just lint`
+// enforces them.
+#![forbid(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 /// What the kernel answers to a request it does not accept: the wrong length
 /// for its decision, a field out of range, or a decision that does not exist.

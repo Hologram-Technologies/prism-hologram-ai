@@ -1,12 +1,14 @@
-//! `new-capability`: R3's first step, written in the order `AGENTS.md` sets.
+//! `new-capability` and `new-failure`: R3's first step, written in the order
+//! `AGENTS.md` sets.
 //!
 //! A capability begins as a register row, a scenario and a failing test. The
 //! three must agree on the ID, the level and the suite, and getting one of them
 //! subtly wrong (a test name that ends in `cx01` rather than `cx_01`, a scenario
 //! tagged with the wrong level) is reported by the meta-gate only after the
 //! next build. Writing all three from one set of arguments removes that round
-//! trip. Nothing here weakens a gate: the test fails until the capability is
-//! built, and `just vv` stays red until it is.
+//! trip. A failure (R5) takes the same path, with its row in
+//! `model/failures.toml`. Nothing here weakens a gate: the test fails until the
+//! capability is built, and `just vv` stays red until it is.
 
 use std::path::{Path, PathBuf};
 
@@ -109,49 +111,47 @@ fn toml_string(value: &str) -> String {
     out
 }
 
-/// `model/ids.toml` with the row appended. The empty register is written as
-/// `id = []`, which cannot coexist with an `[[id]]` table, so that line goes.
-fn register_with(ids: &str, c: &Capability) -> String {
-    let mut out: String = ids
+/// A register with one `[[table]]` row appended. The empty register is written
+/// as `table = []`, which cannot coexist with a `[[table]]` row, so that line
+/// goes.
+fn register_with(register: &str, table: &str, fields: &[(&str, &str)]) -> String {
+    let empty = format!("{table} = []");
+    let mut out: String = register
         .lines()
-        .filter(|line| line.trim() != "id = []")
+        .filter(|line| line.trim() != empty)
         .map(|line| format!("{line}\n"))
         .collect();
     while out.ends_with("\n\n") {
         out.pop();
     }
-    out.push_str(&format!(
-        "\n[[id]]\nid = {}\nlevel = {}\nsuite = {}\nstatement = {}\n",
-        toml_string(&c.id),
-        toml_string(&c.level),
-        toml_string(&c.suite),
-        toml_string(&c.statement),
-    ));
+    out.push_str(&format!("\n[[{table}]]\n"));
+    for (key, value) in fields {
+        out.push_str(&format!("{key} = {}\n", toml_string(value)));
+    }
     out
 }
 
-fn scenario(c: &Capability) -> String {
+fn scenario(c: &Capability, given: &str) -> String {
     format!(
-        "\n  @{id} @{level}\n  Scenario: {statement}\n    Given the fixture {id} needs\n    When the suite exercises {id}\n    Then {statement}\n",
+        "\n  @{id} @{level}\n  Scenario: {statement}\n    Given {given}\n    When the suite exercises {id}\n    Then {statement}\n",
         id = c.id,
         level = c.level,
         statement = c.statement,
     )
 }
 
-fn test_case(c: &Capability) -> String {
+fn test_case(c: &Capability, unbuilt: &str) -> String {
     format!(
-        "\n/// `{id}`: {statement}\n#[test]\nfn {name}() {{\n    panic!(\"{id} is registered and not built: assert what its scenario states\");\n}}\n",
+        "\n/// `{id}`: {statement}\n#[test]\nfn {name}() {{\n    panic!(\"{id} is registered and not built: {unbuilt}\");\n}}\n",
         id = c.id,
         statement = c.statement.replace('`', "'"),
         name = c.test_name(),
     )
 }
 
-/// The files one capability touches, relative to the root.
-fn paths(root: &Path, c: &Capability) -> (PathBuf, PathBuf, PathBuf) {
+/// The scenario and test files one capability touches.
+fn suite_paths(root: &Path, c: &Capability) -> (PathBuf, PathBuf) {
     (
-        root.join("model/ids.toml"),
         root.join("features/suites")
             .join(format!("{}.feature", c.suite)),
         root.join("crates/conformance/tests")
@@ -159,30 +159,32 @@ fn paths(root: &Path, c: &Capability) -> (PathBuf, PathBuf, PathBuf) {
     )
 }
 
-/// Write the row, the scenario and the failing test, then regenerate
-/// `CONFORMANCE.md`. Nothing is written when the ID is already registered or
-/// the register would not load afterwards.
-pub fn new_capability(root: &Path, args: &[String]) -> Result<(), Fail> {
-    let c = Capability::parse(args)?;
-    let model = Model::load(&root.join("model"))?;
-    if model.ids.get(&c.id).is_some() {
-        return Err(format!("{}: already registered in model/ids.toml", c.id).into());
-    }
-
-    let (ids_path, feature_path, test_path) = paths(root, &c);
-    let ids_before = std::fs::read_to_string(&ids_path)?;
-    std::fs::write(&ids_path, register_with(&ids_before, &c))?;
+/// R3's order, for either register: append the row, reload and cross-check the
+/// model (restoring the register if it does not check), then write the scenario
+/// and the failing test and regenerate `CONFORMANCE.md`.
+fn scaffold(
+    root: &Path,
+    register: &str,
+    row: String,
+    c: &Capability,
+    given: &str,
+    unbuilt: &str,
+) -> Result<(), Fail> {
+    let register_path = root.join("model").join(register);
+    let before = std::fs::read_to_string(&register_path)?;
+    std::fs::write(&register_path, row)?;
     let model = match Model::load(&root.join("model")).and_then(|m| m.check().map(|()| m)) {
         Ok(model) => model,
         Err(error) => {
-            std::fs::write(&ids_path, ids_before)?;
+            std::fs::write(&register_path, before)?;
             return Err(error.into());
         }
     };
 
+    let (feature_path, test_path) = suite_paths(root, c);
     let mut feature = std::fs::read_to_string(&feature_path)
         .unwrap_or_else(|_| format!("Feature: {}\n", c.suite));
-    feature.push_str(&scenario(&c));
+    feature.push_str(&scenario(c, given));
     std::fs::write(&feature_path, feature)?;
 
     let mut tests = std::fs::read_to_string(&test_path).unwrap_or_else(|_| {
@@ -191,7 +193,7 @@ pub fn new_capability(root: &Path, args: &[String]) -> Result<(), Fail> {
             c.suite, c.suite
         )
     });
-    tests.push_str(&test_case(&c));
+    tests.push_str(&test_case(c, unbuilt));
     if let Some(parent) = test_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -204,10 +206,10 @@ pub fn new_capability(root: &Path, args: &[String]) -> Result<(), Fail> {
 
     let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).display().to_string();
     println!(
-        "new-capability: {id} registered\n  {}\n  {}\n  {} (fn {name}, failing)\n  {}\n\
+        "{id} registered\n  {}\n  {}\n  {} (fn {name}, failing)\n  {}\n\
          Next: make {name} assert the scenario, implement until it passes, plant the \
          defect it exists to catch, then run `just vv`.",
-        rel(&ids_path),
+        rel(&register_path),
         rel(&feature_path),
         rel(&test_path),
         codegen::CONFORMANCE_PATH,
@@ -217,11 +219,84 @@ pub fn new_capability(root: &Path, args: &[String]) -> Result<(), Fail> {
     Ok(())
 }
 
+/// Write the row, the scenario and the failing test, then regenerate
+/// `CONFORMANCE.md`. Nothing is written when the ID is already registered or
+/// the register would not load afterwards.
+pub fn new_capability(root: &Path, args: &[String]) -> Result<(), Fail> {
+    let c = Capability::parse(args)?;
+    let model = Model::load(&root.join("model"))?;
+    if model.ids.get(&c.id).is_some() || model.failures.get(&c.id).is_some() {
+        return Err(format!("{}: already registered", c.id).into());
+    }
+    let ids = std::fs::read_to_string(root.join("model/ids.toml"))?;
+    let row = register_with(
+        &ids,
+        "id",
+        &[
+            ("id", &c.id),
+            ("level", &c.level),
+            ("suite", &c.suite),
+            ("statement", &c.statement),
+        ],
+    );
+    let given = format!("the fixture {} needs", c.id);
+    scaffold(
+        root,
+        "ids.toml",
+        row,
+        &c,
+        &given,
+        "assert what its scenario states",
+    )
+}
+
+/// R5's first step, through R3's: a row in `model/failures.toml`, a negative
+/// scenario tagged `build`, and a failing test that does not yet name the
+/// variant in code, so both the test and the meta-gate stay red until the
+/// failure is built and provoked. `audit-limits` stays red too, until the
+/// crate declares the variant.
+///
+/// `cargo xtask new-failure FL-01 kernel-client FetchError Timeout engine "..."`
+pub fn new_failure(root: &Path, args: &[String]) -> Result<(), Fail> {
+    let [id, krate, error, variant, suite, condition] = args else {
+        return Err(
+            "usage: cargo xtask new-failure <FL-NN> <crate> <Type> <Variant> <suite> <condition>"
+                .into(),
+        );
+    };
+    let c = Capability::parse(&[
+        id.clone(),
+        "build".to_string(),
+        suite.clone(),
+        condition.clone(),
+    ])?;
+    let model = Model::load(&root.join("model"))?;
+    if model.ids.get(&c.id).is_some() || model.failures.get(&c.id).is_some() {
+        return Err(format!("{}: already registered", c.id).into());
+    }
+    let failures = std::fs::read_to_string(root.join("model/failures.toml"))?;
+    let row = register_with(
+        &failures,
+        "failure",
+        &[
+            ("id", &c.id),
+            ("crate", krate),
+            ("type", error),
+            ("variant", variant),
+            ("suite", &c.suite),
+            ("condition", &c.statement),
+        ],
+    );
+    let given = format!("the input that makes {krate} return {error}::{variant}");
+    let unbuilt = format!("provoke the failure and assert it is {error}::{variant}");
+    scaffold(root, "failures.toml", row, &c, &given, &unbuilt)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{new_capability, register_with, Capability};
+    use super::{new_capability, new_failure, register_with, Capability};
+    use repo_conformance::TestFn;
     use repo_model::Model;
-    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
     fn args(values: [&str; 4]) -> Vec<String> {
@@ -249,24 +324,69 @@ mod tests {
             "spec = \"template/1\"\n\nid = []\n",
         )
         .unwrap();
+        std::fs::write(
+            root.join("model/failures.toml"),
+            "spec = \"template/1\"\n\nfailure = []\n",
+        )
+        .unwrap();
         root
     }
 
-    fn test_names(root: &Path) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        for entry in std::fs::read_dir(root.join("crates/conformance/tests")).unwrap() {
-            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-            let mut armed = false;
-            for line in text.lines() {
-                if line.trim() == "#[test]" {
-                    armed = true;
-                } else if let Some(rest) = line.strip_prefix("fn ").filter(|_| armed) {
-                    names.insert(rest.split('(').next().unwrap().to_string());
-                    armed = false;
-                }
-            }
-        }
-        names
+    fn test_names(root: &Path) -> Vec<TestFn> {
+        repo_conformance::test_index(root)
+    }
+
+    /// A failure scaffolds red, and goes green for the meta-gate only once its
+    /// test names the variant in code; a mention in the message is not enough.
+    #[test]
+    fn a_scaffolded_failure_is_red_until_its_test_names_the_variant() {
+        let root = scratch("failure");
+        new_failure(
+            &root,
+            &[
+                "FL-01",
+                "plant",
+                "PlantError",
+                "Refused",
+                "plant",
+                "The kernel refused the plan.",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        let model = Model::load(&root.join("model")).unwrap();
+        assert_eq!(model.failures.failure.len(), 1);
+        assert_eq!(model.failures.failure[0].variant, "Refused");
+
+        let report = repo_conformance::check_honesty(&root, &test_names(&root)).unwrap();
+        assert!(
+            report
+                .violations
+                .iter()
+                .any(|v| v.contains("does not name `PlantError::Refused` in code")),
+            "{:?}",
+            report.violations
+        );
+
+        let tests = root.join("crates/conformance/tests/plant.rs");
+        let text = std::fs::read_to_string(&tests).unwrap();
+        std::fs::write(
+            &tests,
+            text.replace(
+                "    panic!(",
+                "    let _ = PlantError::Refused;\n    panic!(",
+            ),
+        )
+        .unwrap();
+        let report = repo_conformance::check_honesty(&root, &test_names(&root)).unwrap();
+        assert!(report.is_clean(), "{:?}", report.violations);
+
+        assert!(new_failure(
+            &root,
+            &["FL-01", "plant", "PlantError", "Late", "plant", "Again."].map(String::from)
+        )
+        .is_err());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -352,7 +472,16 @@ mod tests {
     #[test]
     fn the_empty_register_becomes_a_table() {
         let c = Capability::parse(&args(["CX-01", "build", "s", "x"])).unwrap();
-        let out = register_with("spec = \"template/1\"\n\nid = []\n", &c);
+        let out = register_with(
+            "spec = \"template/1\"\n\nid = []\n",
+            "id",
+            &[
+                ("id", &c.id),
+                ("level", &c.level),
+                ("suite", &c.suite),
+                ("statement", &c.statement),
+            ],
+        );
         assert!(!out.contains("id = []"));
         assert!(out.ends_with(
             "[[id]]\nid = \"CX-01\"\nlevel = \"build\"\nsuite = \"s\"\nstatement = \"x\"\n"

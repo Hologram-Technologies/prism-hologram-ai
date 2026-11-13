@@ -14,8 +14,8 @@ vv: fmt-check model template-check lint test deny app
 fmt-check:
     cargo fmt --all -- --check
 
-# R1, R4, R5 and the bootstrap trust root: `check-model`, `audit-limits`,
-# `audit-deferral` and `audit-bootstrap` (which includes
+# R1, R4, R5 and the bootstrap trust root: `check-model`, `audit-limits` (the
+# failure register), `audit-deferral` and `audit-bootstrap` (which includes
 # `audit-dependency-updates`), in one `xtask` process.
 model:
     cargo run -q --locked -p xtask -- validate
@@ -99,3 +99,10 @@ model-write:
 #     just new-capability CX-01 build parsing "A parsed document round-trips"
 new-capability id level suite statement:
     cargo run -q --locked -p xtask -- new-capability {{quote(id)}} {{quote(level)}} {{quote(suite)}} {{quote(statement)}}
+
+# R5's first step, through R3's: a row in model/failures.toml, its negative
+# scenario, a failing test, and the regenerated CONFORMANCE.md.
+#
+#     just new-failure FL-01 kernel-client FetchError Timeout engine "The download stalls past its deadline"
+new-failure id crate type variant suite condition:
+    cargo run -q --locked -p xtask -- new-failure {{quote(id)}} {{quote(crate)}} {{quote(type)}} {{quote(variant)}} {{quote(suite)}} {{quote(condition)}}

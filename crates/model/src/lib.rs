@@ -14,7 +14,9 @@
 pub mod codegen;
 pub mod registry;
 
-pub use registry::{Authorities, AuthorityRow, Claim, IdRow, Ids, Ledger, Level};
+pub use registry::{
+    Authorities, AuthorityRow, Claim, FailureRow, Failures, IdRow, Ids, Ledger, Level,
+};
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +29,8 @@ pub struct Model {
     pub ids: Ids,
     /// `model/authorities.toml`: what this repository cites rather than proves.
     pub authorities: Authorities,
+    /// `model/failures.toml`: every public failure of a shipped crate (R5).
+    pub failures: Failures,
 }
 
 /// A failure to load or to cross-check the model.
@@ -59,6 +63,7 @@ impl Model {
             ledger: read(dir, "ledger.toml")?,
             ids: read(dir, "ids.toml")?,
             authorities: read(dir, "authorities.toml")?,
+            failures: read(dir, "failures.toml")?,
         })
     }
 
@@ -75,6 +80,68 @@ impl Model {
         self.ledger.check()?;
         self.check_ids()?;
         self.check_authorities()?;
+        self.check_failures()?;
+        Ok(())
+    }
+
+    /// R5: every registered failure is well formed, and no two rows name the
+    /// same ID or the same variant.
+    ///
+    /// What the rows say about the code --- that each type is a closed enum in
+    /// its crate with exactly these variants --- is checked by `audit-limits`,
+    /// which reads the source; this checks only the register.
+    fn check_failures(&self) -> Result<(), ModelError> {
+        let bad = |m: String| ModelError::Inconsistent(m);
+        let mut seen: Vec<&str> = Vec::new();
+        let mut variants: Vec<(&str, &str, &str)> = Vec::new();
+        for row in &self.failures.failure {
+            let id = row.id.as_str();
+            if seen.contains(&id) {
+                return Err(bad(format!("{id}: registered twice")));
+            }
+            seen.push(id);
+            if self.ids.get(id).is_some() {
+                return Err(bad(format!(
+                    "{id}: registered in both model/ids.toml and model/failures.toml; an ID \
+                     has one source (R1)"
+                )));
+            }
+            let well_formed = id
+                .strip_prefix("FL-")
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            if !well_formed {
+                return Err(bad(format!(
+                    "{id}: a failure ID is `FL-` and a number, such as FL-01"
+                )));
+            }
+            if row.krate.trim().is_empty() || row.suite.trim().is_empty() {
+                return Err(bad(format!(
+                    "{id}: a failure names its owning crate and the suite of its scenario (R3)"
+                )));
+            }
+            for (field, name) in [("type", &row.error), ("variant", &row.variant)] {
+                if !is_type_name(name) {
+                    return Err(bad(format!(
+                        "{id}: `{name}` is not a Rust type name; `{field}` is one identifier \
+                         beginning with an uppercase letter"
+                    )));
+                }
+            }
+            let condition = row.condition.trim();
+            if condition.is_empty() || condition.contains(['\n', '\r']) {
+                return Err(bad(format!(
+                    "{id}: the condition is one non-empty sentence (R5)"
+                )));
+            }
+            let key = (row.krate.as_str(), row.error.as_str(), row.variant.as_str());
+            if variants.contains(&key) {
+                return Err(bad(format!(
+                    "{id}: {}::{} in {} is registered twice",
+                    row.error, row.variant, row.krate
+                )));
+            }
+            variants.push(key);
+        }
         Ok(())
     }
 
@@ -151,6 +218,12 @@ impl Model {
         }
         Ok(())
     }
+}
+
+/// One ASCII identifier that begins with an uppercase letter.
+fn is_type_name(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_ascii_uppercase())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 fn read<T: serde::de::DeserializeOwned>(dir: &Path, name: &str) -> Result<T, ModelError> {

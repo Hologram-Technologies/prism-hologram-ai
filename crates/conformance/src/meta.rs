@@ -17,6 +17,18 @@ use std::path::Path;
 use repo_model::{Level, Model};
 
 use crate::runner::SuiteReport;
+use crate::source::TestFn;
+
+/// Does `code` name `path` (`Type::Variant`) as a whole path, not as the prefix
+/// of a longer name?
+fn names_path(code: &str, path: &str) -> bool {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    code.match_indices(path).any(|(at, _)| {
+        let before = code[..at].chars().next_back();
+        let after = code[at + path.len()..].chars().next();
+        !before.is_some_and(ident) && !after.is_some_and(ident)
+    })
+}
 
 /// What the meta-gate found.
 #[derive(Clone, Debug, Default)]
@@ -54,9 +66,9 @@ const ASSERTIVE: &[&str] = &[
 
 /// Run the meta-gate.
 ///
-/// `root` is the repository root. `tests` are the test names collected from the
-/// workspace, which the caller gathers because it knows how to run `cargo`.
-pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<HonestyReport> {
+/// `root` is the repository root. `tests` are the workspace's test functions,
+/// usually [`crate::source::test_index`] of the same root.
+pub fn check_honesty(root: &Path, tests: &[TestFn]) -> std::io::Result<HonestyReport> {
     let mut report = HonestyReport::default();
     let model = match Model::load(&root.join("model")) {
         Ok(m) => m,
@@ -83,7 +95,7 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
             ));
         }
         let slug = row.id.to_lowercase().replace('-', "_");
-        if !tests.iter().any(|t| t.ends_with(&slug)) {
+        if !tests.iter().any(|t| t.name.ends_with(&slug)) {
             report.violations.push(format!(
                 "CM-02: {} is registered but no test name ends in `{slug}`. A claim with \
                  no test is an assertion.",
@@ -92,9 +104,64 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
         }
     }
 
+    // R5, through R3's mechanism: every registered failure has a scenario in its
+    // suite and a test in its suite's file whose name ends in the ID and whose
+    // body names the variant in code. The gate reads the name; whether the test
+    // provokes the failure is what the planted defect for each row shows.
+    for row in &model.failures.failure {
+        let in_suite = suites
+            .scenarios
+            .iter()
+            .any(|s| s.id == row.id && s.suite == row.suite);
+        if !in_suite {
+            report.violations.push(format!(
+                "R5: {} is a registered failure but has no scenario in \
+                 features/suites/{}.feature. Every failure begins as a negative scenario.",
+                row.id, row.suite
+            ));
+        }
+        let slug = row.id.to_lowercase().replace('-', "_");
+        let file = format!(
+            "crates/conformance/tests/{}.rs",
+            row.suite.replace('-', "_")
+        );
+        let named: Vec<&TestFn> = tests
+            .iter()
+            .filter(|t| t.name.ends_with(&slug) && t.file == file)
+            .collect();
+        let path = format!("{}::{}", row.error, row.variant);
+        if named.is_empty() {
+            report.violations.push(format!(
+                "R5: {} is a registered failure but no test in {file} has a name ending \
+                 in `{slug}`. A failure with no negative test is not modelled.",
+                row.id
+            ));
+        } else if !named.iter().any(|t| names_path(&t.body, &path)) {
+            report.violations.push(format!(
+                "R5: the test for {} does not name `{path}` in code. A negative test \
+                 names the failure it expects.",
+                row.id
+            ));
+        }
+    }
+
     // CM-02, the other direction: every scenario names a registered ID.
     for s in &suites.scenarios {
-        if model.ids.get(&s.id).is_none() {
+        if let Some(row) = model.failures.get(&s.id) {
+            if s.level != "build" {
+                report.violations.push(format!(
+                    "R2: {} is a failure, tested here, so its scenario is tagged `build`, \
+                     not `{}`.",
+                    s.id, s.level
+                ));
+            }
+            if s.suite != row.suite {
+                report.violations.push(format!(
+                    "R5: {}'s scenario is in {} but its row names the suite {}.",
+                    s.id, s.suite, row.suite
+                ));
+            }
+        } else if model.ids.get(&s.id).is_none() {
             report.violations.push(format!(
                 "CM-02: scenario `{}` in {} names `{}`, which is not in the register.",
                 s.statement, s.suite, s.id
@@ -131,13 +198,18 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
     //
     // Only prefixes the register already uses are checked, so a test whose name
     // merely happens to end in two letters and two digits is not a claim.
+    // `FL` is always checked: the failure register's prefix is fixed, so a test
+    // claiming a failure that has no row is caught even while the register is
+    // empty.
     let prefixes: BTreeSet<String> = model
         .ids
         .id
         .iter()
         .filter_map(|r| r.id.split('-').next().map(str::to_lowercase))
+        .chain(std::iter::once("fl".to_string()))
         .collect();
-    for name in tests {
+    for test in tests {
+        let name = &test.name;
         let Some(tail) = name.rsplit("::").next() else {
             continue;
         };
@@ -153,9 +225,11 @@ pub fn check_honesty(root: &Path, tests: &BTreeSet<String>) -> std::io::Result<H
             continue;
         }
         let id = format!("{}-{digits}", letters.to_uppercase());
-        if model.ids.get(&id).is_none() {
+        if model.ids.get(&id).is_none() && model.failures.get(&id).is_none() {
             report.violations.push(format!(
-                "CM-02: test `{name}` names `{id}`, which is not in the register. An ID                  that exists only in a test name has no scenario and no row in                  CONFORMANCE.md."
+                "CM-02: test `{name}` names `{id}`, which is not in the register. An ID \
+                 that exists only in a test name has no scenario and no row in \
+                 CONFORMANCE.md."
             ));
         }
     }

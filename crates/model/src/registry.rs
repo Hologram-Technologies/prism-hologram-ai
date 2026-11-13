@@ -183,3 +183,43 @@ pub struct AuthorityRow {
     #[serde(default)]
     pub realized_by: Vec<String>,
 }
+
+/// `model/failures.toml` --- the failure register (R5).
+///
+/// Every way a shipped crate can fail, in one place. A shipped crate may return
+/// `Result` only over an error type named here for that crate, and that type is
+/// a closed enum whose variants are exactly this register's rows for it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Failures {
+    /// The schema tag.
+    pub spec: String,
+    /// One row per failure: one variant of one registered error type.
+    pub failure: Vec<FailureRow>,
+}
+
+/// One registered failure: a variant, the type it belongs to, and the crate
+/// that owns the type.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FailureRow {
+    /// The ID, e.g. `FL-01`.
+    pub id: String,
+    /// The owning crate: its directory under `crates/`.
+    #[serde(rename = "crate")]
+    pub krate: String,
+    /// The error type: a closed `enum` declared in the owning crate.
+    #[serde(rename = "type")]
+    pub error: String,
+    /// The variant of that enum this row is.
+    pub variant: String,
+    /// The Gherkin suite its negative scenario lives in (R3).
+    pub suite: String,
+    /// When the failure is returned, in one sentence.
+    pub condition: String,
+}
+
+impl Failures {
+    /// Look up a row.
+    pub fn get(&self, id: &str) -> Option<&FailureRow> {
+        self.failure.iter().find(|r| r.id == id)
+    }
+}

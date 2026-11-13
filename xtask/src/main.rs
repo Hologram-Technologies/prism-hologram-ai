@@ -32,18 +32,24 @@ fn main() -> ExitCode {
             let args: Vec<String> = std::env::args().skip(2).collect();
             scaffold::new_capability(&root, &args)
         }
+        "new-failure" => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            scaffold::new_failure(&root, &args)
+        }
         _ => {
             eprintln!(
                 "cargo xtask <task>\n\
                  \n\
                  check-model       R1: model/*.toml is the single source; regenerate and diff\n\
-                 audit-limits      R5:  no bound that cannot be traced to a parameter\n\
+                 audit-limits      R5: shipped crates fail only as model/failures.toml lists\n\
                  audit-deferral    R4: no deferral marker, no stub, no capability behind a flag\n\
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
                  new-capability <ID> <level> <suite> <statement>\n\
                                    R3: write the register row, scenario and failing test\n\
+                 new-failure <FL-NN> <crate> <Type> <Variant> <suite> <condition>\n\
+                                   R5: the same, for a failure: row, negative scenario, test\n\
                  \n\
                  --write           check-model only: rewrite the generated file"
             );
@@ -86,7 +92,7 @@ fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
     })?;
     if committed != conformance {
         return Err(format!(
-            "{} is stale: it disagrees with model/ids.toml.\n\
+            "{} is stale: it disagrees with model/*.toml.\n\
              R2: a claim cannot exist in the documentation without a ledger row. \
              Run `cargo xtask check-model --write`.",
             conformance_path.display()

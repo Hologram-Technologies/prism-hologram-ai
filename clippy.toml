@@ -7,3 +7,11 @@
 # where the deny lands on the code that owes it.
 
 msrv = "1.89"
+
+# A shipped crate forbids `unwrap`, `expect` and `panic!` at its root (R5,
+# `audit-limits`). A unit test inside it is not shipped and is allowed to stop
+# on the first surprise; these keep the crate-level forbid off `#[test]` and
+# `#[cfg(test)]` code without an `#[allow]` that would weaken it.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
