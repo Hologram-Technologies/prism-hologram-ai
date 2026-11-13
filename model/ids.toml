@@ -135,3 +135,21 @@ id = "EN-08"
 level = "build"
 suite = "engine"
 statement = "A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict"
+
+[[id]]
+id = "EN-09"
+level = "build"
+suite = "engine"
+statement = "A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses"
+
+[[id]]
+id = "EN-10"
+level = "build"
+suite = "engine"
+statement = "The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs"
+
+[[id]]
+id = "EN-11"
+level = "build"
+suite = "engine"
+statement = "A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are"

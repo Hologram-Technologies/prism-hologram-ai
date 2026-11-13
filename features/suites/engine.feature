@@ -144,3 +144,45 @@ Feature: engine
     Given the input that makes download return DownloadError::Refused
     When the suite exercises FL-15
     Then The kernel did not admit the buffer that arrived
+
+  @EN-09 @build
+  Scenario: A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses
+    Given the fixture EN-09 needs
+    When the suite exercises EN-09
+    Then A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses
+
+  @EN-10 @build
+  Scenario: The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs
+    Given the fixture EN-10 needs
+    When the suite exercises EN-10
+    Then The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs
+
+  @EN-11 @build
+  Scenario: A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are
+    Given the fixture EN-11 needs
+    When the suite exercises EN-11
+    Then A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are
+
+  @FL-16 @build
+  Scenario: The kernel did not give a state for the step that was asked
+    Given the input that makes chat return ChatError::StepRefused
+    When the suite exercises FL-16
+    Then The kernel did not give a state for the step that was asked
+
+  @FL-17 @build
+  Scenario: The kernel did not accept the trim the conversation proposed
+    Given the input that makes chat return ChatError::TrimRefused
+    When the suite exercises FL-17
+    Then The kernel did not accept the trim the conversation proposed
+
+  @FL-18 @build
+  Scenario: The kernel gave no decode bucket for the sequence
+    Given the input that makes chat return ChatError::NoBucket
+    When the suite exercises FL-18
+    Then The kernel gave no decode bucket for the sequence
+
+  @FL-19 @build
+  Scenario: The kernel gave no token budget for the turn
+    Given the input that makes chat return ChatError::NoBudget
+    When the suite exercises FL-19
+    Then The kernel gave no token budget for the turn

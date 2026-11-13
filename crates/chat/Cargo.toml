@@ -1,0 +1,20 @@
+[package]
+name = "hologram-ai-chat"
+description = "Keeps a conversation's state and its token arithmetic, and puts every question about them to the Hologram AI kernel."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# No dependencies. A conversation is counts of tokens and one state; what may
+# be done with them is the kernel's to answer.
+[dependencies]
+hologram-ai-kernel-client = { workspace = true }
+
+[lints]
+workspace = true

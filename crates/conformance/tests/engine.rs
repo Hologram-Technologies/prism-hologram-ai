@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use hologram_ai_chat as chat;
 use hologram_ai_download as download;
 use hologram_ai_model_reader::{config, header, Kernel};
 use hologram_ai_onnx_preflight as onnx;
@@ -1476,5 +1477,355 @@ fn engine_fl_15() {
     assert_eq!(
         arriving.admitted(download::Label([0; 32]), 19, &mut Refusing),
         Err(download::DownloadError::Refused(admission::Verdict::Refuse))
+    );
+}
+
+// ─── The conversation ───────────────────────────────────────────────────────
+//
+// Four of the kernel's decisions are about a conversation. The tests below put
+// the journey and the two token decisions to a kernel that answers only what
+// the kernel's own examples record, so the engine's state machine runs on
+// answers the compiled guest has replayed, not on answers written here.
+
+/// Every example of the decisions a conversation asks about.
+fn chat_examples() -> BTreeMap<Vec<u8>, Vec<u8>> {
+    examples()
+        .into_iter()
+        .filter(|(request, _)| matches!(request.first(), Some(1 | 7 | 8 | 9)))
+        .collect()
+}
+
+/// A kernel that answers only what the examples record, and keeps what it was
+/// asked.
+struct Replayed {
+    answers: BTreeMap<Vec<u8>, Vec<u8>>,
+    asked: Vec<Vec<u8>>,
+}
+
+impl Replayed {
+    fn new() -> Self {
+        Self {
+            answers: chat_examples(),
+            asked: Vec::new(),
+        }
+    }
+}
+
+impl chat::Kernel for Replayed {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        self.asked.push(request.to_vec());
+        self.answers
+            .get(request)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the kernel has no example for this request: {}",
+                    request
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                )
+            })
+            .clone()
+    }
+}
+
+/// A kernel that says one thing, whatever it is asked.
+struct Says(Vec<u8>);
+
+impl chat::Kernel for Says {
+    fn ask(&mut self, _request: &[u8]) -> Vec<u8> {
+        self.0.clone()
+    }
+}
+
+/// `EN-09`: A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses
+#[test]
+fn engine_en_09() {
+    use journey::{Event, State};
+
+    let mut kernel = Replayed::new();
+    let mut conversation = chat::Conversation::new(2048, 100);
+    assert_eq!(conversation.state(), State::Idle);
+
+    // The whole journey, each step an example the guest has replayed.
+    for (event, state) in [
+        (Event::Start, State::Preflight),
+        (Event::PreflightPassed, State::Download),
+        (Event::DownloadDone, State::Compile),
+        (Event::CompileDone, State::Materialize),
+        (Event::LabelsVerified, State::Ready),
+        (Event::Send, State::Generating),
+        (Event::TurnDone, State::Ready),
+    ] {
+        assert_eq!(conversation.step(event, &mut kernel), Ok(state));
+        assert_eq!(conversation.state(), state, "{event:?} left it elsewhere");
+    }
+    assert_eq!(
+        kernel.asked.first().map(Vec::as_slice),
+        Some(&journey::request(State::Idle, Event::Start)[..]),
+        "the first question was not about the state the conversation was in"
+    );
+
+    // A step the kernel refuses leaves it exactly where it was.
+    assert_eq!(
+        conversation.step(Event::Fail, &mut kernel),
+        Err(chat::ChatError::StepRefused(journey::Step::Refused)),
+        "failing is not something a ready conversation may do"
+    );
+    assert_eq!(conversation.state(), State::Ready);
+
+    // Failing from a working state is, and a failed conversation leaves only
+    // by reset: a start is refused and changes nothing.
+    let mut downloading = chat::Conversation::new(2048, 100);
+    assert_eq!(
+        downloading.step(Event::Start, &mut kernel),
+        Ok(State::Preflight)
+    );
+    assert_eq!(
+        downloading.step(Event::PreflightPassed, &mut kernel),
+        Ok(State::Download)
+    );
+    assert_eq!(
+        downloading.step(Event::LabelsVerified, &mut kernel),
+        Err(chat::ChatError::StepRefused(journey::Step::Refused))
+    );
+    assert_eq!(downloading.state(), State::Download);
+    assert_eq!(
+        downloading.step(Event::Fail, &mut kernel),
+        Ok(State::Failed)
+    );
+    assert_eq!(
+        downloading.step(Event::Start, &mut kernel),
+        Err(chat::ChatError::StepRefused(journey::Step::Refused))
+    );
+    assert_eq!(downloading.state(), State::Failed);
+    assert_eq!(downloading.step(Event::Reset, &mut kernel), Ok(State::Idle));
+
+    // An answer the client does not know is a refusal like any other, and
+    // leaves the conversation where it was.
+    for answer in [&b"somewhere new"[..], b"", b"Ready", INVALID_REQUEST] {
+        let mut odd = chat::Conversation::new(2048, 100);
+        let step = odd.step(Event::Start, &mut Says(answer.to_vec()));
+        assert!(
+            matches!(step, Err(chat::ChatError::StepRefused(_))),
+            "{} was taken as a step",
+            String::from_utf8_lossy(answer)
+        );
+        assert_eq!(odd.state(), State::Idle);
+    }
+}
+
+/// `EN-10`: The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs
+#[test]
+fn engine_en_10() {
+    for (context, fixed, pairs) in [
+        (2048u64, 100u64, vec![]),
+        (2048, 100, vec![10]),
+        (2048, 100, vec![500, 500, 500]),
+        (2048, 100, vec![900, 900, 900]),
+        (2048, 2048, vec![1]),
+        (2048, 2049, vec![1, 2, 3]),
+        (1000, 100, vec![100, 200, 300, 400, 500]),
+        (1000, 0, vec![1000]),
+        (1000, 0, vec![1001]),
+        (100, 10, vec![30, 30, 30, 30]),
+        (0, 0, vec![1]),
+        (u64::MAX, 1, vec![u64::MAX]),
+    ] {
+        let mut conversation = chat::Conversation::new(context, fixed);
+        for pair in &pairs {
+            conversation.remember(*pair);
+        }
+        let proposed = conversation.proposed_trim();
+        let total: u64 = pairs.iter().fold(0u64, |sum, p| sum.saturating_add(*p));
+        assert_eq!(conversation.total(), total);
+
+        // Whole pairs, from the oldest: what is dropped is the first few.
+        assert!(proposed.pairs <= pairs.len());
+        assert_eq!(
+            proposed.dropped,
+            pairs[..proposed.pairs]
+                .iter()
+                .fold(0u64, |sum, p| sum.saturating_add(*p)),
+            "{pairs:?}: what is reported dropped is not the total of the pairs dropped"
+        );
+        assert_eq!(
+            proposed.newest_dropped,
+            if proposed.pairs == 0 {
+                0
+            } else {
+                pairs[proposed.pairs - 1]
+            },
+            "{pairs:?}: the newest dropped is not the last pair dropped"
+        );
+
+        // The fewest: what remains fits, unless nothing can make it fit, and
+        // putting the newest dropped pair back would not.
+        let remaining = total.saturating_sub(proposed.dropped);
+        if proposed.pairs < pairs.len() {
+            assert!(
+                fixed.saturating_add(remaining) <= context,
+                "{pairs:?}: it stopped dropping before the rest fitted"
+            );
+        }
+        if proposed.pairs > 0 {
+            let restored = remaining.saturating_add(proposed.newest_dropped);
+            assert!(
+                fixed.saturating_add(restored) > context,
+                "{pairs:?}: it dropped a pair that did not have to go"
+            );
+        }
+
+        // Nothing is dropped from a conversation that already fits.
+        if fixed.saturating_add(total) <= context {
+            assert_eq!(
+                proposed,
+                chat::Trim::default(),
+                "{pairs:?}: it trimmed a conversation that fitted"
+            );
+        }
+
+        // The question carries the five numbers in the order the wire fixes.
+        assert_eq!(
+            conversation.trim_question().to_vec(),
+            trim::request(
+                context,
+                fixed,
+                total,
+                proposed.dropped,
+                proposed.newest_dropped
+            )
+            .to_vec(),
+            "{pairs:?}: the question is not the one the conversation proposes"
+        );
+    }
+}
+
+/// `EN-11`: A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are
+#[test]
+fn engine_en_11() {
+    // Accepted: exactly the pairs proposed are forgotten, oldest first.
+    let mut conversation = chat::Conversation::new(1000, 100);
+    for pair in [100, 200, 300, 400, 500] {
+        conversation.remember(pair);
+    }
+    // 1500 tokens of pairs beside 100 that never go, in 1000 of context: the
+    // three oldest pairs have to go, and no more.
+    assert_eq!(
+        conversation.proposed_trim(),
+        chat::Trim {
+            pairs: 3,
+            dropped: 600,
+            newest_dropped: 300
+        }
+    );
+    assert_eq!(
+        conversation.trim(&mut Says(b"trim".to_vec())),
+        Ok(chat::Trim {
+            pairs: 3,
+            dropped: 600,
+            newest_dropped: 300
+        })
+    );
+    assert_eq!(
+        conversation.pairs(),
+        [400, 500],
+        "the pairs left are not the ones that were not dropped"
+    );
+    assert_eq!(conversation.total(), 900);
+
+    // Refused: nothing is forgotten, and the verdict comes back as given.
+    for (answer, verdict) in [
+        (&b"too long"[..], trim::Verdict::TooLong),
+        (b"does not fit", trim::Verdict::DoesNotFit),
+        (b"drops too many", trim::Verdict::DropsTooMany),
+        (b"dropped exceeds total", trim::Verdict::DroppedExceedsTotal),
+        (INVALID_REQUEST, trim::Verdict::Invalid),
+        (b"nothing the kernel says", trim::Verdict::Unrecognised),
+    ] {
+        let mut whole = chat::Conversation::new(1000, 100);
+        for pair in [100, 200, 300, 400, 500] {
+            whole.remember(pair);
+        }
+        assert_eq!(
+            whole.trim(&mut Says(answer.to_vec())),
+            Err(chat::ChatError::TrimRefused(verdict)),
+            "{} did not leave the conversation whole",
+            String::from_utf8_lossy(answer)
+        );
+        assert_eq!(whole.pairs(), [100, 200, 300, 400, 500]);
+    }
+
+    // The bucket and the budget, from the kernel's own examples.
+    let mut kernel = Replayed::new();
+    let conversation = chat::Conversation::new(2048, 100);
+    assert_eq!(conversation.bucket(5, 0, 2048, &mut kernel), Ok(5));
+    assert_eq!(conversation.bucket(100, 64, 2048, &mut kernel), Ok(128));
+    assert_eq!(conversation.budget(100, 0, &mut kernel), Ok(1948));
+    assert_eq!(conversation.budget(100, 256, &mut kernel), Ok(256));
+    assert_eq!(
+        kernel.asked.last().map(Vec::as_slice),
+        Some(&generation::request(2048, 100, 256)[..]),
+        "the budget was asked for some other turn"
+    );
+
+    // A bucket the kernel will not give, and a turn with no room left.
+    assert_eq!(
+        conversation.bucket(2049, 64, 2048, &mut Says(b"context exceeded".to_vec())),
+        Err(chat::ChatError::NoBucket(bucket::Answer::ContextExceeded))
+    );
+    assert_eq!(
+        conversation.budget(2048, 0, &mut Says(b"context full".to_vec())),
+        Err(chat::ChatError::NoBudget(generation::Answer::ContextFull))
+    );
+}
+
+/// `FL-16`: The kernel did not give a state for the step that was asked
+#[test]
+fn engine_fl_16() {
+    let mut conversation = chat::Conversation::new(2048, 100);
+    assert_eq!(
+        conversation.step(journey::Event::TurnDone, &mut Says(b"refused".to_vec())),
+        Err(chat::ChatError::StepRefused(journey::Step::Refused))
+    );
+    assert_eq!(conversation.state(), journey::State::Idle);
+}
+
+/// `FL-17`: The kernel did not accept the trim the conversation proposed
+#[test]
+fn engine_fl_17() {
+    let mut conversation = chat::Conversation::new(10, 10);
+    conversation.remember(5);
+    assert_eq!(
+        conversation.trim(&mut Says(b"too long".to_vec())),
+        Err(chat::ChatError::TrimRefused(trim::Verdict::TooLong))
+    );
+    assert_eq!(conversation.pairs(), [5]);
+}
+
+/// `FL-18`: The kernel gave no decode bucket for the sequence
+#[test]
+fn engine_fl_18() {
+    let conversation = chat::Conversation::new(2048, 100);
+    assert_eq!(
+        conversation.bucket(
+            4096,
+            64,
+            2048,
+            &mut Says(b"bucket exceeds maximum".to_vec())
+        ),
+        Err(chat::ChatError::NoBucket(
+            bucket::Answer::BucketExceedsMaximum
+        ))
+    );
+}
+
+/// `FL-19`: The kernel gave no token budget for the turn
+#[test]
+fn engine_fl_19() {
+    let conversation = chat::Conversation::new(2048, 100);
+    assert_eq!(
+        conversation.budget(2048, 16, &mut Says(b"context full".to_vec())),
+        Err(chat::ChatError::NoBudget(generation::Answer::ContextFull))
     );
 }
