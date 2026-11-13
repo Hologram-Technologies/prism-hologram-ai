@@ -204,3 +204,9 @@ Feature: engine
     Given the fixture EN-14 needs
     When the suite exercises EN-14
     Then The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+
+  @EN-15 @build
+  Scenario: Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way
+    Given the fixture EN-15 needs
+    When the suite exercises EN-15
+    Then Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way

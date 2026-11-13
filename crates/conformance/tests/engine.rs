@@ -2203,3 +2203,225 @@ for (const [bytes, answer] of examples) {
 if (reproduced < 80) throw new Error(`only ${reproduced} examples reproduced`);
 console.log(`${reproduced} examples reproduced`);
 "#;
+
+// ─── What the readers do with anything at all ───────────────────────────────
+//
+// Two readers here are handed bytes someone else wrote: the safetensors header
+// and the ONNX model. Both are parsers of untrusted input, which is where a
+// stray index or a subtraction that goes below zero stops being a style
+// question. This puts a few thousand files to them — random bytes, good files
+// with bytes changed, good files cut short at every length — and requires
+// three things of every one: no panic, a failure the register lists, and the
+// same answer for the same bytes.
+
+/// A small deterministic generator. The same seed gives the same corpus on
+/// every machine and every run, so a failure here can be reproduced exactly.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        // xorshift64*: enough for shaking a parser, and it fits in the test.
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+
+    fn below(&mut self, limit: usize) -> usize {
+        if limit == 0 {
+            0
+        } else {
+            (self.next() % limit as u64) as usize
+        }
+    }
+
+    fn byte(&mut self) -> u8 {
+        (self.next() & 0xff) as u8
+    }
+}
+
+/// Files to put to a reader: the good one, then bytes changed in it, cuts at
+/// every length, and random bytes of many lengths.
+fn shaken(good: &[u8], rng: &mut Rng) -> Vec<Vec<u8>> {
+    let mut out = vec![good.to_vec()];
+
+    // One to five bytes changed, anywhere.
+    for _ in 0..400 {
+        let mut file = good.to_vec();
+        for _ in 0..1 + rng.below(5) {
+            if file.is_empty() {
+                break;
+            }
+            let at = rng.below(file.len());
+            file[at] = rng.byte();
+        }
+        out.push(file);
+    }
+
+    // Cut short at every length, which is what a download that stops looks
+    // like, and lengthened with whatever came next.
+    for length in 0..good.len().min(300) {
+        out.push(good[..length].to_vec());
+    }
+    for _ in 0..100 {
+        let mut file = good.to_vec();
+        for _ in 0..rng.below(64) {
+            file.push(rng.byte());
+        }
+        out.push(file);
+    }
+
+    // Bytes with no shape at all, short and long.
+    for _ in 0..600 {
+        let length = rng.below(512);
+        out.push((0..length).map(|_| rng.byte()).collect());
+    }
+    out
+}
+
+/// `EN-15`: Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way
+#[test]
+fn engine_en_15() {
+    let mut rng = Rng(0x5eed_1234_5678_9abc);
+
+    // Headers that are well formed as JSON and adversarial as numbers: offsets
+    // that run backwards, lengths past any file, a shape that is not a number.
+    // Changing bytes at random almost never lands on one of these, because
+    // almost every change breaks the JSON first.
+    let mut built = Vec::new();
+    for _ in 0..400 {
+        let pick = |rng: &mut Rng| -> String {
+            match rng.below(6) {
+                0 => "0".into(),
+                1 => "16".into(),
+                2 => u64::MAX.to_string(),
+                3 => (u64::MAX - 8).to_string(),
+                4 => rng.next().to_string(),
+                _ => (rng.below(4096) as u64).to_string(),
+            }
+        };
+        let header = format!(
+            r#"{{"t":{{"dtype":"F32","shape":[{}],"data_offsets":[{},{}]}}}}"#,
+            pick(&mut rng),
+            pick(&mut rng),
+            pick(&mut rng)
+        );
+        let room = header.len() + 8 + rng.below(64);
+        built.push(safetensors(&header, header.len(), room));
+    }
+
+    // The safetensors header, shaken.
+    let good_header = safetensors(
+        r#"{"a":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]},"b":{"dtype":"BF16","shape":[4],"data_offsets":[16,24]}}"#,
+        160,
+        192,
+    );
+    let mut answered = 0usize;
+    for file in shaken(&good_header, &mut rng).into_iter().chain(built) {
+        let mut kernel = Accepting::new();
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            header::read(&file, &mut kernel)
+        }));
+        let Ok(read) = read else {
+            panic!(
+                "the safetensors reader panicked on {} bytes: {}",
+                file.len(),
+                hex(&String::from_utf8_lossy(&file[..file.len().min(64)]))
+            );
+        };
+        if let Err(failure) = &read {
+            assert!(
+                matches!(
+                    failure,
+                    header::HeaderError::TooShortForLength
+                        | header::HeaderError::HeaderExceedsFile
+                        | header::HeaderError::NotJson
+                        | header::HeaderError::TensorNotDescribed
+                        | header::HeaderError::OffsetsDoNotRunForward
+                        | header::HeaderError::RangeRefused(_)
+                ),
+                "the safetensors reader failed in a way the register does not list: {failure:?}"
+            );
+        }
+        // The same bytes, the same answer: a reader that depended on anything
+        // but its input would differ here.
+        let mut again = Accepting::new();
+        assert_eq!(
+            header::read(&file, &mut again),
+            read,
+            "the safetensors reader answered the same bytes differently"
+        );
+        answered += 1;
+    }
+
+    // The ONNX model, shaken.
+    let good_model = onnx_file(
+        &[opset("", 18), opset("com.microsoft", 1)],
+        Some(&graph(&[node(b"MatMul", ""), node(b"Resize", "")], 2)),
+    );
+    for file in shaken(&good_model, &mut rng) {
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| onnx::read(&file)));
+        let Ok(read) = read else {
+            panic!("the ONNX reader panicked on {} bytes", file.len());
+        };
+        if let Err(failure) = &read {
+            assert!(
+                matches!(
+                    failure,
+                    onnx::OnnxError::Truncated
+                        | onnx::OnnxError::NumberTooLong
+                        | onnx::OnnxError::UnknownEncoding
+                        | onnx::OnnxError::NameNotText
+                        | onnx::OnnxError::NoGraph
+                        | onnx::OnnxError::NoDefaultOpset
+                ),
+                "the ONNX reader failed in a way the register does not list: {failure:?}"
+            );
+        }
+        if let Ok(model) = &read {
+            // Whatever it read, what it says about it holds: the question it
+            // puts is decision 10's, and nothing it reports missing is outside
+            // what it read.
+            let question = model.question(&IMPLEMENTED, 7, 21);
+            assert_eq!(question[0], 10);
+            assert!(model.missing(&IMPLEMENTED).len() <= model.operators.len());
+        }
+        assert_eq!(
+            onnx::read(&file),
+            read,
+            "the ONNX reader answered the same bytes differently"
+        );
+        answered += 1;
+    }
+
+    // The config, shaken: it is JSON, and JSON is somebody else's parser, but
+    // what this crate does with what comes back is its own.
+    for file in shaken(WHOLE_CONFIG.as_bytes(), &mut rng) {
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| config::read(&file)));
+        let Ok(read) = read else {
+            panic!("the config reader panicked on {} bytes", file.len());
+        };
+        if let Ok(reading) = read {
+            assert!(
+                usize::from(reading.missing_keys) <= config::REQUIRED_KEYS.len(),
+                "more keys are missing than there are keys"
+            );
+            assert!(reading.unsupported_features <= 1);
+        }
+        assert_eq!(config::read(&file), read);
+        answered += 1;
+    }
+
+    assert!(
+        answered > 3_000,
+        "only {answered} files were put to the readers"
+    );
+    println!("EN-15: {answered} files, no panic, no unregistered failure");
+}
+
+/// The bytes of `text`, for a message about a file that is not text.
+fn hex(text: &str) -> String {
+    text.bytes().map(|byte| format!("{byte:02x}")).collect()
+}

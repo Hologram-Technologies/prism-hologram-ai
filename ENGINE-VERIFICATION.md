@@ -58,6 +58,7 @@ runtime's crates are not published there.
 | `EN-04`: an ONNX model's opset, operators and tensor count are read from the file | `engine_en_04`, over files written out field by field in the test | tested |
 | `EN-05`: the operators a builder does not implement are counted into the kernel's question | `engine_en_05` | tested |
 | `FL-08` to `FL-13`: the preflight fails only as `model/failures.toml` lists | `engine_fl_08` to `engine_fl_13` | tested |
+| `EN-15`: every reader of a file someone else wrote never panics, fails only as the register lists, and answers the same bytes the same way | `engine_en_15`, over 4,369 files from one seed | tested |
 | An ONNX file from a hub reads as its publisher meant it | not tested: every file in this suite is written here | not tested |
 | `EN-06`: a buffer's label is the BLAKE3 hash of its bytes | `engine_en_06`, over all 35 published test vectors, whose vendored file is checked against the checksum in `model/authorities.toml` first | reproduced from the authority, not established here |
 | `EN-07`: a download's label and length do not depend on how its bytes were split | `engine_en_07`, over ten lengths either side of the hash's own block and chunk sizes, in six chunk sizes each | tested |
@@ -493,6 +494,55 @@ rejected; none was missed.
   answer through, and nothing here replays a guest.
 - That someone can tell what the numbers mean. The form names each field; it
   does not explain the decision.
+
+## EN-15, what the readers do with anything at all
+
+Two readers here are handed bytes someone else wrote: the safetensors header
+and the ONNX model. Both parse untrusted input, which is where a stray index or
+a subtraction that goes below zero stops being a question of style.
+
+`EN-15` puts 4,369 files to them, from one seed, so a failure can be reproduced
+exactly: the good file, the good file with one to five bytes changed, the good
+file cut short at every length and lengthened with noise, bytes with no shape
+at all, and — for the safetensors header — four hundred headers that are well
+formed as JSON and adversarial as numbers.
+
+Three things are required of every one: it does not panic, caught by running
+each read inside `catch_unwind`; it fails only as `model/failures.toml` lists;
+and the same bytes give the same answer, which a reader that depended on
+anything but its input would not.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+| Planted defect | Result |
+| --- | --- |
+| A length-delimited field is taken without asking whether it is there | rejected: the ONNX reader panicked on 196 bytes |
+| A number is read past the end of the file | rejected: the same |
+| The header length is read from a file that may not have one | rejected: the safetensors reader panicked on 0 bytes |
+| A tensor's length is taken without checking it runs forward | rejected, after the corpus was strengthened |
+| The reader answers the same bytes differently each time | rejected: the same bytes answered differently |
+| none, before and after | passed |
+
+The fourth was missed at first, and the generator changed rather than the
+record. Changing bytes at random almost never reaches a tensor whose offsets
+run backwards, because almost every change breaks the JSON before the numbers
+are read. The four hundred built headers reach it, and a reader that subtracts
+without checking now panics on one of them.
+
+A sixth defect was planted and withdrawn: stepping over a fixed-width field
+without checking that the position plus four or eight overflows. The check
+could not fail — the position is inside a slice that exists and the width is
+four or eight — so the code now adds plainly and says why. A branch no file can
+take is a branch no test can reach.
+
+### What EN-15 does not establish
+
+- That the readers are right about a file. It establishes what they do not do.
+  What they read is `EN-02`, `EN-04` and the rest.
+- That no input panics. Four thousand files from one seed is a search, not a
+  proof; a reader that panicked on one input in a million would pass this.
+- Anything about the JSON parser underneath the config reader, which is a
+  crates.io release, not this repository's.
 
 ## How the engine may fail
 
