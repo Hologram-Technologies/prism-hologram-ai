@@ -89,3 +89,9 @@ Feature: kernel
     And ready is entered only from materialize when the labels are verified, or back from generating
     And failed is entered only by a failure while work is under way, and left only by reset
     And every other step is refused
+
+  @KN-10 @build
+  Scenario: A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable
+    Given the fixture KN-10 needs
+    When the suite exercises KN-10
+    Then A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable

@@ -31,6 +31,7 @@ runtime's crates are not published there.
 | Claim | Evidence | Kind |
 | --- | --- | --- |
 | `EN-01`: the kernel client writes each request exactly as the kernel's examples have it and reads every answer the kernel gives | `engine_en_01` in `crates/conformance/tests/engine.rs`, over every example in `app/src/Kernel.lex.tex` | tested |
+| A graph may be built on one verdict of decision 10 and on nothing else | `engine_en_01`, over every verdict the client knows, including the ones it reads as unrecognised | tested |
 | A number in an answer is read only when it is written as the kernel writes one | `decimal_reads_canonical_numbers` and `decimal_refuses_what_the_kernel_never_writes` in `crates/kernel-client/src/lib.rs` | tested |
 | The client accepts no answer text beyond what the kernel gives | not tested: the test reads the answers the examples give, and cannot enumerate text no example contains | not tested |
 | `EN-02`: a safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel | `engine_en_02`, over files built byte for byte in the test | tested |

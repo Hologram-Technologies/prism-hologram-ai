@@ -42,6 +42,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-07` | `build` | A proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not |
 | `KN-03` | `build` | A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once |
 | `KN-01` | `build` | Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused |
+| `KN-10` | `build` | A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable |
 
 ## Public failures
 

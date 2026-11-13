@@ -679,8 +679,16 @@ mod tests {
     /// A scratch repository with this one's model, a register of `failures`
     /// and one shipped crate `plant` whose `src/lib.rs` is `lib`.
     fn audit(name: &str, failures: &str, lib: &str) -> String {
-        let root =
-            std::env::temp_dir().join(format!("xtask-audit-limits-{name}-{}", std::process::id()));
+        // The count, not the name: two tests may pick the same case name, and
+        // tests run at the same time. Sharing a directory made one test delete
+        // what another was still reading, which failed somewhere else and
+        // looked like a fault in the gate.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "xtask-audit-limits-{name}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let real = repo_model::repo_root();
         std::fs::create_dir_all(root.join("model")).unwrap();

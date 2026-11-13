@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use hologram_ai_model_reader::{config, header, Kernel};
 
 use hologram_ai_kernel_client::{
-    admission, bucket, generation, journey, plan, preflight, range, shape, tier, trim,
+    admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
     INVALID_REQUEST,
 };
 
@@ -97,6 +97,7 @@ fn rewritten(request: &[u8]) -> Option<Vec<u8>> {
         .to_vec(),
         (8, 25) => bucket::request(word(r, 1), word(r, 9), word(r, 17)).to_vec(),
         (9, 25) => generation::request(word(r, 1), word(r, 9), word(r, 17)).to_vec(),
+        (10, 33) => operators::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
         (11, 33) => shape::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
         _ => return None,
     })
@@ -123,6 +124,7 @@ fn read(tag: u8, answer: &[u8]) -> Option<(String, Option<u64>)> {
             generation::Answer::Budget(n) => ("Budget".into(), Some(n)),
             other => (format!("{other:?}"), None),
         }),
+        10 => plain(format!("{:?}", operators::answer(answer))),
         11 => Some(match shape::answer(answer) {
             shape::Answer::Size(n) => ("Size".into(), Some(n)),
             other => (format!("{other:?}"), None),
@@ -196,6 +198,16 @@ fn vocabulary() -> BTreeMap<u8, BTreeSet<&'static str>> {
             ]),
         ),
         (9, BTreeSet::from(["Budget", "ContextFull", "Invalid"])),
+        (
+            10,
+            BTreeSet::from([
+                "Importable",
+                "OpsetBelowMinimum",
+                "OpsetAboveMaximum",
+                "UnsupportedOperator",
+                "Invalid",
+            ]),
+        ),
         (
             11,
             BTreeSet::from(["Size", "BelowMinimum", "AboveMaximum", "Invalid"]),
@@ -302,6 +314,23 @@ fn engine_en_01() {
             generation::Answer::Unrecognised
         );
         assert_eq!(shape::answer(garbage), shape::Answer::Unrecognised);
+        assert_eq!(operators::answer(garbage), operators::Verdict::Unrecognised);
+    }
+
+    // A graph may be built on one verdict and on nothing else.
+    for (verdict, allowed) in [
+        (operators::Verdict::Importable, true),
+        (operators::Verdict::OpsetBelowMinimum, false),
+        (operators::Verdict::OpsetAboveMaximum, false),
+        (operators::Verdict::UnsupportedOperator, false),
+        (operators::Verdict::Invalid, false),
+        (operators::Verdict::Unrecognised, false),
+    ] {
+        assert_eq!(
+            verdict.authorises_import(),
+            allowed,
+            "{verdict:?} and importing"
+        );
     }
 
     // Weights may download on the two runnable verdicts and on nothing else.

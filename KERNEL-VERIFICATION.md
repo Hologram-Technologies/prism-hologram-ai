@@ -27,9 +27,12 @@ The inherited gates and their own planted defects are in
 | int8 costs one byte for each parameter and int4 half a byte | an assumption of `KN-04`, stated in its model; tensors left unquantised are not counted | assumed |
 | `KN-07`: a proposed trim is accepted exactly when what remains fits the context and restoring the newest dropped pair would not | `trimmed_decides` and `trim_fits_decides`, checked by the Lean kernel | proved |
 | `KN-03`: a proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once | `planned_decides` and `can_run_decides`, checked by the Lean kernel | proved |
+| `KN-10`: a graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented | `importable_decides`, checked by the Lean kernel | proved |
+| A wider window never makes an importable graph unimportable, and a window that runs backwards is no question | `window_monotone` and `reversed_window_is_invalid`, checked by the Lean kernel | proved |
+| The opset window and the count of operators outside it are what the importer reports | the kernel is told numbers and answers; which operators an importer builds is the importer's, and no importer exists here yet | not proved |
 | The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; an engine test, not yet written | not proved |
 | A plan exists whenever one layer fits beside the context | the kernel checks a plan, it does not produce one; an engine test, not yet written | not proved |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the ten `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the eleven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
@@ -350,6 +353,71 @@ feature, one a manifest that does not fit, and two more show the order when
 several things are wrong. Three are invalid: each flag byte set to 2, and one
 byte short.
 
+## KN-10, operator preflight
+
+Four numbers come from the importer: the opset the graph declares, the lowest
+and highest opsets the importer implements, and how many operators in the graph
+it does not build. `operatorCode` gives one of five codes and `operatorText` its
+text. A graph is importable when its opset lies within the window and no
+operator is unimplemented; the opset is answered before the operators, so a
+graph the importer could not read at all is not reported as a missing operator.
+
+The window is the importer's own, so a window whose lowest opset is above its
+highest is not a graph that was refused: it is a question that was never asked,
+and it answers `invalid request`. `reversed_window_is_invalid` proves that is
+exactly when the window runs backwards.
+
+`window_monotone` is about the importer rather than the graph: widening the
+window, by implementing an older or a newer opset, never makes an importable
+graph unimportable. It is stated over `Importable`, not over the code, because
+the code's verdict is already proved to be exactly that proposition.
+
+Which operators an importer builds is not the kernel's to know, and no importer
+exists in this repository yet. The kernel is told how many lie outside, and
+answers.
+
+### The proof gate: `lexlean verify src/Proofs/Operators.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `operatorCode`, in the executable module, calls a graph with one unimplemented operator importable | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Operators (error): omega could not prove the goal` |
+| `operatorCode` excludes the highest opset in the window | rejected: the same |
+| none | `verified`, with every proof module's axiom policy exact |
+
+A fourth proof was written and withdrawn. `window_monotone` was first stated
+over `operatorCode` rather than over `Importable`, and `linear_arithmetic` could
+not prove it: the hypothesis that the code is the importable one has to be taken
+apart case by case before the arithmetic begins, and the solver reported the
+constraints it had left, among them an unimplemented operator it could not rule
+out. Stated over the proposition, with the code's verdict proved equal to it, it
+is arithmetic and it is proved.
+
+### The pinned test
+
+| Planted defect | Result |
+| --- | --- |
+| `Importable` drops the condition that every operator is implemented | rejected: `Importable must require the opset to be within the window and no unimplemented operator` |
+| `Importable` excludes the lowest opset in the window | rejected: the same |
+| `window_monotone` states narrowing the window, not widening it | rejected: `KN-10's window_monotone changed: widening the window must keep an importable graph importable` |
+| A window that merely touches is called backwards | rejected: `KN-10's reversed_window_is_invalid changed: a window that runs backwards must be the invalid code` |
+| A theorem quantifies over two of the four numbers | rejected: `importable_decides quantifies over every number and rests on Lean's three standard axioms` |
+| The two opset refusals read each other's text | rejected: `verdict 1 must read opset above maximum` |
+| The declared opset is read one byte late | rejected: `the verdict must be operatorCode's, from the four numbers at offsets 1, 9, 17 and 25` |
+| The request is accepted one byte short | rejected: the same |
+| Decision 10 routed to no answer | rejected: `decision 10 must be routed to the operator answer` |
+| The lowest opset in the window is not an example | rejected: `opset 7 is an edge of the window in the examples and must answer importable` |
+| No example asks about a window that runs backwards | rejected: `no example asks about a window that runs backwards` |
+| none, before and after | passed |
+
+Before the model existed, the scaffolded test failed with `KN-10 is registered
+and not built`.
+
+### The examples
+
+Eight. One importable in the middle of the window and one at each edge, one
+opset below the window, one above it, one with an operator the importer does not
+build, one window that runs backwards, and one byte short.
+
 ## KN-04, quantisation tier
 
 `tierCode` is 2 for int8 in memory when the parameters fit the budget at one
@@ -546,6 +614,36 @@ uses for long lists in its own elaborations, is what the SDK refuses.
 The kernel therefore carries 108: for each decision every verdict and refusal,
 each boundary from both sides, the top of the 64-bit field, and one malformed
 length; and three that name no decision. Examples removed to fit were second
+instances of a verdict already shown and the one-byte-long malformed lengths.
+
+Decision 10 arrived into a full list. At 116 the holo did not build: the SDK's
+snapshot reads the application record as canonical JSON, whose reader stops at
+128 levels of nesting, and a closed list of 116 examples carries the answer past
+it (`recursion limit exceeded`, in `snapshot.rs`, after Lean had already checked
+every proof). The ceiling is therefore the nesting of the list, not any limit on
+examples as such, and it sits between 108, which builds, and 116, which does
+not.
+
+Eight examples made room for decision 10's eight, chosen as second instances of
+an answer their decision already gives:
+
+| Removed | Why it was a second instance |
+| --- | --- |
+| journey, state 0 event 0 | two other requests already answer `invalid request`, one of them malformed |
+| journey, generating and cancel turn | `enters_ready` is the proof; turn done already shows ready being entered |
+| preflight, a manifest flag of 2 | another flag out of range already answers `invalid request` |
+| preflight, two unsupported features | one unsupported feature already answers the same |
+| plan, a second accepted plan | the geometries that remain cover the same verdict |
+| plan, a second malformed plan | the bounds that remain each have their own example |
+| trim, an accepted trim away from any boundary | the boundary pairs already show the same verdict |
+| trim, an accepted trim that drops every pair | the same |
+
+Two attempts at this were rejected by the suite before the third passed: the
+plan the `KN-03` test reads for its stage split, and the journey refusal the
+`KN-01` test reads for a label verified during a download. Which examples no
+suite reads is not left to guesswork; `app/src/Kernel.lex.tex` was searched one
+example at a time for the ones whose removal keeps every suite green, and the
+removals were chosen from those. Examples removed to fit were second
 instances of a verdict already shown and the one-byte-long malformed lengths.
 
 ## The examples in the compiled guest
