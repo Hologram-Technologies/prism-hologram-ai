@@ -24,7 +24,9 @@ repo-conformance = { version = "0.1.0", path = "crates/conformance" }
 # The engine. Its crates ship; they use only locked crates.io dependencies (R6).
 hologram-ai-kernel-client = { version = "0.1.0", path = "crates/kernel-client" }
 hologram-ai-model-reader = { version = "0.1.0", path = "crates/model-reader" }
+hologram-ai-download = { version = "0.1.0", path = "crates/download" }
 hologram-ai-onnx-preflight = { version = "0.1.0", path = "crates/onnx-preflight" }
+blake3 = { version = "1.5", default-features = false }
 serde_json = "1.0"
 
 [workspace.lints.rust]

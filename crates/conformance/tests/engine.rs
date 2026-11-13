@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use hologram_ai_download as download;
 use hologram_ai_model_reader::{config, header, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 
@@ -1191,4 +1192,289 @@ fn engine_fl_13() {
     // No declaration at all is the same: the opset is not something to assume.
     let none = onnx_file(&[], Some(&graph(&[node(b"Add", "")], 0)));
     assert_eq!(onnx::read(&none), Err(onnx::OnnxError::NoDefaultOpset));
+}
+
+// ─── The download ───────────────────────────────────────────────────────────
+//
+// A download's label is the BLAKE3 hash of what arrived. The authority's own
+// test vectors are vendored under `model/authorities`, with their checksum in
+// `model/authorities.toml`, and read here: the file is checked against that
+// checksum before a single case is run, so a vendored file that drifted from
+// what was cited cannot quietly pass.
+
+/// The vendored test vectors, with their checksum checked against the register.
+fn blake3_vectors() -> serde_json::Value {
+    let path = root().join("model/authorities/blake3-test-vectors.json");
+    let bytes = std::fs::read(&path).expect("the vendored BLAKE3 test vectors");
+    let register = std::fs::read_to_string(root().join("model/authorities.toml"))
+        .expect("the authority register");
+    let cited = register
+        .lines()
+        .find_map(|line| line.strip_prefix("checksum = \"sha256:"))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("the BLAKE3 authority's checksum");
+    // The checksum is taken here with the hash the authority is about, which is
+    // sound for this purpose: what is being checked is that the vendored file
+    // is the one the register cites, not what BLAKE3 is.
+    let seen = sha256(&bytes);
+    assert_eq!(
+        seen, cited,
+        "the vendored test vectors are not the cited file"
+    );
+    serde_json::from_slice(&bytes).expect("the test vectors are JSON")
+}
+
+/// SHA-256, written out here so the vendored file is checked against the
+/// register by something other than the crate under test.
+fn sha256(message: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut state: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let mut padded = message.to_vec();
+    padded.push(0x80);
+    while padded.len() % 64 != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&((message.len() as u64) * 8).to_be_bytes());
+
+    for block in padded.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for (word, bytes) in w.iter_mut().zip(block.chunks_exact(4)) {
+            *word = u32::from_be_bytes(bytes.try_into().expect("four bytes"));
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = state;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let choose = (e & f) ^ (!e & g);
+            let t1 = h
+                .wrapping_add(s1)
+                .wrapping_add(choose)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let majority = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(majority);
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        for (slot, value) in state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
+            *slot = slot.wrapping_add(value);
+        }
+    }
+    state.iter().map(|word| format!("{word:08x}")).collect()
+}
+
+/// The input of `length` bytes the vectors are taken over: the repeating
+/// pattern 0, 1, ... 250, as the vendored file's own comment states.
+fn vector_input(length: usize) -> Vec<u8> {
+    (0..length).map(|i| (i % 251) as u8).collect()
+}
+
+/// `EN-06`: A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it
+#[test]
+fn engine_en_06() {
+    let vectors = blake3_vectors();
+    let cases = vectors["cases"].as_array().expect("the cases");
+    assert_eq!(cases.len(), 35, "the authority gives 35 cases");
+
+    for case in cases {
+        let length = case["input_len"].as_u64().expect("an input length") as usize;
+        let expected = case["hash"].as_str().expect("a hash");
+        let mut arriving = download::Arriving::new();
+        arriving.take(&vector_input(length));
+        assert_eq!(
+            arriving.label().to_hex(),
+            expected[..64],
+            "the label of {length} bytes is not the one the vectors give"
+        );
+        assert_eq!(arriving.received(), length as u64);
+    }
+
+    // The label reads back as it was written.
+    let label = download::Label::from_hex(&download::Label([0xab; 32]).to_hex());
+    assert_eq!(label, Ok(download::Label([0xab; 32])));
+}
+
+/// `EN-07`: A download's label and length do not depend on how its bytes were split into chunks
+#[test]
+fn engine_en_07() {
+    // Lengths either side of the block and chunk sizes the hash is built from,
+    // split every way a stream might split them.
+    for length in [0usize, 1, 63, 64, 65, 1023, 1024, 1025, 2048, 3000] {
+        let bytes = vector_input(length);
+        let mut whole = download::Arriving::new();
+        whole.take(&bytes);
+        let label = whole.label();
+
+        for chunk in [1usize, 7, 64, 100, 1024, 4096] {
+            let mut arriving = download::Arriving::new();
+            for part in bytes.chunks(chunk.max(1)) {
+                arriving.take(part);
+            }
+            assert_eq!(
+                arriving.label(),
+                label,
+                "{length} bytes in chunks of {chunk} gave a different label"
+            );
+            assert_eq!(arriving.received(), length as u64);
+        }
+
+        // Empty chunks arrive too, and a stream that ends early is a different
+        // buffer, not the same one.
+        let mut interrupted = download::Arriving::new();
+        interrupted.take(&[]);
+        interrupted.take(&bytes);
+        interrupted.take(&[]);
+        assert_eq!(interrupted.label(), label);
+        if length > 0 {
+            let mut short = download::Arriving::new();
+            short.take(&bytes[..length - 1]);
+            assert_ne!(short.label(), label, "{length} bytes short by one matched");
+        }
+    }
+}
+
+/// `EN-08`: A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict
+#[test]
+fn engine_en_08() {
+    struct Says(Vec<u8>, Vec<Vec<u8>>);
+    impl download::Kernel for Says {
+        fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+            self.1.push(request.to_vec());
+            self.0.clone()
+        }
+    }
+
+    let bytes = vector_input(1024);
+    let mut arriving = download::Arriving::new();
+    for part in bytes.chunks(100) {
+        arriving.take(part);
+    }
+    let observed = arriving.label();
+    let expected = download::Label([0x11; 32]);
+
+    // The question carries the archive's label and length and the download's,
+    // in that order: the kernel is told what was promised and what came.
+    assert_eq!(
+        arriving.question(expected, 1024).to_vec(),
+        admission::request(&expected.0, &observed.0, 1024, 1024).to_vec(),
+        "the question put to the kernel is not the one the download answers for"
+    );
+
+    // Admitted only on the kernel's own word for it. Every other answer is a
+    // refusal carrying what the kernel said, including one the client does not
+    // know.
+    let mut admitting = Says(b"admit".to_vec(), Vec::new());
+    assert_eq!(arriving.admitted(expected, 1024, &mut admitting), Ok(()));
+    assert_eq!(
+        admitting.1,
+        [arriving.question(expected, 1024).to_vec()],
+        "the kernel was asked something other than the download's question"
+    );
+    for (answer, verdict) in [
+        (&b"refuse"[..], admission::Verdict::Refuse),
+        (INVALID_REQUEST, admission::Verdict::Invalid),
+        (b"admit it", admission::Verdict::Unrecognised),
+        (b"Admit", admission::Verdict::Unrecognised),
+        (b"", admission::Verdict::Unrecognised),
+    ] {
+        let mut kernel = Says(answer.to_vec(), Vec::new());
+        assert_eq!(
+            arriving.admitted(expected, 1024, &mut kernel),
+            Err(download::DownloadError::Refused(verdict)),
+            "{} did not refuse the buffer",
+            String::from_utf8_lossy(answer)
+        );
+    }
+
+    // What the kernel is told about the length is what arrived, not what was
+    // promised: a download that stops early is a different length, and the
+    // kernel sees that.
+    let mut short = download::Arriving::new();
+    short.take(&bytes[..1000]);
+    assert_eq!(
+        short.question(expected, 1024).to_vec(),
+        admission::request(&expected.0, &short.label().0, 1024, 1000).to_vec()
+    );
+
+    // The kernel's own examples: a label against itself at the length it
+    // declares is admitted, and the examples pin that answer in the guest.
+    let examples: BTreeMap<Vec<u8>, Vec<u8>> = examples()
+        .into_iter()
+        .filter(|(request, _)| request.first() == Some(&5))
+        .collect();
+    let empty = download::Arriving::new();
+    let question = empty.question(download::Label(empty.label().0), 0);
+    assert_eq!(
+        examples.get(question.as_slice()).map(Vec::as_slice),
+        Some(&b"admit"[..]),
+        "the kernel has no example for an empty buffer that is its own label"
+    );
+}
+
+/// `FL-14`: A label an archive names is not sixty-four lower-case hexadecimal digits
+#[test]
+fn engine_fl_14() {
+    let good = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262";
+    assert!(download::Label::from_hex(good).is_ok());
+    for bad in [
+        "",
+        "af13",
+        &good[..63],
+        &format!("{good}0"),
+        &good.to_uppercase(),
+        &good.replace('a', "g"),
+        &good.replace('a', " "),
+        &good.replace("af", "0x"),
+    ] {
+        assert_eq!(
+            download::Label::from_hex(bad),
+            Err(download::DownloadError::LabelNotHex),
+            "{bad:?} was read as a label"
+        );
+    }
+}
+
+/// `FL-15`: The kernel did not admit the buffer that arrived
+#[test]
+fn engine_fl_15() {
+    struct Refusing;
+    impl download::Kernel for Refusing {
+        fn ask(&mut self, _request: &[u8]) -> Vec<u8> {
+            b"refuse".to_vec()
+        }
+    }
+    let mut arriving = download::Arriving::new();
+    arriving.take(b"the bytes that came");
+    assert_eq!(
+        arriving.admitted(download::Label([0; 32]), 19, &mut Refusing),
+        Err(download::DownloadError::Refused(admission::Verdict::Refuse))
+    );
 }

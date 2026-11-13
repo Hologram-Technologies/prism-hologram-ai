@@ -9,9 +9,12 @@
 # realizes the cited fact. Evidence is not proof, and the meta-gate fails the
 # build if any document blurs the two registers.
 #
-# Empty. The first authority this repository cites goes here, before any claim
-# is allowed to say `some-true`.
-
 spec = "template/1"
 
-authority = []
+[[authority]]
+id = "BLAKE3"
+name = "BLAKE3, and its published test vectors"
+citation = """BLAKE3-team/BLAKE3, test_vectors/test_vectors.json at commit ae3e8e6b3a5ae3190ca5d62820789b17886a0038 (2020-09-29), vendored at model/authorities/blake3-test-vectors.json. The algorithm is specified in `BLAKE3: one function, fast everywhere` (O'Connor, Aumasson, Neves, Wilcox-O'Hearn, 2020)."""
+checksum = "sha256:dcb91ea8accc77e6d6e632af7cdc1a99a9f3ae78cf648da595c7d064db32f624"
+statement = """For each of 35 input lengths, the hash of the input of that length taken from the repeating byte pattern 0, 1, ... 250 is the stated value. The vectors are the authority's own, and this repository reproduces them; it does not establish that BLAKE3 is what the paper says it is."""
+realized_by = ["EN-06"]

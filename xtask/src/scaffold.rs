@@ -314,9 +314,20 @@ mod tests {
         for dir in ["model", "features/suites", "crates/conformance/tests"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
-        for file in ["authorities.toml", "ledger.toml"] {
-            std::fs::copy(real.join("model").join(file), root.join("model").join(file)).unwrap();
-        }
+        std::fs::copy(
+            real.join("model/ledger.toml"),
+            root.join("model/ledger.toml"),
+        )
+        .unwrap();
+        // An empty authority register, for the same reason the ID register
+        // below is empty: this repository's authorities name this repository's
+        // IDs, and a scratch repository that borrowed them would fail the
+        // meta-gate on rows it never scaffolded.
+        std::fs::write(
+            root.join("model/authorities.toml"),
+            "spec = \"template/1\"\n\nauthority = []\n",
+        )
+        .unwrap();
         // An empty register, as a freshly instantiated repository has; this
         // repository's own rows are not the scratch repository's.
         std::fs::write(

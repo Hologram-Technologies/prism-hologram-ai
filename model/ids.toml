@@ -117,3 +117,21 @@ id = "EN-05"
 level = "build"
 suite = "engine"
 statement = "The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear"
+
+[[id]]
+id = "EN-06"
+level = "some-true"
+suite = "engine"
+statement = "A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it"
+
+[[id]]
+id = "EN-07"
+level = "build"
+suite = "engine"
+statement = "A download's label and length do not depend on how its bytes were split into chunks"
+
+[[id]]
+id = "EN-08"
+level = "build"
+suite = "engine"
+statement = "A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict"
