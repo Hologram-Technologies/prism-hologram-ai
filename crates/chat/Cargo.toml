@@ -11,10 +11,12 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-# No dependencies. A conversation is counts of tokens and one state; what may
-# be done with them is the kernel's to answer.
+# The kernel client to ask with, and the tokeniser to count with. A
+# conversation that counted its own tokens some other way would be asking the
+# kernel about tokens the model does not have.
 [dependencies]
 hologram-ai-kernel-client = { workspace = true }
+hologram-ai-tokenizer = { workspace = true }
 
 [lints]
 workspace = true

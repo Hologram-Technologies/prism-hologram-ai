@@ -195,3 +195,9 @@ id = "EN-18"
 level = "build"
 suite = "engine"
 statement = "Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte"
+
+[[id]]
+id = "EN-19"
+level = "build"
+suite = "engine"
+statement = "A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word"

@@ -2791,3 +2791,72 @@ fn engine_fl_23() {
         Err(tokeniser::TokeniserError::TokenNotByteLevel)
     );
 }
+
+/// `EN-19`: A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word
+#[test]
+fn engine_en_19() {
+    // A tokeniser with one merge, so a count here can be worked out by hand:
+    // every byte is a token, except "th", which is one.
+    let model = tokeniser::Tokeniser::read(&tokeniser(&["t h"], Some(PUBLISHED_PATTERN)))
+        .expect("the file is read");
+
+    let mut conversation = chat::Conversation::new(2048, 0);
+    conversation.fix(&model, "you are helpful", "the question", 64);
+    assert_eq!(
+        conversation.fixed(),
+        model.count("you are helpful") + model.count("the question") + 64,
+        "the part never dropped is not what the tokeniser counts, plus the reserve"
+    );
+    assert!(
+        conversation.fixed() > 64,
+        "the text counted for nothing at all"
+    );
+
+    // A turn is the question and the answer together, in the model's tokens.
+    conversation.remember_turn(&model, "the question", "the answer");
+    assert_eq!(
+        conversation.pairs(),
+        [model.count("the question") + model.count("the answer")],
+        "the pair is not what the tokeniser counts"
+    );
+
+    // The merge is the point: "th" is one token, so text with it in counts
+    // fewer tokens than its bytes.
+    assert_eq!(model.count("th"), 1);
+    assert_eq!(model.count("xy"), 2);
+    let mut counted = chat::Conversation::new(2048, 0);
+    counted.remember_turn(&model, "th", "");
+    counted.remember_turn(&model, "xy", "");
+    assert_eq!(
+        counted.pairs(),
+        [1, 2],
+        "the merges were not used when counting the turn"
+    );
+
+    // And what reaches the kernel is those counts: the question carries the
+    // tokeniser's totals, not the caller's guess at them.
+    assert_eq!(
+        counted.trim_question().to_vec(),
+        trim::request(2048, 0, 3, 0, 0).to_vec(),
+        "the kernel was asked about some other number of tokens"
+    );
+
+    // Text nobody counted by hand: whatever the tokeniser says, the
+    // conversation says, for any text at all.
+    let mut rng = Rng(0x7a7a_0101_2222_3333);
+    for _ in 0..200 {
+        let question: String = (0..rng.below(40))
+            .map(|_| char::from_u32(rng.below(0x3000) as u32).unwrap_or('a'))
+            .collect();
+        let answer: String = (0..rng.below(40))
+            .map(|_| char::from_u32(rng.below(0x3000) as u32).unwrap_or('a'))
+            .collect();
+        let mut one = chat::Conversation::new(1 << 20, 0);
+        one.remember_turn(&model, &question, &answer);
+        assert_eq!(
+            one.pairs(),
+            [model.count(&question) + model.count(&answer)],
+            "{question:?} and {answer:?} were counted differently"
+        );
+    }
+}

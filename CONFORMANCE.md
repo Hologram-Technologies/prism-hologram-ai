@@ -42,6 +42,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-16` | `build` | A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes |
 | `EN-17` | `build` | Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies |
 | `EN-18` | `build` | Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte |
+| `EN-19` | `build` | A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word |
 
 ## kernel
 

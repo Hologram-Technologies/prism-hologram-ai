@@ -23,7 +23,8 @@ approximately.
 
 `crates/chat` keeps a conversation: where it is in the journey, how many
 tokens its system prompt and newest message hold, and each question-and-answer
-pair in turn. It proposes a trim, asks for a decode bucket and a token budget,
+pair in turn. It counts them with the model's own tokeniser, so the numbers the
+kernel's arithmetic is about are the model's tokens. It proposes a trim, asks for a decode bucket and a token budget,
 and takes the step the kernel gives.
 
 `crates/download` takes a download's bytes as they arrive, labels them with the
@@ -79,7 +80,7 @@ runtime's crates are not published there.
 | `EN-18`: decoding what was encoded gives back the text, for any text | `engine_en_18`, over thirteen texts and three hundred generated ones | tested |
 | `FL-20` to `FL-23`: the tokeniser fails only as `model/failures.toml` lists | `engine_fl_20` to `engine_fl_23` | tested |
 | That these counts are the counts HuggingFace's own tokenisers give | **not established**: no published tokeniser file is read here, and no oracle is run against one |
-| A conversation's token counts are the ones a tokeniser would give | the tokeniser is here now, but `chat` still takes the counts from its caller; wiring them together is not done |
+| `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | `EN-12`: reading an ONNX model costs time in proportion to its nodes, and fifty thousand are read in under a second | `engine_en_12`, timing 25,000 nodes and 50,000 and comparing | tested |
 | `EN-13`: sixteen megabytes are labelled at no less than two hundred megabytes a second | `engine_en_13` | tested |
@@ -374,6 +375,27 @@ rejected; none was missed.
 | A turn with no room left is given the whole context | `engine_fl_19` |
 | none, before and after | passed |
 
+### EN-19, where the counts come from
+
+`chat` took its counts from whoever called it, and the kernel's arithmetic was
+only as true as those. It now counts a turn's question and answer with the
+model's own tokeniser, and fixes the part that is never dropped from the system
+prompt, the newest message and the reserve, the same way.
+
+The test works one count out by hand — a tokeniser with a single merge, where
+`th` is one token and `xy` is two — then puts two hundred generated turns
+through and requires the conversation's count to be the tokeniser's, whatever
+the text.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A turn is counted as its question only | `engine_en_19` |
+| A turn is counted in bytes, not in tokens | `engine_en_19` |
+| The part never dropped leaves out the reserve | `engine_en_19` |
+| The part never dropped leaves out the newest message | `engine_en_19` |
+| What the conversation reports as never dropped is not what it uses | `engine_en_19` |
+| none, before and after | passed |
+
 ### What EN-09 to EN-11 do not establish
 
 - That the token counts are a tokeniser's. No tokeniser is here; the counts are
@@ -610,7 +632,9 @@ and a pre-tokeniser that is a pattern and nothing else. All three are now in
   read, and no oracle is run against HuggingFace's own implementation, which
   the implementation plan asks for. This is the largest thing outstanding about
   this crate, and until it is done a count from here is this crate's count.
-- That the conversation uses it. `chat` still takes its counts from its caller.
+- That the conversation's counts are a published model's. `chat` now counts
+  with this crate (`EN-19`), so the two agree with each other; whether either
+  agrees with the model's own tokeniser is the open question above.
 - That normalisers are applied. A file that normalises text before splitting it
   is read, and the normaliser is not run, so text that a normaliser would
   change is counted as it was written.

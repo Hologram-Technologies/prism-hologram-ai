@@ -252,3 +252,9 @@ Feature: engine
     Given the input that makes tokenizer return TokeniserError::TokenNotByteLevel
     When the suite exercises FL-23
     Then A token holds a character the byte alphabet does not have
+
+  @EN-19 @build
+  Scenario: A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word
+    Given the fixture EN-19 needs
+    When the suite exercises EN-19
+    Then A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word
