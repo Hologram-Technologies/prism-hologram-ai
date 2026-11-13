@@ -135,3 +135,19 @@ type = "OnnxError"
 variant = "NoDefaultOpset"
 suite = "engine"
 condition = "The model declares no opset for the default domain"
+
+[[failure]]
+id = "FL-14"
+crate = "download"
+type = "DownloadError"
+variant = "LabelNotHex"
+suite = "engine"
+condition = "A label an archive names is not sixty-four lower-case hexadecimal digits"
+
+[[failure]]
+id = "FL-15"
+crate = "download"
+type = "DownloadError"
+variant = "Refused"
+suite = "engine"
+condition = "The kernel did not admit the buffer that arrived"

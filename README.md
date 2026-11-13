@@ -17,11 +17,11 @@ The engine and the page never decide policy. They ask the kernel.
 
 ## Status
 
-The kernel is built: all eleven decisions. The engine has three crates: the
+The kernel is built: all eleven decisions. The engine has four crates: the
 client that writes the kernel's requests and reads its answers, the reader that
 turns a model's safetensors header and config into the questions the kernel
-answers, and the ONNX preflight that reads a graph's opset and operators and
-puts the import question. What exists is listed in
+answers, the ONNX preflight that reads a graph's opset and operators, and the
+download that labels bytes as they arrive and asks whether they may be used. What exists is listed in
 [CONFORMANCE.md](CONFORMANCE.md), which is generated from
 [model/ids.toml](model/ids.toml); a capability that is not built has no row.
 
@@ -224,7 +224,9 @@ just new-capability KN-06 build kernel "<the statement>"
 | `crates/conformance/tests/kernel.rs` | One test per claim, pinning what its theorem says. |
 | `crates/kernel-client/` | The engine's client for the kernel: typed requests in, typed answers out. No dependencies, no allocation, no function that can fail. |
 | `crates/model-reader/` | Reads a model's safetensors header and config into the kernel's questions. The first crate here that can fail, and every way it can is registered. |
+| `crates/download/` | Labels a download's bytes as they arrive and asks the kernel whether the buffer may be used. |
 | `crates/onnx-preflight/` | Reads an ONNX model's opset and operators out of the file and puts the kernel's import question. |
+| `model/authorities.toml` | What this repository cites rather than proves, with a checksum over each vendored artifact. |
 | `model/failures.toml` | Every public failure a shipped crate may return: its type, its variant and when it is returned. |
 | `crates/conformance/tests/engine.rs` | The engine's tests, run against the kernel's own examples. |
 | `site/app.json` | What the app page says about the kernel. |

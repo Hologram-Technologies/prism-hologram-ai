@@ -114,3 +114,33 @@ Feature: engine
     Given the input that makes onnx-preflight return OnnxError::NoDefaultOpset
     When the suite exercises FL-13
     Then The model declares no opset for the default domain
+
+  @EN-06 @some-true
+  Scenario: A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it
+    Given the fixture EN-06 needs
+    When the suite exercises EN-06
+    Then A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it
+
+  @EN-07 @build
+  Scenario: A download's label and length do not depend on how its bytes were split into chunks
+    Given the fixture EN-07 needs
+    When the suite exercises EN-07
+    Then A download's label and length do not depend on how its bytes were split into chunks
+
+  @EN-08 @build
+  Scenario: A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict
+    Given the fixture EN-08 needs
+    When the suite exercises EN-08
+    Then A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict
+
+  @FL-14 @build
+  Scenario: A label an archive names is not sixty-four lower-case hexadecimal digits
+    Given the input that makes download return DownloadError::LabelNotHex
+    When the suite exercises FL-14
+    Then A label an archive names is not sixty-four lower-case hexadecimal digits
+
+  @FL-15 @build
+  Scenario: The kernel did not admit the buffer that arrived
+    Given the input that makes download return DownloadError::Refused
+    When the suite exercises FL-15
+    Then The kernel did not admit the buffer that arrived

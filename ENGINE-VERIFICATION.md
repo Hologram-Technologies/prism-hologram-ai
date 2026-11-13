@@ -15,6 +15,11 @@ it can fail: a request is built from typed arguments into a fixed-size array,
 and an answer the kernel is not known to give reads as `Unrecognised`, which a
 caller must handle and cannot mistake for a verdict.
 
+`crates/download` takes a download's bytes as they arrive, labels them with the
+BLAKE3 hash the archive names them by, and asks the kernel whether the buffer
+may be used. It fetches nothing: whoever holds the connection hands the chunks
+in, which is how it works in a browser, where fetching belongs to the page.
+
 `crates/onnx-preflight` reads an ONNX model's opset and operators out of the
 file and puts the kernel's import question. An ONNX file is a protocol-buffer
 message; this crate reads the handful of fields a preflight needs and steps over
@@ -49,6 +54,11 @@ runtime's crates are not published there.
 | `EN-05`: the operators a builder does not implement are counted into the kernel's question | `engine_en_05` | tested |
 | `FL-08` to `FL-13`: the preflight fails only as `model/failures.toml` lists | `engine_fl_08` to `engine_fl_13` | tested |
 | An ONNX file from a hub reads as its publisher meant it | not tested: every file in this suite is written here | not tested |
+| `EN-06`: a buffer's label is the BLAKE3 hash of its bytes | `engine_en_06`, over all 35 published test vectors, whose vendored file is checked against the checksum in `model/authorities.toml` first | reproduced from the authority, not established here |
+| `EN-07`: a download's label and length do not depend on how its bytes were split | `engine_en_07`, over ten lengths either side of the hash's own block and chunk sizes, in six chunk sizes each | tested |
+| `EN-08`: a download is admitted exactly when the kernel admits it | `engine_en_08` | tested |
+| `FL-14`, `FL-15`: the download fails only as `model/failures.toml` lists | `engine_fl_14` and `engine_fl_15` | tested |
+| That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
 ## EN-01, the kernel client
@@ -233,6 +243,65 @@ contents are now bytes no tag could be.
   no time is measured.
 - That an operator's attributes, its inputs or its shapes are ones a builder
   could use. Only the operator's name and domain are read.
+
+## EN-06 to EN-08, the download
+
+A download arrives in chunks from somewhere else. The label is taken as they
+arrive, so nothing is held twice, and the length is counted with it. What
+arrived and what the archive promised both go to the kernel, which admits or
+refuses; a refusal comes back carrying the kernel's own verdict.
+
+`EN-06` is the one claim in this repository that is reproduced rather than
+built. The hash is the authority's own implementation, cited in
+`model/authorities.toml`, and the test runs all 35 of the authority's published
+vectors. The vendored vector file is checked against the checksum in that
+register before a single case runs, by a SHA-256 written out in the test, so a
+vendored file that drifted from what was cited cannot quietly pass, and the
+check does not go through the crate under test.
+
+`EN-07` is about the stream, not the hash: ten lengths either side of the
+hash's own block and chunk sizes, each split six ways, must give one label, and
+a stream one byte short must not.
+
+`EN-08` pins what the kernel is told: the promised label and length, then the
+observed ones, in that order. A download that stops early is told as the length
+that arrived, not the length that was promised, so the kernel sees the
+difference rather than being handed the answer.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Fourteen defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A label may be written in upper case | `engine_fl_14` |
+| A label of any length is read | `engine_fl_14` |
+| A label's two digits are read in the other order | `engine_en_06` |
+| A label is written with its digits in the other order | `engine_en_06` |
+| The letters of a label are read one place off | `engine_en_06` |
+| What arrived is counted in chunks, not bytes | `engine_en_07` |
+| Only the first chunk is taken in | `engine_en_07` |
+| The label is of nothing, whatever arrived | `engine_en_07` |
+| The kernel is told what arrived as what was promised | `engine_en_08` |
+| The kernel is told what was promised as what arrived | `engine_en_08` |
+| The promised and the observed labels are told in each other's place | `engine_en_08` |
+| An answer the client does not know admits the buffer | `engine_en_08` |
+| The kernel's answer is not read | `engine_fl_15` |
+| One byte of the vendored vector file changed | `engine_en_06`, at the checksum |
+| none, before and after | passed |
+
+### What EN-06 to EN-08 do not establish
+
+- That BLAKE3 is what its paper says it is. The vectors are the authority's,
+  and so is the implementation.
+- That a download arrives at all. Nothing here opens a connection, retries,
+  resumes or times out; this crate is handed chunks.
+- That a buffer the kernel admits is the buffer someone intended to publish.
+  The archive's label is taken as given; where the archive itself comes from is
+  another question, and not this crate's.
+- How fast a label is taken. No file of a real model's size is hashed here, and
+  no time is measured.
 
 ## How the engine may fail
 

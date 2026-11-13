@@ -29,6 +29,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-03` | `build` | A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged |
 | `EN-04` | `build` | An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over |
 | `EN-05` | `build` | The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear |
+| `EN-06` | `some-true` | A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it |
+| `EN-07` | `build` | A download's label and length do not depend on how its bytes were split into chunks |
+| `EN-08` | `build` | A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict |
 
 ## kernel
 
@@ -67,6 +70,8 @@ not that the test provokes the failure.
 | `FL-11` | `onnx-preflight` | `OnnxError::NameNotText` | A name the preflight reads is not text |
 | `FL-12` | `onnx-preflight` | `OnnxError::NoGraph` | The model carries no graph |
 | `FL-13` | `onnx-preflight` | `OnnxError::NoDefaultOpset` | The model declares no opset for the default domain |
+| `FL-14` | `download` | `DownloadError::LabelNotHex` | A label an archive names is not sixty-four lower-case hexadecimal digits |
+| `FL-15` | `download` | `DownloadError::Refused` | The kernel did not admit the buffer that arrived |
 
 ## Cited authorities
 
@@ -74,6 +79,7 @@ Never re-derived, vendored, or gated on.
 
 | Authority | Citation | Evidence here |
 | --- | --- | --- |
+| `BLAKE3` | BLAKE3-team/BLAKE3, test_vectors/test_vectors.json at commit ae3e8e6b3a5ae3190ca5d62820789b17886a0038 (2020-09-29), vendored at model/authorities/blake3-test-vectors.json. The algorithm is specified in `BLAKE3: one function, fast everywhere` (O'Connor, Aumasson, Neves, Wilcox-O'Hearn, 2020). | `EN-06` |
 
 ## Claims that are not conformance IDs
 
