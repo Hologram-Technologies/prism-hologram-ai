@@ -1926,8 +1926,280 @@ fn engine_en_13() {
     );
     assert_eq!(label.to_hex().len(), 64);
 
-    // The floor is far below what the hash does on any machine this runs on,
-    // and far above what it does when the bytes are copied first or handed
-    // over one at a time.
-    assert!(rate >= 200.0, "labelling ran at {rate:.1} MB/s");
+    // Twenty megabytes a second, which is a floor against a change of kind and
+    // not a claim about speed. The first version of this gate said two hundred,
+    // measured on the machine it was written on, and the arm64 runner labelled
+    // at 61 MB/s in this same unoptimised build: sixty times slower than the
+    // same code on x86-64 here. A floor has to clear the slowest machine the
+    // gate runs on, and this one does by three times, while the defect that
+    // hands the hash one byte at a time ran at 15 MB/s.
+    assert!(rate >= 20.0, "labelling ran at {rate:.1} MB/s");
 }
+
+// ─── The page's own surface ─────────────────────────────────────────────────
+//
+// `site/card.mjs` builds a request from `site/decisions.json`: one decision,
+// its fields, and where each lies. The page cannot be asked to replay the
+// kernel's examples here — nothing in this suite runs a browser — so what is
+// checked is the table it reads: every field at the offset and width the
+// kernel's own examples have it, every byte of a request accounted for, and
+// every value the examples use offered to whoever is filling the form.
+
+/// The decisions the page offers, from `site/decisions.json`.
+fn page_decisions() -> Vec<serde_json::Value> {
+    let text = std::fs::read_to_string(root().join("site/decisions.json"))
+        .expect("the page's decision table");
+    let read: serde_json::Value = serde_json::from_str(&text).expect("the table is JSON");
+    read["decisions"]
+        .as_array()
+        .expect("a list of decisions")
+        .clone()
+}
+
+/// `EN-14`: The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+#[test]
+fn engine_en_14() {
+    let decisions = page_decisions();
+    let examples = examples();
+
+    // Every decision the kernel routes is offered, and nothing else.
+    let routed: BTreeSet<u8> = examples
+        .iter()
+        .filter(|(request, answer)| answer.as_slice() != INVALID_REQUEST && !request.is_empty())
+        .map(|(request, _)| request[0])
+        .collect();
+    let offered: BTreeSet<u8> = decisions
+        .iter()
+        .map(|d| u8::try_from(d["tag"].as_u64().expect("a tag")).expect("a byte"))
+        .collect();
+    assert_eq!(
+        offered, routed,
+        "the page offers decisions the kernel does not route, or misses ones it does"
+    );
+
+    for decision in &decisions {
+        let tag = u8::try_from(decision["tag"].as_u64().expect("a tag")).expect("a byte");
+        let length = decision["length"].as_u64().expect("a length") as usize;
+        let fields = decision["fields"].as_array().expect("fields");
+        assert!(
+            !decision["asks"].as_str().unwrap_or_default().is_empty()
+                && !decision["name"].as_str().unwrap_or_default().is_empty(),
+            "decision {tag} is offered with no name or no question"
+        );
+
+        // Every byte after the tag is one field's, once.
+        let mut covered = vec![false; length];
+        covered[0] = true;
+        for field in fields {
+            let at = field["at"].as_u64().expect("an offset") as usize;
+            let width = field["width"].as_u64().expect("a width") as usize;
+            assert!(
+                matches!(width, 1 | 8 | 32),
+                "decision {tag}: a field of {width} bytes is not a width the wire format has"
+            );
+            assert!(
+                at + width <= length,
+                "decision {tag}: a field runs past the request's {length} bytes"
+            );
+            for (byte, taken) in covered.iter_mut().enumerate().skip(at).take(width) {
+                assert!(!*taken, "decision {tag}: byte {byte} belongs to two fields");
+                *taken = true;
+            }
+        }
+        assert!(
+            covered.iter().all(|byte| *byte),
+            "decision {tag}: some byte of the request is no field, so the page cannot say what it is"
+        );
+
+        // The length is the one the kernel accepts: every example of this
+        // decision that is answered has it.
+        let answered: Vec<&(Vec<u8>, Vec<u8>)> = examples
+            .iter()
+            .filter(|(request, answer)| {
+                request.first() == Some(&tag) && answer.as_slice() != INVALID_REQUEST
+            })
+            .collect();
+        assert!(
+            !answered.is_empty(),
+            "decision {tag}: no example of it is answered"
+        );
+        for (request, _) in &answered {
+            assert_eq!(
+                request.len(),
+                length,
+                "decision {tag}: the page writes {length} bytes, the kernel answers {}",
+                request.len()
+            );
+        }
+
+        // What the form offers to choose covers what the examples use. A state
+        // or an event the kernel knows and the page does not offer is a
+        // decision a visitor cannot reach.
+        for field in fields {
+            let Some(choice) = field["choice"].as_array() else {
+                continue;
+            };
+            let at = field["at"].as_u64().expect("an offset") as usize;
+            let width = field["width"].as_u64().expect("a width") as usize;
+            assert_eq!(width, 1, "only a one-byte field is offered as a choice");
+            let offered: BTreeSet<u64> = choice
+                .iter()
+                .map(|pair| pair[1].as_u64().expect("a code"))
+                .collect();
+            let used: BTreeSet<u64> = answered
+                .iter()
+                .map(|(request, _)| u64::from(request[at]))
+                .collect();
+            assert!(
+                used.is_subset(&offered),
+                "decision {tag}, byte {at}: the examples use {used:?}, the page offers {offered:?}"
+            );
+            for pair in choice {
+                assert!(
+                    !pair[0].as_str().unwrap_or_default().is_empty(),
+                    "decision {tag}: a choice with no name"
+                );
+            }
+        }
+
+        // What the form starts with is a request the kernel would answer: each
+        // value fits its field, and a label is the right number of digits.
+        for field in fields {
+            let width = field["width"].as_u64().expect("a width") as usize;
+            let value = &field["value"];
+            if field["kind"].as_str() == Some("label") {
+                let text = value.as_str().unwrap_or_default();
+                assert_eq!(
+                    text.len(),
+                    width * 2,
+                    "decision {tag}: a label of {} digits for {width} bytes",
+                    text.len()
+                );
+                assert!(
+                    text.bytes()
+                        .all(|d| d.is_ascii_hexdigit() && !d.is_ascii_uppercase()),
+                    "decision {tag}: a label that is not lower-case hexadecimal"
+                );
+                continue;
+            }
+            let number = value.as_u64().expect("a whole number to start from");
+            if width < 8 {
+                assert!(
+                    number < 1u64 << (width * 8),
+                    "decision {tag}: {number} does not fit {width} byte(s)"
+                );
+            }
+        }
+    }
+
+    // The page's own encoder, run over every example the kernel carries. The
+    // table above says where each field lies; this says that `site/card.mjs`
+    // writes the bytes the kernel answers when it is given those fields. Node
+    // runs it, because the encoder is the page's and the page is JavaScript.
+    let script = root().join("target/en-14-encoder.mjs");
+    std::fs::create_dir_all(root().join("target")).expect("a place for the script");
+    std::fs::write(&script, ENCODER_CHECK).expect("the script is written");
+    let ran = std::process::Command::new("node")
+        .arg(&script)
+        .arg(root())
+        .output()
+        .expect("node runs the page's encoder");
+    assert!(
+        ran.status.success(),
+        "the page writes a request the kernel's examples do not have:
+{}{}",
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&ran.stdout).contains("examples reproduced"),
+        "the encoder check reproduced nothing:
+{}",
+        String::from_utf8_lossy(&ran.stdout)
+    );
+
+    // The page says what the kernel does: its description names every decision
+    // the kernel routes.
+    let described = std::fs::read_to_string(root().join("site/app.json"))
+        .expect("what the page says about the app");
+    let described: serde_json::Value = serde_json::from_str(&described).expect("app.json is JSON");
+    let purpose = described["purpose"].as_str().unwrap_or_default();
+    for tag in &routed {
+        assert!(
+            purpose.contains(&format!("({tag})")),
+            "the page's description does not mention decision {tag}"
+        );
+    }
+
+    // Every answer the kernel gives to an example is one the page knows how to
+    // colour, or the refusal it names.
+    let answers = &described["answers"];
+    let refusal = answers["refusal"].as_str().unwrap_or_default();
+    let known: Vec<&str> = answers["positive"]
+        .as_array()
+        .into_iter()
+        .chain(answers["negative"].as_array())
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    for (_, answer) in &examples {
+        let text = String::from_utf8_lossy(answer).to_string();
+        if text == refusal || text.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        assert!(
+            known.iter().any(|k| k
+                .strip_suffix('*')
+                .map_or(k == &text, |start| text.starts_with(start))),
+            "the page does not know the answer `{text}`"
+        );
+    }
+}
+
+/// Reads every example the kernel carries, takes each field out of the
+/// example's own bytes as `site/decisions.json` has it, hands them to the
+/// page's encoder, and requires the bytes back to be the example's.
+const ENCODER_CHECK: &str = r#"
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const root = process.argv[2];
+const { request } = await import(pathToFileURL(join(root, "site/card.mjs")).href);
+const table = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8")).decisions;
+const model = readFileSync(join(root, "app/src/Kernel.lex.tex"), "utf8");
+
+const examples = [...model.matchAll(/request := 0x([0-9a-f]*), response := 0x([0-9a-f]*)/g)]
+  .map(([, request, response]) => [
+    Uint8Array.from(request.match(/../g) ?? [], (pair) => parseInt(pair, 16)),
+    Buffer.from(response, "hex").toString("utf8"),
+  ]);
+
+let reproduced = 0;
+for (const [bytes, answer] of examples) {
+  if (answer === "invalid request" || bytes.length === 0) continue;
+  const decision = table.find((entry) => entry.tag === bytes[0]);
+  if (!decision) throw new Error(`no decision for tag ${bytes[0]}`);
+  if (decision.length !== bytes.length) throw new Error(`decision ${bytes[0]}: length`);
+  const values = new Map();
+  for (const field of decision.fields) {
+    const part = bytes.subarray(field.at, field.at + field.width);
+    values.set(
+      field.name,
+      field.kind === "label"
+        ? Buffer.from(part).toString("hex")
+        : part.reduce((number, byte) => number * 256n + BigInt(byte), 0n).toString(),
+    );
+  }
+  const written = request(decision, values);
+  if (Buffer.compare(Buffer.from(written), Buffer.from(bytes)) !== 0) {
+    throw new Error(
+      `decision ${bytes[0]}: the page writes ${Buffer.from(written).toString("hex")}, ` +
+        `the kernel answers ${Buffer.from(bytes).toString("hex")}`,
+    );
+  }
+  reproduced += 1;
+}
+if (reproduced < 80) throw new Error(`only ${reproduced} examples reproduced`);
+console.log(`${reproduced} examples reproduced`);
+"#;

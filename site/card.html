@@ -1,0 +1,23 @@
+<div data-slot="surface" class="ask">
+  <label class="pick">
+    <span class="k">Decision</span>
+    <select id="decision"></select>
+  </label>
+  <p id="asks" class="asks"></p>
+  <div id="fields" class="fields"></div>
+</div>
+
+<div data-slot="result" id="verdict" class="verdict">
+  <span class="k">Verdict</span>
+  <output id="answer" for="decision">—</output>
+</div>
+
+<div data-slot="actions" data-label="Ask" class="controls">
+  <button id="decide" class="bare" type="button">Decide</button>
+  <button id="reset-fields" class="bare" type="button">Reset</button>
+</div>
+
+<div data-slot="evidence" class="wire">
+  <span class="k">The bytes asked</span>
+  <code id="bytes">—</code>
+</div>

@@ -198,3 +198,9 @@ Feature: engine
     Given the fixture EN-13 needs
     When the suite exercises EN-13
     Then Sixteen megabytes of download are labelled at no less than two hundred megabytes a second
+
+  @EN-14 @build
+  Scenario: The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+    Given the fixture EN-14 needs
+    When the suite exercises EN-14
+    Then The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
