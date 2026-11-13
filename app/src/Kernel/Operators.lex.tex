@@ -1,0 +1,31 @@
+\begin{lexlean}{Kernel.Operators}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: operatorCode,
+  parameters: [declared : Nat, lowest : Nat, highest : Nat, unimplemented : Nat],
+  result: Nat,
+  body: (if (lowest <=? highest) then (if (lowest <=? declared) then (if (declared <=? highest) then (if (unimplemented =? 0) then 3 else 2) else 1) else 0) else 4)
+}
+
+definition{
+  name: operatorText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 3) then (prim utf8_encode "importable" : Bytes) else (if (code =? 2) then (prim utf8_encode "unsupported operator" : Bytes) else (if (code =? 1) then (prim utf8_encode "opset above maximum" : Bytes) else (if (code =? 0) then (prim utf8_encode "opset below minimum" : Bytes) else (prim utf8_encode "invalid request" : Bytes)))))
+}
+
+definition{
+  name: operatorAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 33) then (operatorText (operatorCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

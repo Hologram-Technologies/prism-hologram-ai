@@ -1317,3 +1317,138 @@ fn kernel_kn_01() {
         );
     }
 }
+
+/// `KN-10`: A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable
+#[test]
+fn kernel_kn_10() {
+    assert_proofs_are_gated();
+    let operators = model("app/src/Kernel/Operators.lex.tex");
+    let proofs = model("app/src/Proofs/Operators.lex.tex");
+
+    // What it means for a graph to be importable: inside the window, and every
+    // operator implemented.
+    let importable = declaration(&proofs, "Importable");
+    assert!(
+        importable.contains(
+            "body: ((lowest <= declared) /\\ ((declared <= highest) /\\ (unimplemented = 0)))"
+        ),
+        "Importable must require the opset to be within the window and no unimplemented operator:\n{importable}"
+    );
+
+    // The verdict is decided, about the function the guest executes.
+    let numbers = "declared lowest highest unimplemented";
+    let decides = declaration(&proofs, "importable_decides");
+    assert!(
+        decides.contains(&format!(
+            "statement: (((Kernel.Operators::operatorCode {numbers}) = 3) <-> (Importable {numbers})),"
+        )),
+        "KN-10's importable_decides changed: the importable verdict must hold exactly when the graph is importable:\n{decides}"
+    );
+
+    // A wider window never makes an importable graph unimportable.
+    let monotone = declaration(&proofs, "window_monotone");
+    assert!(
+        monotone.contains(&format!(
+            "statement: (((Importable {numbers}) /\\ ((wider <= lowest) /\\ (highest <= taller))) \
+             -> (Importable declared wider taller unimplemented)),"
+        )),
+        "KN-10's window_monotone changed: widening the window must keep an importable graph importable:\n{monotone}"
+    );
+
+    // A window that runs backwards is not a refusal: it is no question.
+    let reversed = declaration(&proofs, "reversed_window_is_invalid");
+    assert!(
+        reversed.contains(&format!(
+            "statement: (((Kernel.Operators::operatorCode {numbers}) = 4) <-> ((highest + 1) <= lowest)),"
+        )),
+        "KN-10's reversed_window_is_invalid changed: a window that runs backwards must be the invalid code:\n{reversed}"
+    );
+
+    for theorem in [
+        "importable_decides",
+        "window_monotone",
+        "reversed_window_is_invalid",
+    ] {
+        let declared = declaration(&proofs, theorem);
+        assert!(
+            declared.contains("declared : Nat")
+                && declared.contains("lowest : Nat")
+                && declared.contains("highest : Nat")
+                && declared.contains("unimplemented : Nat")
+                && declared.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+            "{theorem} quantifies over every number and rests on Lean's three standard axioms:\n{declared}"
+        );
+    }
+
+    // Each code has one text, and the answer is the text of the proved code,
+    // read from the four numbers the wire format fixes.
+    let text = declaration(&operators, "operatorText");
+    for (code, verdict) in [
+        (3, "importable"),
+        (2, "unsupported operator"),
+        (1, "opset above maximum"),
+        (0, "opset below minimum"),
+    ] {
+        assert!(
+            text.contains(&format!(
+                "(if (code =? {code}) then (prim utf8_encode \"{verdict}\" : Bytes) else"
+            )),
+            "verdict {code} must read `{verdict}`:\n{text}"
+        );
+    }
+    let answer = declaration(&operators, "operatorAnswer");
+    assert!(
+        answer.contains(
+            "(if ((Foundation.Bytes::byteLength value) =? 33) then (operatorText (operatorCode \
+             (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) \
+             (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8))) else"
+        ),
+        "the verdict must be operatorCode's, from the four numbers at offsets 1, 9, 17 and 25:\n{answer}"
+    );
+
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains("(if (tag =? 10) then (Kernel.Operators::operatorAnswer value)"),
+        "decision 10 must be routed to the operator answer:\n{route}"
+    );
+
+    // Every verdict has an example, and both edges of the window are examples:
+    // a decision about a range that is never asked at its edges is a decision
+    // whose edges nothing has replayed.
+    let application = declaration(&kernel, "application");
+    for verdict in [
+        "importable",
+        "opset below minimum",
+        "opset above maximum",
+        "unsupported operator",
+    ] {
+        assert!(
+            application.contains(&format!("response := 0x{}}}", hex(verdict))),
+            "no example answers `{verdict}`"
+        );
+    }
+    let window = |declared: u64, unimplemented: u64| {
+        format!(
+            "request := 0x0a{declared:016x}{:016x}{:016x}{unimplemented:016x}, response := 0x",
+            7, 21
+        )
+    };
+    for (declared, verdict) in [(7, "importable"), (21, "importable")] {
+        assert!(
+            application.contains(&format!("{}{}}}", window(declared, 0), hex(verdict))),
+            "opset {declared} is an edge of the window in the examples and must answer `{verdict}`"
+        );
+    }
+    assert!(
+        application.contains(&format!(
+            "request := 0x0a{:016x}{:016x}{:016x}{:016x}, response := 0x{}}}",
+            18,
+            21,
+            7,
+            0,
+            hex("invalid request")
+        )),
+        "no example asks about a window that runs backwards"
+    );
+}

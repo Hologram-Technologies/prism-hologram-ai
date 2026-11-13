@@ -1,0 +1,46 @@
+\begin{lexlean}{Proofs.Operators}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Operators}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Importable,
+  parameters: [declared : Nat, lowest : Nat, highest : Nat, unimplemented : Nat],
+  result: Prop,
+  body: ((lowest <= declared) /\ ((declared <= highest) /\ (unimplemented = 0)))
+}
+
+theorem{
+  name: importable_decides,
+  parameters: [declared : Nat, lowest : Nat, highest : Nat, unimplemented : Nat],
+  statement: (((Kernel.Operators::operatorCode declared lowest highest unimplemented) = 3) <-> (Importable declared lowest highest unimplemented)),
+  proof: linear_arithmetic{definitions: [Importable, Kernel.Operators::operatorCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: window_monotone,
+  parameters: [
+    declared : Nat,
+    lowest : Nat,
+    highest : Nat,
+    unimplemented : Nat,
+    wider : Nat,
+    taller : Nat
+  ],
+  statement: (((Importable declared lowest highest unimplemented) /\ ((wider <= lowest) /\ (highest <= taller))) -> (Importable declared wider taller unimplemented)),
+  proof: linear_arithmetic{definitions: [Importable]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: reversed_window_is_invalid,
+  parameters: [declared : Nat, lowest : Nat, highest : Nat, unimplemented : Nat],
+  statement: (((Kernel.Operators::operatorCode declared lowest highest unimplemented) = 4) <-> ((highest + 1) <= lowest)),
+  proof: linear_arithmetic{definitions: [Kernel.Operators::operatorCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

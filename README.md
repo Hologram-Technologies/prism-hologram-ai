@@ -17,7 +17,7 @@ The engine and the page never decide policy. They ask the kernel.
 
 ## Status
 
-The kernel is built. The engine has two crates: the client that writes the
+The kernel is built: all eleven decisions. The engine has two crates: the client that writes the
 kernel's requests and reads its answers, and the reader that turns a model's
 safetensors header and config into the questions the kernel answers. What exists is listed in
 [CONFORMANCE.md](CONFORMANCE.md), which is generated from
@@ -35,6 +35,7 @@ safetensors header and config into the questions the kernel answers. What exists
 | 8, decode bucket | The decode bucket is at least what is needed, never above the maximum, and never below the current bucket. | Proved (`fits_decides`, `grow_bounds`) |
 | 9, generation bound | A turn's token budget never exceeds the context that remains and never exceeds the request. | Proved (`has_room_decides`, `budget_within_context`, `budget_within_request`) |
 | 11, shape binding | A requested dimension is bound exactly when it lies within its bounds, to a size at least the request and never above the upper bound. | Proved (`in_bounds_decides`, `bind_bounds`) |
+| 10, operator preflight | A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented; a wider window never makes an importable graph unimportable, and a window that runs backwards is no question. | Proved (`importable_decides`, `window_monotone`, `reversed_window_is_invalid`) |
 
 Nothing that downloads, compiles or runs a model is in this repository yet, and
 neither is the page. The plan and its
@@ -140,6 +141,21 @@ Decision 11, 33 bytes:
 | 25 to 32 | step to round up to, or 0 for exact |
 
 It answers the bound size as decimal text, `below minimum` or `above maximum`.
+
+Decision 10, 33 bytes:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | `10` |
+| 1 to 8 | the opset the graph declares |
+| 9 to 16 | the lowest opset the importer implements |
+| 17 to 24 | the highest it implements |
+| 25 to 32 | operators in the graph the importer does not build, a count |
+
+It answers `importable`, or the condition that failed: `opset below minimum`,
+`opset above maximum` or `unsupported operator`. A window whose lowest opset is
+above its highest is answered `invalid request`: it is not a graph that was
+refused, it is a question that was never asked.
 
 Decision 7, 41 bytes. The engine proposes a trim and the kernel checks it:
 

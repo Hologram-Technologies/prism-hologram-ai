@@ -99,3 +99,9 @@ id = "EN-03"
 level = "build"
 suite = "engine"
 statement = "A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged"
+
+[[id]]
+id = "KN-10"
+level = "build"
+suite = "kernel"
+statement = "A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable"

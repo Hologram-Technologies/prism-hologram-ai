@@ -586,6 +586,67 @@ pub mod generation {
     }
 }
 
+/// Decision 10: may this ONNX graph be imported?
+///
+/// A graph is importable when the opset it declares lies within the window of
+/// opsets the importer implements, and every operator in it is one the importer
+/// builds. The window and the count of operators outside it are the importer's
+/// to report; whether the graph may be built is the kernel's to answer.
+pub mod operators {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Verdict {
+        /// Every operator is implemented and the opset is within the window.
+        Importable,
+        /// The graph declares an opset older than the window.
+        OpsetBelowMinimum,
+        /// The graph declares an opset newer than the window.
+        OpsetAboveMaximum,
+        /// The graph uses an operator the importer does not build.
+        UnsupportedOperator,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    impl Verdict {
+        /// Whether a graph may be built. Only one answer says so, and a
+        /// verdict the client does not know never does.
+        #[must_use]
+        pub const fn authorises_import(self) -> bool {
+            matches!(self, Self::Importable)
+        }
+    }
+
+    /// The request about a graph declaring opset `declared`, against an
+    /// importer that implements opsets `lowest` to `highest` and finds
+    /// `unimplemented` of the graph's operators outside what it builds.
+    #[must_use]
+    pub fn request(declared: u64, lowest: u64, highest: u64, unimplemented: u64) -> [u8; 33] {
+        let mut out = [0; 33];
+        out[0] = 10;
+        crate::put(&mut out, 1, declared);
+        crate::put(&mut out, 9, lowest);
+        crate::put(&mut out, 17, highest);
+        crate::put(&mut out, 25, unimplemented);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Verdict {
+        match text {
+            b"importable" => Verdict::Importable,
+            b"opset below minimum" => Verdict::OpsetBelowMinimum,
+            b"opset above maximum" => Verdict::OpsetAboveMaximum,
+            b"unsupported operator" => Verdict::UnsupportedOperator,
+            crate::INVALID_REQUEST => Verdict::Invalid,
+            _ => Verdict::Unrecognised,
+        }
+    }
+}
+
 /// Decision 11: the size a dimension is bound to.
 pub mod shape {
     /// The kernel's answer.
