@@ -385,9 +385,17 @@ measurements, not the shape of the relation between them. It also requires
 50,000 nodes to be read in under a second, which is the ONNX preflight budget
 this repository was asked for.
 
-`EN-13` requires sixteen megabytes to be labelled at no less than two hundred
+`EN-13` requires sixteen megabytes to be labelled at no less than twenty
 megabytes a second. A floor, not a ratio, because the way to make hashing slow
 is to feed it badly rather than to change its order.
+
+That floor was first set at two hundred, from the machine this was written on,
+and `main` went red on it: the arm64 runner labelled at 61 MB/s in the same
+unoptimised build, sixty times slower than the same code on x86-64 here. The
+floor now clears the slowest machine the gate runs on by three times, and the
+defect that hands the hash one byte at a time ran at 15 MB/s, which is below
+it. The margin on that side is thin, and that is the honest state of it: a
+floor set from one machine is a measurement of that machine.
 
 Measured here, in the gate's own debug build, on an AMD Ryzen AI Max 390:
 
@@ -395,7 +403,8 @@ Measured here, in the gate's own debug build, on an AMD Ryzen AI Max 390:
 | --- | --- | --- |
 | 50,000 ONNX nodes, read and asked about | 69 ms, 31.8 MB/s | under 1 s |
 | 25,000 against 50,000 nodes | ratio 1.84 | under 3 |
-| 16 MB labelled, in 64 KB chunks | 4.6 ms, 3650 MB/s | at least 200 MB/s |
+| 16 MB labelled, in 64 KB chunks | 4.6 ms, 3650 MB/s | at least 20 MB/s |
+| the same, on the arm64 runner | 274 ms, 61 MB/s | the same floor |
 
 ### The gate: `cargo test -p repo-conformance --test engine`
 
@@ -424,6 +433,66 @@ One run of the defect script was killed by a timeout between planting a defect
 and restoring it, and the defect stayed in the working tree. Reading the diff
 before committing found it. The rule it illustrates is the one that found it:
 read what is about to be committed, not what was meant to be committed.
+
+## EN-14, the page's own surface
+
+The published page runs the verified guest in a browser. Until now it took a
+request as hexadecimal, which is a way of saying that only someone who had read
+the wire format could use it. `site/card.html`, `card.css` and `card.mjs` are
+the app's own surface, which the frame leaves to the app: choose one of the
+eleven decisions, fill in its numbers by name, and the guest answers.
+
+Every layout comes from `site/decisions.json`, one source read twice: the page
+builds its form from it, and `EN-14` checks it against the kernel's own
+examples. What the gate checks of the table: every decision the kernel routes
+is offered and nothing else; every byte after the tag belongs to exactly one
+field; each decision's length is the length its answered examples have; every
+state and event the examples use can be chosen; and every value the form starts
+with fits its field.
+
+What the gate checks of the page itself: Node runs `card.mjs`'s own encoder
+over every example the kernel carries, taking each field out of the example's
+own bytes as the table has it, and requires the bytes back to be the example's.
+The encoder is the thing being checked, not a copy of it.
+
+The page's description is checked too: it names every decision the kernel
+routes, and it knows every answer the examples give, so an answer the kernel
+gives that the page cannot recognise fails the gate rather than appearing
+unmarked.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Thirteen defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A field is read one byte late | the two fields then share a byte |
+| A field is one byte wide instead of eight | some byte of the request is no field |
+| A field of the request is not on the form | the same |
+| A decision the kernel routes is not offered | the offered set is not the routed set |
+| A request is a byte shorter than the kernel accepts | a field runs past the request |
+| A state the kernel knows cannot be chosen | the examples use a code the page does not offer |
+| A form starts with a number its field cannot hold | 300 does not fit one byte |
+| A label starts as the wrong number of digits | a label of 32 digits for 32 bytes |
+| The page writes numbers least significant byte first | the encoder, over the kernel's examples |
+| The page writes a label's digits in the other order | the same |
+| The page writes no decision in the first byte | the same |
+| The description leaves out a decision the kernel routes | the description does not mention decision 10 |
+| The page does not know an answer the kernel gives | the page does not know `importable` |
+| none, before and after | passed |
+
+### What EN-14 does not establish
+
+- That the page works in a browser. The gate runs the encoder in Node and
+  checks the table; it does not open a page. The card was looked at in a
+  browser by hand, against a harness with no guest behind it, and the form, the
+  chooser and the request bytes were right there; the published page is what
+  the pages workflow builds.
+- That the verdict shown is the verdict the guest gave. The card passes the
+  answer through, and nothing here replays a guest.
+- That someone can tell what the numbers mean. The form names each field; it
+  does not explain the decision.
 
 ## How the engine may fail
 

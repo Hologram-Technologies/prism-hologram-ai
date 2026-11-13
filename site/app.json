@@ -2,19 +2,30 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Ten decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9) and the size a dimension is bound to (11). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Eleven decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10) and the size a dimension is bound to (11). Anything else answers invalid request.",
   "inputLabel": "Decision request",
-  "placeholder": "hex: followed by 81 bytes",
+  "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
   "outputLabel": "Verdict",
   "answers": {
     "positive": [
-      "admit",
       "accept",
-      "supported",
+      "admit",
+      "compile",
       "derived",
-      "trim",
-      "plan"
+      "download",
+      "generating",
+      "idle",
+      "importable",
+      "int4",
+      "int8",
+      "int8 paged",
+      "materialize",
+      "plan",
+      "preflight",
+      "ready",
+      "supported",
+      "trim"
     ],
     "negative": [
       "above maximum",
@@ -26,6 +37,9 @@
       "does not fit",
       "dropped exceeds total",
       "drops too many",
+      "failed",
+      "opset above maximum",
+      "opset below minimum",
       "refuse",
       "refused",
       "reject",
@@ -33,7 +47,8 @@
       "stage does not fit",
       "stage too small",
       "stages do not cover",
-      "too long"
+      "too long",
+      "unsupported operator"
     ],
     "refusal": "invalid request"
   },
@@ -119,6 +134,18 @@
       "statement": "next state = ready ↔ (state = materialize ∧ event = labels verified) ∨ (state = generating ∧ (event = turn done ∨ event = cancel turn)), for every state and event",
       "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
       "where": "app/src/Proofs/Journey.lex.tex"
+    },
+    {
+      "name": "importable_decides",
+      "statement": "Kernel.Operators::operatorCode declared lowest highest unimplemented = 3 ↔ lowest ≤ declared ∧ declared ≤ highest ∧ unimplemented = 0, for every four numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Operators.lex.tex"
+    },
+    {
+      "name": "window_monotone",
+      "statement": "Importable at one window ∧ the window widens → Importable at the wider window, for every four numbers",
+      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
+      "where": "app/src/Proofs/Operators.lex.tex"
     }
   ],
   "pinned": [
@@ -170,6 +197,11 @@
     {
       "name": "kernel_kn_01",
       "what": "The nine theorems' statements, which states can fail, the name each state code reads as, that only states and events that exist reach the decision, the routing, and examples that walk the chain and refuse its shortcuts. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_10",
+      "what": "The three theorems' statements and axioms, the proposition they decide, the request offsets the four numbers are read from, that decision 10 is routed to this answer, and the examples at both edges of the window and for a window that runs backwards. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

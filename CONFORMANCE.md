@@ -37,6 +37,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-11` | `build` | A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are |
 | `EN-12` | `build` | Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second |
 | `EN-13` | `build` | Sixteen megabytes of download are labelled at no less than two hundred megabytes a second |
+| `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen |
 
 ## kernel
 

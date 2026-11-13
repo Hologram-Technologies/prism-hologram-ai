@@ -231,6 +231,8 @@ just new-capability KN-06 build kernel "<the statement>"
 | `model/failures.toml` | Every public failure a shipped crate may return: its type, its variant and when it is returned. |
 | `crates/conformance/tests/engine.rs` | The engine's tests, run against the kernel's own examples. |
 | `site/app.json` | What the app page says about the kernel. |
+| `site/decisions.json` | The request layout of each decision, which the page's form is built from and `EN-14` checks against the kernel's examples. |
+| `site/card.html`, `card.css`, `card.mjs` | The page's own surface: choose a decision, fill in its numbers, and the verified guest answers. |
 | `docs/` | The brief and the implementation plan. |
 
 [KERNEL-VERIFICATION.md](KERNEL-VERIFICATION.md) and
