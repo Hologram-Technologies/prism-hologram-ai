@@ -171,3 +171,9 @@ id = "EN-14"
 level = "build"
 suite = "engine"
 statement = "The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen"
+
+[[id]]
+id = "EN-15"
+level = "build"
+suite = "engine"
+statement = "Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way"

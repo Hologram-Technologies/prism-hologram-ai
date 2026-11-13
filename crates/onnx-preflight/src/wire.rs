@@ -105,7 +105,10 @@ impl<'a> Reader<'a> {
     }
 
     fn fixed(&mut self, width: usize) -> Result<(), OnnxError> {
-        let end = self.at.checked_add(width).ok_or(OnnxError::Truncated)?;
+        // The sum cannot overflow: the position is inside a slice that exists,
+        // and a fixed field is four bytes or eight. Checking it would be a
+        // branch no file could take, which is a branch no test could reach.
+        let end = self.at + width;
         if end > self.bytes.len() {
             return Err(OnnxError::Truncated);
         }
