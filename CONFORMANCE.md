@@ -27,6 +27,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-01` | `build` | The kernel client writes each request exactly as the kernel examples have it and reads every answer the kernel gives |
 | `EN-02` | `build` | A safetensors header is read into its tensors in file order, with every tensor byte range accepted by the kernel |
 | `EN-03` | `build` | A model config is read into the preflight question: a named family is recognised, every missing required key is counted, and an unsupported activation is flagged |
+| `EN-04` | `build` | An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over |
+| `EN-05` | `build` | The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear |
 
 ## kernel
 
@@ -59,6 +61,12 @@ not that the test provokes the failure.
 | `FL-05` | `model-reader` | `HeaderError::OffsetsDoNotRunForward` | A tensor ends before it starts |
 | `FL-06` | `model-reader` | `HeaderError::RangeRefused` | The kernel did not accept a tensor byte range |
 | `FL-07` | `model-reader` | `ConfigError::NotJson` | The config bytes are not a JSON object |
+| `FL-08` | `onnx-preflight` | `OnnxError::Truncated` | A field runs past the end of the file |
+| `FL-09` | `onnx-preflight` | `OnnxError::NumberTooLong` | A variable-length number does not end within the ten bytes that carry sixty-four bits |
+| `FL-10` | `onnx-preflight` | `OnnxError::UnknownEncoding` | A field says it is encoded a way the format does not define, so its end cannot be found |
+| `FL-11` | `onnx-preflight` | `OnnxError::NameNotText` | A name the preflight reads is not text |
+| `FL-12` | `onnx-preflight` | `OnnxError::NoGraph` | The model carries no graph |
+| `FL-13` | `onnx-preflight` | `OnnxError::NoDefaultOpset` | The model declares no opset for the default domain |
 
 ## Cited authorities
 

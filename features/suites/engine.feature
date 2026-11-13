@@ -66,3 +66,51 @@ Feature: engine
     Given the input that makes model-reader return ConfigError::NotJson
     When the suite exercises FL-07
     Then The config bytes are not a JSON object
+
+  @EN-04 @build
+  Scenario: An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over
+    Given the fixture EN-04 needs
+    When the suite exercises EN-04
+    Then An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over
+
+  @EN-05 @build
+  Scenario: The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear
+    Given the fixture EN-05 needs
+    When the suite exercises EN-05
+    Then The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear
+
+  @FL-08 @build
+  Scenario: A field runs past the end of the file
+    Given the input that makes onnx-preflight return OnnxError::Truncated
+    When the suite exercises FL-08
+    Then A field runs past the end of the file
+
+  @FL-09 @build
+  Scenario: A variable-length number does not end within the ten bytes that carry sixty-four bits
+    Given the input that makes onnx-preflight return OnnxError::NumberTooLong
+    When the suite exercises FL-09
+    Then A variable-length number does not end within the ten bytes that carry sixty-four bits
+
+  @FL-10 @build
+  Scenario: A field says it is encoded a way the format does not define, so its end cannot be found
+    Given the input that makes onnx-preflight return OnnxError::UnknownEncoding
+    When the suite exercises FL-10
+    Then A field says it is encoded a way the format does not define, so its end cannot be found
+
+  @FL-11 @build
+  Scenario: A name the preflight reads is not text
+    Given the input that makes onnx-preflight return OnnxError::NameNotText
+    When the suite exercises FL-11
+    Then A name the preflight reads is not text
+
+  @FL-12 @build
+  Scenario: The model carries no graph
+    Given the input that makes onnx-preflight return OnnxError::NoGraph
+    When the suite exercises FL-12
+    Then The model carries no graph
+
+  @FL-13 @build
+  Scenario: The model declares no opset for the default domain
+    Given the input that makes onnx-preflight return OnnxError::NoDefaultOpset
+    When the suite exercises FL-13
+    Then The model declares no opset for the default domain

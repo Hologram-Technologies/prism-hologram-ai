@@ -87,3 +87,51 @@ type = "ConfigError"
 variant = "NotJson"
 suite = "engine"
 condition = "The config bytes are not a JSON object"
+
+[[failure]]
+id = "FL-08"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "Truncated"
+suite = "engine"
+condition = "A field runs past the end of the file"
+
+[[failure]]
+id = "FL-09"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "NumberTooLong"
+suite = "engine"
+condition = "A variable-length number does not end within the ten bytes that carry sixty-four bits"
+
+[[failure]]
+id = "FL-10"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "UnknownEncoding"
+suite = "engine"
+condition = "A field says it is encoded a way the format does not define, so its end cannot be found"
+
+[[failure]]
+id = "FL-11"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "NameNotText"
+suite = "engine"
+condition = "A name the preflight reads is not text"
+
+[[failure]]
+id = "FL-12"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "NoGraph"
+suite = "engine"
+condition = "The model carries no graph"
+
+[[failure]]
+id = "FL-13"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "NoDefaultOpset"
+suite = "engine"
+condition = "The model declares no opset for the default domain"

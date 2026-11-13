@@ -105,3 +105,15 @@ id = "KN-10"
 level = "build"
 suite = "kernel"
 statement = "A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable"
+
+[[id]]
+id = "EN-04"
+level = "build"
+suite = "engine"
+statement = "An ONNX model's default-domain opset, its nodes' operators in file order and the tensors its graph carries are read from the file, and fields the preflight does not need are stepped over"
+
+[[id]]
+id = "EN-05"
+level = "build"
+suite = "engine"
+statement = "The operators an ONNX model names that a builder does not implement are counted into the kernel's import question, and reported each once in the order they first appear"

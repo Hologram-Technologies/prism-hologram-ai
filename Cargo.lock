@@ -81,6 +81,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hologram-ai-onnx-preflight"
+version = "0.1.0"
+dependencies = [
+ "hologram-ai-kernel-client",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -132,6 +139,7 @@ version = "0.1.0"
 dependencies = [
  "hologram-ai-kernel-client",
  "hologram-ai-model-reader",
+ "hologram-ai-onnx-preflight",
  "repo-model",
  "serde_json",
 ]
