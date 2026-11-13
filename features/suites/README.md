@@ -20,6 +20,10 @@ The `suite` field of a row in `model/ids.toml` names the file its scenario
 lives in, and `just bdd` fails if an ID has no scenario, a scenario has no ID,
 or an ID has no test whose name ends in it lowercased with underscores.
 
-Empty. The first capability this repository builds starts with a row in
-`model/ids.toml`, then a scenario here, then a failing test --- in that order,
-because the order is the discipline (`AGENTS.md`).
+A registered failure (`model/failures.toml`) has a negative scenario here too,
+tagged `@FL-NN @build` in the suite its row names, and a test in
+`crates/conformance/tests/<suite>.rs` that names its variant (R5).
+
+A capability starts with a row in `model/ids.toml`, then a scenario here, then
+a failing test --- in that order, because the order is the discipline
+(`AGENTS.md`). `just new-capability` and `just new-failure` write all three.

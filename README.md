@@ -200,7 +200,7 @@ just new-capability KN-06 build kernel "<the statement>"
 | `app/src/Kernel/` | One module per decision, and the wire format they share. Only what the guest executes. |
 | `app/src/Proofs/` | The propositions and theorems about those modules, kept outside the application's build. |
 | `app/src/Foundation/` | The template's byte and text-application library. |
-| `model/` | The claim, authority and ledger registers. |
+| `model/` | The claim, authority, ledger and failure registers. A shipped crate fails only as `model/failures.toml` lists. |
 | `features/suites/` | One scenario per registered claim. |
 | `crates/conformance/tests/kernel.rs` | One test per claim, pinning what its theorem says. |
 | `crates/kernel-client/` | The engine's client for the kernel: typed requests in, typed answers out. No dependencies, no allocation, no function that can fail. |
