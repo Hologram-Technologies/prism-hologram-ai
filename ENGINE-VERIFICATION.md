@@ -15,6 +15,11 @@ it can fail: a request is built from typed arguments into a fixed-size array,
 and an answer the kernel is not known to give reads as `Unrecognised`, which a
 caller must handle and cannot mistake for a verdict.
 
+`crates/chat` keeps a conversation: where it is in the journey, how many
+tokens its system prompt and newest message hold, and each question-and-answer
+pair in turn. It proposes a trim, asks for a decode bucket and a token budget,
+and takes the step the kernel gives.
+
 `crates/download` takes a download's bytes as they arrive, labels them with the
 BLAKE3 hash the archive names them by, and asks the kernel whether the buffer
 may be used. It fetches nothing: whoever holds the connection hands the chunks
@@ -58,6 +63,11 @@ runtime's crates are not published there.
 | `EN-07`: a download's label and length do not depend on how its bytes were split | `engine_en_07`, over ten lengths either side of the hash's own block and chunk sizes, in six chunk sizes each | tested |
 | `EN-08`: a download is admitted exactly when the kernel admits it | `engine_en_08` | tested |
 | `FL-14`, `FL-15`: the download fails only as `model/failures.toml` lists | `engine_fl_14` and `engine_fl_15` | tested |
+| `EN-09`: a conversation takes the step the kernel gives and stays where it was when refused | `engine_en_09`, driving the whole journey through the kernel's own examples | tested |
+| `EN-10`: the trim proposed drops whole pairs from the oldest, the fewest that fit | `engine_en_10`, over twelve conversations including the empty one and the one too long to fit at all | tested |
+| `EN-11`: pairs are forgotten only on the kernel's acceptance, and its numbers are read as numbers | `engine_en_11` | tested |
+| `FL-16` to `FL-19`: the conversation fails only as `model/failures.toml` lists | `engine_fl_16` to `engine_fl_19` | tested |
+| A conversation's token counts are the ones a tokeniser would give | not tested: no tokeniser is here, and the counts are the caller's |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
@@ -302,6 +312,62 @@ rejected; none was missed.
   another question, and not this crate's.
 - How fast a label is taken. No file of a real model's size is hashed here, and
   no time is measured.
+
+## EN-09 to EN-11, the conversation
+
+Four of the kernel's decisions are about a conversation, and the tests put
+three of them to a kernel that answers only what the kernel's own examples
+record. The whole journey runs on those answers — idle to preflight, download,
+compile, materialize, ready, generating and back to ready — so the engine's
+state machine is driven by answers the compiled guest has replayed, not by
+answers written here. So are the decode bucket and the token budget.
+
+`EN-10` is the claim `KERNEL-VERIFICATION.md` records as the engine's to make:
+that a proposed trim drops whole pairs, oldest first, and that the totals it
+reports are the totals of those pairs. The kernel checks a proposal; it never
+sees the pairs. The test checks the arithmetic against the pairs themselves,
+including that the trim is the fewest pairs that fit, which is what the kernel
+accepts, and that nothing is dropped from a conversation that already fits.
+
+`EN-11` is about what changes and when. The pairs are forgotten only on the
+kernel's acceptance: every refusal leaves the conversation whole, and the
+verdict comes back as the kernel gave it.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Seventeen defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A refused step is taken anyway | `engine_en_09` |
+| The step is asked about the state the conversation is going to | `engine_en_09` |
+| An answer the client does not know is taken as a step | `engine_en_09` |
+| The part that never goes is left out of the question | `engine_en_10` |
+| The question reports the pairs that remain, not the total | `engine_en_10` |
+| The trim drops one pair more than it has to | `engine_en_11` |
+| The trim drops from the newest pair | `engine_en_11` |
+| What is reported dropped is the pair count, not the tokens | `engine_en_11` |
+| The newest dropped is the oldest pair dropped | `engine_en_11` |
+| The pairs are forgotten whatever the kernel answers | `engine_en_11` |
+| An accepted trim forgets nothing | `engine_en_11` |
+| An accepted trim forgets one pair too many | `engine_en_11` |
+| The bucket is asked for the sequence as the bucket it already has | `engine_en_11` |
+| The budget is asked about the tokens used as the context | `engine_en_11` |
+| A bucket the kernel would not give is read as none | `engine_en_11` |
+| The total counts every pair twice | `engine_en_11` |
+| A turn with no room left is given the whole context | `engine_fl_19` |
+| none, before and after | passed |
+
+### What EN-09 to EN-11 do not establish
+
+- That the token counts are a tokeniser's. No tokeniser is here; the counts are
+  the caller's, and a wrong count is a wrong question honestly asked.
+- That a whole journey is what the eight steps add up to. The kernel proves
+  each step; the claim about sequences is argued, as `KERNEL-VERIFICATION.md`
+  records.
+- That a conversation generates anything. Nothing here runs a model: the
+  conversation keeps counts and asks what may be done with them.
 
 ## How the engine may fail
 

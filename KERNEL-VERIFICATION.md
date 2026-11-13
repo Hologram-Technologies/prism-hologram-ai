@@ -30,7 +30,7 @@ The inherited gates and their own planted defects are in
 | `KN-10`: a graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented | `importable_decides`, checked by the Lean kernel | proved |
 | A wider window never makes an importable graph unimportable, and a window that runs backwards is no question | `window_monotone` and `reversed_window_is_invalid`, checked by the Lean kernel | proved |
 | The opset window and the count of operators outside it are what the importer reports | the kernel is told numbers and answers; which operators an importer builds is the importer's, and no importer exists here yet | not proved |
-| The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; an engine test, not yet written | not proved |
+| The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; `EN-10` in `crates/conformance/tests/engine.rs` tests it of the engine | tested, not proved |
 | A plan exists whenever one layer fits beside the context | the kernel checks a plan, it does not produce one; an engine test, not yet written | not proved |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the eleven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |

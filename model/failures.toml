@@ -151,3 +151,35 @@ type = "DownloadError"
 variant = "Refused"
 suite = "engine"
 condition = "The kernel did not admit the buffer that arrived"
+
+[[failure]]
+id = "FL-16"
+crate = "chat"
+type = "ChatError"
+variant = "StepRefused"
+suite = "engine"
+condition = "The kernel did not give a state for the step that was asked"
+
+[[failure]]
+id = "FL-17"
+crate = "chat"
+type = "ChatError"
+variant = "TrimRefused"
+suite = "engine"
+condition = "The kernel did not accept the trim the conversation proposed"
+
+[[failure]]
+id = "FL-18"
+crate = "chat"
+type = "ChatError"
+variant = "NoBucket"
+suite = "engine"
+condition = "The kernel gave no decode bucket for the sequence"
+
+[[failure]]
+id = "FL-19"
+crate = "chat"
+type = "ChatError"
+variant = "NoBudget"
+suite = "engine"
+condition = "The kernel gave no token budget for the turn"

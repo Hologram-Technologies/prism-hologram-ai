@@ -32,6 +32,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-06` | `some-true` | A buffer's label is the BLAKE3 hash of its bytes, as the published test vectors give it |
 | `EN-07` | `build` | A download's label and length do not depend on how its bytes were split into chunks |
 | `EN-08` | `build` | A download is admitted exactly when the kernel admits the label and length it arrived with against the ones the archive names, and a refusal carries the kernel's verdict |
+| `EN-09` | `build` | A conversation takes the step the kernel gives and stays exactly where it was when the kernel refuses |
+| `EN-10` | `build` | The trim a conversation proposes drops whole pairs from the oldest, the fewest that leave the rest fitting, and the totals it reports are the totals of those pairs |
+| `EN-11` | `build` | A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are |
 
 ## kernel
 
@@ -72,6 +75,10 @@ not that the test provokes the failure.
 | `FL-13` | `onnx-preflight` | `OnnxError::NoDefaultOpset` | The model declares no opset for the default domain |
 | `FL-14` | `download` | `DownloadError::LabelNotHex` | A label an archive names is not sixty-four lower-case hexadecimal digits |
 | `FL-15` | `download` | `DownloadError::Refused` | The kernel did not admit the buffer that arrived |
+| `FL-16` | `chat` | `ChatError::StepRefused` | The kernel did not give a state for the step that was asked |
+| `FL-17` | `chat` | `ChatError::TrimRefused` | The kernel did not accept the trim the conversation proposed |
+| `FL-18` | `chat` | `ChatError::NoBucket` | The kernel gave no decode bucket for the sequence |
+| `FL-19` | `chat` | `ChatError::NoBudget` | The kernel gave no token budget for the turn |
 
 ## Cited authorities
 
