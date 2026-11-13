@@ -17,6 +17,7 @@ hologram-ai-download = { workspace = true }
 hologram-ai-kernel-client = { workspace = true }
 hologram-ai-model-reader = { workspace = true }
 hologram-ai-onnx-preflight = { workspace = true }
+hologram-ai-tokenizer = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

@@ -39,6 +39,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-13` | `build` | Sixteen megabytes of download are labelled at no less than two hundred megabytes a second |
 | `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen |
 | `EN-15` | `build` | Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way |
+| `EN-16` | `build` | A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes |
+| `EN-17` | `build` | Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies |
+| `EN-18` | `build` | Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte |
 
 ## kernel
 
@@ -83,6 +86,10 @@ not that the test provokes the failure.
 | `FL-17` | `chat` | `ChatError::TrimRefused` | The kernel did not accept the trim the conversation proposed |
 | `FL-18` | `chat` | `ChatError::NoBucket` | The kernel gave no decode bucket for the sequence |
 | `FL-19` | `chat` | `ChatError::NoBudget` | The kernel gave no token budget for the turn |
+| `FL-20` | `tokenizer` | `TokeniserError::NotJson` | The tokeniser file is not a JSON object |
+| `FL-21` | `tokenizer` | `TokeniserError::Unfollowable` | The file describes a tokeniser this crate does not follow |
+| `FL-22` | `tokenizer` | `TokeniserError::UnknownId` | An id to decode is not in the vocabulary |
+| `FL-23` | `tokenizer` | `TokeniserError::TokenNotByteLevel` | A token holds a character the byte alphabet does not have |
 
 ## Cited authorities
 

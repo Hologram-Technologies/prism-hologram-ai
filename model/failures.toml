@@ -183,3 +183,35 @@ type = "ChatError"
 variant = "NoBudget"
 suite = "engine"
 condition = "The kernel gave no token budget for the turn"
+
+[[failure]]
+id = "FL-20"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "NotJson"
+suite = "engine"
+condition = "The tokeniser file is not a JSON object"
+
+[[failure]]
+id = "FL-21"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "Unfollowable"
+suite = "engine"
+condition = "The file describes a tokeniser this crate does not follow"
+
+[[failure]]
+id = "FL-22"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "UnknownId"
+suite = "engine"
+condition = "An id to decode is not in the vocabulary"
+
+[[failure]]
+id = "FL-23"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "TokenNotByteLevel"
+suite = "engine"
+condition = "A token holds a character the byte alphabet does not have"

@@ -210,3 +210,45 @@ Feature: engine
     Given the fixture EN-15 needs
     When the suite exercises EN-15
     Then Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way
+
+  @EN-16 @build
+  Scenario: A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes
+    Given the fixture EN-16 needs
+    When the suite exercises EN-16
+    Then A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes
+
+  @EN-17 @build
+  Scenario: Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies
+    Given the fixture EN-17 needs
+    When the suite exercises EN-17
+    Then Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies
+
+  @EN-18 @build
+  Scenario: Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte
+    Given the fixture EN-18 needs
+    When the suite exercises EN-18
+    Then Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte
+
+  @FL-20 @build
+  Scenario: The tokeniser file is not a JSON object
+    Given the input that makes tokenizer return TokeniserError::NotJson
+    When the suite exercises FL-20
+    Then The tokeniser file is not a JSON object
+
+  @FL-21 @build
+  Scenario: The file describes a tokeniser this crate does not follow
+    Given the input that makes tokenizer return TokeniserError::Unfollowable
+    When the suite exercises FL-21
+    Then The file describes a tokeniser this crate does not follow
+
+  @FL-22 @build
+  Scenario: An id to decode is not in the vocabulary
+    Given the input that makes tokenizer return TokeniserError::UnknownId
+    When the suite exercises FL-22
+    Then An id to decode is not in the vocabulary
+
+  @FL-23 @build
+  Scenario: A token holds a character the byte alphabet does not have
+    Given the input that makes tokenizer return TokeniserError::TokenNotByteLevel
+    When the suite exercises FL-23
+    Then A token holds a character the byte alphabet does not have

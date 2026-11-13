@@ -12,6 +12,7 @@ use hologram_ai_chat as chat;
 use hologram_ai_download as download;
 use hologram_ai_model_reader::{config, header, Kernel};
 use hologram_ai_onnx_preflight as onnx;
+use hologram_ai_tokenizer as tokeniser;
 
 use hologram_ai_kernel_client::{
     admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
@@ -2424,4 +2425,369 @@ fn engine_en_15() {
 /// The bytes of `text`, for a message about a file that is not text.
 fn hex(text: &str) -> String {
     text.bytes().map(|byte| format!("{byte:02x}")).collect()
+}
+
+// ─── The tokeniser ──────────────────────────────────────────────────────────
+//
+// A conversation's arithmetic is in tokens, and the kernel proves that
+// arithmetic over whatever counts it is given. A count is the model's own only
+// if the text was split the model's way, so the vocabulary, the merges and the
+// pattern all come from the model's own file, and a file this crate cannot
+// follow is refused by what it describes.
+//
+// The tokenisers below are built here, piece by piece, so what each test
+// expects can be worked out by hand from the merges it declares.
+
+/// The byte alphabet, written out here rather than taken from the crate under
+/// test: the printable bytes stand for themselves, the rest move up above 256
+/// in the order they are met.
+fn byte_alphabet() -> Vec<char> {
+    let printable = |byte: u8| matches!(byte, b'!'..=b'~' | 0xa1..=0xac | 0xae..=0xff);
+    let mut moved = 0u32;
+    (0..=255u8)
+        .map(|byte| {
+            if printable(byte) {
+                char::from(byte)
+            } else {
+                moved += 1;
+                char::from_u32(255 + moved).unwrap_or('\u{fffd}')
+            }
+        })
+        .collect()
+}
+
+/// A tokeniser file: every byte as a token, then `merged` in rank order, and
+/// `pattern` to split text by.
+fn tokeniser(merged: &[&str], pattern: Option<&str>) -> Vec<u8> {
+    let alphabet = byte_alphabet();
+    let mut vocabulary = serde_json::Map::new();
+    for (id, character) in alphabet.iter().enumerate() {
+        vocabulary.insert(character.to_string(), serde_json::json!(id));
+    }
+    let mut merges = Vec::new();
+    for (step, merge) in merged.iter().enumerate() {
+        vocabulary.insert(
+            merge.replace(' ', ""),
+            serde_json::json!(alphabet.len() + step),
+        );
+        merges.push(serde_json::json!(merge));
+    }
+    let pre_tokenizer = match pattern {
+        None => serde_json::json!({ "type": "ByteLevel" }),
+        Some(pattern) => serde_json::json!({
+            "type": "Sequence",
+            "pretokenizers": [
+                { "type": "Split", "pattern": { "Regex": pattern }, "behavior": "Isolated" },
+                { "type": "ByteLevel" },
+            ],
+        }),
+    };
+    serde_json::to_vec(&serde_json::json!({
+        "version": "1.0",
+        "pre_tokenizer": pre_tokenizer,
+        "model": { "type": "BPE", "vocab": vocabulary, "merges": merges },
+    }))
+    .expect("the tokeniser file is written")
+}
+
+/// The pattern the published byte-level tokenisers carry, look-ahead and all.
+const PUBLISHED_PATTERN: &str =
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
+
+/// `EN-16`: A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes
+#[test]
+fn engine_en_16() {
+    let plain = tokeniser(&["t h", "th e"], None);
+    let read = tokeniser::Tokeniser::read(&plain).expect("a byte-level BPE file is read");
+    assert_eq!(read.len(), 258, "256 bytes and the two merges");
+    assert!(!read.is_empty());
+
+    // Another model entirely: refused for being another model, not for being
+    // malformed.
+    for (file, reason) in [
+        (
+            serde_json::json!({ "model": { "type": "Unigram", "vocab": [] } }),
+            tokeniser::Unfollowable::NotBytePair,
+        ),
+        (
+            serde_json::json!({ "model": { "type": "WordPiece", "vocab": {} } }),
+            tokeniser::Unfollowable::NotBytePair,
+        ),
+        (
+            serde_json::json!({ "model": { "type": "BPE", "vocab": {}, "merges": [] } }),
+            tokeniser::Unfollowable::NoVocabulary,
+        ),
+        (
+            serde_json::json!({ "model": { "type": "BPE", "merges": [] } }),
+            tokeniser::Unfollowable::NoVocabulary,
+        ),
+        (
+            serde_json::json!({
+                "pre_tokenizer": { "type": "Metaspace", "replacement": "▁" },
+                "model": { "type": "BPE", "vocab": { "a": 0 }, "merges": [] },
+            }),
+            tokeniser::Unfollowable::NotByteLevel,
+        ),
+        (
+            serde_json::json!({
+                "pre_tokenizer": { "type": "ByteLevel" },
+                "model": { "type": "BPE", "vocab": { "a": 0 }, "merges": ["only one piece"] },
+            }),
+            tokeniser::Unfollowable::MergeNotAPair,
+        ),
+        (
+            // A pattern and nothing else: the text would be split the model's
+            // way and then written some other way, which is not the model's
+            // tokens.
+            serde_json::json!({
+                "pre_tokenizer": {
+                    "type": "Split",
+                    "pattern": { "Regex": r"\p{L}+" },
+                    "behavior": "Isolated",
+                },
+                "model": { "type": "BPE", "vocab": { "a": 0 }, "merges": [] },
+            }),
+            tokeniser::Unfollowable::NotByteLevel,
+        ),
+        (
+            serde_json::json!({
+                "pre_tokenizer": {
+                    "type": "Sequence",
+                    "pretokenizers": [
+                        { "type": "Split", "pattern": { "Regex": "(" }, "behavior": "Isolated" },
+                        { "type": "ByteLevel" },
+                    ],
+                },
+                "model": { "type": "BPE", "vocab": { "a": 0 }, "merges": [] },
+            }),
+            tokeniser::Unfollowable::PatternNotRunnable,
+        ),
+    ] {
+        let bytes = serde_json::to_vec(&file).expect("the file is written");
+        assert_eq!(
+            tokeniser::Tokeniser::read(&bytes).err(),
+            Some(tokeniser::TokeniserError::Unfollowable(reason)),
+            "{file} was not refused as {reason:?}"
+        );
+    }
+
+    // A merge written as two pieces rather than one string: the same merge.
+    let two_ways = serde_json::json!({
+        "pre_tokenizer": { "type": "ByteLevel" },
+        "model": {
+            "type": "BPE",
+            "vocab": { "t": 0, "h": 1, "th": 2 },
+            "merges": [["t", "h"]],
+        },
+    });
+    let bytes = serde_json::to_vec(&two_ways).expect("the file is written");
+    let read = tokeniser::Tokeniser::read(&bytes).expect("a merge written as two pieces is read");
+    assert_eq!(read.encode("th"), [2], "the merge was not applied");
+
+    // The tokens a file adds beside its vocabulary are ids like any other.
+    let added = serde_json::json!({
+        "pre_tokenizer": { "type": "ByteLevel" },
+        "added_tokens": [{ "id": 900, "content": "<|end|>" }],
+        "model": { "type": "BPE", "vocab": { "a": 0 }, "merges": [] },
+    });
+    let bytes = serde_json::to_vec(&added).expect("the file is written");
+    let read = tokeniser::Tokeniser::read(&bytes).expect("added tokens are read");
+    assert_eq!(read.decode(&[900]), Ok(b"<|end|>".to_vec()));
+}
+
+/// `EN-17`: Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies
+#[test]
+fn engine_en_17() {
+    // Three merges, each one built from what the one before it made. The ids
+    // are 256 and up, in the order the merges are declared.
+    let file = tokeniser(&["t h", "th e", "Ġ the"], None);
+    let read = tokeniser::Tokeniser::read(&file).expect("the file is read");
+    let alphabet = byte_alphabet();
+    let id = |character: char| {
+        alphabet
+            .iter()
+            .position(|written| *written == character)
+            .expect("the character is in the alphabet") as u32
+    };
+
+    // " the" merges all the way up: t+h, then th+e, then the space.
+    assert_eq!(
+        read.encode(" the"),
+        [258],
+        "the merges did not run to the end"
+    );
+    assert_eq!(read.count(" the"), 1);
+    // "the" without the space stops one merge short.
+    assert_eq!(read.encode("the"), [257]);
+    // "th" and a letter with no merge for it.
+    assert_eq!(read.encode("thx"), [256, id('x')]);
+    // Nothing to merge at all.
+    assert_eq!(read.encode("xy"), [id('x'), id('y')]);
+    assert_eq!(read.encode(""), [] as [u32; 0]);
+
+    // Rank order, not position. Here the two merges overlap: "b c" is declared
+    // first, so it applies first and takes the b, and "a b" never gets it. A
+    // tokeniser that swept from the left would merge a and b and give the
+    // other answer, and so would one that took the highest rank first.
+    let overlapping =
+        tokeniser::Tokeniser::read(&tokeniser(&["b c", "a b"], None)).expect("the file is read");
+    assert_eq!(
+        overlapping.encode("abc"),
+        [id('a'), 256],
+        "the merges were not applied in rank order"
+    );
+    // The same pair declared twice keeps the rank it was first given, which is
+    // the one the model means; with the later rank, "a b" would win instead
+    // and the answer would be the other one. The id is the vocabulary's last
+    // word for that token, which is a separate thing from the rank.
+    let twice = tokeniser::Tokeniser::read(&tokeniser(&["b c", "a b", "b c"], None))
+        .expect("the file is read");
+    assert_eq!(
+        twice.encode("abc"),
+        [id('a'), 258],
+        "a repeated merge took the later rank"
+    );
+
+    // The model's own pattern, look-ahead and all, splits the text first, and
+    // a merge that would cross a piece boundary is then not available. These
+    // merges end with one that joins the two words, which only a tokeniser
+    // that did not split could use.
+    let merges = ["t h", "th e", "Ġ the", "Ġthe Ġthe"];
+    let split = tokeniser::Tokeniser::read(&tokeniser(&merges, Some(PUBLISHED_PATTERN)))
+        .expect("the file is read");
+    assert_eq!(
+        split.encode(" the the"),
+        [258, 258],
+        "the pattern did not keep the two words apart"
+    );
+    assert_eq!(split.count(" the the"), 2);
+    // A pattern that matches only some of the text leaves the rest between
+    // the matches, and what it leaves is still text the model sees: it is
+    // kept as its own piece rather than dropped.
+    let letters =
+        tokeniser::Tokeniser::read(&tokeniser(&merges, Some(r"\p{L}+"))).expect("the file is read");
+    assert_eq!(
+        letters.decode(&letters.encode(" the the ")).as_deref(),
+        Ok(&b" the the "[..]),
+        "the spaces the pattern stepped over were dropped"
+    );
+
+    let whole = tokeniser::Tokeniser::read(&tokeniser(&merges, None)).expect("the file is read");
+    assert_eq!(
+        whole.encode(" the the"),
+        [259],
+        "without a pattern the whole text is one piece, and the last merge applies"
+    );
+}
+
+/// `EN-18`: Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte
+#[test]
+fn engine_en_18() {
+    let file = tokeniser(
+        &["t h", "th e", "Ġ the", "e l", "el l"],
+        Some(PUBLISHED_PATTERN),
+    );
+    let read = tokeniser::Tokeniser::read(&file).expect("the file is read");
+
+    for text in [
+        "",
+        " ",
+        "the",
+        " the the the",
+        "hello, world",
+        "Hello\tthere\nnewline",
+        "ВЕСНА и зима",
+        "日本語のテキスト",
+        "🜛 a sigil, and an emoji 🙂",
+        "a\u{0}b\u{7f}c\u{ad}d",
+        "   leading and trailing   ",
+        "1234567890 and 3.14159",
+        "ß ﬁ ǅ ＡＢＣ",
+    ] {
+        let ids = read.encode(text);
+        assert_eq!(
+            read.decode(&ids).as_deref(),
+            Ok(text.as_bytes()),
+            "{text:?} did not come back"
+        );
+        assert_eq!(read.count(text), ids.len() as u64);
+    }
+
+    // And for text nobody would write: every byte, in every order the
+    // generator picks, as long as it is text at all.
+    let mut rng = Rng(0xfeed_fade_dead_beef);
+    for _ in 0..300 {
+        let text: String = (0..rng.below(64))
+            .map(|_| char::from_u32(rng.below(0x11000) as u32).unwrap_or('a'))
+            .collect();
+        let ids = read.encode(&text);
+        assert_eq!(
+            read.decode(&ids).as_deref(),
+            Ok(text.as_bytes()),
+            "{text:?} did not come back"
+        );
+    }
+}
+
+/// `FL-20`: The tokeniser file is not a JSON object
+#[test]
+fn engine_fl_20() {
+    for bytes in [
+        &b""[..],
+        b"not json at all",
+        b"[1,2,3]",
+        b"\"a string\"",
+        b"null",
+        b"{\"model\": ",
+    ] {
+        assert_eq!(
+            tokeniser::Tokeniser::read(bytes).err(),
+            Some(tokeniser::TokeniserError::NotJson)
+        );
+    }
+}
+
+/// `FL-21`: The file describes a tokeniser this crate does not follow
+#[test]
+fn engine_fl_21() {
+    let unigram = serde_json::json!({ "model": { "type": "Unigram", "vocab": [] } });
+    let bytes = serde_json::to_vec(&unigram).expect("the file is written");
+    assert_eq!(
+        tokeniser::Tokeniser::read(&bytes).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::NotBytePair
+        ))
+    );
+}
+
+/// `FL-22`: An id to decode is not in the vocabulary
+#[test]
+fn engine_fl_22() {
+    let read = tokeniser::Tokeniser::read(&tokeniser(&["t h"], None)).expect("the file is read");
+    assert_eq!(
+        read.decode(&[1_000_000]),
+        Err(tokeniser::TokeniserError::UnknownId)
+    );
+    // One good id and one that is not: the whole decoding fails, rather than
+    // the bad id being passed over.
+    assert_eq!(
+        read.decode(&[0, 1_000_000]),
+        Err(tokeniser::TokeniserError::UnknownId)
+    );
+}
+
+/// `FL-23`: A token holds a character the byte alphabet does not have
+#[test]
+fn engine_fl_23() {
+    let odd = serde_json::json!({
+        "pre_tokenizer": { "type": "ByteLevel" },
+        "model": { "type": "BPE", "vocab": { "a": 0, "✓": 1 }, "merges": [] },
+    });
+    let bytes = serde_json::to_vec(&odd).expect("the file is written");
+    let read = tokeniser::Tokeniser::read(&bytes).expect("the file is read");
+    assert_eq!(read.decode(&[0]), Ok(b"a".to_vec()));
+    assert_eq!(
+        read.decode(&[1]),
+        Err(tokeniser::TokeniserError::TokenNotByteLevel)
+    );
 }
