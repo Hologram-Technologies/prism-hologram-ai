@@ -15,6 +15,12 @@ it can fail: a request is built from typed arguments into a fixed-size array,
 and an answer the kernel is not known to give reads as `Unrecognised`, which a
 caller must handle and cannot mistake for a verdict.
 
+`crates/tokenizer` turns text into the tokens a model counts in, from the
+model's own `tokenizer.json`. It invents nothing: the vocabulary, the merges
+and the pattern that splits text into pieces all come from that file, and a
+file it cannot follow is refused by what it describes rather than followed
+approximately.
+
 `crates/chat` keeps a conversation: where it is in the journey, how many
 tokens its system prompt and newest message hold, and each question-and-answer
 pair in turn. It proposes a trim, asks for a decode bucket and a token budget,
@@ -68,7 +74,12 @@ runtime's crates are not published there.
 | `EN-10`: the trim proposed drops whole pairs from the oldest, the fewest that fit | `engine_en_10`, over twelve conversations including the empty one and the one too long to fit at all | tested |
 | `EN-11`: pairs are forgotten only on the kernel's acceptance, and its numbers are read as numbers | `engine_en_11` | tested |
 | `FL-16` to `FL-19`: the conversation fails only as `model/failures.toml` lists | `engine_fl_16` to `engine_fl_19` | tested |
-| A conversation's token counts are the ones a tokeniser would give | not tested: no tokeniser is here, and the counts are the caller's |
+| `EN-16`: a tokeniser file is read only when it is byte-level byte-pair encoding, and anything else is refused by what it describes | `engine_en_16` | tested |
+| `EN-17`: text is split by the model's own pattern and merged in rank order | `engine_en_17` | tested |
+| `EN-18`: decoding what was encoded gives back the text, for any text | `engine_en_18`, over thirteen texts and three hundred generated ones | tested |
+| `FL-20` to `FL-23`: the tokeniser fails only as `model/failures.toml` lists | `engine_fl_20` to `engine_fl_23` | tested |
+| That these counts are the counts HuggingFace's own tokenisers give | **not established**: no published tokeniser file is read here, and no oracle is run against one |
+| A conversation's token counts are the ones a tokeniser would give | the tokeniser is here now, but `chat` still takes the counts from its caller; wiring them together is not done |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | `EN-12`: reading an ONNX model costs time in proportion to its nodes, and fifty thousand are read in under a second | `engine_en_12`, timing 25,000 nodes and 50,000 and comparing | tested |
 | `EN-13`: sixteen megabytes are labelled at no less than two hundred megabytes a second | `engine_en_13` | tested |
@@ -543,6 +554,66 @@ take is a branch no test can reach.
   proof; a reader that panicked on one input in a million would pass this.
 - Anything about the JSON parser underneath the config reader, which is a
   crates.io release, not this repository's.
+
+## EN-16 to EN-18, the tokeniser
+
+A conversation's arithmetic is in tokens, and the kernel proves that
+arithmetic over whatever counts it is given. A count is the model's own only if
+the text was split the model's way, so everything here comes from the model's
+own file: the vocabulary, the merges and their order, and the pattern that
+splits text into pieces. The pattern is run by `fancy-regex`, because the
+published patterns use a look-ahead that the plain regular-expression crate
+does not have.
+
+What is refused, and by name: a model that is not byte-pair encoding, a
+pre-tokeniser that is not byte level, a pattern this crate's regular
+expressions cannot run, a merge that is not two pieces, and a missing
+vocabulary. A tokeniser that was nearly right would give counts that were
+nearly right, which is the one thing a proof about those counts cannot survive.
+
+The byte alphabet is what makes `EN-18` possible: every one of the 256 bytes
+has its own character and every character has its byte, so there is no text
+that cannot be encoded and no unknown token to stand in for one.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Twelve defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The soft hyphen is left where it is, like its neighbours | `engine_en_18` |
+| The moved bytes start one place lower | `engine_en_17` |
+| The merges are applied from the left instead of by rank | `engine_en_17` |
+| The merge with the highest rank goes first | `engine_en_17` |
+| A later merge of the same pair wins over the earlier one | `engine_en_17` |
+| The text is never split, whatever pattern the file carries | `engine_en_17` |
+| What the pattern steps over is dropped instead of kept | `engine_en_17` |
+| A model that is not byte-pair encoding is read anyway | `engine_en_16` |
+| A pre-tokeniser that is not byte level is read anyway | `engine_en_16` |
+| A file with no vocabulary is read as an empty one | `engine_en_16` |
+| An id that is not in the vocabulary decodes as nothing | `engine_fl_22` |
+| A token outside the alphabet decodes as the first byte | `engine_fl_23` |
+| none, before and after | passed |
+
+Three of those were missed at first, and each time the test changed rather than
+the code, because each named a case the tests did not reach: two merges that
+overlap, where applying them in the wrong order gives a different answer; a
+pattern that matches only part of the text, so that something is stepped over;
+and a pre-tokeniser that is a pattern and nothing else. All three are now in
+`EN-16` and `EN-17`.
+
+### What EN-16 to EN-18 do not establish
+
+- **That these counts are the counts a published model would give.** Every
+  tokeniser in this suite is built here. No `tokenizer.json` from a hub is
+  read, and no oracle is run against HuggingFace's own implementation, which
+  the implementation plan asks for. This is the largest thing outstanding about
+  this crate, and until it is done a count from here is this crate's count.
+- That the conversation uses it. `chat` still takes its counts from its caller.
+- That normalisers are applied. A file that normalises text before splitting it
+  is read, and the normaliser is not run, so text that a normaliser would
+  change is counted as it was written.
 
 ## How the engine may fail
 

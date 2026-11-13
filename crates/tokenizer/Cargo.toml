@@ -1,0 +1,23 @@
+[package]
+name = "hologram-ai-tokenizer"
+description = "Turns text into the tokens a byte-level BPE model counts in, from the model's own tokenizer.json."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# `serde_json` reads the model's own file; `fancy-regex` runs the pattern that
+# file carries, which needs the look-ahead the published patterns use. Neither
+# is reimplemented here: a pre-tokeniser that split text differently from the
+# model's own would count tokens the model does not have.
+[dependencies]
+fancy-regex = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

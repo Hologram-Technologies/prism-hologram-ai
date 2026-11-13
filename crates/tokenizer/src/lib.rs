@@ -1,0 +1,293 @@
+//! Turns text into the tokens a model counts in.
+//!
+//! A conversation's arithmetic is in tokens: how much of the context is used,
+//! what may still be generated, what has to be forgotten. The kernel proves
+//! that arithmetic, and it is only as true as the counts put to it. A count is
+//! the model's own only if the text is split the way the model's tokeniser
+//! splits it.
+//!
+//! So nothing here is invented. The vocabulary, the merges and the pattern
+//! that splits text into pieces all come from the model's own
+//! `tokenizer.json`, and a file this crate does not know how to follow is
+//! refused by name rather than followed approximately. A tokeniser that was
+//! nearly right would give counts that were nearly right, which is the one
+//! thing a proof about those counts cannot survive.
+
+#![forbid(unsafe_code)]
+// R5: this crate fails only as `model/failures.toml` lists, and never by
+// `unwrap`, `expect` or `panic!`. `audit-limits` checks these stay; `just lint`
+// enforces them.
+#![forbid(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::collections::BTreeMap;
+
+mod bytes;
+
+/// Why a tokeniser could not be read, or could not be used.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TokeniserError {
+    /// `FL-20`
+    NotJson,
+    /// `FL-21`: the file describes a tokeniser this crate does not follow.
+    /// What it describes is named, so a model that cannot be counted says why.
+    Unfollowable(Unfollowable),
+    /// `FL-22`
+    UnknownId,
+    /// `FL-23`
+    TokenNotByteLevel,
+}
+
+/// What about a tokeniser this crate does not follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unfollowable {
+    /// The model is not byte-pair encoding: Unigram and WordPiece split text
+    /// by other rules entirely.
+    NotBytePair,
+    /// The pre-tokeniser is not the byte-level one, so pieces would not be the
+    /// model's pieces.
+    NotByteLevel,
+    /// The file carries a pattern this crate's regular expressions cannot run.
+    PatternNotRunnable,
+    /// A merge is not two pieces, so the rank it carries cannot be used.
+    MergeNotAPair,
+    /// The vocabulary is missing, empty, or not text to numbers.
+    NoVocabulary,
+}
+
+/// A model's tokeniser: what text is split into, and what each piece is called.
+#[derive(Clone, Debug)]
+pub struct Tokeniser {
+    ids: BTreeMap<String, u32>,
+    tokens: BTreeMap<u32, String>,
+    /// The rank of each merge: the lower the rank, the earlier it applies.
+    ranks: BTreeMap<(String, String), u32>,
+    /// The pattern the file carries for splitting text into pieces, if it
+    /// carries one. Without it the whole text is one piece, which is what the
+    /// published byte-level pre-tokeniser does on its own.
+    pattern: Option<fancy_regex::Regex>,
+    alphabet: [char; 256],
+}
+
+impl Tokeniser {
+    /// Read a model's `tokenizer.json`.
+    pub fn read(file: &[u8]) -> Result<Self, TokeniserError> {
+        let read: serde_json::Value =
+            serde_json::from_slice(file).map_err(|_| TokeniserError::NotJson)?;
+        if !read.is_object() {
+            return Err(TokeniserError::NotJson);
+        }
+        let model = &read["model"];
+        if model["type"].as_str() != Some("BPE") {
+            return Err(TokeniserError::Unfollowable(Unfollowable::NotBytePair));
+        }
+
+        let mut ids = BTreeMap::new();
+        let mut tokens = BTreeMap::new();
+        let vocabulary = model["vocab"]
+            .as_object()
+            .ok_or(TokeniserError::Unfollowable(Unfollowable::NoVocabulary))?;
+        for (token, id) in vocabulary {
+            let id = u32::try_from(
+                id.as_u64()
+                    .ok_or(TokeniserError::Unfollowable(Unfollowable::NoVocabulary))?,
+            )
+            .map_err(|_| TokeniserError::Unfollowable(Unfollowable::NoVocabulary))?;
+            ids.insert(token.clone(), id);
+            tokens.insert(id, token.clone());
+        }
+        if ids.is_empty() {
+            return Err(TokeniserError::Unfollowable(Unfollowable::NoVocabulary));
+        }
+        // Tokens the file adds beside the vocabulary, such as the ones that
+        // mark the ends of a turn. They are ids like any other to a counter.
+        for added in read["added_tokens"].as_array().into_iter().flatten() {
+            let (Some(content), Some(id)) = (added["content"].as_str(), added["id"].as_u64())
+            else {
+                continue;
+            };
+            if let Ok(id) = u32::try_from(id) {
+                ids.insert(content.to_string(), id);
+                tokens.insert(id, content.to_string());
+            }
+        }
+
+        let mut ranks = BTreeMap::new();
+        for (rank, merge) in model["merges"].as_array().into_iter().flatten().enumerate() {
+            let rank = u32::try_from(rank)
+                .map_err(|_| TokeniserError::Unfollowable(Unfollowable::MergeNotAPair))?;
+            let pair = match merge {
+                // Written either as one string of two pieces, or as the two.
+                // Exactly two pieces. A space inside a piece is not possible
+                // in a byte-level vocabulary, where a space is written as a
+                // character of the alphabet, so a merge with two spaces in it
+                // is a merge this file means something else by.
+                serde_json::Value::String(text) => match text.split(' ').collect::<Vec<_>>()[..] {
+                    [left, right] => (left.to_string(), right.to_string()),
+                    _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
+                },
+                serde_json::Value::Array(two) => match two.as_slice() {
+                    [left, right] => match (left.as_str(), right.as_str()) {
+                        (Some(left), Some(right)) => (left.to_string(), right.to_string()),
+                        _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
+                    },
+                    _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
+                },
+                _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
+            };
+            ranks.entry(pair).or_insert(rank);
+        }
+
+        let (byte_level, pattern) = pre_tokeniser(&read["pre_tokenizer"])?;
+        if !byte_level {
+            return Err(TokeniserError::Unfollowable(Unfollowable::NotByteLevel));
+        }
+
+        Ok(Self {
+            ids,
+            tokens,
+            ranks,
+            pattern,
+            alphabet: bytes::alphabet(),
+        })
+    }
+
+    /// How many tokens this vocabulary holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    /// Is the vocabulary empty? It never is: a file with no vocabulary is
+    /// refused.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+
+    /// The ids of `text`.
+    ///
+    /// The text is split into pieces by the model's own pattern, each piece is
+    /// written in the byte alphabet, and the merges are applied to it in rank
+    /// order until none applies. Every byte has a character and every
+    /// character of the alphabet is in a byte-level vocabulary, so there is no
+    /// text this cannot encode and no unknown token to stand in.
+    #[must_use]
+    pub fn encode(&self, text: &str) -> Vec<u32> {
+        let mut out = Vec::new();
+        for piece in self.pieces(text) {
+            let written: String = piece
+                .bytes()
+                .map(|byte| self.alphabet[usize::from(byte)])
+                .collect();
+            for token in self.merged(&written) {
+                // A character of the alphabet that the vocabulary does not
+                // name cannot be written as any id, so it is left out rather
+                // than replaced by an id that means something else.
+                if let Some(id) = self.ids.get(&token) {
+                    out.push(*id);
+                }
+            }
+        }
+        out
+    }
+
+    /// How many tokens `text` is.
+    #[must_use]
+    pub fn count(&self, text: &str) -> u64 {
+        self.encode(text).len() as u64
+    }
+
+    /// The bytes `ids` stand for.
+    pub fn decode(&self, ids: &[u32]) -> Result<Vec<u8>, TokeniserError> {
+        let mut out = Vec::new();
+        for id in ids {
+            let token = self.tokens.get(id).ok_or(TokeniserError::UnknownId)?;
+            for character in token.chars() {
+                let byte = self
+                    .alphabet
+                    .iter()
+                    .position(|written| *written == character)
+                    .ok_or(TokeniserError::TokenNotByteLevel)?;
+                out.push(byte as u8);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The pieces the model's pattern splits `text` into, or the whole of it.
+    fn pieces<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        let Some(pattern) = &self.pattern else {
+            return vec![text];
+        };
+        let mut out = Vec::new();
+        let mut at = 0;
+        for found in pattern.find_iter(text).flatten() {
+            // Anything the pattern steps over is still text the model sees, so
+            // it is kept as its own piece rather than dropped.
+            if found.start() > at {
+                out.push(&text[at..found.start()]);
+            }
+            out.push(found.as_str());
+            at = found.end();
+        }
+        if at < text.len() {
+            out.push(&text[at..]);
+        }
+        out.retain(|piece| !piece.is_empty());
+        out
+    }
+
+    /// One piece, merged until no merge applies.
+    fn merged(&self, written: &str) -> Vec<String> {
+        let mut parts: Vec<String> = written.chars().map(String::from).collect();
+        loop {
+            // The merge with the lowest rank anywhere in the piece goes first:
+            // the ranks are an order over the whole vocabulary, not a
+            // left-to-right sweep.
+            let mut best: Option<(u32, usize)> = None;
+            for (at, pair) in parts.windows(2).enumerate() {
+                let [left, right] = pair else { continue };
+                if let Some(rank) = self.ranks.get(&(left.clone(), right.clone())) {
+                    if best.is_none_or(|(lowest, _)| *rank < lowest) {
+                        best = Some((*rank, at));
+                    }
+                }
+            }
+            let Some((_, at)) = best else { return parts };
+            let joined = format!("{}{}", parts[at], parts[at + 1]);
+            parts.splice(at..at + 2, [joined]);
+        }
+    }
+}
+
+/// Whether the pre-tokeniser is the byte-level one, and the pattern it splits
+/// by. A sequence of them is read through: what matters is that the text ends
+/// up in the byte alphabet and is split by the file's own pattern.
+fn pre_tokeniser(
+    described: &serde_json::Value,
+) -> Result<(bool, Option<fancy_regex::Regex>), TokeniserError> {
+    match described["type"].as_str() {
+        Some("ByteLevel") => Ok((true, None)),
+        Some("Split") => {
+            let pattern = described["pattern"]["Regex"]
+                .as_str()
+                .ok_or(TokeniserError::Unfollowable(Unfollowable::NotByteLevel))?;
+            let compiled = fancy_regex::Regex::new(pattern)
+                .map_err(|_| TokeniserError::Unfollowable(Unfollowable::PatternNotRunnable))?;
+            // A split on its own is not byte level; it is byte level when a
+            // ByteLevel stands beside it in the sequence.
+            Ok((false, Some(compiled)))
+        }
+        Some("Sequence") => {
+            let mut byte_level = false;
+            let mut pattern = None;
+            for part in described["pretokenizers"].as_array().into_iter().flatten() {
+                let (part_byte_level, part_pattern) = pre_tokeniser(part)?;
+                byte_level |= part_byte_level;
+                pattern = pattern.or(part_pattern);
+            }
+            Ok((byte_level, pattern))
+        }
+        _ => Err(TokeniserError::Unfollowable(Unfollowable::NotByteLevel)),
+    }
+}
