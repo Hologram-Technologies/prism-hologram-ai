@@ -80,6 +80,9 @@ runtime's crates are not published there.
 | `EN-18`: decoding what was encoded gives back the text, for any text | `engine_en_18`, over thirteen texts and three hundred generated ones | tested |
 | `FL-20` to `FL-23`: the tokeniser fails only as `model/failures.toml` lists | `engine_fl_20` to `engine_fl_23` | tested |
 | `EN-20`: the ids are the ids HuggingFace's own `tokenizers` gives, for the same file and the same text | `engine_en_20`, over 1,526 texts and seven files | tested against the authority |
+| `EN-21`: a model's own GGUF header is read into a tokeniser, and a pre-tokeniser name with no cited pattern is refused | `engine_en_21` | tested |
+| `EN-22`: a vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a `tokenizer.json` | `engine_en_22`, with the authority checking the JSON side | tested |
+| `FL-24`, `FL-25`: the GGUF reader fails only as `model/failures.toml` lists | `engine_fl_24` and `engine_fl_25` | tested |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
@@ -694,6 +697,74 @@ has already found something, and this one found two.
 - That normalisers are applied. A file that normalises text before splitting it
   is read, and the normaliser is not run, so text that a normaliser would
   change is counted as it was written.
+
+## EN-21 and EN-22, the tokeniser a model carries in its own file
+
+A GGUF model holds its vocabulary in the first part of its own file: a magic
+number, a version, two counts, then metadata entries until the tensors begin.
+A hundred and fifty thousand tokens sit in the header of a file of gigabytes,
+and the header is all a count needs, so nothing past the metadata is read.
+`EN-21` fixes that: the same header with nothing after it reads the same way,
+and so does the same header with a megabyte of tensors behind it.
+
+Two things are cited rather than decided here, and both are in
+`model/authorities.toml`. The format is the GGUF specification's. What a
+pre-tokeniser's *name* stands for is `llama.cpp`'s, because the file carries
+only the name — `tokenizer.ggml.pre` — and the pattern it means lives in the
+reader. The two patterns this crate carries, for `gpt2` and for `qwen2`, are
+quoted from that file at a named commit. **A name with no pattern quoted here
+is refused rather than read as a near one**, which is the whole point: a
+tokeniser that was nearly right would give counts that were nearly right, and
+the kernel's arithmetic is proved over those counts.
+
+The names are not interchangeable and the tests show it. The `qwen2` pattern
+takes digits one at a time where `gpt2` takes a run of them, so a merge of two
+digits applies under one name and not under the other.
+
+`EN-22` is the cross-check: the same vocabulary and merges, written once as a
+GGUF header and once as a `tokenizer.json`, must give the same ids — and the
+JSON side is also put to HuggingFace's own tokeniser, so the agreement reaches
+the authority through it.
+
+### The gate: `cargo test -p repo-conformance --test engine`
+
+Fifteen defects, planted one at a time and then restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The magic is not checked | `engine_fl_24` |
+| A version this crate does not read is read anyway | `engine_en_21` |
+| The tensor count is read as the metadata count | `engine_en_21` |
+| A tokeniser model that is not byte-pair encoding is read anyway | `engine_en_21` |
+| A file with no vocabulary is read as an empty one | `engine_en_21` |
+| A string of the header may run past the end of the file | `engine_fl_25` |
+| An array of numbers is read as a vocabulary of text | `engine_en_21` |
+| A value type the format does not define is stepped over as four bytes | `engine_en_21` |
+| The merges are taken from the key that holds the tokens | `engine_en_22` |
+| A pre-tokeniser name with no cited pattern is read as the default one | `engine_en_21` |
+| The `qwen2` name is read as the `gpt2` pattern | `engine_en_21` |
+| The ids of a GGUF vocabulary are not its positions | `engine_en_22` |
+| The `gpt2` pattern is the published one, with a trailing run of spaces | **missed** |
+| none, before and after | passed |
+
+The missed one is worth stating plainly. `llama.cpp`'s `gpt2` pattern ends at
+`\s+(?!\S)` where the published byte-level pattern adds `|\s+`. No text was
+found that tells them apart here, and the reason is this crate's own doing:
+what a pattern does not match is kept as its own piece rather than dropped, so
+the alternative that would have matched it changes nothing. The difference may
+still be real in a reader that drops what it does not match.
+
+### What EN-21 and EN-22 do not establish
+
+- **That a published model's GGUF file is read as its publisher meant it.**
+  Every file in this suite is built here, field by field, from the format's own
+  specification. The first test model's header was read once by hand to see
+  what it says — `tokenizer.ggml.model` is `gpt2`, `tokenizer.ggml.pre` is
+  `qwen2`, with 151,669 tokens — and that reading is not in the gate.
+- That the `qwen2` pattern gives the ids `llama.cpp` gives. It is quoted from
+  `llama.cpp`, and nothing here runs `llama.cpp` to check the quotation does
+  what the original does.
+- Anything about tensors, weights or quantisation. This reads a header.
 
 ## How the engine may fail
 

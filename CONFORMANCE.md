@@ -44,6 +44,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-18` | `build` | Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte |
 | `EN-19` | `build` | A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word |
 | `EN-20` | `build` | The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text |
+| `EN-21` | `build` | A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused |
+| `EN-22` | `build` | A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks |
 
 ## kernel
 
@@ -92,6 +94,8 @@ not that the test provokes the failure.
 | `FL-21` | `tokenizer` | `TokeniserError::Unfollowable` | The file describes a tokeniser this crate does not follow |
 | `FL-22` | `tokenizer` | `TokeniserError::UnknownId` | An id to decode is not in the vocabulary |
 | `FL-23` | `tokenizer` | `TokeniserError::TokenNotByteLevel` | A token holds a character the byte alphabet does not have |
+| `FL-24` | `tokenizer` | `TokeniserError::NotGguf` | The file does not begin with the four bytes that announce the format |
+| `FL-25` | `tokenizer` | `TokeniserError::Truncated` | A field of the header runs past the end of what was given |
 
 ## Cited authorities
 
@@ -100,6 +104,8 @@ Never re-derived, vendored, or gated on.
 | Authority | Citation | Evidence here |
 | --- | --- | --- |
 | `BLAKE3` | BLAKE3-team/BLAKE3, test_vectors/test_vectors.json at commit ae3e8e6b3a5ae3190ca5d62820789b17886a0038 (2020-09-29), vendored at model/authorities/blake3-test-vectors.json. The algorithm is specified in `BLAKE3: one function, fast everywhere` (O'Connor, Aumasson, Neves, Wilcox-O'Hearn, 2020). | `EN-06` |
+| `GGUF` | ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`. | `EN-21` |
+| `LLAMA-CPP-PRE` | ggml-org/llama.cpp, src/llama-vocab.cpp at blob e90f1bd117d412a3fc9672ddd10c5d12ded0beb2, the `regex_exprs` of LLAMA_VOCAB_PRE_TYPE_GPT2 and LLAMA_VOCAB_PRE_TYPE_QWEN2 and the names mapped to each. A GGUF file carries `tokenizer.ggml.pre` as a name only; the pattern it stands for lives in the reader. | `EN-21`, `EN-22` |
 
 ## Claims that are not conformance IDs
 

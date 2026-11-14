@@ -264,3 +264,27 @@ Feature: engine
     Given the fixture EN-20 needs
     When the suite exercises EN-20
     Then The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text
+
+  @EN-21 @build
+  Scenario: A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused
+    Given the fixture EN-21 needs
+    When the suite exercises EN-21
+    Then A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused
+
+  @EN-22 @build
+  Scenario: A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks
+    Given the fixture EN-22 needs
+    When the suite exercises EN-22
+    Then A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks
+
+  @FL-24 @build
+  Scenario: The file does not begin with the four bytes that announce the format
+    Given the input that makes tokenizer return TokeniserError::NotGguf
+    When the suite exercises FL-24
+    Then The file does not begin with the four bytes that announce the format
+
+  @FL-25 @build
+  Scenario: A field of the header runs past the end of what was given
+    Given the input that makes tokenizer return TokeniserError::Truncated
+    When the suite exercises FL-25
+    Then A field of the header runs past the end of what was given

@@ -2988,3 +2988,386 @@ fn engine_en_20() {
     assert!(compared > 800, "only {compared} texts were compared");
     println!("EN-20: {compared} texts, same ids as the authority");
 }
+
+// ─── The tokeniser a model carries in its own header ────────────────────────
+//
+// A GGUF model holds its vocabulary in the first part of its own file: a
+// magic number, a version, two counts, then metadata entries until the
+// tensors begin. The files below are written out here, field by field, from
+// the numbers the format's own specification gives.
+
+/// A metadata value, written as the format writes one.
+enum Value {
+    Text(String),
+    Texts(Vec<String>),
+    Bool(bool),
+    Number(u32),
+}
+
+/// The bytes of one value, after its type number.
+fn gguf_value(value: &Value) -> (u32, Vec<u8>) {
+    match value {
+        Value::Text(text) => {
+            let mut out = (text.len() as u64).to_le_bytes().to_vec();
+            out.extend_from_slice(text.as_bytes());
+            (8, out)
+        }
+        Value::Texts(texts) => {
+            let mut out = 8u32.to_le_bytes().to_vec();
+            out.extend((texts.len() as u64).to_le_bytes());
+            for text in texts {
+                out.extend((text.len() as u64).to_le_bytes());
+                out.extend_from_slice(text.as_bytes());
+            }
+            (9, out)
+        }
+        Value::Bool(flag) => (7, vec![u8::from(*flag)]),
+        Value::Number(number) => (4, number.to_le_bytes().to_vec()),
+    }
+}
+
+/// A GGUF file: the header, the metadata, and whatever `after` stands in for
+/// the tensors that would follow.
+fn gguf(entries: &[(&str, Value)], after: &[u8]) -> Vec<u8> {
+    let mut out = b"GGUF".to_vec();
+    out.extend(3u32.to_le_bytes());
+    out.extend(310u64.to_le_bytes());
+    out.extend((entries.len() as u64).to_le_bytes());
+    for (key, value) in entries {
+        out.extend((key.len() as u64).to_le_bytes());
+        out.extend_from_slice(key.as_bytes());
+        let (kind, bytes) = gguf_value(value);
+        out.extend(kind.to_le_bytes());
+        out.extend(bytes);
+    }
+    out.extend_from_slice(after);
+    out
+}
+
+/// The metadata a byte-level model carries, with `merged` as its merges and
+/// `pre` as the name of its pre-tokeniser.
+fn gguf_tokeniser(merged: &[&str], pre: Option<&str>) -> Vec<u8> {
+    let alphabet = byte_alphabet();
+    let mut tokens: Vec<String> = alphabet.iter().map(char::to_string).collect();
+    for merge in merged {
+        tokens.push(merge.replace(' ', ""));
+    }
+    let mut entries = vec![
+        ("general.architecture", Value::Text("qwen3".into())),
+        ("general.file_type", Value::Number(7)),
+        ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+        ("tokenizer.ggml.tokens", Value::Texts(tokens)),
+        (
+            "tokenizer.ggml.merges",
+            Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
+        ),
+        ("tokenizer.ggml.add_space_prefix", Value::Bool(false)),
+    ];
+    if let Some(pre) = pre {
+        entries.push(("tokenizer.ggml.pre", Value::Text(pre.to_string())));
+    }
+    gguf(&entries, b"the tensors would be here")
+}
+
+/// `EN-21`: A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused
+#[test]
+fn engine_en_21() {
+    let merged = ["t h", "th e", "Ġ the"];
+    let file = gguf_tokeniser(&merged, Some("gpt2"));
+    let read = tokeniser::Tokeniser::from_gguf(&file).expect("a byte-level GGUF header is read");
+    assert_eq!(
+        read.len(),
+        256 + merged.len(),
+        "the vocabulary is the tokens the file lists"
+    );
+    // The ids are the positions in the list, which is what the format says.
+    assert_eq!(read.decode(&[0]), Ok(vec![0]));
+    assert_eq!(read.decode(&[256 + 2]), Ok(b" the".to_vec()));
+
+    // Nothing past the metadata is read: the same file cut off where the
+    // tensors would begin reads the same way.
+    let header_only = gguf(
+        &[
+            ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+            (
+                "tokenizer.ggml.tokens",
+                Value::Texts(byte_alphabet().iter().map(char::to_string).collect()),
+            ),
+        ],
+        b"",
+    );
+    let cut = tokeniser::Tokeniser::from_gguf(&header_only).expect("the header alone is enough");
+    assert_eq!(cut.len(), 256);
+    // And a file whose tensors are gigabytes reads no slower, because what
+    // follows the metadata is never touched: the same header with a great deal
+    // after it gives the same answer.
+    let mut padded = header_only.clone();
+    padded.extend(std::iter::repeat_n(0xabu8, 1 << 20));
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&padded).map(|read| read.len()),
+        Ok(256)
+    );
+
+    // The names this repository has a cited pattern for, and one it does not.
+    for name in ["gpt2", "default", "qwen2", "deepseek-r1-qwen"] {
+        assert!(
+            tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&merged, Some(name))).is_ok(),
+            "{name} has a cited pattern and was refused"
+        );
+    }
+    for name in ["llama3", "qwen35", "bert", "", "GPT2"] {
+        assert_eq!(
+            tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&merged, Some(name))).err(),
+            Some(tokeniser::TokeniserError::Unfollowable(
+                tokeniser::Unfollowable::PreTokeniserNotKnown
+            )),
+            "{name} has no cited pattern here and was read anyway"
+        );
+    }
+
+    // The names stand for different patterns, and the difference shows. The
+    // cited `qwen2` pattern takes digits one at a time where `gpt2` takes a
+    // run of them, so a merge of two digits applies under one name and not
+    // under the other.
+    let digits = ["1 2"];
+    let as_gpt2 = tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&digits, Some("gpt2")))
+        .expect("the file is read");
+    let as_qwen2 = tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&digits, Some("qwen2")))
+        .expect("the file is read");
+    assert_eq!(
+        as_gpt2.encode("123").len(),
+        2,
+        "the gpt2 pattern takes a run of digits, so the merge applies"
+    );
+    assert_eq!(
+        as_qwen2.encode("123").len(),
+        3,
+        "the qwen2 pattern takes digits one at a time, so the merge cannot apply"
+    );
+
+    // The cited `gpt2` pattern has no final run-of-whitespace alternative, so
+    // a run of spaces before a word is not one piece and a merge of two
+    // spaces never applies. With that alternative it would.
+    let spaces = ["Ġ Ġ"];
+    let spaced = tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&spaces, Some("gpt2")))
+        .expect("the file is read");
+    assert_eq!(
+        spaced.encode("a  b").len(),
+        4,
+        "two spaces before a word were taken as one piece"
+    );
+    assert_eq!(
+        spaced.decode(&spaced.encode("a  b")).as_deref(),
+        Ok(&b"a  b"[..])
+    );
+
+    // A tokeniser model that is not byte-pair encoding, and a file with no
+    // vocabulary: refused for what they are.
+    let sentencepiece = gguf(
+        &[("tokenizer.ggml.model", Value::Text("llama".into()))],
+        b"",
+    );
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&sentencepiece).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::NotBytePair
+        ))
+    );
+    let empty = gguf(&[("tokenizer.ggml.model", Value::Text("gpt2".into()))], b"");
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&empty).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::NoVocabulary
+        ))
+    );
+
+    // A vocabulary written as numbers is not a vocabulary: it is stepped
+    // over and refused, rather than read as though the numbers were text.
+    let mut numbers = b"GGUF".to_vec();
+    numbers.extend(3u32.to_le_bytes());
+    numbers.extend(0u64.to_le_bytes());
+    numbers.extend(2u64.to_le_bytes());
+    for (key, bytes) in [
+        (
+            "tokenizer.ggml.model",
+            gguf_value(&Value::Text("gpt2".into())),
+        ),
+        (
+            "tokenizer.ggml.tokens",
+            (9, {
+                let mut out = 4u32.to_le_bytes().to_vec();
+                out.extend(3u64.to_le_bytes());
+                out.extend([1u32, 2, 3].iter().flat_map(|n| n.to_le_bytes()));
+                out
+            }),
+        ),
+    ] {
+        numbers.extend((key.len() as u64).to_le_bytes());
+        numbers.extend_from_slice(key.as_bytes());
+        numbers.extend(bytes.0.to_le_bytes());
+        numbers.extend(bytes.1);
+    }
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&numbers).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::NoVocabulary
+        )),
+        "a vocabulary of numbers was read as one of text"
+    );
+
+    // A version this crate does not read, and a value type the format does
+    // not define.
+    let mut future = gguf_tokeniser(&merged, Some("gpt2"));
+    future[4..8].copy_from_slice(&4u32.to_le_bytes());
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&future).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::VersionNotKnown
+        ))
+    );
+    let mut odd = gguf(&[("general.file_type", Value::Number(7))], b"");
+    let kind_at = odd.len() - 8;
+    odd[kind_at..kind_at + 4].copy_from_slice(&99u32.to_le_bytes());
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&odd).err(),
+        Some(tokeniser::TokeniserError::Unfollowable(
+            tokeniser::Unfollowable::ValueTypeNotKnown
+        ))
+    );
+}
+
+/// `EN-22`: A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks
+#[test]
+fn engine_en_22() {
+    let merged = ["t h", "th e", "Ġ the", "e l", "el l", "l o"];
+    let from_gguf = tokeniser::Tokeniser::from_gguf(&gguf_tokeniser(&merged, Some("gpt2")))
+        .expect("the GGUF header is read");
+
+    // The same vocabulary and merges, written the other way, with the pattern
+    // that name stands for written out. The authority reads this one.
+    let as_json = tokeniser(&merged, Some(GPT2_PATTERN));
+    let from_json = tokeniser::Tokeniser::read(&as_json).expect("the JSON file is read");
+    let authority = tokenizers::Tokenizer::from_bytes(&as_json).expect("the authority reads it");
+
+    let mut rng = Rng(0x6767_7566_0001_0002);
+    let texts: Vec<String> = [
+        "",
+        " ",
+        "the",
+        " the the",
+        "hello",
+        "hello, world",
+        "ВЕСНА",
+        "日本語",
+        "a  b   c",
+        "trailing   ",
+        "'s 't 're",
+        "1234567890",
+    ]
+    .iter()
+    .map(|text| (*text).to_string())
+    .chain((0..200).map(|_| {
+        (0..rng.below(40))
+            .map(|_| char::from_u32(rng.below(0x2600) as u32).unwrap_or('a'))
+            .collect()
+    }))
+    .collect();
+
+    for text in &texts {
+        let ours = from_gguf.encode(text);
+        assert_eq!(
+            ours,
+            from_json.encode(text),
+            "the two readings of the same vocabulary differ for {text:?}"
+        );
+        assert_eq!(
+            ours,
+            authority
+                .encode(text.as_str(), false)
+                .expect("the authority encodes it")
+                .get_ids(),
+            "the ids differ from the authority's for {text:?}"
+        );
+        assert_eq!(from_gguf.decode(&ours).as_deref(), Ok(text.as_bytes()));
+    }
+    println!(
+        "EN-22: {} texts, GGUF and JSON and the authority agree",
+        texts.len()
+    );
+}
+
+/// The pattern a `gpt2` pre-tokeniser splits by, as `llama.cpp` has it.
+const GPT2_PATTERN: &str =
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)";
+
+/// `FL-24`: The file does not begin with the four bytes that announce the format
+#[test]
+fn engine_fl_24() {
+    for bytes in [
+        &b""[..],
+        b"GGU",
+        b"GGUf",
+        b"not a model at all",
+        b"\x00\x00\x00\x00",
+    ] {
+        let read = tokeniser::Tokeniser::from_gguf(bytes).err();
+        assert!(
+            read == Some(tokeniser::TokeniserError::NotGguf)
+                || read == Some(tokeniser::TokeniserError::Truncated),
+            "{bytes:?} was read as a model: {read:?}"
+        );
+    }
+    // Four bytes that are not the magic, with a whole header behind them.
+    let mut wrong = gguf(&[("tokenizer.ggml.model", Value::Text("gpt2".into()))], b"");
+    wrong[..4].copy_from_slice(b"GGUH");
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&wrong).err(),
+        Some(tokeniser::TokeniserError::NotGguf)
+    );
+}
+
+/// `FL-25`: A field of the header runs past the end of what was given
+#[test]
+fn engine_fl_25() {
+    let whole = gguf_tokeniser(&["t h"], Some("gpt2"));
+    // Cut at every length up to the end of the metadata: each one is a field
+    // that runs past what was given, and none of them is anything else.
+    for length in 4..whole.len().min(600) {
+        let read = tokeniser::Tokeniser::from_gguf(&whole[..length]);
+        assert!(
+            read.is_err(),
+            "{length} bytes of a header read as a whole one"
+        );
+    }
+    // A token whose length says it is longer than what is left. Everything
+    // before it is whole, so a reader that took what it could would come back
+    // with a vocabulary and one token cut short.
+    let mut cut = gguf(
+        &[
+            ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+            (
+                "tokenizer.ggml.tokens",
+                Value::Texts(vec!["a".into(), "b".into(), "see".into()]),
+            ),
+        ],
+        b"",
+    );
+    let last = cut.len() - 3 - 8;
+    cut[last..last + 8].copy_from_slice(&64u64.to_le_bytes());
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&cut).err(),
+        Some(tokeniser::TokeniserError::Truncated),
+        "a token that runs past the file came back cut short instead"
+    );
+
+    // A string that says it is longer than the file.
+    let mut lying = b"GGUF".to_vec();
+    lying.extend(3u32.to_le_bytes());
+    lying.extend(0u64.to_le_bytes());
+    lying.extend(1u64.to_le_bytes());
+    lying.extend(u64::MAX.to_le_bytes());
+    assert_eq!(
+        tokeniser::Tokeniser::from_gguf(&lying).err(),
+        Some(tokeniser::TokeniserError::Truncated)
+    );
+}
