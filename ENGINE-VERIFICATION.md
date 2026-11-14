@@ -1028,9 +1028,20 @@ where the kernel reads it is checked against `site/decisions.json`, which is
 written from the kernel's own modules, so the client and the kernel cannot
 drift apart quietly.
 
-Every name the container uses for a quantisation format is checked against the
-codes the kernel knows: a format the kernel has and this reader cannot name
-fails the gate, rather than a model arriving one day that cannot be passed on.
+The names a container uses and the numbers the kernel has line up both ways,
+and the gate checks both. A code the kernel offers with no name here is a model
+that arrives one day and cannot be passed on. A name standing for a code the
+kernel does not offer is worse: it builds a request the kernel cannot answer,
+which looks like a refusal of the model rather than a mistake in the reader.
+
+Which `q1` a buffer is in is the one thing the name alone cannot say. The
+published container writes every ternary matrix as `q1`, and the same family
+writes a one-bit format under that same name with another layout entirely, so
+the manifest's own `tern` decides: `q1` is the kernel's ternary format where
+the model says its weights are ternary, and is refused where it does not say
+so. The first version of this reader knew only the name `ternary`, which that
+container never uses, so it refused all 311 of its entries; the session holding
+the file said so, and this is the fix.
 
 ### What it refuses, and by what name
 
@@ -1049,11 +1060,14 @@ until `FL-34` said so.
 
 ### The defects
 
-Six, planted one at a time and then restored. Every one was rejected; none was
-missed.
+Nine, planted one at a time and then restored. Every one was rejected; none
+was missed.
 
 | Planted defect | Rejected by |
 | --- | --- |
+| Every `q1` is the ternary one, whatever the manifest says | EN-25: a `q1` whose manifest says `tern` is false was read as the ternary format |
+| A container's name stands for a format the kernel does not have | EN-25: `q1` stands for format 9, which the kernel does not offer |
+| The manifest is read for a flag it does not carry | EN-25: the ternary `q1` was refused |
 | The header's length is read the other way round | EN-25: the published container's header does not lie where it was measured to |
 | The magic is read without the newline that belongs to it | the same |
 | A quantisation name stands for the number beside the right one | EN-25: no name this reader knows is the kernel's format 4 |
@@ -1067,7 +1081,15 @@ missed.
 - That the published container reads. Sixty-four bytes of it are here; the file
   is 424 MB and is not in this repository. What those bytes establish is where
   its header lies, which is what a reader has to get right before anything
-  else.
+  else. That its 311 entries read is, so far, only what the session holding the
+  file reports; a fixture of its first 98,314 bytes would make it this gate's
+  own, and that is not here yet.
+- That `f32` is read. The published container names five of its buffers `f32`,
+  and the kernel this branch is built on has no code for that format, so the
+  reader has no name for it either: the check that every name stands for a code
+  the kernel offers is what stops one being invented. It lands when the
+  kernel's own thirteenth decision knows `f32`, and the check that every code
+  has a name will go red until it does.
 - That the kernel admits what the reader asks about. The questions are built
   and compared to the client's own; the answers are the kernel's, and nothing
   here replays a guest.

@@ -3727,7 +3727,20 @@ fn engine_en_23() {
         "the engine does not build for the browser:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let module = root().join("target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm");
+    // Where cargo put it: a helper that sets CARGO_TARGET_DIR builds the same
+    // module somewhere else, and this gate is about the module, not the path.
+    let target = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(set) => {
+            let set = PathBuf::from(set);
+            if set.is_absolute() {
+                set
+            } else {
+                root().join(set)
+            }
+        }
+        None => root().join("target"),
+    };
+    let module = target.join("wasm32-unknown-unknown/release/hologram_ai_wasm.wasm");
     assert!(module.is_file(), "no module at {}", module.display());
 
     // What the crates themselves answer, for the same bytes. The merges and
@@ -3831,13 +3844,13 @@ fn engine_en_23() {
             .map(|entry| enhex(&entry.block_question()))
             .collect::<Vec<_>>(),
     });
-    let listed = root().join("target/en-23-cases.json");
+    let listed = target.join("en-23-cases.json");
     std::fs::write(
         &listed,
         serde_json::to_string(&cases).expect("the cases are JSON"),
     )
     .expect("the cases are written");
-    let script = root().join("target/en-23-browser.mjs");
+    let script = target.join("en-23-browser.mjs");
     std::fs::write(&script, BROWSER_CHECK).expect("the script is written");
 
     let ran = std::process::Command::new("node")
@@ -4263,10 +4276,11 @@ fn engine_en_25() {
     assert_eq!(number(at("Rows")), first.rows);
     assert_eq!(number(at("Columns")), first.columns);
 
-    // Every format the page offers for decision 13 is a name this reader
-    // knows, so a container cannot name a format the kernel has and this
-    // cannot pass on. The page's own name for the fifth is longer; what is
-    // required is that the reader has a name for each code.
+    // The names a container uses and the numbers the kernel has must line up
+    // both ways. A name standing for a code the kernel does not offer would
+    // build a request it cannot answer; a code with no name here is a model
+    // this engine could not pass on, which is how the published container was
+    // refused entry by entry until its own names were read.
     let offered = thirteen["fields"]
         .as_array()
         .expect("fields")
@@ -4274,21 +4288,44 @@ fn engine_en_25() {
         .find(|field| field["name"].as_str() == Some("Format"))
         .and_then(|field| field["choice"].as_array())
         .expect("the formats the kernel knows");
-    for pair in offered {
-        let code = pair[1].as_u64().expect("a code") as u8;
-        let named = ["q4", "q3f", "t2", "t2r", "ternary"]
-            .iter()
-            .filter_map(|name| {
-                let mut one = container_header(&[("t", name, 1, 1, 0, 1)]);
-                one["dir"][0]["fmt"] = serde_json::json!(name);
-                holk::Container::read(&container(&one, 0, &[]))
-                    .ok()
-                    .map(|read| read.entries[0].format)
-            })
-            .any(|format| format == code);
+    let codes: BTreeSet<u64> = offered
+        .iter()
+        .map(|pair| pair[1].as_u64().expect("a code"))
+        .collect();
+    let mut named = BTreeSet::new();
+    for name in ["q4", "q3f", "t2", "t2r", "ternary", "q1"] {
+        let mut one = container_header(&[("t", "q4", 1, 1, 0, 1)]);
+        one["dir"][0]["fmt"] = serde_json::json!(name);
+        let read = holk::Container::read(&container(&one, 0, &[]))
+            .unwrap_or_else(|why| panic!("`{name}` is a name this reader has: {why:?}"));
+        let code = u64::from(read.entries[0].format);
         assert!(
-            named,
-            "no name this reader knows is the kernel's format {code}"
+            codes.contains(&code),
+            "`{name}` stands for format {code}, which the kernel does not offer"
+        );
+        named.insert(code);
+    }
+    assert_eq!(
+        named, codes,
+        "a format the kernel offers has no name this reader knows"
+    );
+
+    // The published container writes every ternary matrix as `q1`, and the
+    // same family writes a one-bit format under that same name with another
+    // layout, so what the manifest says about the model decides which `q1`
+    // this is. Without it, the name alone is not one this reader follows.
+    let mut tern = container_header(&[("blk.0.attn_q", "q1", 2_048, 2_048, 0, 1)]);
+    assert_eq!(tern["manifest"]["tern"], serde_json::json!(true));
+    let read = holk::Container::read(&container(&tern, 0, &[])).expect("a ternary q1 is read");
+    assert_eq!(read.entries[0].format, 4);
+    for said in [serde_json::json!(false), serde_json::Value::Null] {
+        tern["manifest"]["tern"] = said.clone();
+        assert_eq!(
+            holk::Container::read(&container(&tern, 0, &[])).err(),
+            Some(holk::HolkError::Unfollowable(
+                holk::Unfollowable::FormatNotKnown
+            )),
+            "a `q1` whose manifest says `tern` is {said} was read as the ternary format"
         );
     }
 }

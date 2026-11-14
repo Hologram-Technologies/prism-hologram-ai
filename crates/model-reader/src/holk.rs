@@ -211,11 +211,15 @@ impl Container {
             return Err(unfollowable(Unfollowable::PartMissing));
         }
 
+        // What the manifest says about the model as a whole, which one of the
+        // names a buffer carries cannot be read without.
+        let ternary = manifest["tern"].as_bool().unwrap_or(false);
+
         let mut entries = Vec::with_capacity(listed.len());
         for entry in listed {
             entries.push(Entry {
                 name: text(&entry["name"])?.to_string(),
-                format: format_of(text(&entry["fmt"])?)?,
+                format: format_of(text(&entry["fmt"])?, ternary)?,
                 rows: whole(&entry["N"])?,
                 columns: whole(&entry["K"])?,
                 label: label_of(text(&entry["kappa"])?)?,
@@ -286,13 +290,20 @@ fn label_of(text: &str) -> Result<Label, HolkError> {
 /// The names are the container's; the numbers are the kernel's, as its own
 /// module lists them. A name with no number here is refused rather than read
 /// as a near one.
-fn format_of(name: &str) -> Result<u8, HolkError> {
+///
+/// `ternary` says whether the manifest declares this model's weights ternary.
+/// The published container writes its ternary matrices as `q1`, and the same
+/// family writes a one-bit format under that same name with another layout
+/// entirely, so `q1` is the kernel's ternary format only where the manifest
+/// says the weights are ternary, and is refused where it does not.
+fn format_of(name: &str, ternary: bool) -> Result<u8, HolkError> {
     match name {
         "q4" => Ok(0),
         "q3f" => Ok(1),
         "t2" => Ok(2),
         "t2r" => Ok(3),
         "ternary" => Ok(4),
+        "q1" if ternary => Ok(4),
         _ => Err(unfollowable(Unfollowable::FormatNotKnown)),
     }
 }
