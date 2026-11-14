@@ -15,6 +15,35 @@ mod bootstrap;
 mod page;
 mod scaffold;
 
+/// The most the page's engine may be, uncompressed.
+///
+/// Two mebibytes. It is fetched only when a visitor asks for a model, never
+/// for the first paint, so what this protects is not the page's speed but the
+/// visitor's connection: a module that doubled without anyone noticing would
+/// be a slower first model for everyone, and nothing else would say so.
+const ENGINE_CEILING: u64 = 2 * 1024 * 1024;
+
+/// The engine the page loads is there, and is within what a page may ask for.
+fn engine_size(path: &Path) -> Result<(), Fail> {
+    let size = std::fs::metadata(path)
+        .map_err(|why| format!("{}: {why}", path.display()))?
+        .len();
+    if size > ENGINE_CEILING {
+        return Err(format!(
+            "{}: {size} bytes, over the {ENGINE_CEILING} a page may ask a visitor to fetch. \
+             Either it has grown by something that can be left out, or the ceiling is wrong \
+             and moving it is a decision, not a fix.",
+            path.display()
+        )
+        .into());
+    }
+    println!(
+        "engine-size: {size} bytes, within the {ENGINE_CEILING} a page may ask for ({} per cent)",
+        size * 100 / ENGINE_CEILING
+    );
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let task = std::env::args()
         .nth(1)
@@ -30,6 +59,10 @@ fn main() -> ExitCode {
         "audit-bootstrap" => bootstrap::audit(&root),
         "audit-dependency-updates" => bootstrap::audit_dependency_updates(&root),
         "validate" => validate(&root),
+        "engine-size" => {
+            let named = std::env::args().nth(2).unwrap_or_default();
+            engine_size(&root.join(named))
+        }
         "new-capability" => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             scaffold::new_capability(&root, &args)
@@ -49,6 +82,7 @@ fn main() -> ExitCode {
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
+                 engine-size <path>  the page's engine is within the size a page may ask for\n\
                  new-capability <ID> <level> <suite> <statement>\n\
                                    R3: write the register row, scenario and failing test\n\
                  new-failure <FL-NN> <crate> <Type> <Variant> <suite> <condition>\n\

@@ -275,6 +275,12 @@ suite = "engine"
 statement = "A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name"
 
 [[id]]
+id = "EN-26"
+level = "build"
+suite = "engine"
+statement = "The page is published with the engine it loads, built from this workspace and under the size it is allowed"
+
+[[id]]
 id = "GP-01"
 level = "build"
 suite = "gpu"
