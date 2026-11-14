@@ -60,6 +60,36 @@ Existing decisions Q starts using: KN-01 drives load states, KN-05 admits manife
 
 Tested, not proved: every WGSL kernel, the CPU kernels, prefill and decode, attention, RoPE, normalisation, int4 KV, and the receipt's re-derivation.
 
+## Checkpoint 1: first light
+
+Milestone 1 is reached in checkpoints. The first is the only one on the critical path. It is done when Ilya can do this himself, and each step is also checked by a test, not only by eye.
+
+| Step | What he does | The test that checks it |
+| --- | --- | --- |
+| 1 | Opens the app's page in Chrome on a laptop. Nothing to install, no server of ours. | Journey in Chromium: the page loads from a static server; the network log shows requests only to the page's own origin, Hugging Face's resolve route and its CDN, and the hub's Pages site. Any other host fails the test. |
+| 2 | Picks Bonsai and watches it download by Range request from Hugging Face, with each check shown: revision, size and whole-file SHA-256 from the hub's signed record (checked against `root.json`), each block's BLAKE3 against the container's header, and the kernel's answers. | Hermetic journey: a small weight container built for the test, in the same layout, is served locally; the network log shows Range requests only; the page's check list equals the expected list. Negative journeys: one flipped byte in a block, a wrong whole-file hash, and a record that does not match the root each stop the load before any weight reaches the GPU. Kernel conformance: every kernel request the page sends and the answer it acts on are compared with the kernel's own examples for that decision. One live journey against the pinned Hugging Face revision runs on a schedule, not on every push. |
+| 3 | Sends a prompt and gets an answer by greedy decoding. | Reference test: for three fixed prompts, the first 64 generated token ids equal a committed reference transcript. The reference comes from a second implementation of the same model, not from this engine: llama.cpp on the source GGUF if its build reads the format, otherwise this repository's float CPU reference. Which one is not decided; the model card reports four of five outputs byte-identical to llama.cpp's WebGPU build, so equality is expected on most prompts, and any prompt where the two disagree is recorded with how many tokens agreed, never dropped. Unit test: the YaRN rotary factors equal the formula for every pair index. Differential test: batched prefill equals one-token prefill, token for token. |
+| 4 | Compares speed with the model card's baseline on the same class of machine: 85 to 114 tokens per second, 0.31 to 0.45 s to first token with the system prompt's state cached. | Measurement harness: a fixed protocol (prompt length, warm-up, number of runs, median) writes time to first token, tokens per second, load time and GPU memory to `model/ledger.toml` for one named laptop. The card's numbers are a target, not a gate, until they are re-measured on that laptop; after that, a regression of more than 10 percent fails. |
+
+In checkpoint 1: the ternary-per-128 GPU kernel, YaRN, batched prefill, the tokenizer read from the container's GGUF header through `crates/tokenizer` built for wasm, the kernel asked for every decision this path exercises (KN-01, 05, 06, 09, 12, 13, 14, and KN-07 or KN-08 when the conversation outgrows the context), and a minimal chat surface under `site/app/`.
+
+Later checkpoints, each with its own gate: Q's four other formats (q4, q3f, t2, t2r); speculative decoding; the CPU fallback; offline use; Safari, Firefox and phones; inference receipts; the in-page hub runner that chooses a source; the 25 examples in the kernel list.
+
+### What stands between today and checkpoint 1, in order
+
+| # | Item | Needs | Estimate |
+| --- | --- | --- | --- |
+| 1 | PR #18 green: decisions 12 to 17 on main | Hologram AI: names for 12 to 17 in `site/decision-names.json`. CI: the holo build, which has not yet run with these modules | hours, once the names exist |
+| 2 | Read the weight container's header (`HOLK1`) and directory in the page | Hologram AI: where the reader lives (a Rust crate built for wasm, beside the GGUF reader) | about a day once placed |
+| 3 | Tokenizer in the page from the container's embedded GGUF header | Hologram AI: the wasm build of `crates/tokenizer` (its GGUF reader is on main since 8c2795c) | Hologram AI's to estimate |
+| 4 | Streaming hashes in the page: BLAKE3 per block, SHA-256 over the whole file without holding it | Hologram AI: `crates/download` built for wasm, with an incremental whole-file SHA-256 added | Hologram AI's to estimate |
+| 5 | The hub's signed record checked in the page | The hub session: an importable module for reading the index and record (`web/client.mjs`, proposed); only `web/sigstore.mjs` is importable today. Without it, checkpoint 1 would have to read the record itself, which duplicates the hub's code, so it waits | cannot estimate |
+| 6 | The kernel holo running in the page and answering the engine | Reuse the page's existing guest worker (`site/guest-worker.mjs`) and the JS encoder generated from the kernel | about a day |
+| 7 | WebGPU engine: Q's resident path ported for Qwen3, plus the ternary-per-128 kernel, YaRN and batched prefill | The patched Q engine the model card was measured with, if it can be found: it already has the ternary kernel and YaRN. Where it lives is not known to me | days; cannot estimate more closely until I know whether that patch exists |
+| 8 | Reference transcripts for step 3 | A llama.cpp build that reads the source GGUF's ternary format, or this repository's float reference for Qwen3 | cannot estimate |
+| 9 | Minimal chat surface under `site/app/`, with the check list | Items 2 to 7 | about a day |
+| 10 | The tests above, and the measurement harness on one named laptop | Checked on 2026-11-14 in the SDK image, which has no GPU: headless Chromium gives a WebGPU adapter only with `--enable-unsafe-swiftshader --enable-unsafe-webgpu` (Google's software renderer), and with it a compute shader runs correctly and the storage-binding limit is 1 GiB. So CI can run the GPU code for real, slowly: a small hermetic model on every push, the Bonsai reference test on a schedule, speed only on the named laptop | about two days |
+
 ## Phase 2. Engine core (milestone 1)
 
 Scope: Bonsai 1.7B first (Qwen3, ternary per 128, YaRN rotary scaling, read from its weight container), then Llama, Qwen2 and Qwen3 dense models and BitNet, Falcon-E and TriLM ternary models; formats q4, q3f, t2, t2r and Bonsai's. Models load from Hugging Face or the decentralised hub by base URL. Verified load, prefill, greedy decode, speculative decode, int4 KV cache, inference receipts with re-derivation, the memo, the chat interface, offline use after one visit.
