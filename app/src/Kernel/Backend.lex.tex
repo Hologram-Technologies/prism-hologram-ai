@@ -1,0 +1,24 @@
+\begin{lexlean}{Kernel.Backend}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: gpuUsable,
+  parameters: [present : Nat, limit : Nat, largest : Nat],
+  result: Bool,
+  body: ((present =? 1) && (largest <=? limit))
+}
+
+definition{
+  name: backendAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 18) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (gpuUsable (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8)) then (prim utf8_encode "webgpu" : Bytes) else (prim utf8_encode "cpu" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

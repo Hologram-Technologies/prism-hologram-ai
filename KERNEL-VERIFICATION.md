@@ -32,6 +32,16 @@ The inherited gates and their own planted defects are in
 | The opset window and the count of operators outside it are what the importer reports | the kernel is told numbers and answers; which operators an importer builds is the importer's, and no importer exists here yet | not proved |
 | The engine's proposed trim drops whole pairs, oldest first, and the totals it reports are the totals of those pairs | the kernel sees totals, not the pairs; `EN-10` in `crates/conformance/tests/engine.rs` tests it of the engine | tested, not proved |
 | A plan exists whenever one layer fits beside the context | the kernel checks a plan, it does not produce one; an engine test, not yet written | not proved |
+| `KN-12`: WebGPU is chosen exactly when the adapter is present and the largest buffer fits its binding limit, and a wider limit never takes WebGPU away | `gpu_usable_decides` and `limit_monotone`, checked by the Lean kernel | proved |
+| Whether a model fits memory at all | left to `KN-03` and `KN-04`; decision 12 answers only which backend | not decided here |
+| `KN-13`: a weight block's shape is accepted exactly when rows and columns are at least one and the columns divide into the format's groups | `shaped_decides` and `group_bounds`, checked by the Lean kernel | proved |
+| The block length is rows times groups times bytes per group, with q4 20 per 32, q3f 16 per 32, t2 4 per 16, t2r 68 per 256 and the ternary-per-128 format 36 per 128 | the pinned test fixes the two tables; checked once against a real tensor of the Bonsai 1.7B weight container (2048 by 2048, 1,179,648 bytes); no examples yet | tested, not proved |
+| `KN-14`: a claimed greedy pick is accepted exactly when its index is the first position holding the maximum score and the claimed score is that maximum | `standing_decides`, and `holds_decides` by induction over the positions, checked by the Lean kernel | proved |
+| The engine's f32 logits map to 32-bit keys whose order is the logits' order | an engine property; the engine must also send negative zero as positive zero, or a tie between them is broken differently | not proved |
+| `KN-15`: a token is kept unpenalised exactly when no position inside the recent window holds it | `clear_decides`, and `clear_from_decides` by induction over the history, checked by the Lean kernel | proved |
+| `KN-16`: a speculative commit count is accepted exactly when it lies in 1 to k+1, every draft before the last committed position equals its verified pick, and the draft at that position, if any, differs | `agrees_decides`, and `agrees_from_decides` by induction over the drafts, checked by the Lean kernel | proved |
+| `KN-17`: unpacking a place of a packed group gives back the code packed there, for q4, q3f (its ten fields and the two codes in its spare bits), t2 and t2r, and the ternary sign and nonzero planes | `nibble_round_trip`, `triple_round_trip`, `spare_round_trip`, `pair_low_round_trip`, `pair_high_round_trip` and `bit_round_trip`, checked by the Lean kernel | proved |
+| The answer to decision 17 is the code minus the format's offset, written with its sign | `signedText`; no examples yet | tested, not proved |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the eleven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
@@ -601,6 +611,104 @@ layer too big, one stage that leaves layers out, a third stage that would be
 empty, and a model whose layer does not fit beside the context. Three are
 invalid: more layers than the bound, a layer larger than the bound, and one byte
 short.
+
+## KN-12, backend
+
+Three numbers from the page: whether a WebGPU adapter is present, the adapter's
+largest storage-buffer binding, and the model's largest buffer as it will be
+bound. `gpuUsable` is true exactly when the adapter is present and the buffer
+fits. Whether the model fits memory at all is the question decisions 3 and 4
+already answer, so this decision does not ask it again.
+
+### The proof gate: `lexlean verify src/Proofs/Backend.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `gpuUsable` requires the largest buffer to be strictly below the limit | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Backend (error): omega could not prove the goal` |
+| none | `verified`, with every proof module's axiom policy exact |
+
+## KN-13, block length
+
+The format and the shape give the length a decompressed weight block must have.
+The kernel answers that length; the caller compares it with what it holds, so
+the comparison has one home. Hash admission of the stored, compressed bytes is
+decision 5's.
+
+### The pinned test: `kernel_kn_13`
+
+| Planted defect | Result |
+| --- | --- |
+| the ternary-per-128 format is 32 bytes per group instead of 36 | rejected: `kernel_kn_13` panics at `bytes per group changed` |
+| none | passes |
+
+The two tables are pinned by the test rather than proved, because the length
+formula multiplies two unknowns and the proof forms here decide linear
+arithmetic only.
+
+## KN-14, greedy pick
+
+The engine picks a token on the GPU every step and cannot ask the kernel each
+time, so the kernel is the reference it is tested against. The engine claims an
+index and a score; `standing` says, of one position, that before the index the
+score is lower, at it the score is the claimed one, and after it none is higher.
+`holdsFrom` checks every position, and `holds_decides` proves by induction that
+it is true exactly when that holds at each one.
+
+### The proof gate: `lexlean verify src/Proofs/Pick.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| an earlier score equal to the claimed one is allowed, so a later tie would pass as the first maximum | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Pick (error): omega could not prove the goal` |
+| none | `verified` |
+
+## KN-15, penalty window
+
+The window size is part of the request, so the boundary can be tested with a
+short history; the engine uses 64. The window starts that many positions before
+the end, or at the start of a shorter history.
+
+### The proof gate: `lexlean verify src/Proofs/Penalty.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| the position at the window's start is treated as outside it | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Penalty (error): omega could not prove the goal` |
+| none | `verified` |
+
+## KN-16, speculative commit
+
+k drafts and k+1 verified picks. The proposed count is checked against every
+draft position; the last verified pick is always committed and needs no check.
+
+### The proof gate: `lexlean verify src/Proofs/Speculate.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| the draft at the last committed position must equal its pick, rather than differ | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Speculate (error): omega could not prove the goal` |
+| none | `verified` |
+
+## KN-17, quant codes
+
+Each format's unpacking is a division and a remainder by a power of its base,
+with the power read from a table of literals, so the solver sees only division
+by constants. A t2 word's sixteen codes are proved as two halves of eight, each
+with the other half arbitrary: as one theorem of sixteen the case split did not
+complete. The q3f round trip includes the spare bits above the ten fields, and
+`spare_round_trip` shows the two codes kept there come back from all three words.
+
+### The proof gate: `lexlean verify src/Proofs/Quant.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| `nibbleAt` takes the remainder by 15 instead of 16 | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Quant (error): omega could not prove the goal` |
+| none | `verified` |
+
+## Decisions 12 to 17 carry no examples yet
+
+The examples the holo replays sit in one list that stops building above 108
+entries (see the next section). Decisions 12 to 17 add none until that limit is
+lifted, so their answers are tested here by the pinned tests and proved by the
+theorems, and not yet replayed in the compiled guest. Each will gain one example
+per answer and one malformed request when the list can hold them.
 
 ## The limit on examples
 

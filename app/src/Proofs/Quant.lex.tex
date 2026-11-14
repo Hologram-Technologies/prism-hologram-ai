@@ -1,0 +1,149 @@
+\begin{lexlean}{Proofs.Quant}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Quant}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: choose8,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat
+  ],
+  result: Nat,
+  body: (if (place =? 0) then c0 else (if (place =? 1) then c1 else (if (place =? 2) then c2 else (if (place =? 3) then c3 else (if (place =? 4) then c4 else (if (place =? 5) then c5 else (if (place =? 6) then c6 else c7)))))))
+}
+
+definition{
+  name: choose10,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat,
+    c8 : Nat,
+    c9 : Nat
+  ],
+  result: Nat,
+  body: (if (place =? 0) then c0 else (if (place =? 1) then c1 else (if (place =? 2) then c2 else (if (place =? 3) then c3 else (if (place =? 4) then c4 else (if (place =? 5) then c5 else (if (place =? 6) then c6 else (if (place =? 7) then c7 else (if (place =? 8) then c8 else c9)))))))))
+}
+
+theorem{
+  name: nibble_round_trip,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat
+  ],
+  statement: ((place < 8) -> ((c0 < 16) -> ((c1 < 16) -> ((c2 < 16) -> ((c3 < 16) -> ((c4 < 16) -> ((c5 < 16) -> ((c6 < 16) -> ((c7 < 16) -> ((Kernel.Quant::nibbleAt (c0 + ((prim multiply 16 c1 : Nat) + ((prim multiply 256 c2 : Nat) + ((prim multiply 4096 c3 : Nat) + ((prim multiply 65536 c4 : Nat) + ((prim multiply 1048576 c5 : Nat) + ((prim multiply 16777216 c6 : Nat) + (prim multiply 268435456 c7 : Nat)))))))) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7))))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Quant::nibbleAt, Kernel.Quant::pow16, choose8]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bit_round_trip,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat
+  ],
+  statement: ((place < 8) -> ((c0 < 2) -> ((c1 < 2) -> ((c2 < 2) -> ((c3 < 2) -> ((c4 < 2) -> ((c5 < 2) -> ((c6 < 2) -> ((c7 < 2) -> ((Kernel.Quant::bitAt (c0 + ((prim multiply 2 c1 : Nat) + ((prim multiply 4 c2 : Nat) + ((prim multiply 8 c3 : Nat) + ((prim multiply 16 c4 : Nat) + ((prim multiply 32 c5 : Nat) + ((prim multiply 64 c6 : Nat) + (prim multiply 128 c7 : Nat)))))))) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7))))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Quant::bitAt, Kernel.Quant::pow2, choose8]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: triple_round_trip,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat,
+    c8 : Nat,
+    c9 : Nat,
+    spare : Nat
+  ],
+  statement: ((place < 10) -> ((c0 < 8) -> ((c1 < 8) -> ((c2 < 8) -> ((c3 < 8) -> ((c4 < 8) -> ((c5 < 8) -> ((c6 < 8) -> ((c7 < 8) -> ((c8 < 8) -> ((c9 < 8) -> ((spare < 4) -> ((Kernel.Quant::tripleAt ((c0 + ((prim multiply 8 c1 : Nat) + ((prim multiply 64 c2 : Nat) + ((prim multiply 512 c3 : Nat) + ((prim multiply 4096 c4 : Nat) + ((prim multiply 32768 c5 : Nat) + ((prim multiply 262144 c6 : Nat) + ((prim multiply 2097152 c7 : Nat) + ((prim multiply 16777216 c8 : Nat) + (prim multiply 134217728 c9 : Nat)))))))))) + (prim multiply 1073741824 spare : Nat)) place) = (choose10 place c0 c1 c2 c3 c4 c5 c6 c7 c8 c9)))))))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Quant::pow8, Kernel.Quant::tripleAt, choose10]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pair_low_round_trip,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat,
+    rest : Nat
+  ],
+  statement: ((place < 8) -> ((c0 < 4) -> ((c1 < 4) -> ((c2 < 4) -> ((c3 < 4) -> ((c4 < 4) -> ((c5 < 4) -> ((c6 < 4) -> ((c7 < 4) -> ((Kernel.Quant::pairAt ((c0 + ((prim multiply 4 c1 : Nat) + ((prim multiply 16 c2 : Nat) + ((prim multiply 64 c3 : Nat) + ((prim multiply 256 c4 : Nat) + ((prim multiply 1024 c5 : Nat) + ((prim multiply 4096 c6 : Nat) + (prim multiply 16384 c7 : Nat)))))))) + (prim multiply 65536 rest : Nat)) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7))))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Quant::pairAt, Kernel.Quant::pow4, choose8]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pair_high_round_trip,
+  parameters: [
+    place : Nat,
+    c0 : Nat,
+    c1 : Nat,
+    c2 : Nat,
+    c3 : Nat,
+    c4 : Nat,
+    c5 : Nat,
+    c6 : Nat,
+    c7 : Nat,
+    rest : Nat
+  ],
+  statement: ((place < 8) -> ((c0 < 4) -> ((c1 < 4) -> ((c2 < 4) -> ((c3 < 4) -> ((c4 < 4) -> ((c5 < 4) -> ((c6 < 4) -> ((c7 < 4) -> ((rest < 65536) -> ((Kernel.Quant::pairAt (rest + (prim multiply 65536 (c0 + ((prim multiply 4 c1 : Nat) + ((prim multiply 16 c2 : Nat) + ((prim multiply 64 c3 : Nat) + ((prim multiply 256 c4 : Nat) + ((prim multiply 1024 c5 : Nat) + ((prim multiply 4096 c6 : Nat) + (prim multiply 16384 c7 : Nat)))))))) : Nat)) (place + 8)) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7)))))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Quant::pairAt, Kernel.Quant::pow4, choose8]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: spare_round_trip,
+  parameters: [low : Nat, middle : Nat, high : Nat, q30 : Nat, q31 : Nat],
+  statement: ((low < 1073741824) -> ((middle < 1073741824) -> ((high < 1073741824) -> ((q30 < 8) -> ((q31 < 8) -> (((Kernel.Quant::fieldCode (low + (prim multiply 1073741824 (prim remainder (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) : Nat)) (middle + (prim multiply 1073741824 (prim remainder (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) 4 0 : Nat) : Nat)) (high + (prim multiply 1073741824 (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 16 0 : Nat) : Nat)) 30) = q30) /\ ((Kernel.Quant::fieldCode (low + (prim multiply 1073741824 (prim remainder (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) : Nat)) (middle + (prim multiply 1073741824 (prim remainder (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) 4 0 : Nat) : Nat)) (high + (prim multiply 1073741824 (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 16 0 : Nat) : Nat)) 31) = q31))))))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Quant::fieldCode, Kernel.Quant::spareOf, Kernel.Quant::spareSix]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
