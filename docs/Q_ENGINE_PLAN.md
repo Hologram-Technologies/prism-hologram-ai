@@ -124,6 +124,15 @@ Measured on this machine's AMD RDNA 3 GPU in the browser pane (medians, pane hid
 
 What this says: the kernel's inner loop is not what separates this engine from the original. A 2048 by 2048 matrix should stream in about 6 microseconds and takes about 46, so the cost of each of about 450 dispatches per token dominates. The original fuses its dispatches. The next step is fusion, from 16 dispatches per layer to about 6: norm with q, k and v; head norms with rotation and the cache write; attention; the output projection with its residual; norm with gate, up and SiLU; down with its residual. Every step keeps GP-01 and GP-04 (identical tokens to the reference and to one position per submission) and is kept only if the measured number moves. Past parity, the bound above can only be crossed by verifying several tokens per weight pass (speculative decoding, already a proved kernel decision, KN-16), whose gain depends on the text.
 
+Side by side on 2026-11-14, browser pane visible, one load each, the same five prompts of about 440 to 470 tokens (Foundry's system block and a decision-app request), 256 new tokens:
+
+| | Original Q engine (Foundry's copy) | This engine |
+| --- | --- | --- |
+| Time to first token | 0.45 to 1.13 s | 11.3 to 12.1 s |
+| Tokens per second | 43.5 to 57.0, median 52.5 | 18.8 to 22.4, median 21.5 |
+
+So parity on this machine means about 52 tokens per second and under a second to the first token, not the 85 to 114 recorded elsewhere. Two gaps explain most of it, ahead of fusion: the prompt is run one position at a time, each a full pass over the weights (batched prefill reads each weight once for a block of positions); and attention walks the whole cache serially per head, so speed halves as the context grows (the original splits attention across the cache). The order is now: batched prefill, then split attention, then two batches in flight, then the remaining dispatch reductions.
+
 A row-and-lane kernel geometry ported from Foundry's engine was measured slower here (37.5 against 43 tokens per second) and was not kept.
 
 ## Phase 2. Engine core (milestone 1)
