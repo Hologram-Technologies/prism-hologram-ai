@@ -1,5 +1,5 @@
 {
-  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths, groups and tags are the kernel's; the names are the companion file's.",
+  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths, groups, tags and the largest request are the kernel's; the names are the companion file's.",
   "decisions": [
     {
       "asks": "May this step be taken, and where does it lead?",
@@ -994,5 +994,6 @@
       ],
       "tag": 17
     }
-  ]
+  ],
+  "request": 81
 }
