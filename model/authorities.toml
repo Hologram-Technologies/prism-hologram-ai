@@ -53,3 +53,11 @@ citation = """HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c
 checksum = "sha256:578fd65c66e28136634fa3d65c9fbdb74bb50dd1010160adfcf858d693476979"
 statement = """This container is one file, not a specification. It begins with the five bytes HOLK1 and a newline, carries a four-byte little-endian header length of 98,304, and its header is a JSON document from byte ten, padded to that length with spaces. It declares the format holo-kappa/1, a manifest whose weights are ternary, a tokeniser at byte 98,314, and 311 buffers in two quantisation formats, q1 and f32. What this repository reproduces is this one file's layout; nothing here establishes that another container is written the same way."""
 realized_by = ["EN-25"]
+
+[[authority]]
+id = "QWEN25-GGUF"
+name = "The published Qwen2.5-1.5B-Instruct GGUF header"
+citation = """Qwen/Qwen2.5-1.5B-Instruct-GGUF on huggingface.co at revision 91cad51, the file qwen2.5-1.5b-instruct-q4_0.gguf, bytes 0 to 5,950,495, vendored at model/authorities/qwen25-header.bin. The whole file is 1,066,227,232 bytes with sha256 dcd819ff094852c38faba6873d8ff0c9d51eadb2844539e52042ae5d647bbfdb, which is the digest the hub publishes for it and the digest of the copy these bytes were cut from; the file itself is not vendored."""
+checksum = "sha256:1af9b85ca59e5cd7ca776e6ac20c17df02756631b30626b587d8083c1ca8e7ff"
+statement = """This file declares the architecture qwen2 and a gpt2 tokeniser model with the qwen2 pre-tokeniser, carries 151,936 tokens, 151,387 merges and a token-type array, and marks its control tokens there. Its tensor table holds 339 entries in three storage types, one of which this engine does not follow. What this repository reproduces is this one file's header; nothing here establishes that another model's is written the same way."""
+realized_by = ["EN-21", "EN-22", "EN-27"]

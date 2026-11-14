@@ -36,6 +36,22 @@ fn root() -> PathBuf {
 // seen, and the first sixty-four bytes of that file are quoted here so that
 // what is read is anchored to it rather than to a reader written from a guess.
 
+/// The published Qwen2.5 model's own GGUF header, vendored under
+/// `model/authorities` with its checksum in the register: its first 5,950,496
+/// bytes, which is everything up to the first tensor's own bytes.
+fn published_gguf() -> Vec<u8> {
+    let path = root().join("model/authorities/qwen25-header.bin");
+    let bytes = std::fs::read(&path).expect("the vendored GGUF header");
+    let register = std::fs::read_to_string(root().join("model/authorities.toml"))
+        .expect("the authority register");
+    assert_eq!(
+        sha256(&bytes),
+        cited_checksum(&register, "QWEN25-GGUF"),
+        "the vendored header is not the file the register cites"
+    );
+    bytes
+}
+
 /// The published container's own header, vendored under `model/authorities`
 /// with its checksum in the register: its first 98,314 bytes, which is the
 /// magic, the header length and the header itself.
@@ -3878,6 +3894,56 @@ fn engine_en_21() {
     );
 }
 
+/// The published Qwen2.5 model's own vocabulary, read from its own header.
+///
+/// Everything else about the GGUF reader is checked against files this
+/// repository writes. This checks it against one it did not: the names, the
+/// counts and the three ids a chat template needs are the published file's.
+#[test]
+fn the_published_model_vocabulary_is_read() {
+    let read =
+        tokeniser::Tokeniser::from_gguf(&published_gguf()).expect("the published header is read");
+    assert_eq!(read.len(), 151_936, "the vocabulary the file lists");
+
+    // The three tokens a turn is wrapped in, at the ids the file gives them.
+    // A model stops on the last of these; one that never receives that id
+    // never stops.
+    for (name, id) in [
+        ("<|endoftext|>", 151_643u32),
+        ("<|im_start|>", 151_644),
+        ("<|im_end|>", 151_645),
+    ] {
+        assert_eq!(
+            read.decode(&[id]),
+            Ok(name.as_bytes().to_vec()),
+            "{name} is not id {id} in the published file"
+        );
+        // And it is matched as itself in text, which is the whole point of
+        // reading `token_type`: the file marks these control, so they are not
+        // merged into the words around them.
+        assert_eq!(
+            read.encode(&format!("the{name}theme")),
+            [read.encode("the"), vec![id], read.encode("theme")].concat(),
+            "{name} is not matched whole in the published vocabulary"
+        );
+    }
+
+    // A turn as a chat template writes it, through the published vocabulary.
+    let turn = "<|im_start|>user\nthe theme<|im_end|>\n<|im_start|>assistant\n";
+    let ids = read.encode(turn);
+    assert_eq!(ids.first(), Some(&151_644));
+    assert!(
+        ids.contains(&151_645),
+        "the turn carries the id a model stops on"
+    );
+    assert_eq!(
+        read.decode(&ids)
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_string()),
+        Ok(turn.to_string()),
+        "what the published vocabulary writes, it reads back"
+    );
+}
+
 /// `EN-22`: A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks
 #[test]
 fn engine_en_22() {
@@ -5090,6 +5156,18 @@ fn engine_en_27() {
     let mut padded = file.clone();
     padded.extend(std::iter::repeat_n(0xabu8, 1 << 20));
     assert_eq!(tensors::read(&padded), Ok(read.clone()));
+
+    // The published model's own table: 339 tensors in three storage types,
+    // one of which this reader does not follow. Until this file was here,
+    // those numbers were a measurement in the verification notes; now they
+    // are what the gate reads.
+    let published = published_gguf();
+    let refused = tensors::read(&published);
+    assert_eq!(
+        refused.err(),
+        Some(tensors::GgufError::TypeNotFollowed(14)),
+        "the published file stores its output weight in Q6_K, which this reader does not follow"
+    );
 
     // The two readers of this format stop in different places on purpose, and
     // must agree about where the metadata ends. One file, read by both: the
