@@ -57,25 +57,23 @@ deny:
 # leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
 #
-# A pull request or a merge queue run may reuse the proof a run kept for
-# byte-identical proof inputs: bootstrap.yml restores `.prism-proof` from a cache
-# keyed by `app/**`, `prismpm.lock`, this file and the toolchain, and passes the
-# event in PRISM_PROOF_EVENT. Its merge commit is proved again in full on main.
-# Main, tags and every local run always prove, and every proof is kept.
+# Build and verify the holo, every time.
+#
+# This had a shortcut: on a pull request, if `.prism-proof` held an attestation
+# for byte-identical proof inputs, the recipe stopped after `lexlean verify`
+# and left the holo unbuilt, on the grounds that main proves the merge commit
+# in full. It saved about seven and a half minutes a run and cost more than
+# that the day a later recipe wanted the holo that was never built: every pull
+# request touching no proof failed, pointing at a missing file rather than at
+# the shortcut. `bootstrap.yml` still sets `PRISM_PROOF_EVENT` and still caches
+# `.prism-proof`; nothing reads the first any more, and the second is kept as
+# evidence of what was proved rather than as a way to skip proving it.
 app:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s failglob
     (cd app && lexlean fmt --all --check && lexlean lock --check)
     (cd app && lexlean verify src/Proofs/*.lex.tex)
-    case "${PRISM_PROOF_EVENT:-}" in
-      pull_request|merge_group)
-        if [[ -s .prism-proof/attestation ]]; then
-          echo "app: the proof of these exact proof inputs is reused, attestation $(cat .prism-proof/attestation); main proves the merge commit in full"
-          exit 0
-        fi
-        ;;
-    esac
     prismpm --project app verify | tee .prism-proof.log
     mkdir -p .prism-proof
     sed -n 's/^verified attestation: \([0-9a-f]\{64\}\)$/\1/p' .prism-proof.log > .prism-proof/attestation
