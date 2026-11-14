@@ -51,6 +51,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
 | `EN-26` | `build` | The page is published with the engine it loads, built from this workspace and under the size it is allowed |
 | `EN-27` | `build` | A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie |
+| `EN-28` | `build` | The id a model stops on is the one the model's own file names, not a list written beside it |
 
 ## gpu
 

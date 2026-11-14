@@ -408,3 +408,9 @@ Feature: engine
     Given the input that makes model-reader return GgufError::ShapeNotFollowed
     When the suite exercises FL-40
     Then A tensor's shape is one this reader cannot measure
+
+  @EN-28 @build
+  Scenario: The id a model stops on is the one the model's own file names, not a list written beside it
+    Given the fixture EN-28 needs
+    When the suite exercises EN-28
+    Then The id a model stops on is the one the model's own file names, not a list written beside it

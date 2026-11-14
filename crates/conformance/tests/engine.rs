@@ -3720,6 +3720,11 @@ fn gguf_tokeniser(merged: &[&str], pre: Option<&str>) -> Vec<u8> {
             Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
         ),
         ("tokenizer.ggml.add_space_prefix", Value::Bool(false)),
+        // The id a model stops on, as a published file names it.
+        (
+            "tokenizer.ggml.eos_token_id",
+            Value::Number((256 + merged.len()) as u32),
+        ),
     ];
     if let Some(pre) = pre {
         entries.push(("tokenizer.ggml.pre", Value::Text(pre.to_string())));
@@ -4201,6 +4206,7 @@ fn engine_en_23() {
         "question": enhex(&question),
         // A failure of the crate behind a call reaches the page by name.
         "unfollowable": enhex(&gguf_tokeniser(&merges, Some("llama3"))),
+        "stopsAt": from_gguf.stops_at().expect("the fixture names an id to stop on"),
         "container": enhex(&held),
         "entries": container.entries.len(),
         "names": container.entries.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
@@ -4354,6 +4360,11 @@ for (const turn of cases.turns) {
   same("encode", given(text.encode(turn.text), (at, len) => call.tokeniser_encode(at, len)), 0);
   same(`gguf ${turn.text}`, new Uint32Array(answer().buffer).join(","), turn.gguf.join(","));
 }
+
+// The id to stop on is the one the file names, and the module reports what the
+// crate reads.
+same("tokeniser_stops_at", call.tokeniser_stops_at(), 0);
+same("the id it stops on", new DataView(answer().buffer).getUint32(0, true), cases.stopsAt);
 
 // A header this engine does not follow is refused by name, not answered.
 same("unfollowable", given(unhex(cases.unfollowable), (at, len) => call.tokeniser_read_gguf(at, len)), 1);
@@ -5307,4 +5318,33 @@ fn engine_fl_40() {
         tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
         Some(tensors::GgufError::ShapeNotFollowed)
     );
+}
+
+/// `EN-28`: The id a model stops on is the one the model's own file names, not a list written beside it
+#[test]
+fn engine_en_28() {
+    // The published model says which id it stops on, and this reads it from
+    // the model rather than from a list written beside it. The page stopped
+    // on a set built in JavaScript from two names; when the tokeniser did not
+    // match those names at all, the model answered forever.
+    let read = tokeniser::Tokeniser::from_gguf(&published_gguf()).expect("the header is read");
+    let stops = read
+        .stops_at()
+        .expect("the published file names the id it stops on");
+    assert_eq!(stops, 151_645);
+    assert_eq!(
+        read.decode(&[stops]),
+        Ok(b"<|im_end|>".to_vec()),
+        "the id it stops on is the token that ends a turn"
+    );
+
+    // A file that names none is read as one with none, rather than given one.
+    let merged = ["t h", "th e"];
+    let quiet = tokeniser::Tokeniser::from_gguf(&gguf_with_control(&merged, &[]))
+        .expect("a header with no stop id is still a header");
+    assert_eq!(quiet.stops_at(), None);
+
+    // And a tokenizer.json says nothing about stopping, so neither does this.
+    let json = tokeniser::Tokeniser::read(&tokeniser(&merged, None)).expect("the file is read");
+    assert_eq!(json.stops_at(), None);
 }

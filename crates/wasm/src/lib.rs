@@ -170,6 +170,23 @@ pub extern "C" fn tokeniser_size() -> u32 {
     })
 }
 
+/// The id the model stops on, as its own file names it: four bytes, least
+/// significant first, or nothing at all where the file names none.
+///
+/// A page that stops on a list of its own is a page that keeps talking when
+/// the list and the model disagree.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn tokeniser_stops_at() -> u32 {
+    answer(|state| {
+        let tokeniser = state.tokeniser.as_ref().ok_or(CallError::NothingRead)?;
+        Ok(tokeniser
+            .stops_at()
+            .map(|id| id.to_le_bytes().to_vec())
+            .unwrap_or_default())
+    })
+}
+
 /// The tokens of a turn: each token's number, four bytes, least significant
 /// first.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]

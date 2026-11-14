@@ -1437,6 +1437,52 @@ was missed.
 - That the statements are readable. They are the proofs' own words with four
   symbols drawn, which makes them true rather than friendly.
 
+## EN-28, the id a model stops on
+
+A chat loop has to stop somewhere. The published page decided where in
+JavaScript: a set built from two token names, with the loop stopping at the
+first member. No kernel decision covered it and no test pinned it — and
+earlier the same day, the tokeniser was not matching those names at all, so
+the model received an id it had never been shown and answered forever.
+
+Which id to stop at is the model's to say, and the published file says it:
+`tokenizer.ggml.eos_token_id`, which for Qwen2.5 is 151,645, the id of
+`<|im_end|>`. The GGUF reader now takes it, `Tokeniser::stops_at()` carries
+it, and the module exports it so the page can stop on the model's own answer
+rather than on a list written beside it. A file that names none reads as one
+with none; nothing here invents one, because a stop id invented for a model
+that did not name one is the same bug in the other direction.
+
+EN-28 reads it from the published header — 151,645, and the token at that id
+is `<|im_end|>` — and requires a file that names none to report none, through
+both readers. EN-23 requires the module to report what the crate read.
+
+### The defects
+
+Three, planted one at a time and then restored. Every one was rejected.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The id a model stops on is read from the wrong key | EN-28: 151,643 where the file says 151,645 |
+| A file that names no stop id is given one anyway | EN-28: `Some(0)` where the file names none |
+| The module reports a stop id the crate did not read | EN-23: the module's answer is not the crate's |
+| none, before and after | passed |
+
+### What is deliberately not here
+
+The **chat frame** — the text a turn is wrapped in — is not in this
+repository, and this is the reason rather than an omission. The published file
+carries `tokenizer.chat_template`, a Jinja template, which is the model's own
+statement of how a turn is written. Writing ChatML by hand in Rust would be
+the same mistake as the stop set in JavaScript: a rule about a model, kept
+beside the model, correct until a model disagrees. The honest options are to
+execute the template the file carries, or to model the frame as a decision and
+prove it. Both are larger than a day, and neither is started.
+
+So today the page writes the frame and this repository reads the id that ends
+it. That is half the rule in the right place, and the half that was silently
+wrong this morning.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by
