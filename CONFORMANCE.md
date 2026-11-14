@@ -48,6 +48,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-22` | `build` | A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks |
 | `EN-23` | `build` | The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer |
 | `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
+| `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
 
 ## kernel
 
@@ -109,6 +110,11 @@ not that the test provokes the failure.
 | `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser or a download is used before one has been started |
 | `FL-29` | `wasm` | `CallError::WrongSize` | A label handed in is not thirty-two bytes |
 | `FL-30` | `download` | `DownloadError::RootNotHex` | The root a container names is not sixty-four lower-case hexadecimal digits |
+| `FL-31` | `model-reader` | `HolkError::NotHolk` | A container does not begin with the magic this reader follows |
+| `FL-32` | `model-reader` | `HolkError::Truncated` | A container's header runs past the end of the bytes given |
+| `FL-33` | `model-reader` | `HolkError::NotJson` | A container's header is not JSON |
+| `FL-34` | `model-reader` | `HolkError::PaddedWithSomethingElse` | A container's header is padded with something other than spaces |
+| `FL-35` | `model-reader` | `HolkError::Unfollowable` | A container describes something this reader does not follow |
 
 ## Cited authorities
 

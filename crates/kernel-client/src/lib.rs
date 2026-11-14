@@ -690,6 +690,45 @@ pub mod shape {
     }
 }
 
+/// How long one block of weights is, which is the kernel's thirteenth
+/// decision.
+pub mod blocks {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// One block of this shape is this many bytes.
+        Bytes(u64),
+        /// The shape is not one this format can be stored in.
+        BadShape,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for the length of one block of a tensor of `rows` by
+    /// `columns` stored in quantisation format `format`.
+    #[must_use]
+    pub fn request(format: u8, rows: u64, columns: u64) -> [u8; 18] {
+        let mut out = [0; 18];
+        out[0] = 13;
+        out[1] = format;
+        crate::put(&mut out, 2, rows);
+        crate::put(&mut out, 10, columns);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"bad shape" => Answer::BadShape,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => crate::decimal(text).map_or(Answer::Unrecognised, Answer::Bytes),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;

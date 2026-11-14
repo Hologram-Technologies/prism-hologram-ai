@@ -2,8 +2,9 @@
 //!
 //! The page already runs the kernel: that is the holo's own guest, verified
 //! before it is compiled. What the page could not do is everything around the
-//! kernel — read the tokeniser a model carries, count the tokens of a turn,
-//! label and root the bytes of a download as they arrive. Those are this repository's
+//! kernel — read the header of a weight container, read the tokeniser a model
+//! carries, count the tokens of a turn, label and root the bytes of a download
+//! as they arrive. Those are this repository's
 //! crates, and this module is the one place they are offered to JavaScript, so
 //! that the page parses no model file of its own and no rule is written twice.
 //!
@@ -47,6 +48,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
+use hologram_ai_model_reader::holk::Container;
 use hologram_ai_tokenizer::Tokeniser;
 
 /// The call was answered; the result buffer holds the answer.
@@ -88,6 +90,8 @@ struct State {
     arriving: Option<Arriving>,
     /// The whole file being rooted, if a download was started.
     whole: Option<Whole>,
+    /// The container whose header was read, if one was.
+    container: Option<Container>,
 }
 
 thread_local! {
@@ -323,6 +327,143 @@ pub fn last_answer() -> Vec<u8> {
     STATE.with_borrow(|state| state.result.clone())
 }
 
+/// Read the header of a weight container.
+///
+/// The bytes must reach the end of the header, which the first ten of them
+/// say: `container_header` answers that from those ten alone, so a page can
+/// ask for the header before it has the file.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_read(at: u32, len: u32) -> u32 {
+    STATE.with_borrow_mut(|state| {
+        let bytes = match taken(state, at, len) {
+            Ok(bytes) => bytes,
+            Err(why) => return failed(state, &format!("{why:?}")),
+        };
+        match Container::read(&bytes) {
+            Ok(container) => {
+                state.container = Some(container);
+                state.result.clear();
+                OK
+            }
+            Err(why) => failed(state, &format!("{why:?}")),
+        }
+    })
+}
+
+/// Where a container's header lies, from the start of its file: two eight-byte
+/// numbers, least significant first.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_header(at: u32, len: u32) -> u32 {
+    STATE.with_borrow_mut(|state| {
+        let bytes = match taken(state, at, len) {
+            Ok(bytes) => bytes,
+            Err(why) => return failed(state, &format!("{why:?}")),
+        };
+        match Container::header_span(&bytes) {
+            Ok(span) => {
+                state.result = [span.at.to_le_bytes(), span.len.to_le_bytes()].concat();
+                OK
+            }
+            Err(why) => failed(state, &format!("{why:?}")),
+        }
+    })
+}
+
+/// How many buffers the container read carries, or none if none was read.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_entries() -> u32 {
+    STATE.with_borrow_mut(|state| {
+        state.result.clear();
+        state
+            .container
+            .as_ref()
+            .map_or(0, |container| container.entries.len() as u32)
+    })
+}
+
+/// Where one buffer lies: two eight-byte numbers, least significant first.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_span(index: u32) -> u32 {
+    answer(|state| {
+        let entry = entry(state, index)?;
+        Ok([entry.span.at.to_le_bytes(), entry.span.len.to_le_bytes()].concat())
+    })
+}
+
+/// What that buffer is called.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_name(index: u32) -> u32 {
+    answer(|state| Ok(entry(state, index)?.name.clone().into_bytes()))
+}
+
+/// Where the tokeniser the model carries lies: two eight-byte numbers, least
+/// significant first. What lies there is a GGUF header.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_tokeniser() -> u32 {
+    answer(|state| {
+        let container = state.container.as_ref().ok_or(CallError::NothingRead)?;
+        let span = container.tokeniser;
+        Ok([span.at.to_le_bytes(), span.len.to_le_bytes()].concat())
+    })
+}
+
+/// The root the container names its whole file by: thirty-two bytes.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_root() -> u32 {
+    answer(|state| {
+        let container = state.container.as_ref().ok_or(CallError::NothingRead)?;
+        Ok(container.manifest.root.0.to_vec())
+    })
+}
+
+/// The kernel's question about where one buffer lies.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_range_question(index: u32, file_length: u64, previous_end: u64) -> u32 {
+    answer(|state| {
+        Ok(entry(state, index)?
+            .range_question(file_length, previous_end)
+            .to_vec())
+    })
+}
+
+/// The kernel's question about whether this buffer's bytes may be used,
+/// against the label of the block being taken now.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_admission_question(index: u32) -> u32 {
+    answer(|state| {
+        let arriving = state.arriving.as_ref().ok_or(CallError::NothingRead)?;
+        let (observed, received) = (arriving.label(), arriving.received());
+        Ok(entry(state, index)?
+            .admission_question(observed, received)
+            .to_vec())
+    })
+}
+
+/// The kernel's question about how long one block of this buffer is.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn container_block_question(index: u32) -> u32 {
+    answer(|state| Ok(entry(state, index)?.block_question().to_vec()))
+}
+
+/// One buffer of the container read.
+fn entry(state: &State, index: u32) -> Result<&hologram_ai_model_reader::holk::Entry, CallError> {
+    let container = state.container.as_ref().ok_or(CallError::NothingRead)?;
+    container
+        .entries
+        .get(index as usize)
+        .ok_or(CallError::NothingRead)
+}
+
 /// Read a tokeniser from one of the two files a model carries it in.
 fn read_tokeniser(at: u32, len: u32, gguf: bool) -> u32 {
     STATE.with_borrow_mut(|state| {
@@ -421,6 +562,7 @@ mod tests {
             state.tokeniser = None;
             state.arriving = None;
             state.whole = None;
+            state.container = None;
         });
         let at = given(b"hello");
         assert_eq!(tokeniser_count(at, 5), NO);

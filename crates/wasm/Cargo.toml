@@ -20,6 +20,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 hologram-ai-download = { workspace = true }
+hologram-ai-model-reader = { workspace = true }
 hologram-ai-tokenizer = { workspace = true }
 
 [lints]

@@ -352,6 +352,7 @@ version = "0.1.0"
 name = "hologram-ai-model-reader"
 version = "0.1.0"
 dependencies = [
+ "hologram-ai-download",
  "hologram-ai-kernel-client",
  "serde_json",
 ]
@@ -376,6 +377,7 @@ name = "hologram-ai-wasm"
 version = "0.1.0"
 dependencies = [
  "hologram-ai-download",
+ "hologram-ai-model-reader",
  "hologram-ai-tokenizer",
 ]
 

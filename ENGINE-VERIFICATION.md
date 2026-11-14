@@ -1000,6 +1000,81 @@ missed.
 - That a container's own root is the root of its file. Nothing here has read a
   container yet: that is the reader this engine does not have.
 
+## EN-25, the weight container
+
+A model's weights arrive in one file: a magic, the length of a header, that
+header as JSON, and then the buffers it describes. The header names the whole
+file by a root, names each buffer by a label and a span, says where the
+tokeniser lies, and says what shape and quantisation each buffer is.
+
+The layout is not a published specification, and this says so rather than
+implying one. It is measured from the one file this engine has seen, by the
+session that had it: a six-byte magic `HOLK1
+`, a four-byte little-endian
+header length, the JSON, and spaces to fill the room. Two facts of that file
+decide the reading, and both are in the test — its first sixty-four bytes are
+quoted there, the byte at ten is `{`, and the tokeniser it names begins at
+98,314, which is ten plus the length those four bytes carry. A reader that took
+the newline for a separator or the length for a version disagrees with the file
+at one of those two.
+
+What `crates/model-reader/src/holk.rs` reads is the header and nothing else.
+The buffers may be hundreds of megabytes and arrive later, or never. Each entry
+becomes the kernel's own questions and no answer of the kernel's is restated:
+where the buffer lies (decision 6), whether its bytes may be used (decision 5),
+and how long one block of its shape is (decision 13, whose client the
+kernel-client crate gained for this). That the block question carries the shape
+where the kernel reads it is checked against `site/decisions.json`, which is
+written from the kernel's own modules, so the client and the kernel cannot
+drift apart quietly.
+
+Every name the container uses for a quantisation format is checked against the
+codes the kernel knows: a format the kernel has and this reader cannot name
+fails the gate, rather than a model arriving one day that cannot be passed on.
+
+### What it refuses, and by what name
+
+| Failure | What it is |
+| --- | --- |
+| `FL-31` `NotHolk` | another magic, a shorter one, or the magic without its newline |
+| `FL-32` `Truncated` | a header that runs past the bytes given, at six lengths including nine and ten |
+| `FL-33` `NotJson` | a header that does not begin a document |
+| `FL-34` `PaddedWithSomethingElse` | a zero, a newline, a tab or `0xff` in the room after the document |
+| `FL-35` `Unfollowable` | another format, a part missing, a number that is not one, a name that is not text, a label that is not `blake3:` and sixty-four digits, a root that is not `sha256:` and sixty-four digits, a quantisation name the kernel has no code for |
+
+Where the document ends is the parser's to say, not something looked for
+backwards: a header whose last byte is a zero would otherwise read as a
+document with no padding at all, which is how the first version of this read it
+until `FL-34` said so.
+
+### The defects
+
+Six, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The header's length is read the other way round | EN-25: the published container's header does not lie where it was measured to |
+| The magic is read without the newline that belongs to it | the same |
+| A quantisation name stands for the number beside the right one | EN-25: no name this reader knows is the kernel's format 4 |
+| Whatever follows the document in the header is stepped over | FL-34: a header padded with `0x00` was read anyway |
+| A buffer's label is taken from whatever its name says | FL-35: a `sha256:` name was read as a label |
+| The block question writes the shape a byte early | EN-25: the rows are not where the kernel reads them |
+| none, before and after | passed |
+
+### What EN-25 does not establish
+
+- That the published container reads. Sixty-four bytes of it are here; the file
+  is 424 MB and is not in this repository. What those bytes establish is where
+  its header lies, which is what a reader has to get right before anything
+  else.
+- That the kernel admits what the reader asks about. The questions are built
+  and compared to the client's own; the answers are the kernel's, and nothing
+  here replays a guest.
+- That a container's root is the root of its file. The reader carries the root
+  the manifest names; comparing it with the bytes as they arrive is the page's
+  loop, which is not written yet.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

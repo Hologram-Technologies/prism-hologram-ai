@@ -330,3 +330,39 @@ Feature: engine
     Given the input that makes download return DownloadError::RootNotHex
     When the suite exercises FL-30
     Then The root a container names is not sixty-four lower-case hexadecimal digits
+
+  @EN-25 @build
+  Scenario: A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
+    Given the fixture EN-25 needs
+    When the suite exercises EN-25
+    Then A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
+
+  @FL-31 @build
+  Scenario: A container does not begin with the magic this reader follows
+    Given the input that makes model-reader return HolkError::NotHolk
+    When the suite exercises FL-31
+    Then A container does not begin with the magic this reader follows
+
+  @FL-32 @build
+  Scenario: A container's header runs past the end of the bytes given
+    Given the input that makes model-reader return HolkError::Truncated
+    When the suite exercises FL-32
+    Then A container's header runs past the end of the bytes given
+
+  @FL-33 @build
+  Scenario: A container's header is not JSON
+    Given the input that makes model-reader return HolkError::NotJson
+    When the suite exercises FL-33
+    Then A container's header is not JSON
+
+  @FL-34 @build
+  Scenario: A container's header is padded with something other than spaces
+    Given the input that makes model-reader return HolkError::PaddedWithSomethingElse
+    When the suite exercises FL-34
+    Then A container's header is padded with something other than spaces
+
+  @FL-35 @build
+  Scenario: A container describes something this reader does not follow
+    Given the input that makes model-reader return HolkError::Unfollowable
+    When the suite exercises FL-35
+    Then A container describes something this reader does not follow

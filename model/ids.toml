@@ -267,3 +267,9 @@ id = "EN-24"
 level = "build"
 suite = "engine"
 statement = "A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples"
+
+[[id]]
+id = "EN-25"
+level = "build"
+suite = "engine"
+statement = "A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name"

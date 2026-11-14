@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
-use hologram_ai_model_reader::{config, header, Kernel};
+use hologram_ai_model_reader::{config, header, holk, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
@@ -26,6 +26,64 @@ fn root() -> PathBuf {
         .nth(2)
         .expect("crates/conformance is two below the root")
         .to_path_buf()
+}
+
+// ─── The weight container ───────────────────────────────────────────────────
+//
+// A container carries a model's weights in one file: a magic, the length of a
+// header, that header as JSON, and the buffers it describes. The layout is not
+// a published specification; it is measured from the one file this engine has
+// seen, and the first sixty-four bytes of that file are quoted here so that
+// what is read is anchored to it rather than to a reader written from a guess.
+
+/// The first sixty-four bytes of the published container, and what was
+/// measured of it: a six-byte magic, a four-byte length of 98,304, and the
+/// JSON beginning at byte ten.
+const PUBLISHED_HEADER: &str = "484f4c4b310a008001007b22666f726d6174223a22686f6c6f2d6b617070612f31222c226d616e6966657374223a7b22666f726d6174223a22686f6c6f2d3262";
+
+/// A container written the way the published one is: magic, the length of the
+/// header, the JSON, and spaces to fill the room it was given.
+fn container(header: &serde_json::Value, room: usize, after: &[u8]) -> Vec<u8> {
+    let document = serde_json::to_vec(header).expect("the header is JSON");
+    let room = room.max(document.len());
+    let mut out = b"HOLK1\n".to_vec();
+    out.extend((room as u32).to_le_bytes());
+    out.extend_from_slice(&document);
+    out.extend(std::iter::repeat_n(b' ', room - document.len()));
+    out.extend_from_slice(after);
+    out
+}
+
+/// The header of a container with `entries` buffers in it, written as the
+/// published one writes them.
+fn container_header(entries: &[(&str, &str, u64, u64, u64, u64)]) -> serde_json::Value {
+    let dir: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|(name, fmt, n, k, off, len)| {
+            serde_json::json!({
+                "name": name,
+                "fmt": fmt,
+                "N": n,
+                "K": k,
+                "kappa": format!("blake3:{}", enhex(&[0xab; 32])),
+                "off": off,
+                "len": len,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "format": "holo-kappa/1",
+        "manifest": {
+            "format": "holo-2b",
+            "mode": "q1",
+            "tern": true,
+            "root": format!("sha256:{}", enhex(&[0xcd; 32])),
+            "vocab": 151_936,
+            "n_layers": 36,
+        },
+        "tokenizer": { "off": 98_314, "len": 5_945_280 },
+        "dir": dir,
+    })
 }
 
 /// The name one of the module's own failures reaches the page by.
@@ -3721,6 +3779,25 @@ fn engine_en_23() {
     let expected = download::Label([7u8; download::LABEL_BYTES]);
     let question = arriving.question(expected, 20_165);
 
+    // And a container's header, read by the crate, for the module to read the
+    // same way.
+    let held = container(
+        &container_header(&[
+            ("embed", "q4", 151_936, 2_048, 6_043_594, 77_791_232),
+            (
+                "blk.0.ffn_up",
+                "ternary",
+                2_048,
+                6_144,
+                84_359_114,
+                1_572_864,
+            ),
+        ]),
+        2048,
+        &[],
+    );
+    let container = holk::Container::read(&held).expect("the crate reads it");
+
     let cases = serde_json::json!({
         "json": enhex(&json),
         "gguf": enhex(&header),
@@ -3734,6 +3811,25 @@ fn engine_en_23() {
         "question": enhex(&question),
         // A failure of the crate behind a call reaches the page by name.
         "unfollowable": enhex(&gguf_tokeniser(&merges, Some("llama3"))),
+        "container": enhex(&held),
+        "entries": container.entries.len(),
+        "names": container.entries.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
+        "spans": container
+            .entries
+            .iter()
+            .map(|entry| [entry.span.at, entry.span.len])
+            .collect::<Vec<_>>(),
+        "containerRoot": enhex(&container.manifest.root.0),
+        "ranges": container
+            .entries
+            .iter()
+            .map(|entry| enhex(&entry.range_question(1 << 30, 64)))
+            .collect::<Vec<_>>(),
+        "questions": container
+            .entries
+            .iter()
+            .map(|entry| enhex(&entry.block_question()))
+            .collect::<Vec<_>>(),
     });
     let listed = root().join("target/en-23-cases.json");
     std::fs::write(
@@ -3845,6 +3941,29 @@ same(
   0,
 );
 same("question", enhex(answer()), cases.question);
+
+// The container's header, read by the module the page loads.
+same("container_read", given(unhex(cases.container), (at, len) => call.container_read(at, len)), 0);
+same("container_entries", call.container_entries(), cases.entries);
+same("container_root", call.container_root(), 0);
+same("container root", enhex(answer()), cases.containerRoot);
+const numbers = (bytes) => {
+  const view = new DataView(bytes.buffer);
+  return [String(view.getBigUint64(0, true)), String(view.getBigUint64(8, true))];
+};
+cases.names.forEach((name, index) => {
+  same("container_name", call.container_name(index), 0);
+  same(`name ${index}`, read.decode(answer()), name);
+  same("container_span", call.container_span(index), 0);
+  same(`span ${index}`, numbers(answer()).join(","), cases.spans[index].join(","));
+  same("container_range_question", call.container_range_question(index, BigInt(1 << 30), 64n), 0);
+  same(`range ${index}`, enhex(answer()), cases.ranges[index]);
+  same("container_block_question", call.container_block_question(index), 0);
+  same(`block ${index}`, enhex(answer()), cases.questions[index]);
+});
+// The header's own span, from the first ten bytes alone.
+same("container_header", given(unhex(cases.container).slice(0, 10), (at, len) => call.container_header(at, len)), 0);
+same("header span", numbers(answer())[0], "10");
 
 console.log(`${agreed} answers agreed`);
 "#;
@@ -4016,6 +4135,314 @@ fn engine_fl_30() {
             download::Root::from_hex(named).err(),
             Some(download::DownloadError::RootNotHex),
             "`{named}` is not a root and was not refused"
+        );
+    }
+}
+
+/// `EN-25`: A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
+#[test]
+fn engine_en_25() {
+    // The published file, as far as it was measured: the magic is six bytes
+    // with the newline in it, the length that follows is 98,304, and the JSON
+    // begins at byte ten. A reader that took the newline for a separator, or
+    // the length for a version, would disagree with the file here.
+    let published = unhex(PUBLISHED_HEADER);
+    assert_eq!(
+        holk::Container::header_span(&published),
+        Ok(holk::Span {
+            at: 10,
+            len: 98_304
+        }),
+        "the published container's header does not lie where it was measured to"
+    );
+    assert_eq!(
+        published.get(10),
+        Some(&b'{'),
+        "and the JSON begins where the span says"
+    );
+    // The tokeniser the published file carries begins where its header ends,
+    // which is the cross-check that the length is a length.
+    assert_eq!(
+        holk::Container::header_span(&published).map(holk::Span::end),
+        Ok(98_314)
+    );
+
+    // A container written the way that one is, read back.
+    let entries = [
+        (
+            "embed",
+            "q4",
+            151_936u64,
+            2_048u64,
+            6_043_594u64,
+            77_791_232u64,
+        ),
+        ("blk.0.attn_q", "t2", 2_048, 2_048, 83_834_826, 524_288),
+        (
+            "blk.0.ffn_up",
+            "ternary",
+            2_048,
+            6_144,
+            84_359_114,
+            1_572_864,
+        ),
+    ];
+    let bytes = container(&container_header(&entries), 4096, &[0xee; 32]);
+    let read = holk::Container::read(&bytes).expect("a container written this way is read");
+    assert_eq!(read.entries.len(), entries.len());
+    assert_eq!(read.manifest.vocabulary, 151_936);
+    assert_eq!(read.manifest.layers, 36);
+    assert_eq!(read.manifest.root, download::Root([0xcd; 32]));
+    assert_eq!(
+        read.tokeniser,
+        holk::Span {
+            at: 98_314,
+            len: 5_945_280
+        }
+    );
+    for (entry, (name, _, rows, columns, off, len)) in read.entries.iter().zip(entries) {
+        assert_eq!(entry.name, name);
+        assert_eq!((entry.rows, entry.columns), (rows, columns));
+        assert_eq!(entry.span, holk::Span { at: off, len });
+        assert_eq!(entry.label, download::Label([0xab; 32]));
+    }
+
+    // Nothing past the header is read: the same header with a gigabyte after
+    // it, and with nothing after it, read the same way.
+    let nothing_after = container(&container_header(&entries), 4096, &[]);
+    assert_eq!(holk::Container::read(&nothing_after), Ok(read.clone()));
+
+    // What each entry asks the kernel. The questions are the kernel's own,
+    // built by the client, and the fields land where the kernel reads them:
+    // the page's table says where, and it is written from the kernel's modules.
+    let table = page_decisions();
+    let first = &read.entries[0];
+    let asked = first.range_question(424_013_749, 6_043_594);
+    assert_eq!(
+        asked[0], 6,
+        "a range question is the kernel's sixth decision"
+    );
+    assert_eq!(
+        asked.to_vec(),
+        range::request(424_013_749, 6_043_594, first.span.at, first.span.len).to_vec()
+    );
+    let admitted = first.admission_question(download::Label([1; 32]), 77_791_232);
+    assert_eq!(admitted[0], 5);
+    assert_eq!(&admitted[1..33], &first.label.0);
+
+    // The block question carries the shape where decision 13 reads it.
+    let block = first.block_question();
+    let thirteen = table
+        .iter()
+        .find(|decision| decision["tag"].as_u64() == Some(13))
+        .expect("the kernel routes decision 13");
+    assert_eq!(
+        block.len(),
+        thirteen["length"].as_u64().expect("a fixed length") as usize,
+        "a block question is not as long as the kernel's thirteenth decision"
+    );
+    let at = |name: &str| {
+        thirteen["fields"]
+            .as_array()
+            .expect("fields")
+            .iter()
+            .find(|field| field["name"].as_str() == Some(name))
+            .and_then(|field| field["at"].as_u64())
+            .expect("the field is on the page") as usize
+    };
+    assert_eq!(
+        u64::from(block[at("Format")]),
+        0,
+        "q4 is the kernel's nought"
+    );
+    let number = |from: usize| {
+        let mut out = [0u8; 8];
+        out.copy_from_slice(&block[from..from + 8]);
+        u64::from_be_bytes(out)
+    };
+    assert_eq!(number(at("Rows")), first.rows);
+    assert_eq!(number(at("Columns")), first.columns);
+
+    // Every format the page offers for decision 13 is a name this reader
+    // knows, so a container cannot name a format the kernel has and this
+    // cannot pass on. The page's own name for the fifth is longer; what is
+    // required is that the reader has a name for each code.
+    let offered = thirteen["fields"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .find(|field| field["name"].as_str() == Some("Format"))
+        .and_then(|field| field["choice"].as_array())
+        .expect("the formats the kernel knows");
+    for pair in offered {
+        let code = pair[1].as_u64().expect("a code") as u8;
+        let named = ["q4", "q3f", "t2", "t2r", "ternary"]
+            .iter()
+            .filter_map(|name| {
+                let mut one = container_header(&[("t", name, 1, 1, 0, 1)]);
+                one["dir"][0]["fmt"] = serde_json::json!(name);
+                holk::Container::read(&container(&one, 0, &[]))
+                    .ok()
+                    .map(|read| read.entries[0].format)
+            })
+            .any(|format| format == code);
+        assert!(
+            named,
+            "no name this reader knows is the kernel's format {code}"
+        );
+    }
+}
+
+/// `FL-31`: A container does not begin with the magic this reader follows
+#[test]
+fn engine_fl_31() {
+    // Another magic, a shorter one, and the magic without its newline.
+    for bytes in [
+        b"GGUF\x00\x00\x00\x00\x00\x00".to_vec(),
+        b"HOLK1\x00\x00\x80\x01\x00".to_vec(),
+        b"holk1\n\x00\x80\x01\x00".to_vec(),
+    ] {
+        assert_eq!(
+            holk::Container::read(&bytes).err(),
+            Some(holk::HolkError::NotHolk),
+            "a file that does not begin with the magic was read as a container"
+        );
+    }
+}
+
+/// `FL-32`: A container's header runs past the end of the bytes given
+#[test]
+fn engine_fl_32() {
+    let entries = [("embed", "q4", 4u64, 4u64, 0u64, 16u64)];
+    let whole = container(&container_header(&entries), 4096, &[]);
+    assert!(holk::Container::read(&whole).is_ok());
+    // A header that runs past the bytes given is not read as far as it goes.
+    for cut in [0, 5, 9, 10, 11, whole.len() - 1] {
+        assert_eq!(
+            holk::Container::read(&whole[..cut]).err(),
+            Some(holk::HolkError::Truncated),
+            "a container cut to {cut} bytes was read anyway"
+        );
+    }
+}
+
+/// `FL-33`: A container's header is not JSON
+#[test]
+fn engine_fl_33() {
+    let entries = [("embed", "q4", 4u64, 4u64, 0u64, 16u64)];
+    let mut bytes = container(&container_header(&entries), 4096, &[]);
+    // The header's first byte, made something no document begins with.
+    bytes[10] = b'<';
+    assert_eq!(
+        holk::Container::read(&bytes).err(),
+        Some(holk::HolkError::NotJson)
+    );
+}
+
+/// `FL-34`: A container's header is padded with something other than spaces
+#[test]
+fn engine_fl_34() {
+    let entries = [("embed", "q4", 4u64, 4u64, 0u64, 16u64)];
+    let mut bytes = container(&container_header(&entries), 4096, &[]);
+    // The room after the document is spaces in the published file. A zero, a
+    // newline, or anything else there is something this reader has not seen.
+    let last = bytes.len() - 1;
+    for filler in [0u8, b'\n', b'\t', 0xff] {
+        bytes[last] = filler;
+        assert_eq!(
+            holk::Container::read(&bytes).err(),
+            Some(holk::HolkError::PaddedWithSomethingElse),
+            "a header padded with {filler:#04x} was read anyway"
+        );
+    }
+}
+
+/// `FL-35`: A container describes something this reader does not follow
+#[test]
+fn engine_fl_35() {
+    let entries = [("embed", "q4", 4u64, 4u64, 0u64, 16u64)];
+    let good = container_header(&entries);
+    assert!(holk::Container::read(&container(&good, 0, &[])).is_ok());
+
+    // Each way of describing something this reader does not follow, and what
+    // it says about it. A container that cannot be loaded says why.
+    let cases: [(&str, serde_json::Value, holk::Unfollowable); 8] = [
+        (
+            "format",
+            serde_json::json!("holo-kappa/2"),
+            holk::Unfollowable::NotThisFormat,
+        ),
+        (
+            "manifest",
+            serde_json::Value::Null,
+            holk::Unfollowable::PartMissing,
+        ),
+        (
+            "tokenizer",
+            serde_json::Value::Null,
+            holk::Unfollowable::PartMissing,
+        ),
+        (
+            "dir",
+            serde_json::json!({}),
+            holk::Unfollowable::PartMissing,
+        ),
+        (
+            "manifest.vocab",
+            serde_json::json!("many"),
+            holk::Unfollowable::NotAWholeNumber,
+        ),
+        (
+            "manifest.root",
+            serde_json::json!(
+                "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            holk::Unfollowable::RootNotSha256,
+        ),
+        (
+            "dir.0.name",
+            serde_json::json!(7),
+            holk::Unfollowable::NotText,
+        ),
+        (
+            "dir.0.fmt",
+            serde_json::json!("q8"),
+            holk::Unfollowable::FormatNotKnown,
+        ),
+    ];
+    for (field, value, expected) in cases {
+        let mut header = good.clone();
+        match field.split('.').collect::<Vec<_>>().as_slice() {
+            [one] => header[one] = value,
+            [one, two] => header[one][two] = value,
+            [one, two, three] => {
+                let index: usize = two.parse().expect("an index");
+                header[one][index][three] = value;
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            holk::Container::read(&container(&header, 0, &[])).err(),
+            Some(holk::HolkError::Unfollowable(expected)),
+            "`{field}` was followed anyway"
+        );
+    }
+
+    // A label that is not this hash, written every way it can be wrong.
+    for kappa in [
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "blake3:00",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "blake3:",
+    ] {
+        let mut header = good.clone();
+        header["dir"][0]["kappa"] = serde_json::json!(kappa);
+        assert_eq!(
+            holk::Container::read(&container(&header, 0, &[])).err(),
+            Some(holk::HolkError::Unfollowable(
+                holk::Unfollowable::LabelNotBlake3
+            )),
+            "`{kappa}` was read as a label"
         );
     }
 }

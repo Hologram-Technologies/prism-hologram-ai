@@ -271,3 +271,43 @@ type = "DownloadError"
 variant = "RootNotHex"
 suite = "engine"
 condition = "The root a container names is not sixty-four lower-case hexadecimal digits"
+
+[[failure]]
+id = "FL-31"
+crate = "model-reader"
+type = "HolkError"
+variant = "NotHolk"
+suite = "engine"
+condition = "A container does not begin with the magic this reader follows"
+
+[[failure]]
+id = "FL-32"
+crate = "model-reader"
+type = "HolkError"
+variant = "Truncated"
+suite = "engine"
+condition = "A container's header runs past the end of the bytes given"
+
+[[failure]]
+id = "FL-33"
+crate = "model-reader"
+type = "HolkError"
+variant = "NotJson"
+suite = "engine"
+condition = "A container's header is not JSON"
+
+[[failure]]
+id = "FL-34"
+crate = "model-reader"
+type = "HolkError"
+variant = "PaddedWithSomethingElse"
+suite = "engine"
+condition = "A container's header is padded with something other than spaces"
+
+[[failure]]
+id = "FL-35"
+crate = "model-reader"
+type = "HolkError"
+variant = "Unfollowable"
+suite = "engine"
+condition = "A container describes something this reader does not follow"
