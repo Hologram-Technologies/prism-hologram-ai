@@ -215,3 +215,19 @@ type = "TokeniserError"
 variant = "TokenNotByteLevel"
 suite = "engine"
 condition = "A token holds a character the byte alphabet does not have"
+
+[[failure]]
+id = "FL-24"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "NotGguf"
+suite = "engine"
+condition = "The file does not begin with the four bytes that announce the format"
+
+[[failure]]
+id = "FL-25"
+crate = "tokenizer"
+type = "TokeniserError"
+variant = "Truncated"
+suite = "engine"
+condition = "A field of the header runs past the end of what was given"
