@@ -6,6 +6,7 @@
 
 import { APPEND, ARGMAX, ATTENTION, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
 import { plain, yarn } from "./yarn.mjs";
+import { ATTENTION_ROWS, EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
 
 const U = typeof GPUBufferUsage === "undefined" ? {} : GPUBufferUsage;
 const f32bits = (value) => new Uint32Array(new Float32Array([value]).buffer)[0];
@@ -199,6 +200,77 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     pass.end();
   };
 
+  // The prompt, BLOCK positions at a time: each weight is read once per block.
+  // The kernels repeat the one-position arithmetic row by row, so the cache and
+  // every later pick are the same as running the prompt position by position.
+  const BLOCK = 16;
+  const PB = {
+    x: storage(BLOCK * d * 4), h: storage(BLOCK * d * 4),
+    q: storage(BLOCK * qdim * 4), k: storage(BLOCK * kvdim * 4), v: storage(BLOCK * kvdim * 4),
+    att: storage(BLOCK * qdim * 4), g: storage(BLOCK * ff * 4), u: storage(BLOCK * ff * 4),
+  };
+  const PP = {
+    matmul: pipeline(MATMUL_TERNARY(BLOCK)), norm: pipeline(RMS_NORM_ROWS), embed: pipeline(EMBED_ROWS),
+    rope: pipeline(ROPE_ROWS), kv: pipeline(KV_WRITE_ROWS), attention: pipeline(ATTENTION_ROWS(capacity)),
+  };
+  const pu = {
+    embed: uniform([d, 0, 0, 0]),
+    ropeQ: uniform([heads, hd, 0, f32bits(rope.mscale)]),
+    ropeK: uniform([kvHeads, hd, 0, f32bits(rope.mscale)]),
+    kv: uniform([kvdim, 0, 0, 0]),
+    attention: uniform([heads, kvHeads, hd, 1]),
+    silu: uniform([0, 0, 0, 0]),
+  };
+  const mmUniforms = new Map();
+  const mmParams = (K, N, accumulate) => {
+    const key = `${K}:${N}:${accumulate}`;
+    if (!mmUniforms.has(key)) mmUniforms.set(key, { buffer: uniform([K, N, accumulate ? 1 : 0, 0]), values: [K, N, accumulate ? 1 : 0] });
+    return mmUniforms.get(key).buffer;
+  };
+  // [pipeline, bind group, x(count), y(count)]
+  const prefillPlan = [];
+  const mm = (w, input, output, accumulate = false) =>
+    prefillPlan.push([PP.matmul, bind(PP.matmul, [input, w.signs, w.nonzeros, w.scales, output, mmParams(w.K, w.N, accumulate)]), () => Math.min(w.N, 65535), () => Math.ceil(w.N / 65535)]);
+  prefillPlan.push([PP.embed, bind(PP.embed, [embed.signs, embed.nonzeros, embed.scales, PB.x, ring, pu.embed]), (c) => Math.ceil((c * d) / 64), () => 1]);
+  for (const L of layer) {
+    prefillPlan.push([PP.norm, bind(PP.norm, [PB.x, L.attnNorm, PB.h, fixed.normD]), (c) => c, () => 1]);
+    mm(L.wq, PB.h, PB.q);
+    mm(L.wk, PB.h, PB.k);
+    mm(L.wv, PB.h, PB.v);
+    prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.q, L.qNorm, fixed.normHead]), (c) => c * heads, () => 1]);
+    prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.k, L.kNorm, fixed.normHead]), (c) => c * kvHeads, () => 1]);
+    prefillPlan.push([PP.rope, bind(PP.rope, [PB.q, freqs, pu.ropeQ]), () => Math.ceil((heads * hd) / 2 / 64), (c) => c]);
+    prefillPlan.push([PP.rope, bind(PP.rope, [PB.k, freqs, pu.ropeK]), () => Math.ceil((kvHeads * hd) / 2 / 64), (c) => c]);
+    prefillPlan.push([PP.kv, bind(PP.kv, [PB.k, PB.v, L.kc, L.vc, pu.kv]), (c) => Math.ceil((c * kvdim) / 64), () => 1]);
+    prefillPlan.push([PP.attention, bind(PP.attention, [PB.q, L.kc, L.vc, PB.att, pu.attention]), () => heads, (c) => c]);
+    mm(L.wo, PB.att, PB.x, true);
+    prefillPlan.push([PP.norm, bind(PP.norm, [PB.x, L.ffnNorm, PB.h, fixed.normD]), (c) => c, () => 1]);
+    mm(L.gate, PB.h, PB.g);
+    mm(L.up, PB.h, PB.u);
+    prefillPlan.push([P.silu, bind(P.silu, [PB.g, PB.u, pu.silu]), (c) => Math.ceil((c * ff) / 64), () => 1]);
+    mm(L.down, PB.g, PB.x, true);
+  }
+
+  // Run prompt positions first .. first + count - 1 (count <= BLOCK) as one block.
+  const prefill = (first, count) => {
+    device.queue.writeBuffer(pu.embed, 0, new Uint32Array([d, first, count, 0]));
+    device.queue.writeBuffer(pu.ropeQ, 0, new Uint32Array([heads, hd, first, f32bits(rope.mscale)]));
+    device.queue.writeBuffer(pu.ropeK, 0, new Uint32Array([kvHeads, hd, first, f32bits(rope.mscale)]));
+    device.queue.writeBuffer(pu.kv, 0, new Uint32Array([kvdim, first, count, 0]));
+    device.queue.writeBuffer(pu.attention, 0, new Uint32Array([heads, kvHeads, hd, first + 1]));
+    device.queue.writeBuffer(pu.silu, 0, new Uint32Array([count * ff, 0, 0, 0]));
+    for (const { buffer, values } of mmUniforms.values()) device.queue.writeBuffer(buffer, 0, new Uint32Array([...values, count]));
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    for (const [p, group, x, y] of prefillPlan) {
+      pass.setPipeline(p);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(x(count), y(count));
+    }
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  };
+
   const readRing = device.createBuffer({ size: SLOTS * 4 + 4, usage: U.MAP_READ | U.COPY_DST });
   let position = 0;
 
@@ -235,12 +307,11 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     if (position + prompt.length + count > capacity) throw new Error(`context full: ${capacity} positions`);
     device.queue.writeBuffer(ring, position * 4, new Uint32Array(prompt));
     let p = 0;
-    // All but the last prompt token: nothing to read back.
+    // All but the last prompt token, in blocks: nothing to read back. The last
+    // goes through the one-position path below, which makes the first pick.
     while (p < prompt.length - 1) {
-      const n = Math.min(SLOTS, prompt.length - 1 - p);
-      const encoder = device.createCommandEncoder();
-      for (let s = 0; s < n; s++) record(encoder, s, position + s, false);
-      device.queue.submit([encoder.finish()]);
+      const n = Math.min(BLOCK, prompt.length - 1 - p);
+      prefill(position, n);
       position += n;
       p += n;
     }
