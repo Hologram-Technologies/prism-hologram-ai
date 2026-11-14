@@ -1,10 +1,475 @@
 <div data-slot="surface" class="ask">
   <label class="pick">
     <span class="k">Decision</span>
-    <select id="decision"></select>
+  <!-- written by `cargo xtask page --write`; do not edit -->
+  <select id="decision">
+    <option value="0">1. The journey</option>
+    <option value="1">2. Preflight</option>
+    <option value="2">3. The memory plan</option>
+    <option value="3">4. The quantisation tier</option>
+    <option value="4">5. Hash admission</option>
+    <option value="5">6. A tensor's range</option>
+    <option value="6">7. Trimming the conversation</option>
+    <option value="7">8. The decode bucket</option>
+    <option value="8">9. The generation bound</option>
+    <option value="9">10. Operator preflight</option>
+    <option value="10">11. Binding a shape</option>
+  </select>
+  <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
+  <div id="fields" class="fields">
+    <label><span class="k">Now</span><select><option value="0">idle (0)</option><option value="1">preflight (1)</option><option value="2">download (2)</option><option value="3">compile (3)</option><option value="4" selected>materialize (4)</option><option value="5">ready (5)</option><option value="6">generating (6)</option><option value="7">failed (7)</option></select></label>
+    <label><span class="k">What happened</span><select><option value="1">start (1)</option><option value="2">preflight passed (2)</option><option value="3">download done (3)</option><option value="4">compile done (4)</option><option value="5" selected>labels verified (5)</option><option value="6">send (6)</option><option value="7">turn done (7)</option><option value="8">cancel turn (8)</option><option value="9">fail (9)</option><option value="10">reset (10)</option></select></label>
+  </div>
+  <script type="application/json" id="decisions">{
+  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths and tags are the kernel's; the names are the companion file's.",
+  "decisions": [
+    {
+      "asks": "May this step be taken, and where does it lead?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "idle",
+              0
+            ],
+            [
+              "preflight",
+              1
+            ],
+            [
+              "download",
+              2
+            ],
+            [
+              "compile",
+              3
+            ],
+            [
+              "materialize",
+              4
+            ],
+            [
+              "ready",
+              5
+            ],
+            [
+              "generating",
+              6
+            ],
+            [
+              "failed",
+              7
+            ]
+          ],
+          "name": "Now",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "start",
+              1
+            ],
+            [
+              "preflight passed",
+              2
+            ],
+            [
+              "download done",
+              3
+            ],
+            [
+              "compile done",
+              4
+            ],
+            [
+              "labels verified",
+              5
+            ],
+            [
+              "send",
+              6
+            ],
+            [
+              "turn done",
+              7
+            ],
+            [
+              "cancel turn",
+              8
+            ],
+            [
+              "fail",
+              9
+            ],
+            [
+              "reset",
+              10
+            ]
+          ],
+          "name": "What happened",
+          "value": 5,
+          "width": 1
+        }
+      ],
+      "length": 3,
+      "module": "Journey",
+      "name": "The journey",
+      "tag": 1
+    },
+    {
+      "asks": "May this model proceed to download?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Family recognised",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Required keys missing",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Manifest fits the recipe",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Unsupported features",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 5,
+      "module": "Preflight",
+      "name": "Preflight",
+      "tag": 2
+    },
+    {
+      "asks": "Is this stage plan the right one?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Memory budget, bytes",
+          "value": 4294967296,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Context, bytes",
+          "value": 536870912,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Bytes for one layer",
+          "value": 107374182,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Layers",
+          "value": 30,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "Layers in a stage",
+          "value": 30,
+          "width": 8
+        },
+        {
+          "at": 41,
+          "name": "Stages",
+          "value": 1,
+          "width": 8
+        }
+      ],
+      "length": 49,
+      "module": "Plan",
+      "name": "The memory plan",
+      "tag": 3
+    },
+    {
+      "asks": "Which tier fits this model in this much memory?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Parameters",
+          "value": 7000000000,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Memory budget, bytes",
+          "value": 4294967296,
+          "width": 8
+        }
+      ],
+      "length": 17,
+      "module": "Tier",
+      "name": "The quantisation tier",
+      "tag": 4
+    },
+    {
+      "asks": "Are these the bytes the archive named?",
+      "fields": [
+        {
+          "at": 1,
+          "kind": "label",
+          "name": "Label expected",
+          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+          "width": 32
+        },
+        {
+          "at": 33,
+          "kind": "label",
+          "name": "Label observed",
+          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+          "width": 32
+        },
+        {
+          "at": 65,
+          "name": "Length declared",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 73,
+          "name": "Length observed",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 81,
+      "module": "Admission",
+      "name": "Hash admission",
+      "tag": 5
+    },
+    {
+      "asks": "Do this tensor's bytes lie where it says?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "File length",
+          "value": 4224,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Previous tensor ended at",
+          "value": 128,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "This tensor starts at",
+          "value": 128,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "This tensor is long",
+          "value": 4096,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Range",
+      "name": "A tensor's range",
+      "tag": 6
+    },
+    {
+      "asks": "Is this the right amount to forget?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Context, tokens",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "The part never dropped",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Every pair, together",
+          "value": 3000,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Dropped",
+          "value": 1100,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "The newest dropped pair",
+          "value": 200,
+          "width": 8
+        }
+      ],
+      "length": 41,
+      "module": "Trim",
+      "name": "Trimming the conversation",
+      "tag": 7
+    },
+    {
+      "asks": "How much attention cache does this turn need?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Tokens needed",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Bucket now",
+          "value": 64,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "The model's context",
+          "value": 2048,
+          "width": 8
+        }
+      ],
+      "length": 25,
+      "module": "Bucket",
+      "name": "The decode bucket",
+      "tag": 8
+    },
+    {
+      "asks": "How many tokens may this turn generate?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Context, tokens",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Tokens used",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Tokens asked for, or 0 for all",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 25,
+      "module": "Generation",
+      "name": "The generation bound",
+      "tag": 9
+    },
+    {
+      "asks": "May this ONNX graph be imported?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The opset the graph declares",
+          "value": 18,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Lowest opset implemented",
+          "value": 7,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Highest opset implemented",
+          "value": 21,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Operators not implemented",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Operators",
+      "name": "Operator preflight",
+      "tag": 10
+    },
+    {
+      "asks": "What size is this dimension bound to?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Lower bound",
+          "value": 1,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Upper bound",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Requested",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Rounded up to, or 0 for exact",
+          "value": 64,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Shape",
+      "name": "Binding a shape",
+      "tag": 11
+    }
+  ]
+}</script>
+  <!-- end -->
   </label>
-  <p id="asks" class="asks"></p>
-  <div id="fields" class="fields"></div>
 </div>
 
 <div data-slot="result" id="verdict" class="verdict">

@@ -1,8 +1,10 @@
 // The app's own surface: pick a decision, fill in its numbers, and the
 // verified guest answers.
 //
-// Every layout here comes from site/decisions.json, which `EN-14` checks
-// against the kernel's own examples: a field at the wrong offset or of the
+// Every layout comes from the kernel itself: `cargo xtask page --write` reads
+// the offsets, widths, lengths and tags out of `app/src/Kernel` and writes
+// them into this page and into site/decisions.json, which `EN-14` checks
+// against the kernel's own examples. A field at the wrong offset or of the
 // wrong width fails the gate rather than quietly asking the kernel something
 // else. Nothing in this file decides anything; it writes the request the
 // kernel reads and shows the answer the kernel gives.
@@ -82,9 +84,11 @@ function input(field) {
 }
 
 export default async function start({ app, reason, $, chip, show }) {
-  const decisions = await fetch("./decisions.json")
-    .then((response) => response.json())
-    .then((read) => read.decisions);
+  // The table is in the page, not a request away: `cargo xtask page --write`
+  // writes it there from the kernel, along with the chooser's options and the
+  // first decision's fields. The page is whole before this script runs, which
+  // is what the frame measures.
+  const decisions = JSON.parse($("decisions").textContent).decisions;
 
   const chooser = $("decision");
   const asks = $("asks");
@@ -93,14 +97,20 @@ export default async function start({ app, reason, $, chip, show }) {
   const bytes = $("bytes");
   let controls = new Map();
 
-  for (const [index, decision] of decisions.entries()) {
-    const option = document.createElement("option");
-    option.value = String(index);
-    option.textContent = `${decision.tag}. ${decision.name}`;
-    chooser.append(option);
-  }
-
   const chosen = () => decisions[Number(chooser.value)] ?? decisions[0];
+
+  /// Bind to the controls the page was built with, without touching the DOM:
+  /// a redraw here would be the layout shift the static markup exists to
+  /// avoid.
+  function adopt() {
+    const decision = chosen();
+    controls = new Map();
+    const found = fields.querySelectorAll("input, select");
+    decision.fields.forEach((field, index) => {
+      const control = found[index];
+      if (control) controls.set(field.name, control);
+    });
+  }
 
   function draw() {
     const decision = chosen();
@@ -160,7 +170,7 @@ export default async function start({ app, reason, $, chip, show }) {
     }
   });
 
-  draw();
+  adopt();
   const status = $("status");
   if (status && !app) chip(status, reason || "no kernel", "warn");
 }

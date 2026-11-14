@@ -1,178 +1,448 @@
 {
-  "comment": "The kernel's request layouts, in one place. site/card.mjs builds a request from this, and EN-14 in crates/conformance/tests/engine.rs checks every field offset and width against the kernel's own examples, so the page and the guest cannot drift apart.",
+  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths and tags are the kernel's; the names are the companion file's.",
   "decisions": [
     {
-      "tag": 1,
-      "name": "The journey",
-      "length": 3,
       "asks": "May this step be taken, and where does it lead?",
       "fields": [
         {
           "at": 1,
-          "width": 1,
-          "name": "Now",
           "choice": [
-            ["idle", 0],
-            ["preflight", 1],
-            ["download", 2],
-            ["compile", 3],
-            ["materialize", 4],
-            ["ready", 5],
-            ["generating", 6],
-            ["failed", 7]
+            [
+              "idle",
+              0
+            ],
+            [
+              "preflight",
+              1
+            ],
+            [
+              "download",
+              2
+            ],
+            [
+              "compile",
+              3
+            ],
+            [
+              "materialize",
+              4
+            ],
+            [
+              "ready",
+              5
+            ],
+            [
+              "generating",
+              6
+            ],
+            [
+              "failed",
+              7
+            ]
           ],
-          "value": 4
+          "name": "Now",
+          "value": 4,
+          "width": 1
         },
         {
           "at": 2,
-          "width": 1,
-          "name": "What happened",
           "choice": [
-            ["start", 1],
-            ["preflight passed", 2],
-            ["download done", 3],
-            ["compile done", 4],
-            ["labels verified", 5],
-            ["send", 6],
-            ["turn done", 7],
-            ["cancel turn", 8],
-            ["fail", 9],
-            ["reset", 10]
+            [
+              "start",
+              1
+            ],
+            [
+              "preflight passed",
+              2
+            ],
+            [
+              "download done",
+              3
+            ],
+            [
+              "compile done",
+              4
+            ],
+            [
+              "labels verified",
+              5
+            ],
+            [
+              "send",
+              6
+            ],
+            [
+              "turn done",
+              7
+            ],
+            [
+              "cancel turn",
+              8
+            ],
+            [
+              "fail",
+              9
+            ],
+            [
+              "reset",
+              10
+            ]
           ],
-          "value": 5
+          "name": "What happened",
+          "value": 5,
+          "width": 1
         }
-      ]
+      ],
+      "length": 3,
+      "module": "Journey",
+      "name": "The journey",
+      "tag": 1
     },
     {
-      "tag": 2,
-      "name": "Preflight",
-      "length": 5,
       "asks": "May this model proceed to download?",
       "fields": [
-        { "at": 1, "width": 1, "name": "Family recognised", "choice": [["no", 0], ["yes", 1]], "value": 1 },
-        { "at": 2, "width": 1, "name": "Required keys missing", "value": 0 },
-        { "at": 3, "width": 1, "name": "Manifest fits the recipe", "choice": [["no", 0], ["yes", 1]], "value": 1 },
-        { "at": 4, "width": 1, "name": "Unsupported features", "value": 0 }
-      ]
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Family recognised",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Required keys missing",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Manifest fits the recipe",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Unsupported features",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 5,
+      "module": "Preflight",
+      "name": "Preflight",
+      "tag": 2
     },
     {
-      "tag": 3,
-      "name": "The memory plan",
-      "length": 49,
       "asks": "Is this stage plan the right one?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Memory budget, bytes", "value": 4294967296 },
-        { "at": 9, "width": 8, "name": "Context, bytes", "value": 536870912 },
-        { "at": 17, "width": 8, "name": "Bytes for one layer", "value": 107374182 },
-        { "at": 25, "width": 8, "name": "Layers", "value": 30 },
-        { "at": 33, "width": 8, "name": "Layers in a stage", "value": 30 },
-        { "at": 41, "width": 8, "name": "Stages", "value": 1 }
-      ]
+        {
+          "at": 1,
+          "name": "Memory budget, bytes",
+          "value": 4294967296,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Context, bytes",
+          "value": 536870912,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Bytes for one layer",
+          "value": 107374182,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Layers",
+          "value": 30,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "Layers in a stage",
+          "value": 30,
+          "width": 8
+        },
+        {
+          "at": 41,
+          "name": "Stages",
+          "value": 1,
+          "width": 8
+        }
+      ],
+      "length": 49,
+      "module": "Plan",
+      "name": "The memory plan",
+      "tag": 3
     },
     {
-      "tag": 4,
-      "name": "The quantisation tier",
-      "length": 17,
       "asks": "Which tier fits this model in this much memory?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Parameters", "value": 7000000000 },
-        { "at": 9, "width": 8, "name": "Memory budget, bytes", "value": 4294967296 }
-      ]
+        {
+          "at": 1,
+          "name": "Parameters",
+          "value": 7000000000,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Memory budget, bytes",
+          "value": 4294967296,
+          "width": 8
+        }
+      ],
+      "length": 17,
+      "module": "Tier",
+      "name": "The quantisation tier",
+      "tag": 4
     },
     {
-      "tag": 5,
-      "name": "Hash admission",
-      "length": 81,
       "asks": "Are these the bytes the archive named?",
       "fields": [
         {
           "at": 1,
-          "width": 32,
           "kind": "label",
           "name": "Label expected",
-          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+          "width": 32
         },
         {
           "at": 33,
-          "width": 32,
           "kind": "label",
           "name": "Label observed",
-          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+          "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+          "width": 32
         },
-        { "at": 65, "width": 8, "name": "Length declared", "value": 0 },
-        { "at": 73, "width": 8, "name": "Length observed", "value": 0 }
-      ]
+        {
+          "at": 65,
+          "name": "Length declared",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 73,
+          "name": "Length observed",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 81,
+      "module": "Admission",
+      "name": "Hash admission",
+      "tag": 5
     },
     {
-      "tag": 6,
-      "name": "A tensor's range",
-      "length": 33,
       "asks": "Do this tensor's bytes lie where it says?",
       "fields": [
-        { "at": 1, "width": 8, "name": "File length", "value": 4224 },
-        { "at": 9, "width": 8, "name": "Previous tensor ended at", "value": 128 },
-        { "at": 17, "width": 8, "name": "This tensor starts at", "value": 128 },
-        { "at": 25, "width": 8, "name": "This tensor is long", "value": 4096 }
-      ]
+        {
+          "at": 1,
+          "name": "File length",
+          "value": 4224,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Previous tensor ended at",
+          "value": 128,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "This tensor starts at",
+          "value": 128,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "This tensor is long",
+          "value": 4096,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Range",
+      "name": "A tensor's range",
+      "tag": 6
     },
     {
-      "tag": 7,
-      "name": "Trimming the conversation",
-      "length": 41,
       "asks": "Is this the right amount to forget?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Context, tokens", "value": 2048 },
-        { "at": 9, "width": 8, "name": "The part never dropped", "value": 100 },
-        { "at": 17, "width": 8, "name": "Every pair, together", "value": 3000 },
-        { "at": 25, "width": 8, "name": "Dropped", "value": 1100 },
-        { "at": 33, "width": 8, "name": "The newest dropped pair", "value": 200 }
-      ]
+        {
+          "at": 1,
+          "name": "Context, tokens",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "The part never dropped",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Every pair, together",
+          "value": 3000,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Dropped",
+          "value": 1100,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "The newest dropped pair",
+          "value": 200,
+          "width": 8
+        }
+      ],
+      "length": 41,
+      "module": "Trim",
+      "name": "Trimming the conversation",
+      "tag": 7
     },
     {
-      "tag": 8,
-      "name": "The decode bucket",
-      "length": 25,
       "asks": "How much attention cache does this turn need?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Tokens needed", "value": 100 },
-        { "at": 9, "width": 8, "name": "Bucket now", "value": 64 },
-        { "at": 17, "width": 8, "name": "The model's context", "value": 2048 }
-      ]
+        {
+          "at": 1,
+          "name": "Tokens needed",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Bucket now",
+          "value": 64,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "The model's context",
+          "value": 2048,
+          "width": 8
+        }
+      ],
+      "length": 25,
+      "module": "Bucket",
+      "name": "The decode bucket",
+      "tag": 8
     },
     {
-      "tag": 9,
-      "name": "The generation bound",
-      "length": 25,
       "asks": "How many tokens may this turn generate?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Context, tokens", "value": 2048 },
-        { "at": 9, "width": 8, "name": "Tokens used", "value": 100 },
-        { "at": 17, "width": 8, "name": "Tokens asked for, or 0 for all", "value": 0 }
-      ]
+        {
+          "at": 1,
+          "name": "Context, tokens",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Tokens used",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Tokens asked for, or 0 for all",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 25,
+      "module": "Generation",
+      "name": "The generation bound",
+      "tag": 9
     },
     {
-      "tag": 10,
-      "name": "Operator preflight",
-      "length": 33,
       "asks": "May this ONNX graph be imported?",
       "fields": [
-        { "at": 1, "width": 8, "name": "The opset the graph declares", "value": 18 },
-        { "at": 9, "width": 8, "name": "Lowest opset implemented", "value": 7 },
-        { "at": 17, "width": 8, "name": "Highest opset implemented", "value": 21 },
-        { "at": 25, "width": 8, "name": "Operators not implemented", "value": 0 }
-      ]
+        {
+          "at": 1,
+          "name": "The opset the graph declares",
+          "value": 18,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Lowest opset implemented",
+          "value": 7,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Highest opset implemented",
+          "value": 21,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Operators not implemented",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Operators",
+      "name": "Operator preflight",
+      "tag": 10
     },
     {
-      "tag": 11,
-      "name": "Binding a shape",
-      "length": 33,
       "asks": "What size is this dimension bound to?",
       "fields": [
-        { "at": 1, "width": 8, "name": "Lower bound", "value": 1 },
-        { "at": 9, "width": 8, "name": "Upper bound", "value": 2048 },
-        { "at": 17, "width": 8, "name": "Requested", "value": 100 },
-        { "at": 25, "width": 8, "name": "Rounded up to, or 0 for exact", "value": 64 }
-      ]
+        {
+          "at": 1,
+          "name": "Lower bound",
+          "value": 1,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Upper bound",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Requested",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Rounded up to, or 0 for exact",
+          "value": 64,
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Shape",
+      "name": "Binding a shape",
+      "tag": 11
     }
   ]
 }

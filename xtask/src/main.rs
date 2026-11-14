@@ -12,6 +12,7 @@ use repo_model::{codegen, Model};
 
 mod audit;
 mod bootstrap;
+mod page;
 mod scaffold;
 
 fn main() -> ExitCode {
@@ -23,6 +24,7 @@ fn main() -> ExitCode {
 
     let result = match task.as_str() {
         "check-model" => check_model(&root, write),
+        "page" => page::page(&root, write),
         "audit-limits" => audit::audit_limits(&root),
         "audit-deferral" => audit::audit_deferral(&root),
         "audit-bootstrap" => bootstrap::audit(&root),
@@ -41,6 +43,7 @@ fn main() -> ExitCode {
                 "cargo xtask <task>\n\
                  \n\
                  check-model       R1: model/*.toml is the single source; regenerate and diff\n\
+                 page              R1:  the page's decision table is the kernel's\n\
                  audit-limits      R5: shipped crates fail only as model/failures.toml lists\n\
                  audit-deferral    R4: no deferral marker, no stub, no capability behind a flag\n\
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
@@ -109,6 +112,7 @@ fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
 /// The whole normative acceptance gate, in one place.
 fn validate(root: &Path) -> Result<(), Fail> {
     check_model(root, false)?;
+    page::page(root, false)?;
     audit::audit_limits(root)?;
     audit::audit_deferral(root)?;
     bootstrap::audit(root)?;
