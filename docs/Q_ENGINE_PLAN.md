@@ -92,6 +92,25 @@ Later checkpoints, each with its own gate: Q's four other formats (q4, q3f, t2, 
 | 9 | Minimal chat surface under `site/app/`, with the check list | Items 2 to 7 | about a day |
 | 10 | The tests above, and the measurement harness on one named laptop | Checked on 2026-11-14 in the SDK image, which has no GPU: headless Chromium gives a WebGPU adapter only with `--enable-unsafe-swiftshader --enable-unsafe-webgpu` (Google's software renderer), and with it a compute shader runs correctly and the storage-binding limit is 1 GiB. So CI can run the GPU code for real, slowly: a small hermetic model on every push, the Bonsai reference test on a schedule, speed only on the named laptop | about two days |
 
+## Speed: where a token's time goes, measured
+
+Decision on 2026-11-14: reach parity with the original Q engine first (85 to 114 tokens per second on Bonsai 1.7B, measured on this machine on the same prompts), then set the next target from those measurements.
+
+Measured on this machine's AMD RDNA 3 GPU in the browser pane (medians, pane hidden, so absolute numbers carry noise):
+
+| Quantity | Value |
+| --- | --- |
+| Raw read bandwidth | 175 to 209 GB/s |
+| Weight bytes per token (bit planes and scales, head included) | 0.48 GB (computed) |
+| Bound for one token per weight pass | about 390 tokens per second |
+| Current engine | about 43 tokens per second, 0.6 to 0.7 s to the first token |
+| Body matrices per token | 12.4 ms; head 1.5 ms; everything else about 9 ms |
+| Matrix kernels' bandwidth, by shape | 18 to 52 GB/s; Foundry's shipped kernel is within ten percent on every shape |
+
+What this says: the kernel's inner loop is not what separates this engine from the original. A 2048 by 2048 matrix should stream in about 6 microseconds and takes about 46, so the cost of each of about 450 dispatches per token dominates. The original fuses its dispatches. The next step is fusion, from 16 dispatches per layer to about 6: norm with q, k and v; head norms with rotation and the cache write; attention; the output projection with its residual; norm with gate, up and SiLU; down with its residual. Every step keeps GP-01 and GP-04 (identical tokens to the reference and to one position per submission) and is kept only if the measured number moves. Past parity, the bound above can only be crossed by verifying several tokens per weight pass (speculative decoding, already a proved kernel decision, KN-16), whose gain depends on the text.
+
+A row-and-lane kernel geometry ported from Foundry's engine was measured slower here (37.5 against 43 tokens per second) and was not kept.
+
 ## Phase 2. Engine core (milestone 1)
 
 Scope: Bonsai 1.7B first (Qwen3, ternary per 128, YaRN rotary scaling, read from its weight container), then Llama, Qwen2 and Qwen3 dense models and BitNet, Falcon-E and TriLM ternary models; formats q4, q3f, t2, t2r and Bonsai's. Models load from Hugging Face or the decentralised hub by base URL. Verified load, prefill, greedy decode, speculative decode, int4 KV cache, inference receipts with re-derivation, the memo, the chat interface, offline use after one visit.
