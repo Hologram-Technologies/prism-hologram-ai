@@ -92,6 +92,21 @@ Later checkpoints, each with its own gate: Q's four other formats (q4, q3f, t2, 
 | 9 | Minimal chat surface under `site/app/`, with the check list | Items 2 to 7 | about a day |
 | 10 | The tests above, and the measurement harness on one named laptop | Checked on 2026-11-14 in the SDK image, which has no GPU: headless Chromium gives a WebGPU adapter only with `--enable-unsafe-swiftshader --enable-unsafe-webgpu` (Google's software renderer), and with it a compute shader runs correctly and the storage-binding limit is 1 GiB. So CI can run the GPU code for real, slowly: a small hermetic model on every push, the Bonsai reference test on a schedule, speed only on the named laptop | about two days |
 
+## Checkpoints 2 and 3
+
+Agreed with Ilya on 2026-11-14. Speed parity with the original Q engine runs alongside as its own measured track.
+
+**Checkpoint 2: Foundry runs the engine behind a flag for Bonsai 1.7B.** Done when the Foundry session can integrate it behind a flag and measure load time, time to first token, tokens per second and page weight.
+
+- `site/app/engine/index.mjs` is the engine as an importable module, and the engine page is one caller of it; `window.__qengine` stays the page's own reporting. `models()`; `load(id, { kernel, onStatus, onProgress, signal })` takes a kernel the caller has verified and refuses any whose identity is not the one the module pins; `handle.generate(textOrIds, { maxNew, onToken, signal })` answers `{ text, tokenIds, stats }`; `handle.dispose()`.
+- Generation stops at the model's end token (needs the tokenizer to read special tokens as single ids), at a hard token cap, and within one submission of an abort.
+- Downloads are cached in the browser's private file system (OPFS) by block label; every read from the cache is admitted by the same kernel decisions as a download, and the whole-file root is recomputed.
+
+**Checkpoint 3: constrained output and Bonsai 8B.**
+
+- Output constrained to a JSON schema: a token mask before each pick. First as one position per submission while a schema is set, with the mask applied to the pick; a mask kept on the GPU is a later step if the round trip proves too slow.
+- Bonsai 8B's one-bit format (a single sign plane with one scale per 128 weights): a kernel variant and a block-length format in decision 13.
+
 ## Speed: where a token's time goes, measured
 
 Decision on 2026-11-14: reach parity with the original Q engine first (85 to 114 tokens per second on Bonsai 1.7B, measured on this machine on the same prompts), then set the next target from those measurements.
