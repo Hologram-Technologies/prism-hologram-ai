@@ -639,6 +639,13 @@ text, and the ids must be the same ids. 1,526 comparisons: seven files, from
 merges only to the shape a published model has, over eighteen written texts and
 two hundred generated ones.
 
+It costs one allowance to run. The oracle's crate brings in `paste`, an
+unmaintained proc-macro (`RUSTSEC-2024-0436`), and `deny.toml` now names that
+advisory with its reason: it is reached only through a dev-dependency of a
+crate that does not ship, `cargo tree -i paste --target all` shows the single
+path, and every version of the oracle carries it. The allowance is Ilya's,
+scoped to that one advisory, and it goes the day either side drops the other.
+
 It earned its place immediately. The authority's reader refused the files this
 suite was building, for want of `add_prefix_space`, and what that field means
 turned out to be something this crate was not doing at all:
