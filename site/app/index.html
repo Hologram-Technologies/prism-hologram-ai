@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: 'sha256-SVozqTflJGa4xzTTQ7+REOt5cGHA1ro2m8+xf2JVr6o='; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://hologram-technologies.github.io; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; object-src 'none'">
+<title>Hologram AI — engine</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<main>
+  <h1>Hologram AI</h1>
+  <p class="lead">A language model running in this tab on your GPU. Every byte is checked before it is used; every decision is the verified kernel's.</p>
+
+  <section aria-labelledby="model-heading">
+    <h2 id="model-heading">Model</h2>
+    <p><strong>Bonsai 1.7B</strong>, ternary, from <code>HOLOGRAMTECH/q-ternary-bonsai-1.7b</code> at revision <code>c6d6a12</code>. About 424 MB, downloaded once per visit.</p>
+    <button id="load" type="button">Load the model</button>
+    <progress id="progress" max="1" value="0" hidden></progress>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section aria-labelledby="chat-heading">
+    <h2 id="chat-heading">Ask</h2>
+    <form id="ask">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" rows="3">What is the capital of France? Answer in one sentence.</textarea>
+      <button id="send" type="submit" disabled>Send</button>
+    </form>
+    <pre id="answer" aria-live="polite"></pre>
+    <p id="stats"></p>
+  </section>
+
+  <section aria-labelledby="checks-heading">
+    <h2 id="checks-heading">Checks</h2>
+    <p>Each check as it happened. A test reads the same list from <code>window.__qengine.checks</code>.</p>
+    <ol id="checks"></ol>
+  </section>
+</main>
+<script type="importmap">{"imports":{"node:crypto":"../vendor/node-crypto-shim.mjs"}}</script>
+<script type="module" src="./app.mjs"></script>
+</body>
+</html>

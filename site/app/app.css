@@ -1,0 +1,19 @@
+:root { color-scheme: light dark; --fg: #1b1b1f; --bg: #fafafa; --muted: #5d5d66; --good: #13795b; --bad: #b42318; --line: #d9d9de; }
+@media (prefers-color-scheme: dark) { :root { --fg: #ececf1; --bg: #121214; --muted: #a0a0ab; --good: #4ade80; --bad: #f87171; --line: #2c2c31; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { margin: 0 0 4px; font-size: 28px; }
+h2 { margin: 32px 0 8px; font-size: 18px; }
+.lead, #status, #stats { color: var(--muted); }
+code { font-size: 14px; }
+button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+progress { display: block; width: 100%; margin-top: 12px; }
+form { display: grid; gap: 8px; }
+textarea { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; }
+#answer { white-space: pre-wrap; font: 15px/1.5 ui-monospace, monospace; min-height: 1.5em; }
+#checks { padding-left: 20px; font-size: 14px; }
+#checks li { margin: 2px 0; overflow-wrap: anywhere; }
+#checks .pass::marker { color: var(--good); }
+#checks .fail { color: var(--bad); }
+#checks .detail { color: var(--muted); }
