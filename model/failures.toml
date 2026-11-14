@@ -231,3 +231,83 @@ type = "TokeniserError"
 variant = "Truncated"
 suite = "engine"
 condition = "A field of the header runs past the end of what was given"
+
+[[failure]]
+id = "FL-26"
+crate = "wasm"
+type = "CallError"
+variant = "NoBuffer"
+suite = "engine"
+condition = "The page names a buffer this module did not allocate"
+
+[[failure]]
+id = "FL-27"
+crate = "wasm"
+type = "CallError"
+variant = "NotText"
+suite = "engine"
+condition = "The bytes handed in where text was asked for are not UTF-8"
+
+[[failure]]
+id = "FL-28"
+crate = "wasm"
+type = "CallError"
+variant = "NothingRead"
+suite = "engine"
+condition = "A tokeniser or a download is used before one has been started"
+
+[[failure]]
+id = "FL-29"
+crate = "wasm"
+type = "CallError"
+variant = "WrongSize"
+suite = "engine"
+condition = "A label handed in is not thirty-two bytes"
+
+[[failure]]
+id = "FL-30"
+crate = "download"
+type = "DownloadError"
+variant = "RootNotHex"
+suite = "engine"
+condition = "The root a container names is not sixty-four lower-case hexadecimal digits"
+
+[[failure]]
+id = "FL-31"
+crate = "model-reader"
+type = "HolkError"
+variant = "NotHolk"
+suite = "engine"
+condition = "A container does not begin with the magic this reader follows"
+
+[[failure]]
+id = "FL-32"
+crate = "model-reader"
+type = "HolkError"
+variant = "Truncated"
+suite = "engine"
+condition = "A container's header runs past the end of the bytes given"
+
+[[failure]]
+id = "FL-33"
+crate = "model-reader"
+type = "HolkError"
+variant = "NotJson"
+suite = "engine"
+condition = "A container's header is not JSON"
+
+[[failure]]
+id = "FL-34"
+crate = "model-reader"
+type = "HolkError"
+variant = "PaddedWithSomethingElse"
+suite = "engine"
+condition = "A container's header is padded with something other than spaces"
+
+[[failure]]
+id = "FL-35"
+crate = "model-reader"
+type = "HolkError"
+variant = "Unfollowable"
+suite = "engine"
+condition = "A container describes something this reader does not follow"

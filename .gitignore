@@ -26,6 +26,7 @@ site/vendor/
 site/precache.json
 site/index.html
 site/manifest.webmanifest
+site/spec.html
 
 # Brand kit sources fetched by bootstrap/brand-sync.mjs for brand-fonts.py.
 .brand-src/

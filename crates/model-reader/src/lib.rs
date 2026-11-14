@@ -22,6 +22,7 @@
 
 pub mod config;
 pub mod header;
+pub mod holk;
 
 /// Whoever holds the verified kernel holo.
 ///

@@ -28,11 +28,16 @@ hologram-ai-chat = { version = "0.1.0", path = "crates/chat" }
 hologram-ai-download = { version = "0.1.0", path = "crates/download" }
 hologram-ai-onnx-preflight = { version = "0.1.0", path = "crates/onnx-preflight" }
 hologram-ai-tokenizer = { version = "0.1.0", path = "crates/tokenizer" }
+hologram-ai-wasm = { version = "0.1.0", path = "crates/wasm" }
 # The default features are kept on purpose: `std` is what lets the hash pick
 # the vector instructions the machine actually has. Without it the portable
 # path is used everywhere, which is slower on every host this runs on.
 blake3 = "1.5"
 fancy-regex = "0.14"
+# The hash a weight container names its whole file by. Like BLAKE3 it is the
+# authority's own implementation, cited in `model/authorities.toml` and checked
+# here against the standard's own examples; it is not re-derived (R2).
+sha2 = "0.10"
 serde_json = "1.0"
 
 [workspace.lints.rust]

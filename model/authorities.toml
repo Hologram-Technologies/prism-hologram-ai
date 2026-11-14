@@ -22,10 +22,10 @@ realized_by = ["EN-06"]
 [[authority]]
 id = "GGUF"
 name = "The GGUF file format"
-citation = """ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`."""
+citation = """ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens`, `.merges` and `.token_type`, whose values are the format's own GGUFTokenType enumeration: 1 normal, 2 unknown, 3 control, 4 user-defined, 5 unused, 6 byte."""
 checksum = "none"
 checksum_reason = """The document is not vendored: what is reproduced from it is a layout, written out as a reader in crates/tokenizer/src/gguf.rs and as a writer in the test that builds the files, which disagree the moment either is wrong."""
-statement = """A GGUF file begins with the four bytes GGUF, a version, the number of tensors and the number of metadata entries, and the metadata that follows is read before any tensor. Version 3 is the one described."""
+statement = """A GGUF file begins with the four bytes GGUF, a version, the number of tensors and the number of metadata entries, and the metadata that follows is read before any tensor. Version 3 is the one described. A token the file marks control or user-defined is one the model is given rather than one built from text, which is what a tokenizer.json lists under added_tokens; that the two readings agree is checked by EN-22 rather than taken from here."""
 realized_by = ["EN-21"]
 
 [[authority]]
@@ -37,3 +37,19 @@ checksum_reason = """The checksum is the git blob of the cited file, not a hash 
 statement = """The name gpt2 stands for one pattern and the name qwen2 for another, each quoted exactly, and the aliases listed beside them stand for the same. A name with no pattern quoted here is refused rather than read as a near one."""
 realized_by = ["EN-21", "EN-22"]
 
+[[authority]]
+id = "SHA-256"
+name = "SHA-256, and the examples the standard publishes"
+citation = """NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6)."""
+checksum = "none"
+checksum_reason = """The standard is a PDF and is not vendored: what is reproduced from it is three digests, written into the EN-24 test beside the inputs they are for, which disagree with the implementation the moment either is wrong."""
+statement = """The SHA-256 of `abc` is ba7816bf..., of the fifty-six byte message is 248d6a61..., and of one million `a` is cdc76e5c...; the digest of the empty message, which every implementation publishes, is e3b0c442.... This repository reproduces those values; it does not establish what SHA-256 is."""
+realized_by = ["EN-24"]
+
+[[authority]]
+id = "HOLK-BONSAI"
+name = "The published weight container's header"
+citation = """HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest."""
+checksum = "sha256:578fd65c66e28136634fa3d65c9fbdb74bb50dd1010160adfcf858d693476979"
+statement = """This container is one file, not a specification. It begins with the five bytes HOLK1 and a newline, carries a four-byte little-endian header length of 98,304, and its header is a JSON document from byte ten, padded to that length with spaces. It declares the format holo-kappa/1, a manifest whose weights are ternary, a tokeniser at byte 98,314, and 311 buffers in two quantisation formats, q1 and f32. What this repository reproduces is this one file's layout; nothing here establishes that another container is written the same way."""
+realized_by = ["EN-25"]

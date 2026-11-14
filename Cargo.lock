@@ -341,6 +341,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hologram-ai-kernel-client",
+ "sha2",
 ]
 
 [[package]]
@@ -351,6 +352,7 @@ version = "0.1.0"
 name = "hologram-ai-model-reader"
 version = "0.1.0"
 dependencies = [
+ "hologram-ai-download",
  "hologram-ai-kernel-client",
  "serde_json",
 ]
@@ -368,6 +370,15 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "serde_json",
+]
+
+[[package]]
+name = "hologram-ai-wasm"
+version = "0.1.0"
+dependencies = [
+ "hologram-ai-download",
+ "hologram-ai-model-reader",
+ "hologram-ai-tokenizer",
 ]
 
 [[package]]
@@ -623,6 +634,7 @@ dependencies = [
  "hologram-ai-model-reader",
  "hologram-ai-onnx-preflight",
  "hologram-ai-tokenizer",
+ "hologram-ai-wasm",
  "repo-model",
  "serde_json",
  "tokenizers",

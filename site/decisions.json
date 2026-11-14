@@ -1,5 +1,5 @@
 {
-  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths and tags are the kernel's; the names are the companion file's.",
+  "comment": "Written by `cargo xtask page --write` from the kernel's own modules and site/decision-names.json. The offsets, widths, lengths, groups and tags are the kernel's; the names are the companion file's.",
   "decisions": [
     {
       "asks": "May this step be taken, and where does it lead?",
@@ -506,6 +506,10 @@
             [
               "ternary per 128",
               4
+            ],
+            [
+              "f32",
+              5
             ]
           ],
           "name": "Format",
@@ -557,16 +561,29 @@
         "countAt": 6,
         "stride": 4
       },
+      "list": {
+        "countAt": 6,
+        "groups": [
+          {
+            "from": 7,
+            "name": "Scores",
+            "per": 1,
+            "plus": 0,
+            "reader": "scoreAt",
+            "scaled": 0,
+            "value": 1,
+            "values": [
+              100,
+              90,
+              80,
+              70
+            ],
+            "width": 4
+          }
+        ]
+      },
       "module": "Pick",
       "name": "The greedy pick",
-      "repeat": {
-        "countAt": 6,
-        "from": 7,
-        "groups": 1,
-        "name": "Scores",
-        "value": 100,
-        "width": 4
-      },
       "tag": 14
     },
     {
@@ -596,16 +613,33 @@
         "countAt": 7,
         "stride": 4
       },
+      "list": {
+        "countAt": 7,
+        "groups": [
+          {
+            "from": 8,
+            "name": "History",
+            "per": 1,
+            "plus": 0,
+            "reader": "tokenAt",
+            "scaled": 0,
+            "value": 1,
+            "values": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "width": 4
+          }
+        ]
+      },
       "module": "Penalty",
       "name": "The penalty window",
-      "repeat": {
-        "countAt": 7,
-        "from": 8,
-        "groups": 1,
-        "name": "History",
-        "value": 1234,
-        "width": 4
-      },
       "tag": 15
     },
     {
@@ -629,17 +663,46 @@
         "countAt": 1,
         "stride": 8
       },
+      "list": {
+        "countAt": 1,
+        "groups": [
+          {
+            "from": 3,
+            "name": "Drafted",
+            "per": 1,
+            "plus": 0,
+            "reader": "draftAt",
+            "scaled": 0,
+            "value": 7,
+            "values": [
+              11,
+              22,
+              33,
+              44
+            ],
+            "width": 4
+          },
+          {
+            "from": 3,
+            "name": "Verified",
+            "per": 1,
+            "plus": 1,
+            "reader": "verifiedAt",
+            "scaled": 4,
+            "value": 7,
+            "values": [
+              11,
+              22,
+              99,
+              44,
+              55
+            ],
+            "width": 4
+          }
+        ]
+      },
       "module": "Speculate",
       "name": "A speculative commit",
-      "repeat": {
-        "countAt": 1,
-        "from": 3,
-        "groups": 2,
-        "name": "Drafted, then verified",
-        "plus": 1,
-        "value": 7,
-        "width": 4
-      },
       "tag": 16
     },
     {
@@ -681,13 +744,13 @@
         },
         {
           "at": 3,
-          "name": "Codes, or the sign byte",
+          "name": "Codes",
           "value": 0,
           "width": 4
         },
         {
           "at": 4,
-          "name": "The nonzero byte, for ternary",
+          "name": "Nonzero bits",
           "value": 1,
           "width": 1
         },
@@ -716,7 +779,219 @@
       },
       "module": "Quant",
       "name": "A quantisation code",
-      "shapes": "The format chooses which of these the request carries, and how long it is; the page does not yet draw one form per format.",
+      "shapes": [
+        {
+          "fields": [
+            {
+              "at": 1,
+              "choice": [
+                [
+                  "q4",
+                  0
+                ],
+                [
+                  "q3f",
+                  1
+                ],
+                [
+                  "t2",
+                  2
+                ],
+                [
+                  "t2r",
+                  3
+                ],
+                [
+                  "ternary",
+                  4
+                ]
+              ],
+              "name": "Format",
+              "value": 4,
+              "width": 1
+            },
+            {
+              "at": 2,
+              "name": "Place",
+              "value": 0,
+              "width": 1
+            },
+            {
+              "at": 3,
+              "name": "Codes",
+              "value": 0,
+              "width": 4
+            }
+          ],
+          "length": 7,
+          "values": [
+            0
+          ]
+        },
+        {
+          "fields": [
+            {
+              "at": 1,
+              "choice": [
+                [
+                  "q4",
+                  0
+                ],
+                [
+                  "q3f",
+                  1
+                ],
+                [
+                  "t2",
+                  2
+                ],
+                [
+                  "t2r",
+                  3
+                ],
+                [
+                  "ternary",
+                  4
+                ]
+              ],
+              "name": "Format",
+              "value": 4,
+              "width": 1
+            },
+            {
+              "at": 2,
+              "name": "Place",
+              "value": 0,
+              "width": 1
+            },
+            {
+              "at": 3,
+              "name": "Codes, first word",
+              "value": 0,
+              "width": 4
+            },
+            {
+              "at": 7,
+              "name": "Codes, second word",
+              "value": 0,
+              "width": 4
+            },
+            {
+              "at": 11,
+              "name": "Codes, third word",
+              "value": 0,
+              "width": 4
+            }
+          ],
+          "length": 15,
+          "values": [
+            1
+          ]
+        },
+        {
+          "fields": [
+            {
+              "at": 1,
+              "choice": [
+                [
+                  "q4",
+                  0
+                ],
+                [
+                  "q3f",
+                  1
+                ],
+                [
+                  "t2",
+                  2
+                ],
+                [
+                  "t2r",
+                  3
+                ],
+                [
+                  "ternary",
+                  4
+                ]
+              ],
+              "name": "Format",
+              "value": 4,
+              "width": 1
+            },
+            {
+              "at": 2,
+              "name": "Place",
+              "value": 0,
+              "width": 1
+            },
+            {
+              "at": 3,
+              "name": "Codes",
+              "value": 0,
+              "width": 4
+            }
+          ],
+          "length": 7,
+          "values": [
+            2,
+            3
+          ]
+        },
+        {
+          "fields": [
+            {
+              "at": 1,
+              "choice": [
+                [
+                  "q4",
+                  0
+                ],
+                [
+                  "q3f",
+                  1
+                ],
+                [
+                  "t2",
+                  2
+                ],
+                [
+                  "t2r",
+                  3
+                ],
+                [
+                  "ternary",
+                  4
+                ]
+              ],
+              "name": "Format",
+              "value": 4,
+              "width": 1
+            },
+            {
+              "at": 2,
+              "name": "Place",
+              "value": 0,
+              "width": 1
+            },
+            {
+              "at": 3,
+              "name": "Sign bits",
+              "value": 0,
+              "width": 1
+            },
+            {
+              "at": 4,
+              "name": "Nonzero bits",
+              "value": 1,
+              "width": 1
+            }
+          ],
+          "length": 5,
+          "values": [
+            4
+          ]
+        }
+      ],
       "tag": 17
     }
   ]

@@ -1529,15 +1529,16 @@ fn kernel_kn_13() {
         "Classical.choice, Quot.sound, propext",
     );
     // The layouts, as bytes per group of weights: q4 20 per 32, q3f 16 per 32,
-    // t2 4 per 16, t2r 68 per 256, ternary-per-128 36 per 128.
+    // t2 4 per 16, t2r 68 per 256, ternary-per-128 36 per 128, and f32 vectors
+    // 64 per 16.
     let group = declaration(&blocks, "groupOf");
     assert!(
-        group.contains("(if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else 32)))"),
+        group.contains("(if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else (if (format =? 5) then 16 else 32))))"),
         "group sizes changed:\n{group}"
     );
     let bytes = declaration(&blocks, "bytesPerGroup");
     assert!(
-        bytes.contains("(if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else 36))))"),
+        bytes.contains("(if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else (if (format =? 4) then 36 else 64)))))"),
         "bytes per group changed:\n{bytes}"
     );
     let answer = declaration(&blocks, "blockAnswer");

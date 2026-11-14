@@ -200,10 +200,10 @@ Feature: engine
     Then Sixteen megabytes of download are labelled at no less than two hundred megabytes a second
 
   @EN-14 @build
-  Scenario: The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+  Scenario: The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen
     Given the fixture EN-14 needs
     When the suite exercises EN-14
-    Then The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+    Then The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen
 
   @EN-15 @build
   Scenario: Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way
@@ -288,3 +288,81 @@ Feature: engine
     Given the input that makes tokenizer return TokeniserError::Truncated
     When the suite exercises FL-25
     Then A field of the header runs past the end of what was given
+
+  @EN-23 @build
+  Scenario: The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
+    Given the fixture EN-23 needs
+    When the suite exercises EN-23
+    Then The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
+
+  @FL-26 @build
+  Scenario: The page names a buffer this module did not allocate
+    Given the input that makes wasm return CallError::NoBuffer
+    When the suite exercises FL-26
+    Then The page names a buffer this module did not allocate
+
+  @FL-27 @build
+  Scenario: The bytes handed in where text was asked for are not UTF-8
+    Given the input that makes wasm return CallError::NotText
+    When the suite exercises FL-27
+    Then The bytes handed in where text was asked for are not UTF-8
+
+  @FL-28 @build
+  Scenario: A tokeniser or a download is used before one has been started
+    Given the input that makes wasm return CallError::NothingRead
+    When the suite exercises FL-28
+    Then A tokeniser or a download is used before one has been started
+
+  @FL-29 @build
+  Scenario: A label handed in is not thirty-two bytes
+    Given the input that makes wasm return CallError::WrongSize
+    When the suite exercises FL-29
+    Then A label handed in is not thirty-two bytes
+
+  @EN-24 @build
+  Scenario: A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples
+    Given the fixture EN-24 needs
+    When the suite exercises EN-24
+    Then A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples
+
+  @FL-30 @build
+  Scenario: The root a container names is not sixty-four lower-case hexadecimal digits
+    Given the input that makes download return DownloadError::RootNotHex
+    When the suite exercises FL-30
+    Then The root a container names is not sixty-four lower-case hexadecimal digits
+
+  @EN-25 @build
+  Scenario: A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
+    Given the fixture EN-25 needs
+    When the suite exercises EN-25
+    Then A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
+
+  @FL-31 @build
+  Scenario: A container does not begin with the magic this reader follows
+    Given the input that makes model-reader return HolkError::NotHolk
+    When the suite exercises FL-31
+    Then A container does not begin with the magic this reader follows
+
+  @FL-32 @build
+  Scenario: A container's header runs past the end of the bytes given
+    Given the input that makes model-reader return HolkError::Truncated
+    When the suite exercises FL-32
+    Then A container's header runs past the end of the bytes given
+
+  @FL-33 @build
+  Scenario: A container's header is not JSON
+    Given the input that makes model-reader return HolkError::NotJson
+    When the suite exercises FL-33
+    Then A container's header is not JSON
+
+  @FL-34 @build
+  Scenario: A container's header is padded with something other than spaces
+    Given the input that makes model-reader return HolkError::PaddedWithSomethingElse
+    When the suite exercises FL-34
+    Then A container's header is padded with something other than spaces
+
+  @FL-35 @build
+  Scenario: A container describes something this reader does not follow
+    Given the input that makes model-reader return HolkError::Unfollowable
+    When the suite exercises FL-35
+    Then A container describes something this reader does not follow

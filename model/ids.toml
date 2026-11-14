@@ -170,7 +170,7 @@ statement = "Sixteen megabytes of download are labelled at no less than two hund
 id = "EN-14"
 level = "build"
 suite = "engine"
-statement = "The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen"
+statement = "The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen"
 
 [[id]]
 id = "EN-15"
@@ -255,3 +255,21 @@ id = "KN-17"
 level = "build"
 suite = "kernel"
 statement = "Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level"
+
+[[id]]
+id = "EN-23"
+level = "build"
+suite = "engine"
+statement = "The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer"
+
+[[id]]
+id = "EN-24"
+level = "build"
+suite = "engine"
+statement = "A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples"
+
+[[id]]
+id = "EN-25"
+level = "build"
+suite = "engine"
+statement = "A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name"

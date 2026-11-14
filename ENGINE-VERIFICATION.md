@@ -478,15 +478,17 @@ The published page runs the verified guest in a browser. Until now it took a
 request as hexadecimal, which is a way of saying that only someone who had read
 the wire format could use it. `site/card.html`, `card.css` and `card.mjs` are
 the app's own surface, which the frame leaves to the app: choose one of the
-eleven decisions, fill in its numbers by name, and the guest answers.
+seventeen decisions, fill in its numbers by name, and the guest answers.
 
 Every layout comes from `site/decisions.json`, one source read twice: the page
 builds its form from it, and `EN-14` checks it against the kernel's own
 examples. What the gate checks of the table: every decision the kernel routes
 is offered and nothing else; every byte after the tag belongs to exactly one
-field; each decision's length is the length its answered examples have; every
-state and event the examples use can be chosen; and every value the form starts
-with fits its field.
+field of the form it is in; each decision's length is the length its answered
+examples have; a list's groups begin where the fields end and fill the length
+the kernel accepts; every format the kernel reads has a form and every form
+tiles its own request; every state and event the examples use can be chosen;
+and every value the form starts with fits its field.
 
 What the gate checks of the page itself: Node runs `card.mjs`'s own encoder
 over every example the kernel carries, taking each field out of the example's
@@ -577,18 +579,74 @@ from the modules that use them — including the six decisions a browser engine
 adds, so the parser is known to read them before they arrive. A module whose
 answer checks no length is refused rather than given one.
 
-What the page does with a list — drawing one control per element and writing
-them at the stride — is not here. There is nothing in the table with a list in
-it yet, so it would be code with nothing to draw and no test to catch it being
-wrong; it arrives with the decisions that need it.
+### A list in a request, and a form per format
+
+The six decisions a browser engine asks about brought the other two shapes with
+them, so the page now draws all three.
+
+A list is drawn as the groups the kernel indexes into, and those are read from
+the definitions that do the indexing. A body of the form `fieldAt value (7 +
+(prim multiply 4 position : Nat)) 4` is a group of four-byte items from byte
+seven; one of the form `fieldAt value ((3 + (prim multiply 4 window : Nat)) +
+(prim multiply 4 position : Nat)) 4` is a group that begins after as many items
+as another group holds. How many items a group holds is then the distance to
+the next group, or to the end of the request, both of which the length its
+answer accepts gives: a constant and a multiple of the count. For a speculative
+commit that comes out as `k` drafted tokens from byte three and `k + 1`
+verified ones after them, which is what `7 + 8k` leaves room for. Nothing about
+the groups is written down a second time; `site/decision-names.json` gives each
+one a name and a starting value, and nothing else.
+
+A request whose own format chooses its shape is drawn as one form per format,
+each the fields its branch reads — the test that picks the branch included,
+since the format byte is a byte of the request too. The same byte is four bytes
+of codes to one format of a quantisation code and one byte of signs to another,
+so the forms do not agree on what a byte is, and only a form per format can say
+what each one holds. A format the kernel reads nothing for is refused rather
+than written as some other one.
+
+What this costs: the form draws at most sixty-four items of one group, and says
+so in the field that counts them. The kernel takes as many as a byte can count.
+
+### The gate on the forms
+
+Four more defects, planted one at a time and then restored. Every one was
+rejected; none was missed. The first two are planted in the generator and the
+table is rewritten from it, so that `cargo xtask page` has nothing to complain
+about — the file on disk is exactly what the generator says — and `EN-14` is
+what is left to notice.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The generator reads only the branch a format takes, not the test that chooses it | decision 17, format [0]: a byte of the request is no field of this form |
+| The generator gives every group the items the count gives it, and no more | decision 16: its groups do not fill the length its answer accepts, (3, 8) against (7, 8) |
+| The page starts every group of a list at the byte the first one starts at | the encoder: decision 16, two fields write byte 3 |
+| The page writes every format of a request at its longest | the encoder: decision 17 writes 15 bytes, the kernel accepts 7 |
+| none, before and after | passed |
+
+The first two also fail the generator's own tests, which is the point of having
+both: the one that reads the model and the one that reads what it wrote.
 
 ### What EN-14 does not establish
 
+- That the kernel answers what these forms write. The model carries no example
+  of decisions 12 to 17 — the list of acceptance vectors is at its ceiling —
+  so what is asked of their forms is what can be: that the request comes out at
+  the length the module accepts, and that every byte of it is written by exactly
+  one field. That those requests are answered the way the decision says is the
+  kernel's own claim, proved in `app/src/Proofs` and pinned by the kernel suite,
+  not replayed here.
 - That the page works in a browser. The gate runs the encoder in Node and
-  checks the table; it does not open a page. The card was looked at in a
-  browser by hand, against a harness with no guest behind it, and the form, the
-  chooser and the request bytes were right there; the published page is what
-  the pages workflow builds.
+  checks the table; it does not open a page. The real page was assembled with
+  `python -I bootstrap/og.py && python -I bootstrap/icons.py && node
+  bootstrap/page.mjs site` — the social image and the icons carry the app.json
+  they were drawn for, and the committed ones are the `pages` workflow's, which
+  draws them again before it deploys — and driven by hand with no guest behind
+  it:
+  every decision's form drew, the count redrew the list and moved the second
+  group, each format of a quantisation code drew its own fields, and the bytes
+  the page wrote were the bytes Node writes for the same values. The published
+  page is what the pages workflow builds.
 - That the verdict shown is the verdict the guest gave. The card passes the
   answer through, and nothing here replays a guest.
 - That someone can tell what the numbers mean. The form names each field; it
@@ -827,6 +885,329 @@ still be real in a reader that drops what it does not match.
   `llama.cpp`, and nothing here runs `llama.cpp` to check the quotation does
   what the original does.
 - Anything about tensors, weights or quantisation. This reads a header.
+
+## A token the file adds, and the turn that never ended
+
+The tokeniser counted `<|im_end|>` as text. It is in the vocabulary, with an
+id of its own, but nothing matched it as itself: the pre-tokeniser split it
+into `<`, `|`, `im`, and so on, and byte-level merging turned those into
+ordinary ids. A prompt written by a chat template arrived at the model
+mangled, and — the part that matters — the model's own end-of-turn id was
+never a token it had been shown, so it answered and kept going, writing
+`</|im_end|>` as text forever.
+
+That was found by running the thing, not by a gate here. The session that had
+the GPU loaded the real model through this engine and watched a turn fail to
+end. Three of this repository's own gates were green while it happened: the
+oracle agreed with the authority on every text it was given, and none of those
+texts contained a token the file adds.
+
+What a file adds is now matched as itself, before anything is merged, longest
+first so a token that begins another is not taken in its place. Both readers
+say which: a `tokenizer.json` lists them under `added_tokens`, and a GGUF
+header marks them in `tokenizer.ggml.token_type`, as control or user-defined,
+which is the same statement in the other format.
+
+The gate that was blind is the gate that now sees it. `EN-20` gives
+HuggingFace's own tokeniser the exact turn a chat template writes, and eight
+more texts around the awkward edges — a token at the start, at the end, two
+together, a prefix that is nearly one, a close bracket too many — and requires
+the same ids for every one. `EN-22` builds the same vocabulary both ways, the
+control marks in the GGUF header against `added_tokens` in the file, and
+requires the ids to agree, with the authority judging the file it can read.
+
+Writing those fixtures turned up a second thing worth knowing: the authority
+numbers added tokens itself, straight after the vocabulary, rather than taking
+the id the file declares. A published file numbers them that way already, so
+the two never disagree in practice; a fixture that numbered them otherwise did,
+and the fixtures now number them as a published file does.
+
+### The defects
+
+Four, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The tokens a file adds are merged like any other text | EN-20: the ids differ for the turn a chat template writes |
+| An added token is matched but its id is not the file's | the same |
+| The tokens a file adds are tried shortest first | EN-20: the ids differ for `<\|im_start\|>system` |
+| A header's control tokens are read as ordinary text | EN-22: the header and the file disagree |
+| none, before and after | passed |
+
+### A comparison that could not fail
+
+The matcher first held a tie-break: at the same place in the text, the longer
+token wins. Planted against — first match wins, whatever its length — nothing
+failed, and nothing could: `added` is already in longest-first order, so the
+longer token is tried first and the shorter one never displaces it. The
+comparison was dead, and restating a guarantee the order already gives is a
+line that can rot without anything noticing.
+
+It was removed, and the comment says the order is what decides. The defect
+that reads on the same behaviour is the order itself, and reversing it fails
+EN-20 on `<|im_start|>system`, which is the text the fixture gained for this:
+a token whose first characters are another token, which a model that gives its
+system header an id of its own has.
+
+Finding this cost a fixture that was added to catch a defect and a planting
+that did not catch it. That is what the planting is for.
+
+### What this does not establish
+
+- That the whole chat template is right. What is checked is the ids of the
+  text it produces. Whether the page wraps a turn in the tokens this model
+  expects is the page's business and is not checked here.
+- That every published model marks its added tokens the same way. Two formats
+  are read, and a file that records them some third way would have none, which
+  is the behaviour a model with no tokens of its own needs anyway.
+
+## EN-23, the engine in a browser
+
+The page runs the kernel already: the holo's guest, verified before it is
+compiled. What it could not run was everything around the kernel. Reading the
+tokeniser a model carries, counting the tokens of a turn, labelling the bytes
+of a download as they arrive — those are this repository's crates, and a page
+that did them again in JavaScript would be a second implementation of rules
+that exist here, which is the thing this repository is organised to prevent.
+
+`crates/wasm` is those crates as one WebAssembly module. It adds no dependency
+and no binding generator: the interface is bytes in linear memory. `allocate`
+reserves a buffer and says where it is, the page writes into it, a call reads
+it and leaves its answer in one result buffer that `result_at` and `result_len`
+describe, and `release` gives the buffer back. Every call answers 0 for yes and
+1 for no, and a call that answers no leaves the failure's registered name where
+the answer would have been.
+
+There is no `unsafe` code in it. A buffer is a `Vec<u8>` the module keeps, and
+a call that names an offset the module did not give is refused rather than
+followed, so nothing reads memory this module does not hold. Exporting a symbol
+is an unsafe attribute — a module that exports nothing cannot be called — and
+each export says so; `audit-limits` now also permits a shipped crate to declare
+`crate-type` and nothing else, because a browser instantiates a cdylib, while a
+`[lib]` that moves the root where the gate would not read it is still refused.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_23`
+
+The test builds the module for `wasm32-unknown-unknown` in release, which is
+what ships, and instantiates it in Node exactly as a page does —
+`WebAssembly.instantiate`, no glue. Then it asks the module what it asks the
+crates, and requires the same bytes: the vocabulary's size; the ids, the count
+and the decoded bytes of four turns, including an empty one and one the model
+has never seen; the same turns again through a tokeniser read from a GGUF
+header rather than a `tokenizer.json`, which must give the same ids; a header
+this engine does not follow, which must be refused by name rather than
+answered; and a download labelled block by block, three blocks, with the label
+compared after each one and the kernel's admission request compared at the end.
+
+Forty-odd answers, each the crate's own. The crates are the source; the module
+is the thing being checked.
+
+### The defects
+
+Six, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The module writes a token's number the other way round | EN-23: the module's answer is not the crate's |
+| The module counts a turn by its bytes rather than its tokens | the same |
+| The module labels only the last block of a download, not all of it | the same |
+| The module reads a GGUF header as if it were a `tokenizer.json` | the same |
+| A call reads memory the module was never asked to allocate | FL-26: the failure is not `NoBuffer` |
+| The crate moves its root where the gate would not read it | `audit-limits`: a shipped crate keeps its targets where Cargo finds them |
+| none, before and after | passed |
+
+### What EN-23 does not establish
+
+- That a browser runs it. Node and a browser both instantiate the same module
+  through the same interface, and this runs Node. The page's own loading of it
+  is not written yet: the module is built and checked, and nothing on the page
+  calls it.
+- That the module is fast enough, or small enough. It is 1.5 MB in release and
+  nothing here measures either.
+- Anything about the kernel. The module asks the kernel's questions and carries
+  its answers; it decides nothing, and nothing here replays a guest.
+
+## EN-24, the root a container names
+
+A weight container names each buffer it carries by a label, the BLAKE3 hash of
+those bytes, and the whole file they arrive in by a root, its SHA-256. The
+labels were already taken as the bytes arrived; the root is now taken the same
+way, in the same pass, so a download is read once.
+
+`sha2` is the authority's own implementation, locked from crates.io (R6) and
+cited in `model/authorities.toml`. What is reproduced from the standard is
+three digests — FIPS 180-4's Appendix B examples, `abc`, the fifty-six byte
+message and one million `a` — written into the test beside the inputs they are
+for, with the empty message's digest beside them. The test computes them and
+requires them to be those values; it establishes nothing about SHA-256 itself.
+
+Besides the published values, EN-24 requires the root to be of what arrived and
+not of how it arrived: a hundred thousand bytes taken one at a time, two at a
+time, and in chunks of 3, 64, 1021 and 65,536 all come out at the root of the
+same bytes taken at once. Taken partway through a download it answers for what
+has arrived so far, and the download goes on. A root and a label of the same
+bytes are different hashes, which the test also requires, so the two cannot be
+swapped unnoticed.
+
+`FL-30` is a root read loosely: upper case, a digit short, a digit long, a
+letter that is not hexadecimal, the `sha256:` written twice, another algorithm's
+name, a leading space. A name read loosely is a name that can be made to match.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The root is taken of the first chunk only | EN-24: a download taken one byte at a time has another root |
+| The root is another hash under this name | EN-24: the root of the empty message is not the one the standard publishes |
+| A root is read in upper case too | FL-30: an upper-case name is not a root and was not refused |
+| The module roots each block instead of the file | EN-23: the module's answer is not the crate's |
+| The module labels the file instead of the block | the same |
+| none, before and after | passed |
+
+### What EN-24 does not establish
+
+- That SHA-256 is what the standard says it is. Three published digests are
+  reproduced; the rest of the algorithm is the authority's.
+- That a container's own root is the root of its file. Nothing here has read a
+  container yet: that is the reader this engine does not have.
+
+## EN-25, the weight container
+
+A model's weights arrive in one file: a magic, the length of a header, that
+header as JSON, and then the buffers it describes. The header names the whole
+file by a root, names each buffer by a label and a span, says where the
+tokeniser lies, and says what shape and quantisation each buffer is.
+
+The layout is not a published specification, and this says so rather than
+implying one. It is one file's, and that file's first 98,314 bytes — its magic,
+its header length and its header — are vendored at
+`model/authorities/holk-bonsai-header.bin` with their SHA-256 in the register,
+fetched from the revision the register cites. The magic is the five bytes
+`HOLK1` and a newline, then a four-byte little-endian header length, then the
+JSON, then spaces to fill the room. Two facts of the file decide that reading
+and the gate checks both: the byte at ten is `{`, and the tokeniser the header
+names begins at 98,314, which is ten plus the length those four bytes carry. A
+reader that took the newline for a separator, or the length for a version,
+disagrees with the file at one of them.
+
+What the gate now reads there, rather than being told: 311 buffers in two
+quantisation formats — 198 `q1` and 113 `f32` — a vocabulary of 151,669, 28
+layers, and a furthest end of 424,013,749, which is the file's own length as
+measured from the file rather than read from its header. Three things that file
+settled, each of which a reader written from a description would have got
+wrong: its ternary buffers are named `q1` and never `ternary`; it carries
+`f32` buffers, which the kernel had no code for until decision 13 gained one;
+and its buffers do not tile it — two of them share one span, because the model
+ties its embedding to its output layer, so 311 buffers lie in 310 spans. That
+last one is why `range_question` takes `previous_end` from its caller and
+infers nothing from the order.
+
+What `crates/model-reader/src/holk.rs` reads is the header and nothing else.
+The buffers may be hundreds of megabytes and arrive later, or never. Each entry
+becomes the kernel's own questions and no answer of the kernel's is restated:
+where the buffer lies (decision 6), whether its bytes may be used (decision 5),
+and how long one block of its shape is (decision 13, whose client the
+kernel-client crate gained for this). That the block question carries the shape
+where the kernel reads it is checked against `site/decisions.json`, which is
+written from the kernel's own modules, so the client and the kernel cannot
+drift apart quietly.
+
+The names a container uses and the numbers the kernel has line up both ways,
+and the gate checks both. A code the kernel offers with no name here is a model
+that arrives one day and cannot be passed on. A name standing for a code the
+kernel does not offer is worse: it builds a request the kernel cannot answer,
+which looks like a refusal of the model rather than a mistake in the reader.
+
+Which `q1` a buffer is in is the one thing the name alone cannot say. The
+published container writes every ternary matrix as `q1`, and the same family
+writes a one-bit format under that same name with another layout entirely, so
+the manifest's own `tern` decides: `q1` is the kernel's ternary format where
+the model says its weights are ternary, and is refused where it does not say
+so. The first version of this reader knew only the name `ternary`, which that
+container never uses, so it refused all 311 of its entries; the session holding
+the file said so, and this is the fix.
+
+### What it refuses, and by what name
+
+| Failure | What it is |
+| --- | --- |
+| `FL-31` `NotHolk` | another magic, a shorter one, or the magic without its newline |
+| `FL-32` `Truncated` | a header that runs past the bytes given, at six lengths including nine and ten |
+| `FL-33` `NotJson` | a header that does not begin a document |
+| `FL-34` `PaddedWithSomethingElse` | a zero, a newline, a tab or `0xff` in the room after the document |
+| `FL-35` `Unfollowable` | another format, a part missing, a number that is not one, a name that is not text, a label that is not `blake3:` and sixty-four digits, a root that is not `sha256:` and sixty-four digits, a quantisation name the kernel has no code for |
+
+Where the document ends is the parser's to say, not something looked for
+backwards: a header whose last byte is a zero would otherwise read as a
+document with no padding at all, which is how the first version of this read it
+until `FL-34` said so.
+
+### The defects
+
+Thirteen, planted one at a time and then restored. Twelve were rejected on
+the first planting. The thirteenth was missed, and is recorded below.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| Every `q1` is the ternary one, whatever the manifest says | EN-25: a `q1` whose manifest says `tern` is false was read as the ternary format |
+| A container's name stands for a format the kernel does not have | EN-25: `q1` stands for format 9, which the kernel does not offer |
+| The manifest is read for a flag it does not carry | EN-25: the ternary `q1` was refused |
+| The header's length is read the other way round | EN-25: the published container's header does not lie where it was measured to |
+| The magic is read without the newline that belongs to it | the same |
+| A quantisation name stands for the number beside the right one | EN-25: no name this reader knows is the kernel's format 4 |
+| Whatever follows the document in the header is stepped over | FL-34: a header padded with `0x00` was read anyway |
+| A buffer's label is taken from whatever its name says | FL-35: a `sha256:` name was read as a label |
+| The block question writes the shape a byte early | EN-25: the rows are not where the kernel reads them |
+| A format decision 13 knows has no name in the reader | EN-25: `f32` is a name this reader has: `Unfollowable(FormatNotKnown)` |
+| The page offers a format decision 13 does not know | EN-25: the page offers formats decision 13 does not know |
+| An unreadable quantisation falls back to the ternary one | EN-25: a `q1` whose manifest says `tern` is false was read as the ternary format |
+| The vendored header is changed by one byte | EN-25: the vendored header is not the file the register cites |
+| none, before and after | passed |
+
+### The one that was missed
+
+The defect "the page offers a format decision 13 does not know" was first
+planted in `site/decision-names.json`, where the names are written, and EN-25
+passed. The gate reads `site/decisions.json`, which is generated from that
+file, and the generated file had not been rewritten, so the planting never
+reached the gate it was aimed at. `cargo xtask page` would have caught it, as a
+table that disagrees with its source, but that is a different gate answering a
+different question.
+
+Replanted in `site/decisions.json`, the file EN-25 actually reads, it was
+rejected. The lesson is about planting rather than about the gate: a defect
+planted in a source that something regenerates tests the regeneration, not the
+reader.
+
+### What EN-25 does not establish
+
+- That the file beyond its header is anything in particular. 98,314 bytes of a
+  424 MB file are here. Every buffer's span is checked against the file's length
+  and against the end of the tokeniser; none of their bytes has been seen.
+- What the manifest's own root covers. This was an open question here and is
+  now half answered, by measurement rather than by argument: the whole file was
+  streamed through this repository's own download module and came to
+  `acf0b5ad…`, which is what the hub record and the model card both say, so
+  that is the file's hash. The manifest names `8932967d…`, which is therefore
+  not this file's hash but the identity its catalogue pinned, over the manifest
+  the model was built from. What that covers is not recomputed anywhere here.
+  The reader carries it as `Identity`, a type of its own, precisely so that no
+  caller can compare it to the `Root` a download arrives at: they are two
+  different numbers about the same model, and the names invited the mistake
+  until this was measured.
+- That another container reads. One file is one file. A second one written
+  differently would be refused by name, which is the most this can promise.
+- That the kernel admits what the reader asks about. The questions are built
+  and compared to the client's own; the answers are the kernel's, and nothing
+  here replays a guest.
+- That a container's root is the root of its file. The reader carries the root
+  the manifest names; comparing it with the bytes as they arrive is the page's
+  loop, which is not written yet.
 
 ## How the engine may fail
 

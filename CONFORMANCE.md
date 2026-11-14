@@ -37,7 +37,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-11` | `build` | A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are |
 | `EN-12` | `build` | Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second |
 | `EN-13` | `build` | Sixteen megabytes of download are labelled at no less than two hundred megabytes a second |
-| `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen |
+| `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen |
 | `EN-15` | `build` | Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way |
 | `EN-16` | `build` | A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes |
 | `EN-17` | `build` | Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies |
@@ -46,6 +46,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-20` | `build` | The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text |
 | `EN-21` | `build` | A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused |
 | `EN-22` | `build` | A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks |
+| `EN-23` | `build` | The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer |
+| `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
+| `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
 
 ## kernel
 
@@ -102,6 +105,16 @@ not that the test provokes the failure.
 | `FL-23` | `tokenizer` | `TokeniserError::TokenNotByteLevel` | A token holds a character the byte alphabet does not have |
 | `FL-24` | `tokenizer` | `TokeniserError::NotGguf` | The file does not begin with the four bytes that announce the format |
 | `FL-25` | `tokenizer` | `TokeniserError::Truncated` | A field of the header runs past the end of what was given |
+| `FL-26` | `wasm` | `CallError::NoBuffer` | The page names a buffer this module did not allocate |
+| `FL-27` | `wasm` | `CallError::NotText` | The bytes handed in where text was asked for are not UTF-8 |
+| `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser or a download is used before one has been started |
+| `FL-29` | `wasm` | `CallError::WrongSize` | A label handed in is not thirty-two bytes |
+| `FL-30` | `download` | `DownloadError::RootNotHex` | The root a container names is not sixty-four lower-case hexadecimal digits |
+| `FL-31` | `model-reader` | `HolkError::NotHolk` | A container does not begin with the magic this reader follows |
+| `FL-32` | `model-reader` | `HolkError::Truncated` | A container's header runs past the end of the bytes given |
+| `FL-33` | `model-reader` | `HolkError::NotJson` | A container's header is not JSON |
+| `FL-34` | `model-reader` | `HolkError::PaddedWithSomethingElse` | A container's header is padded with something other than spaces |
+| `FL-35` | `model-reader` | `HolkError::Unfollowable` | A container describes something this reader does not follow |
 
 ## Cited authorities
 
@@ -110,8 +123,10 @@ Never re-derived, vendored, or gated on.
 | Authority | Citation | Evidence here |
 | --- | --- | --- |
 | `BLAKE3` | BLAKE3-team/BLAKE3, test_vectors/test_vectors.json at commit ae3e8e6b3a5ae3190ca5d62820789b17886a0038 (2020-09-29), vendored at model/authorities/blake3-test-vectors.json. The algorithm is specified in `BLAKE3: one function, fast everywhere` (O'Connor, Aumasson, Neves, Wilcox-O'Hearn, 2020). | `EN-06` |
-| `GGUF` | ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`. | `EN-21` |
+| `GGUF` | ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens`, `.merges` and `.token_type`, whose values are the format's own GGUFTokenType enumeration: 1 normal, 2 unknown, 3 control, 4 user-defined, 5 unused, 6 byte. | `EN-21` |
 | `LLAMA-CPP-PRE` | ggml-org/llama.cpp, src/llama-vocab.cpp at blob e90f1bd117d412a3fc9672ddd10c5d12ded0beb2, the `regex_exprs` of LLAMA_VOCAB_PRE_TYPE_GPT2 and LLAMA_VOCAB_PRE_TYPE_QWEN2 and the names mapped to each. A GGUF file carries `tokenizer.ggml.pre` as a name only; the pattern it stands for lives in the reader. | `EN-21`, `EN-22` |
+| `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
+| `HOLK-BONSAI` | HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest. | `EN-25` |
 
 ## Claims that are not conformance IDs
 

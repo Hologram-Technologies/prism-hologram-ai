@@ -16,6 +16,9 @@ categories.workspace = true
 # this crate meets bytes it did not write; it is a locked crates.io release
 # (R6), not a parser written here.
 [dependencies]
+# A container names its buffers by the same labels a download is answered
+# for, so the two are one type, not two.
+hologram-ai-download = { workspace = true }
 hologram-ai-kernel-client = { workspace = true }
 serde_json = { workspace = true }
 

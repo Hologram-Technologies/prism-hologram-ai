@@ -88,3 +88,28 @@
   overflow-wrap: anywhere;
   opacity: 0.7;
 }
+
+/* A list in a request: one box per group, one input per item. The group spans
+   the form, because an item is narrower than a field and there are many. */
+.fields .group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+@media (min-width: 34rem) {
+  .fields .group {
+    grid-column: 1 / -1;
+  }
+}
+
+.fields .items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: 0.35rem 0.6rem;
+}
+
+.fields .items .k {
+  font-size: 0.72rem;
+  opacity: 0.55;
+}

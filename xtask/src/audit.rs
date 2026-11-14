@@ -175,6 +175,33 @@ fn lint_recipe(root: &Path) -> Result<Vec<String>, Fail> {
     Ok(out)
 }
 
+/// What a crate's own target section moves, if it moves anything.
+///
+/// `crate-type` says what kind of library to build, which leaves the root
+/// where Cargo finds it. `path` and `name` move it somewhere this gate would
+/// not read, and a `[[bin]]` brings a root of its own.
+fn target_moved(manifest: &str) -> Option<String> {
+    let mut inside = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line == "[[bin]]" {
+            return Some("[[bin]]".to_string());
+        }
+        if line.starts_with('[') {
+            inside = line == "[lib]";
+            continue;
+        }
+        let Some((key, _)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if inside && !matches!(key, "crate-type" | "crate_type") {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
 fn audit_crate(
     root: &Path,
     name: &str,
@@ -183,13 +210,12 @@ fn audit_crate(
 ) -> Result<(), Fail> {
     let dir = root.join("crates").join(name);
     let manifest = std::fs::read_to_string(dir.join("Cargo.toml"))?;
-    // A target declared elsewhere has a root this gate would not find.
-    if manifest
-        .lines()
-        .any(|l| matches!(l.trim(), "[lib]" | "[[bin]]"))
-    {
+    // A target declared elsewhere has a root this gate would not find. What a
+    // `[lib]` may say is what kind of library it is — a browser instantiates a
+    // cdylib — because that moves no root.
+    if let Some(moved) = target_moved(&manifest) {
         violations.push(format!(
-            "crates/{name}/Cargo.toml: declares its own `[lib]` or `[[bin]]`; a shipped \
+            "crates/{name}/Cargo.toml: its `[lib]` or `[[bin]]` sets `{moved}`; a shipped \
              crate keeps its targets where Cargo finds them by convention, so the gate \
              reads every root"
         ));

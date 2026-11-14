@@ -6,20 +6,20 @@
 \importmodule{Kernel.Wire}
 \title{Bounded byte buffer}
 \begin{semanticmodule}
-definition{name: known, parameters: [format : Nat], result: Bool, body: (format <=? 4)}
+definition{name: known, parameters: [format : Nat], result: Bool, body: (format <=? 5)}
 
 definition{
   name: groupOf,
   parameters: [format : Nat],
   result: Nat,
-  body: (if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else 32)))
+  body: (if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else (if (format =? 5) then 16 else 32))))
 }
 
 definition{
   name: bytesPerGroup,
   parameters: [format : Nat],
   result: Nat,
-  body: (if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else 36))))
+  body: (if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else (if (format =? 4) then 36 else 64)))))
 }
 
 definition{
