@@ -328,6 +328,202 @@
           "value": 64
         }
       }
+    },
+    "12": {
+      "name": "The backend",
+      "asks": "Which backend can run this model?",
+      "fields": {
+        "1": {
+          "name": "A GPU is there",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Largest binding, bytes",
+          "value": 134217728
+        },
+        "10": {
+          "name": "Largest buffer, bytes",
+          "value": 268435456
+        }
+      }
+    },
+    "13": {
+      "name": "A block's length",
+      "asks": "How many bytes is one block of this shape?",
+      "fields": {
+        "1": {
+          "name": "Format",
+          "choice": [
+            [
+              "q4",
+              0
+            ],
+            [
+              "q3f",
+              1
+            ],
+            [
+              "t2",
+              2
+            ],
+            [
+              "t2r",
+              3
+            ],
+            [
+              "ternary per 128",
+              4
+            ]
+          ],
+          "value": 4
+        },
+        "2": {
+          "name": "Rows",
+          "value": 2048
+        },
+        "10": {
+          "name": "Columns",
+          "value": 2048
+        }
+      }
+    },
+    "14": {
+      "name": "The greedy pick",
+      "asks": "Is the token claimed the first of the highest scores?",
+      "fields": {
+        "1": {
+          "name": "The index claimed",
+          "value": 0
+        },
+        "2": {
+          "name": "The score claimed",
+          "value": 100
+        },
+        "6": {
+          "name": "How many scores follow",
+          "value": 4
+        }
+      },
+      "repeat": {
+        "name": "Scores",
+        "from": 7,
+        "width": 4,
+        "countAt": 6,
+        "value": 100,
+        "groups": 1
+      }
+    },
+    "15": {
+      "name": "The penalty window",
+      "asks": "Is this token inside the window that is penalised?",
+      "fields": {
+        "1": {
+          "name": "Window, tokens",
+          "value": 64
+        },
+        "3": {
+          "name": "The token",
+          "value": 1234
+        },
+        "7": {
+          "name": "How many tokens of history follow",
+          "value": 8
+        }
+      },
+      "repeat": {
+        "name": "History",
+        "from": 8,
+        "width": 4,
+        "countAt": 7,
+        "value": 1234,
+        "groups": 1
+      }
+    },
+    "16": {
+      "name": "A speculative commit",
+      "asks": "May this many of the drafted tokens be committed?",
+      "fields": {
+        "1": {
+          "name": "Drafts, k",
+          "value": 4
+        },
+        "2": {
+          "name": "Commit how many",
+          "value": 3
+        }
+      },
+      "repeat": {
+        "name": "Drafted, then verified",
+        "from": 3,
+        "width": 4,
+        "countAt": 1,
+        "plus": 1,
+        "value": 7,
+        "groups": 2
+      }
+    },
+    "17": {
+      "name": "A quantisation code",
+      "asks": "What value does this code stand for?",
+      "fields": {
+        "1": {
+          "name": "Format",
+          "choice": [
+            [
+              "q4",
+              0
+            ],
+            [
+              "q3f",
+              1
+            ],
+            [
+              "t2",
+              2
+            ],
+            [
+              "t2r",
+              3
+            ],
+            [
+              "ternary",
+              4
+            ]
+          ],
+          "value": 4
+        },
+        "2": {
+          "name": "Place",
+          "value": 0
+        },
+        "3": {
+          "name": "Codes, or the sign byte",
+          "value": 0
+        },
+        "4": {
+          "name": "The nonzero byte, for ternary",
+          "value": 1
+        },
+        "7": {
+          "name": "Codes, second word",
+          "value": 0
+        },
+        "11": {
+          "name": "Codes, third word",
+          "value": 0
+        }
+      },
+      "shapes": "The format chooses which of these the request carries, and how long it is; the page does not yet draw one form per format."
     }
   }
 }

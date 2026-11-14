@@ -443,6 +443,281 @@
       "module": "Shape",
       "name": "Binding a shape",
       "tag": 11
+    },
+    {
+      "asks": "Which backend can run this model?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "A GPU is there",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Largest binding, bytes",
+          "value": 134217728,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Largest buffer, bytes",
+          "value": 268435456,
+          "width": 8
+        }
+      ],
+      "length": 18,
+      "module": "Backend",
+      "name": "The backend",
+      "tag": 12
+    },
+    {
+      "asks": "How many bytes is one block of this shape?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4",
+              0
+            ],
+            [
+              "q3f",
+              1
+            ],
+            [
+              "t2",
+              2
+            ],
+            [
+              "t2r",
+              3
+            ],
+            [
+              "ternary per 128",
+              4
+            ]
+          ],
+          "name": "Format",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Rows",
+          "value": 2048,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Columns",
+          "value": 2048,
+          "width": 8
+        }
+      ],
+      "length": 18,
+      "module": "Blocks",
+      "name": "A block's length",
+      "tag": 13
+    },
+    {
+      "asks": "Is the token claimed the first of the highest scores?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The index claimed",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "The score claimed",
+          "value": 100,
+          "width": 4
+        },
+        {
+          "at": 6,
+          "name": "How many scores follow",
+          "value": 4,
+          "width": 1
+        }
+      ],
+      "length": {
+        "base": 7,
+        "countAt": 6,
+        "stride": 4
+      },
+      "module": "Pick",
+      "name": "The greedy pick",
+      "repeat": {
+        "countAt": 6,
+        "from": 7,
+        "groups": 1,
+        "name": "Scores",
+        "value": 100,
+        "width": 4
+      },
+      "tag": 14
+    },
+    {
+      "asks": "Is this token inside the window that is penalised?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Window, tokens",
+          "value": 64,
+          "width": 2
+        },
+        {
+          "at": 3,
+          "name": "The token",
+          "value": 1234,
+          "width": 4
+        },
+        {
+          "at": 7,
+          "name": "How many tokens of history follow",
+          "value": 8,
+          "width": 1
+        }
+      ],
+      "length": {
+        "base": 8,
+        "countAt": 7,
+        "stride": 4
+      },
+      "module": "Penalty",
+      "name": "The penalty window",
+      "repeat": {
+        "countAt": 7,
+        "from": 8,
+        "groups": 1,
+        "name": "History",
+        "value": 1234,
+        "width": 4
+      },
+      "tag": 15
+    },
+    {
+      "asks": "May this many of the drafted tokens be committed?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Drafts, k",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Commit how many",
+          "value": 3,
+          "width": 1
+        }
+      ],
+      "length": {
+        "base": 7,
+        "countAt": 1,
+        "stride": 8
+      },
+      "module": "Speculate",
+      "name": "A speculative commit",
+      "repeat": {
+        "countAt": 1,
+        "from": 3,
+        "groups": 2,
+        "name": "Drafted, then verified",
+        "plus": 1,
+        "value": 7,
+        "width": 4
+      },
+      "tag": 16
+    },
+    {
+      "asks": "What value does this code stand for?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4",
+              0
+            ],
+            [
+              "q3f",
+              1
+            ],
+            [
+              "t2",
+              2
+            ],
+            [
+              "t2r",
+              3
+            ],
+            [
+              "ternary",
+              4
+            ]
+          ],
+          "name": "Format",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Place",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "name": "Codes, or the sign byte",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 4,
+          "name": "The nonzero byte, for ternary",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 7,
+          "name": "Codes, second word",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 11,
+          "name": "Codes, third word",
+          "value": 0,
+          "width": 4
+        }
+      ],
+      "length": {
+        "at": 1,
+        "lengths": {
+          "0": 7,
+          "1": 15,
+          "2": 7,
+          "3": 7,
+          "4": 5
+        }
+      },
+      "module": "Quant",
+      "name": "A quantisation code",
+      "shapes": "The format chooses which of these the request carries, and how long it is; the page does not yet draw one form per format.",
+      "tag": 17
     }
   ]
 }
