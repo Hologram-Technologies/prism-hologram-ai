@@ -414,13 +414,17 @@
           "value": 4
         }
       },
-      "repeat": {
-        "name": "Scores",
-        "from": 7,
-        "width": 4,
-        "countAt": 6,
-        "value": 100,
-        "groups": 1
+      "list": {
+        "scoreAt": {
+          "name": "Scores",
+          "value": 1,
+          "values": [
+            100,
+            90,
+            80,
+            70
+          ]
+        }
       }
     },
     "15": {
@@ -440,13 +444,21 @@
           "value": 8
         }
       },
-      "repeat": {
-        "name": "History",
-        "from": 8,
-        "width": 4,
-        "countAt": 7,
-        "value": 1234,
-        "groups": 1
+      "list": {
+        "tokenAt": {
+          "name": "History",
+          "value": 1,
+          "values": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        }
       }
     },
     "16": {
@@ -462,14 +474,28 @@
           "value": 3
         }
       },
-      "repeat": {
-        "name": "Drafted, then verified",
-        "from": 3,
-        "width": 4,
-        "countAt": 1,
-        "plus": 1,
-        "value": 7,
-        "groups": 2
+      "list": {
+        "draftAt": {
+          "name": "Drafted",
+          "value": 7,
+          "values": [
+            11,
+            22,
+            33,
+            44
+          ]
+        },
+        "verifiedAt": {
+          "name": "Verified",
+          "value": 7,
+          "values": [
+            11,
+            22,
+            99,
+            44,
+            55
+          ]
+        }
       }
     },
     "17": {
@@ -507,11 +533,11 @@
           "value": 0
         },
         "3": {
-          "name": "Codes, or the sign byte",
+          "name": "Codes",
           "value": 0
         },
         "4": {
-          "name": "The nonzero byte, for ternary",
+          "name": "Nonzero bits",
           "value": 1
         },
         "7": {
@@ -523,7 +549,18 @@
           "value": 0
         }
       },
-      "shapes": "The format chooses which of these the request carries, and how long it is; the page does not yet draw one form per format."
+      "shapes": {
+        "1": {
+          "3": {
+            "name": "Codes, first word"
+          }
+        },
+        "4": {
+          "3": {
+            "name": "Sign bits"
+          }
+        }
+      }
     }
   }
 }

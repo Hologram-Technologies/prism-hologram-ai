@@ -478,15 +478,17 @@ The published page runs the verified guest in a browser. Until now it took a
 request as hexadecimal, which is a way of saying that only someone who had read
 the wire format could use it. `site/card.html`, `card.css` and `card.mjs` are
 the app's own surface, which the frame leaves to the app: choose one of the
-eleven decisions, fill in its numbers by name, and the guest answers.
+seventeen decisions, fill in its numbers by name, and the guest answers.
 
 Every layout comes from `site/decisions.json`, one source read twice: the page
 builds its form from it, and `EN-14` checks it against the kernel's own
 examples. What the gate checks of the table: every decision the kernel routes
 is offered and nothing else; every byte after the tag belongs to exactly one
-field; each decision's length is the length its answered examples have; every
-state and event the examples use can be chosen; and every value the form starts
-with fits its field.
+field of the form it is in; each decision's length is the length its answered
+examples have; a list's groups begin where the fields end and fill the length
+the kernel accepts; every format the kernel reads has a form and every form
+tiles its own request; every state and event the examples use can be chosen;
+and every value the form starts with fits its field.
 
 What the gate checks of the page itself: Node runs `card.mjs`'s own encoder
 over every example the kernel carries, taking each field out of the example's
@@ -577,18 +579,74 @@ from the modules that use them — including the six decisions a browser engine
 adds, so the parser is known to read them before they arrive. A module whose
 answer checks no length is refused rather than given one.
 
-What the page does with a list — drawing one control per element and writing
-them at the stride — is not here. There is nothing in the table with a list in
-it yet, so it would be code with nothing to draw and no test to catch it being
-wrong; it arrives with the decisions that need it.
+### A list in a request, and a form per format
+
+The six decisions a browser engine asks about brought the other two shapes with
+them, so the page now draws all three.
+
+A list is drawn as the groups the kernel indexes into, and those are read from
+the definitions that do the indexing. A body of the form `fieldAt value (7 +
+(prim multiply 4 position : Nat)) 4` is a group of four-byte items from byte
+seven; one of the form `fieldAt value ((3 + (prim multiply 4 window : Nat)) +
+(prim multiply 4 position : Nat)) 4` is a group that begins after as many items
+as another group holds. How many items a group holds is then the distance to
+the next group, or to the end of the request, both of which the length its
+answer accepts gives: a constant and a multiple of the count. For a speculative
+commit that comes out as `k` drafted tokens from byte three and `k + 1`
+verified ones after them, which is what `7 + 8k` leaves room for. Nothing about
+the groups is written down a second time; `site/decision-names.json` gives each
+one a name and a starting value, and nothing else.
+
+A request whose own format chooses its shape is drawn as one form per format,
+each the fields its branch reads — the test that picks the branch included,
+since the format byte is a byte of the request too. The same byte is four bytes
+of codes to one format of a quantisation code and one byte of signs to another,
+so the forms do not agree on what a byte is, and only a form per format can say
+what each one holds. A format the kernel reads nothing for is refused rather
+than written as some other one.
+
+What this costs: the form draws at most sixty-four items of one group, and says
+so in the field that counts them. The kernel takes as many as a byte can count.
+
+### The gate on the forms
+
+Four more defects, planted one at a time and then restored. Every one was
+rejected; none was missed. The first two are planted in the generator and the
+table is rewritten from it, so that `cargo xtask page` has nothing to complain
+about — the file on disk is exactly what the generator says — and `EN-14` is
+what is left to notice.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The generator reads only the branch a format takes, not the test that chooses it | decision 17, format [0]: a byte of the request is no field of this form |
+| The generator gives every group the items the count gives it, and no more | decision 16: its groups do not fill the length its answer accepts, (3, 8) against (7, 8) |
+| The page starts every group of a list at the byte the first one starts at | the encoder: decision 16, two fields write byte 3 |
+| The page writes every format of a request at its longest | the encoder: decision 17 writes 15 bytes, the kernel accepts 7 |
+| none, before and after | passed |
+
+The first two also fail the generator's own tests, which is the point of having
+both: the one that reads the model and the one that reads what it wrote.
 
 ### What EN-14 does not establish
 
+- That the kernel answers what these forms write. The model carries no example
+  of decisions 12 to 17 — the list of acceptance vectors is at its ceiling —
+  so what is asked of their forms is what can be: that the request comes out at
+  the length the module accepts, and that every byte of it is written by exactly
+  one field. That those requests are answered the way the decision says is the
+  kernel's own claim, proved in `app/src/Proofs` and pinned by the kernel suite,
+  not replayed here.
 - That the page works in a browser. The gate runs the encoder in Node and
-  checks the table; it does not open a page. The card was looked at in a
-  browser by hand, against a harness with no guest behind it, and the form, the
-  chooser and the request bytes were right there; the published page is what
-  the pages workflow builds.
+  checks the table; it does not open a page. The real page was assembled with
+  `python -I bootstrap/og.py && python -I bootstrap/icons.py && node
+  bootstrap/page.mjs site` — the social image and the icons carry the app.json
+  they were drawn for, and the committed ones are the `pages` workflow's, which
+  draws them again before it deploys — and driven by hand with no guest behind
+  it:
+  every decision's form drew, the count redrew the list and moved the second
+  group, each format of a quantisation code drew its own fields, and the bytes
+  the page wrote were the bytes Node writes for the same values. The published
+  page is what the pages workflow builds.
 - That the verdict shown is the verdict the guest gave. The card passes the
   answer through, and nothing here replays a guest.
 - That someone can tell what the numbers mean. The form names each field; it

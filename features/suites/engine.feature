@@ -200,10 +200,10 @@ Feature: engine
     Then Sixteen megabytes of download are labelled at no less than two hundred megabytes a second
 
   @EN-14 @build
-  Scenario: The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+  Scenario: The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen
     Given the fixture EN-14 needs
     When the suite exercises EN-14
-    Then The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen
+    Then The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen
 
   @EN-15 @build
   Scenario: Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way

@@ -2063,36 +2063,136 @@ fn engine_en_14() {
                 "decision {tag}: some byte of the request is no field, so the page cannot say what it is"
             );
         }
-        // A list is accounted for by what repeats: where it starts, how wide
-        // each element is, and how many groups of them the stride holds. The
-        // arithmetic has to come out at the length the kernel checks, or the
-        // page would write a request of the wrong size.
+        // A list is accounted for by its groups: where each one begins, how
+        // wide its items are, how many of them the count gives it, and how
+        // many more the base leaves room for. The arithmetic has to come out
+        // at the length the kernel checks, or the page would write a request
+        // of the wrong size.
         if let Some((base, stride)) = counted {
-            let repeat = &decision["repeat"];
-            let (from, width, groups, plus) = (
-                repeat["from"].as_u64().unwrap_or_default() as usize,
-                repeat["width"].as_u64().unwrap_or_default() as usize,
-                repeat["groups"].as_u64().unwrap_or_default() as usize,
-                repeat["plus"].as_u64().unwrap_or_default() as usize,
+            let list = &decision["list"];
+            assert_eq!(
+                list["countAt"].as_u64(),
+                described["countAt"].as_u64(),
+                "decision {tag}: what repeats is counted by another field than the length is"
             );
+            let groups = list["groups"]
+                .as_array()
+                .expect("a counted length has groups");
             assert!(
-                width > 0 && groups > 0,
+                !groups.is_empty(),
                 "decision {tag}: its length counts something, and nothing says what repeats"
             );
+            let number = |group: &serde_json::Value, key: &str| {
+                group[key].as_u64().unwrap_or_default() as usize
+            };
+            // The list begins where the fields end: a byte between them would
+            // be one nothing on the page writes.
+            let ends = fields
+                .iter()
+                .map(|field| {
+                    (field["at"].as_u64().unwrap_or_default()
+                        + field["width"].as_u64().unwrap_or_default()) as usize
+                })
+                .max()
+                .unwrap_or_default();
             assert_eq!(
-                from + width * plus,
-                base,
-                "decision {tag}: what repeats does not start where the length says"
+                (number(&groups[0], "from"), number(&groups[0], "scaled")),
+                (ends, 0),
+                "decision {tag}: its list does not begin where its fields end"
             );
+            let (mut constant, mut per_item) = (ends, 0);
+            for (index, group) in groups.iter().enumerate() {
+                let width = number(group, "width");
+                assert!(
+                    matches!(width, 1 | 2 | 4 | 8 | 32),
+                    "decision {tag}: an item of {width} bytes is not a width the wire format has"
+                );
+                assert!(
+                    !group["name"].as_str().unwrap_or_default().is_empty(),
+                    "decision {tag}: a group of its list has no name"
+                );
+                // Each group begins where the one before it ends, counting the
+                // items the count gives that one and the ones it does not.
+                assert_eq!(
+                    (number(group, "from"), number(group, "scaled")),
+                    (constant, per_item),
+                    "decision {tag}: group {index} does not begin where the one before it ends"
+                );
+                constant += width * number(group, "plus");
+                per_item += width * number(group, "per");
+            }
             assert_eq!(
-                width * groups,
-                stride,
-                "decision {tag}: what repeats is not as wide as the length's stride"
+                (constant, per_item),
+                (base, stride),
+                "decision {tag}: its groups do not fill the length its answer accepts"
             );
+        }
+        // A request whose own format chooses its shape is a form per format,
+        // and each form is a request in its own right: its fields tile it, and
+        // every format the kernel reads has one.
+        if !chosen.is_empty() {
+            let forms = decision["shapes"]
+                .as_array()
+                .expect("a length a format chooses has a form per format");
+            let mut described_by_form = BTreeMap::new();
+            for form in forms {
+                let length = form["length"].as_u64().expect("a form's length") as usize;
+                let values: Vec<u64> = form["values"]
+                    .as_array()
+                    .expect("the formats a form is for")
+                    .iter()
+                    .map(|value| value.as_u64().expect("a format"))
+                    .collect();
+                assert!(
+                    !values.is_empty(),
+                    "decision {tag}: a form no format asks for"
+                );
+                let mut covered = vec![false; length];
+                covered[0] = true;
+                for field in form["fields"].as_array().expect("a form's fields") {
+                    let at = field["at"].as_u64().expect("an offset") as usize;
+                    let width = field["width"].as_u64().expect("a width") as usize;
+                    assert!(
+                        at + width <= length,
+                        "decision {tag}, format {values:?}: a field runs past the request's                          {length} bytes"
+                    );
+                    assert!(
+                        !field["name"].as_str().unwrap_or_default().is_empty(),
+                        "decision {tag}, format {values:?}: a field with no name"
+                    );
+                    for (byte, taken) in covered.iter_mut().enumerate().skip(at).take(width) {
+                        assert!(
+                            !*taken,
+                            "decision {tag}, format {values:?}: byte {byte} belongs to two fields"
+                        );
+                        *taken = true;
+                    }
+                }
+                assert!(
+                    covered.iter().all(|byte| *byte),
+                    "decision {tag}, format {values:?}: a byte of the request is no field of this form"
+                );
+                for value in values {
+                    assert!(
+                        described_by_form.insert(value, length).is_none(),
+                        "decision {tag}: two forms for format {value}"
+                    );
+                }
+            }
+            let accepted: BTreeMap<u64, usize> = described["lengths"]
+                .as_object()
+                .expect("a length per format")
+                .iter()
+                .map(|(value, length)| {
+                    (
+                        value.parse().expect("a format"),
+                        length.as_u64().expect("a length") as usize,
+                    )
+                })
+                .collect();
             assert_eq!(
-                repeat["countAt"].as_u64().unwrap_or_default() as usize,
-                described["countAt"].as_u64().expect("a count field") as usize,
-                "decision {tag}: what repeats is counted by another field than the length is"
+                described_by_form, accepted,
+                "decision {tag}: a format the kernel answers has no form on the page, or a form is drawn at a length the kernel does not accept"
             );
         }
 
@@ -2120,7 +2220,7 @@ fn engine_en_14() {
                 ),
                 (None, Some((base, stride))) => assert!(
                     request.len() >= base && (request.len() - base) % stride == 0,
-                    "decision {tag}: the kernel answers {} bytes, which is not {base} plus a                      whole number of {stride}",
+                    "decision {tag}: the kernel answers {} bytes, not {base} plus a whole number of {stride}",
                     request.len()
                 ),
                 (None, None) => assert!(
@@ -2211,7 +2311,7 @@ fn engine_en_14() {
         String::from_utf8_lossy(&ran.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&ran.stdout).contains("examples reproduced"),
+        String::from_utf8_lossy(&ran.stdout).contains("forms written"),
         "the encoder check reproduced nothing:
 {}",
         String::from_utf8_lossy(&ran.stdout)
@@ -2264,7 +2364,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
-const { request } = await import(pathToFileURL(join(root, "site/card.mjs")).href);
+const { request, shapeOf } = await import(pathToFileURL(join(root, "site/card.mjs")).href);
 const table = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8")).decisions;
 const model = readFileSync(join(root, "app/src/Kernel.lex.tex"), "utf8");
 
@@ -2300,7 +2400,72 @@ for (const [bytes, answer] of examples) {
   reproduced += 1;
 }
 if (reproduced < 80) throw new Error(`only ${reproduced} examples reproduced`);
-console.log(`${reproduced} examples reproduced`);
+
+// Every form of every decision, written from the table's own starting values.
+// The kernel's examples cover the fixed shapes; a list and a shape a format
+// chooses have none yet, so what is asked of those is what the table itself
+// says: the request comes out at the length the kernel accepts, and every byte
+// of it is written by exactly one field.
+let forms = 0;
+for (const decision of table) {
+  const length = decision.length;
+  const asked = [];
+  if (typeof length === "number") {
+    asked.push([new Map(), length]);
+  } else if (length.base !== undefined) {
+    const count = decision.fields.find((field) => field.at === length.countAt);
+    for (const many of [0, 1, 2, 7]) {
+      asked.push([new Map([[count.name, String(many)]]), length.base + length.stride * many]);
+    }
+  } else {
+    const format = decision.fields.find((field) => field.at === length.at);
+    for (const [value, bytes] of Object.entries(length.lengths)) {
+      asked.push([new Map([[format.name, value]]), bytes]);
+    }
+  }
+  for (const [values, expected] of asked) {
+    const bytes = request(decision, values);
+    if (bytes.length !== expected) {
+      throw new Error(
+        `decision ${decision.tag}: the page writes ${bytes.length} bytes, ` +
+          `the kernel accepts ${expected}`,
+      );
+    }
+    const shape = shapeOf(decision, values);
+    const written = new Array(expected).fill(false);
+    written[0] = true;
+    for (const field of [...shape.fields, ...shape.items]) {
+      for (let byte = field.at; byte < field.at + field.width; byte += 1) {
+        if (byte >= expected) {
+          throw new Error(`decision ${decision.tag}: ${field.name} runs past the request`);
+        }
+        if (written[byte]) {
+          throw new Error(`decision ${decision.tag}: two fields write byte ${byte}`);
+        }
+        written[byte] = true;
+      }
+    }
+    if (!written.every(Boolean)) {
+      throw new Error(`decision ${decision.tag}: byte ${written.indexOf(false)} is no field's`);
+    }
+    forms += 1;
+  }
+}
+
+// And a format no form has is refused, rather than written as some other one.
+const chooses = table.find((decision) => decision.length.lengths);
+if (chooses) {
+  const format = chooses.fields.find((field) => field.at === chooses.length.at);
+  const beyond = Math.max(...Object.keys(chooses.length.lengths).map(Number)) + 1;
+  let refused = false;
+  try {
+    request(chooses, new Map([[format.name, String(beyond)]]));
+  } catch {
+    refused = true;
+  }
+  if (!refused) throw new Error("the page writes a request of a format the kernel does not read");
+}
+console.log(`${reproduced} examples reproduced, ${forms} forms written`);
 "#;
 
 // ─── What the readers do with anything at all ───────────────────────────────

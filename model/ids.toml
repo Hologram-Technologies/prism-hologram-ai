@@ -170,7 +170,7 @@ statement = "Sixteen megabytes of download are labelled at no less than two hund
 id = "EN-14"
 level = "build"
 suite = "engine"
-statement = "The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen"
+statement = "The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen"
 
 [[id]]
 id = "EN-15"

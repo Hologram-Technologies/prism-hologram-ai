@@ -37,7 +37,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-11` | `build` | A conversation forgets the pairs it proposed only when the kernel accepts the trim, and reads the kernel's bucket and budget as the numbers they are |
 | `EN-12` | `build` | Reading an ONNX model costs time in proportion to its nodes: twice the nodes take less than three times as long, and fifty thousand are read in under a second |
 | `EN-13` | `build` | Sixteen megabytes of download are labelled at no less than two hundred megabytes a second |
-| `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel's examples have it, every byte of a request is a field, and every value the examples use can be chosen |
+| `EN-14` | `build` | The page asks the kernel what its form says: every field lies where the kernel reads it, every byte of a request is a field of the form it is in, a list is drawn as the groups the kernel indexes into, and every value the examples use can be chosen |
 | `EN-15` | `build` | Every reader of a file someone else wrote answers, for any bytes at all: it never panics, it fails only as the register lists, and it answers the same bytes the same way |
 | `EN-16` | `build` | A model's tokenizer.json is read only when it is byte-level byte-pair encoding, and a file that describes anything else is refused by what it describes |
 | `EN-17` | `build` | Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies |
