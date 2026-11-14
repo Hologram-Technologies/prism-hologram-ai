@@ -39,6 +39,8 @@ Tokenizer: Bonsai embeds a GGUF header (5.9 MB), not `tokenizer.json`. `crates/t
 
 First model, pinned (from the hub's signed index record, whose SHA-256 matches `data/index/root.json`; the root's Sigstore signature not yet checked): `HOLOGRAMTECH/q-ternary-bonsai-1.7b` at revision `c6d6a12384ecc52ae7e006bef263bfedf5e7496c`, file `q-ternary-bonsai-1.7b.v1.holo`, 424,013,749 bytes, SHA-256 `acf0b5ad96b2a9b5b6a72b47cdddf5ec7ae4d15d5c50d0b5dea1ab245288ba99`. Its `sources[]` is empty, so bytes come from the configured base URL (Hugging Face). Measured in Chromium on 2026-11-14 by the coordinator session: a cross-origin `fetch()` with a Range header to Hugging Face's resolve route answers 206 through its CDN redirect, about 0.5 s per range. Safari, Firefox and parallel or large ranges are not yet measured.
 
+Where a model comes from: the hub's release record (format `hologram.hub.release/v4`) carries `origin` with `kind` and `resolve`, frozen by the hub's own tests. A file's URL is `origin.resolve + path`, with no separator added: `resolve` ends in `/` and already pins the revision, so it is good for that record's revision only. The engine reads the bytes from `resolve` and does not assume a `kind`. A record without `origin` (older than v4) falls back to the configured base URL. Also frozen: `repo`, `revision`, `files[]` with `path`, `size` and `gitSha1`, and `sources[]`; `files[].sha256` exists only where the source published one, so its absence is not an error.
+
 Sources: a model source is a base URL, a repo, a revision and a path, fetched by Hugging Face's `/{repo}/resolve/{revision}/{path}` route, so huggingface.co and the decentralised hub differ only in the base URL. Fetches must survive a cross-origin redirect while carrying a Range header. The hub's own kernel has an "accept" decision over SHA-256 and size; for the same facts it must give the same verdict as KN-05.
 
 ## What is proved, what is tested
@@ -59,6 +61,79 @@ New kernel decisions, each proved in LexLean with its scenario, pinned test and 
 Existing decisions Q starts using: KN-01 drives load states, KN-05 admits manifest and blocks, KN-07 trims context instead of Q's "context full" error, KN-08 grows the KV bucket, KN-09 bounds each turn's tokens, KN-04 picks the quantisation tier.
 
 Tested, not proved: every WGSL kernel, the CPU kernels, prefill and decode, attention, RoPE, normalisation, int4 KV, and the receipt's re-derivation.
+
+## Checkpoint 1: first light
+
+Milestone 1 is reached in checkpoints. The first is the only one on the critical path. It is done when Ilya can do this himself, and each step is also checked by a test, not only by eye.
+
+| Step | What he does | The test that checks it |
+| --- | --- | --- |
+| 1 | Opens the app's page in Chrome on a laptop. Nothing to install, no server of ours. | Journey in Chromium: the page loads from a static server; the network log shows requests only to the page's own origin, Hugging Face's resolve route and its CDN, and the hub's Pages site. Any other host fails the test. |
+| 2 | Picks Bonsai and watches it download by Range request from Hugging Face, with each check shown: revision, size and whole-file SHA-256 from the hub's signed record (checked against `root.json`), each block's BLAKE3 against the container's header, and the kernel's answers. | Hermetic journey: a small weight container built for the test, in the same layout, is served locally; the network log shows Range requests only; the page's check list equals the expected list. Negative journeys: one flipped byte in a block, a wrong whole-file hash, and a record that does not match the root each stop the load before any weight reaches the GPU. Kernel conformance: every kernel request the page sends and the answer it acts on are compared with the kernel's own examples for that decision. One live journey against the pinned Hugging Face revision runs on a schedule, not on every push. |
+| 3 | Sends a prompt and gets an answer by greedy decoding. | Reference test: for three fixed prompts, the first 64 generated token ids equal a committed reference transcript. The reference comes from a second implementation of the same model, not from this engine: llama.cpp on the source GGUF if its build reads the format, otherwise this repository's float CPU reference. Which one is not decided; the model card reports four of five outputs byte-identical to llama.cpp's WebGPU build, so equality is expected on most prompts, and any prompt where the two disagree is recorded with how many tokens agreed, never dropped. Unit test: the YaRN rotary factors equal the formula for every pair index. Differential test: batched prefill equals one-token prefill, token for token. |
+| 4 | Compares speed with the model card's baseline on the same class of machine: 85 to 114 tokens per second, 0.31 to 0.45 s to first token with the system prompt's state cached. | Measurement harness: a fixed protocol (prompt length, warm-up, number of runs, median) writes time to first token, tokens per second, load time and GPU memory to `model/ledger.toml` for one named laptop. The card's numbers are a target, not a gate, until they are re-measured on that laptop; after that, a regression of more than 10 percent fails. |
+
+In checkpoint 1: the ternary-per-128 GPU kernel, YaRN, batched prefill, the tokenizer read from the container's GGUF header through `crates/tokenizer` built for wasm, the kernel asked for every decision this path exercises (KN-01, 05, 06, 09, 12, 13, 14, and KN-07 or KN-08 when the conversation outgrows the context), and a minimal chat surface under `site/app/`.
+
+Later checkpoints, each with its own gate: Q's four other formats (q4, q3f, t2, t2r); speculative decoding; the CPU fallback; offline use; Safari, Firefox and phones; inference receipts; the in-page hub runner that chooses a source; the 25 examples in the kernel list.
+
+### What stands between today and checkpoint 1, in order
+
+| # | Item | Needs | Estimate |
+| --- | --- | --- | --- |
+| 1 | PR #18 green: decisions 12 to 17 on main | Hologram AI: names for 12 to 17 in `site/decision-names.json`. CI: the holo build, which has not yet run with these modules | hours, once the names exist |
+| 2 | Read the weight container's header (`HOLK1`) and directory in the page | Hologram AI: where the reader lives (a Rust crate built for wasm, beside the GGUF reader) | about a day once placed |
+| 3 | Tokenizer in the page from the container's embedded GGUF header | Hologram AI: the wasm build of `crates/tokenizer` (its GGUF reader is on main since 8c2795c) | Hologram AI's to estimate |
+| 4 | Streaming hashes in the page: BLAKE3 per block, SHA-256 over the whole file without holding it | Hologram AI: `crates/download` built for wasm, with an incremental whole-file SHA-256 added | Hologram AI's to estimate |
+| 5 | The hub's signed record checked in the page | The hub session: an importable module for reading the index and record (`web/client.mjs`, proposed); only `web/sigstore.mjs` is importable today. Without it, checkpoint 1 would have to read the record itself, which duplicates the hub's code, so it waits | cannot estimate |
+| 6 | The kernel holo running in the page and answering the engine | Reuse the page's existing guest worker (`site/guest-worker.mjs`) and the JS encoder generated from the kernel | about a day |
+| 7 | WebGPU engine: Q's resident path ported for Qwen3, plus the ternary-per-128 kernel, YaRN and batched prefill | The patched Q engine the model card was measured with, if it can be found: it already has the ternary kernel and YaRN. Where it lives is not known to me | days; cannot estimate more closely until I know whether that patch exists |
+| 8 | Reference transcripts for step 3 | A llama.cpp build that reads the source GGUF's ternary format, or this repository's float reference for Qwen3 | cannot estimate |
+| 9 | Minimal chat surface under `site/app/`, with the check list | Items 2 to 7 | about a day |
+| 10 | The tests above, and the measurement harness on one named laptop | Checked on 2026-11-14 in the SDK image, which has no GPU: headless Chromium gives a WebGPU adapter only with `--enable-unsafe-swiftshader --enable-unsafe-webgpu` (Google's software renderer), and with it a compute shader runs correctly and the storage-binding limit is 1 GiB. So CI can run the GPU code for real, slowly: a small hermetic model on every push, the Bonsai reference test on a schedule, speed only on the named laptop | about two days |
+
+## Checkpoints 2 and 3
+
+Agreed with Ilya on 2026-11-14. Speed parity with the original Q engine runs alongside as its own measured track.
+
+**Checkpoint 2: Foundry runs the engine behind a flag for Bonsai 1.7B.** Done when the Foundry session can integrate it behind a flag and measure load time, time to first token, tokens per second and page weight.
+
+- `site/app/engine/index.mjs` is the engine as an importable module, and the engine page is one caller of it; `window.__qengine` stays the page's own reporting. `models()`; `load(id, { kernel, onStatus, onProgress, signal })` takes a kernel the caller has verified and refuses any whose identity is not the one the module pins; `handle.generate(textOrIds, { maxNew, onToken, signal })` answers `{ text, tokenIds, stats }`; `handle.dispose()`.
+- Generation stops at the model's end token (needs the tokenizer to read special tokens as single ids), at a hard token cap, and within one submission of an abort.
+- Downloads are cached in the browser's private file system (OPFS) by block label; every read from the cache is admitted by the same kernel decisions as a download, and the whole-file root is recomputed.
+
+**Checkpoint 3: constrained output and Bonsai 8B.**
+
+- Output constrained to a JSON schema: a token mask before each pick. First as one position per submission while a schema is set, with the mask applied to the pick; a mask kept on the GPU is a later step if the round trip proves too slow.
+- Bonsai 8B's one-bit format (a single sign plane with one scale per 128 weights): a kernel variant and a block-length format in decision 13.
+
+## Speed: where a token's time goes, measured
+
+Decision on 2026-11-14: reach parity with the original Q engine first (85 to 114 tokens per second on Bonsai 1.7B, measured on this machine on the same prompts), then set the next target from those measurements.
+
+Measured on this machine's AMD RDNA 3 GPU in the browser pane (medians, pane hidden, so absolute numbers carry noise):
+
+| Quantity | Value |
+| --- | --- |
+| Raw read bandwidth | 175 to 209 GB/s |
+| Weight bytes per token (bit planes and scales, head included) | 0.48 GB (computed) |
+| Bound for one token per weight pass | about 390 tokens per second |
+| Current engine | about 43 tokens per second, 0.6 to 0.7 s to the first token |
+| Body matrices per token | 12.4 ms; head 1.5 ms; everything else about 9 ms |
+| Matrix kernels' bandwidth, by shape | 18 to 52 GB/s; Foundry's shipped kernel is within ten percent on every shape |
+
+What this says: the kernel's inner loop is not what separates this engine from the original. A 2048 by 2048 matrix should stream in about 6 microseconds and takes about 46, so the cost of each of about 450 dispatches per token dominates. The original fuses its dispatches. The next step is fusion, from 16 dispatches per layer to about 6: norm with q, k and v; head norms with rotation and the cache write; attention; the output projection with its residual; norm with gate, up and SiLU; down with its residual. Every step keeps GP-01 and GP-04 (identical tokens to the reference and to one position per submission) and is kept only if the measured number moves. Past parity, the bound above can only be crossed by verifying several tokens per weight pass (speculative decoding, already a proved kernel decision, KN-16), whose gain depends on the text.
+
+Side by side on 2026-11-14, browser pane visible, one load each, the same five prompts of about 440 to 470 tokens (Foundry's system block and a decision-app request), 256 new tokens:
+
+| | Original Q engine (Foundry's copy) | This engine |
+| --- | --- | --- |
+| Time to first token | 0.45 to 1.13 s | 11.3 to 12.1 s |
+| Tokens per second | 43.5 to 57.0, median 52.5 | 18.8 to 22.4, median 21.5 |
+
+So parity on this machine means about 52 tokens per second and under a second to the first token, not the 85 to 114 recorded elsewhere. Two gaps explain most of it, ahead of fusion: the prompt is run one position at a time, each a full pass over the weights (batched prefill reads each weight once for a block of positions); and attention walks the whole cache serially per head, so speed halves as the context grows (the original splits attention across the cache). The order is now: batched prefill, then split attention, then two batches in flight, then the remaining dispatch reductions.
+
+A row-and-lane kernel geometry ported from Foundry's engine was measured slower here (37.5 against 43 tokens per second) and was not kept.
 
 ## Phase 2. Engine core (milestone 1)
 
