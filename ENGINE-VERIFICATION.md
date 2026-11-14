@@ -520,6 +520,48 @@ rejected; none was missed.
 | The page does not know an answer the kernel gives | the page does not know `importable` |
 | none, before and after | passed |
 
+### Where the table comes from, and why the page stopped deploying
+
+The first version of this card shipped an empty chooser and an empty field
+area and built both from `site/decisions.json` after the page loaded. That is
+a layout shift by construction, and the frame measures exactly that: its own
+build script says everything the page says is in the HTML before any script
+runs, so nothing shifts after first paint. The `pages` workflow went red the
+moment the card landed, at `84f23b5`, and stayed red for four merges —
+performance 0.99 against a required 1, cumulative layout shift 0.028 against
+0, largest contentful paint 2119 ms against 1500 — and the site did not deploy
+in that time. The acceptance jobs were green throughout, and the page's own
+job is skipped on pull requests, which is why it went unnoticed.
+
+The fix is also the de-duplication. `cargo xtask page --write` reads the
+kernel's own modules — the tag each decision is routed by, the length its
+answer accepts, and the offset and width of every field it reads — and writes
+them into `site/decisions.json` and into `site/card.html`: the chooser's
+options, the first decision's fields, and the table itself as inline JSON. The
+page is whole before its script runs and fetches nothing. `site/decision-names.json`
+holds what the model cannot: what a field is called and what the form starts
+with.
+
+`just vv` runs `cargo xtask page` without `--write`, so a layout changed in
+the kernel and not regenerated here fails the gate rather than reaching the
+page.
+
+### The gate on the generator: `cargo xtask page`
+
+Seven defects, planted one at a time and then restored. Every one was
+rejected; none was missed.
+
+| Planted defect | Result |
+| --- | --- |
+| A decision's request grows by a byte in the kernel and not on the page | `site/decisions.json` is stale |
+| A field moves in the kernel and not on the page | the field at that byte has no name in the companion file |
+| The page's written part is edited by hand | `site/card.html` is stale |
+| The table is edited by hand | `site/decisions.json` is stale |
+| A field is renamed only in the table the page reads | the same |
+| The generator takes the length from the first number it sees | the table it writes disagrees with itself |
+| The generator writes no inline table, so the page would fetch again | `site/card.html` is stale |
+| none, before and after | passed |
+
 ### What EN-14 does not establish
 
 - That the page works in a browser. The gate runs the encoder in Node and
