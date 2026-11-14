@@ -1349,6 +1349,67 @@ missed.
   followed because four have been seen. The rest are refused by number, which
   is the behaviour that makes adding one a decision rather than an accident.
 
+## The limit, and what the page claims
+
+Two gaps between what this repository proves and what its page says, found by
+reading the published artifact rather than the repository.
+
+### A proof nobody could reach
+
+The kernel states the largest request it will take: `requestMaximum := 81`,
+which was right when every decision was a fixed length and admission was the
+longest at 81 bytes. Decisions 14, 15 and 16 are counted — their length
+follows a number inside the request — and a greedy pick over 255 scores is
+7 + 4 x 255 = 1,027 bytes. The guest refuses that before any decision is
+reached. Those three decisions are proved, and at their full range they could
+not be asked at all.
+
+The page took its lengths from the kernel and knew nothing of the limit, so it
+would compose such a request and watch it bounce. Now `cargo xtask page` reads
+`requestMaximum` from the kernel the way it reads the offsets, writes it into
+`site/decisions.json`, and the page refuses past it with the number in the
+message. EN-14 requires the page and the kernel to agree about it, that every
+fixed decision fits, that every counted decision's shortest request fits, and
+— in the encoder check — that a request past the limit is refused while the
+same request is still written when no limit is stated, so the refusal is the
+limit's doing rather than the encoder failing anyway.
+
+Raising the limit is the kernel's to do and wants a rebuild, so it rides the
+next SDK image rather than landing ahead of it.
+
+### Forty-nine theorems, fourteen named
+
+`site/app.json` listed fourteen theorems, in prose of its own. The proofs
+carry forty-nine, across seventeen modules. A list maintained by hand beside a
+model is a second source by construction, and this one had drifted by
+thirty-five.
+
+The page now states each theorem in the words the module proves it in — the
+statement from its `theorem{}` block, with the symbols drawn — and EN-14 reads
+`app/src/Proofs/*.lex.tex` and requires the two to agree, name for name and
+statement for statement. A theorem added to a module and not named on the page
+fails the gate; so does a statement edited on the page.
+
+### The defects
+
+Four, planted one at a time and then restored. Every one was rejected; none
+was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The page is told a limit the kernel does not state | EN-14: the page and the kernel disagree about the largest request |
+| The page writes a request past the limit rather than refusing it | the encoder check: a request past the limit was not refused |
+| A theorem the proofs carry is not named on the page | EN-14: the page and the proofs disagree about which theorems there are |
+| The page states a theorem differently from its proof | EN-14: the page states `gpu_usable_decides` differently from the module that proves it |
+| none, before and after | passed |
+
+### What this does not establish
+
+- That the limit is right. It says 81 and the page now honours it; whether the
+  kernel should take more is a decision for whoever raises it.
+- That the statements are readable. They are the proofs' own words with four
+  symbols drawn, which makes them true rather than friendly.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

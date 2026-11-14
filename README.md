@@ -15,9 +15,39 @@ planes, each trusted in a different way:
 
 The engine and the page never decide policy. They ask the kernel.
 
+## What the published artifact carries
+
+The page publishes `app.holo`, the compiled kernel. What a stranger who
+downloads that file can check, today, is this:
+
+| | |
+| --- | --- |
+| Its decisions run | `prism-code vectors app.holo` replays the examples the holo carries; 108 of 108 pass |
+| Who built it | `gh attestation verify app.holo --repo Hologram-Technologies/prism-hologram-ai` — GitHub's build attestation over this repository's `pages` workflow, whose URL is in `site/app.json` |
+| What it says about itself | `prism-code inspect app.holo` — name, profile, limits, and the compiler, stdlib and LexLean it was built from |
+
+And what it does **not** carry, which matters just as much: **no signed proof
+statement**. `prism-code check app.holo` reports P0, unverified, because the
+package carries no provenance, proof or replay statement of its own. The
+theorems are proved — `just app` runs `lexlean verify` over all seventeen proof
+modules on every push, and the acceptance job on `main` is green — but that
+proof lives in this repository's CI, not inside the file. A stranger with only
+the file has the build attestation above and the replayed vectors, and must
+take the proofs from the repository.
+
+Closing that is one change with one blocker: the SDK image this repository is
+pinned to emits a holo of physical version 4, and attaching a signed statement
+needs version 5. When a newer image lands, `prismpm verify` writes the proof
+statement and one `prism-code attest` call signs it into the holo, which is
+also what the six newest decisions need before their examples can ship. Until
+then this section is the honest answer, and it is kept honest by `EN-14`,
+which requires this page's own description to name every decision the kernel
+routes and every theorem the proofs carry.
+
 ## Status
 
-The kernel is built: all eleven decisions. The engine has six crates: the
+The kernel is built: seventeen decisions, forty-nine theorems. The engine
+has seven crates: the
 client that writes the kernel's requests and reads its answers, the reader that
 turns a model's safetensors header and config into the kernel's questions, the
 ONNX preflight that reads a graph's opset and operators, the download that

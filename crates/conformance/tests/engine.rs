@@ -102,6 +102,28 @@ fn named(why: wasm::CallError) -> Vec<u8> {
     format!("{why:?}").into_bytes()
 }
 
+/// The text after `needle` in `text`, if it is there.
+fn after_in<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
+    text.find(needle).map(|at| &text[at + needle.len()..])
+}
+
+/// The first word of `text`, which is how a name is written.
+fn first_word(text: &str) -> String {
+    text.chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+/// A statement as the page draws it: the same words, the symbols drawn.
+fn drawn(statement: &str) -> String {
+    let joined = statement.split_whitespace().collect::<Vec<_>>().join(" ");
+    joined
+        .replace("<->", "\u{2194}")
+        .replace("->", "\u{2192}")
+        .replace("/\\", "\u{2227}")
+        .replace("\\/", "\u{2228}")
+}
+
 /// The bytes, written as hexadecimal digits.
 fn enhex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -2037,12 +2059,16 @@ fn engine_en_13() {
 // kernel's own examples have it, every byte of a request accounted for, and
 // every value the examples use offered to whoever is filling the form.
 
-/// The decisions the page offers, from `site/decisions.json`.
-fn page_decisions() -> Vec<serde_json::Value> {
+/// The table the page reads, from `site/decisions.json`.
+fn page_table() -> serde_json::Value {
     let text = std::fs::read_to_string(root().join("site/decisions.json"))
         .expect("the page's decision table");
-    let read: serde_json::Value = serde_json::from_str(&text).expect("the table is JSON");
-    read["decisions"]
+    serde_json::from_str(&text).expect("the table is JSON")
+}
+
+/// The decisions the page offers.
+fn page_decisions() -> Vec<serde_json::Value> {
+    page_table()["decisions"]
         .as_array()
         .expect("a list of decisions")
         .clone()
@@ -2084,6 +2110,23 @@ fn engine_en_14() {
     assert_eq!(
         offered, routed,
         "the page offers decisions the kernel does not route, or misses ones it does"
+    );
+
+    // The most bytes the kernel takes, which the page must know: a request
+    // longer than this is refused by the guest before any decision is
+    // reached, so a form that writes one asks a question nobody answers.
+    let largest = page_table()["request"]
+        .as_u64()
+        .expect("the page knows the largest request the kernel takes") as usize;
+    let said = entry
+        .split("requestMaximum := (")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|digits| digits.parse::<usize>().ok())
+        .expect("the kernel states the largest request it takes");
+    assert_eq!(
+        largest, said,
+        "the page and the kernel disagree about the largest request"
     );
 
     for decision in &decisions {
@@ -2287,6 +2330,22 @@ fn engine_en_14() {
             );
         }
 
+        // Every request the page can write is one the kernel will take. A
+        // fixed decision fits or it cannot be asked at all; a counted one is
+        // the page's to stop at, which `EN-14`'s encoder check exercises.
+        if let Some(length) = fixed {
+            assert!(
+                length <= largest,
+                "decision {tag}: {length} bytes, more than the {largest} the kernel takes"
+            );
+        }
+        if let Some((base, _)) = counted {
+            assert!(
+                base <= largest,
+                "decision {tag}: its shortest request is {base} bytes, more than {largest}"
+            );
+        }
+
         // The length is the one the kernel accepts: every example of this
         // decision that is answered has it.
         let answered: Vec<&(Vec<u8>, Vec<u8>)> = examples
@@ -2421,6 +2480,61 @@ fn engine_en_14() {
         );
     }
 
+    // The page names every theorem the proofs carry, in the proofs' own words.
+    // A theorem added to a module and not named here would be a proof the page
+    // never mentions; one named here and not proved would be a claim with
+    // nothing behind it.
+    let mut proved: BTreeMap<String, String> = BTreeMap::new();
+    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
+        let path = entry.expect("a proof module").path();
+        let text = std::fs::read_to_string(&path).expect("the module reads");
+        for block in text.split("theorem{").skip(1) {
+            let block = block.split("\n}").next().unwrap_or(block);
+            let Some(name) = after_in(block, "name: ").map(first_word) else {
+                continue;
+            };
+            let Some(statement) = after_in(block, "statement: ") else {
+                continue;
+            };
+            let statement = statement
+                .split("\n  proof:")
+                .next()
+                .unwrap_or(statement)
+                .split("\n  axioms:")
+                .next()
+                .unwrap_or(statement);
+            proved.insert(name, drawn(statement.trim().trim_end_matches(',')));
+        }
+    }
+    assert!(
+        proved.len() >= 49,
+        "only {} theorems were read",
+        proved.len()
+    );
+    let listed: BTreeMap<String, String> = described["theorems"]
+        .as_array()
+        .expect("the theorems the page names")
+        .iter()
+        .map(|one| {
+            (
+                one["name"].as_str().unwrap_or_default().to_string(),
+                one["statement"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed.keys().collect::<Vec<_>>(),
+        proved.keys().collect::<Vec<_>>(),
+        "the page and the proofs disagree about which theorems there are"
+    );
+    for (name, statement) in &proved {
+        assert_eq!(
+            listed.get(name).map(String::as_str),
+            Some(statement.as_str()),
+            "the page states {name} differently from the module that proves it"
+        );
+    }
+
     // Every answer the kernel gives to an example is one the page knows how to
     // colour, or the refusal it names.
     let answers = &described["answers"];
@@ -2456,7 +2570,9 @@ import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
 const { request, shapeOf } = await import(pathToFileURL(join(root, "site/card.mjs")).href);
-const table = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8")).decisions;
+const read = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8"));
+const table = read.decisions;
+const largest = read.request;
 const model = readFileSync(join(root, "app/src/Kernel.lex.tex"), "utf8");
 
 const examples = [...model.matchAll(/request := 0x([0-9a-f]*), response := 0x([0-9a-f]*)/g)]
@@ -2515,7 +2631,7 @@ for (const decision of table) {
     }
   }
   for (const [values, expected] of asked) {
-    const bytes = request(decision, values);
+    const bytes = request(decision, values, largest);
     if (bytes.length !== expected) {
       throw new Error(
         `decision ${decision.tag}: the page writes ${bytes.length} bytes, ` +
@@ -2541,6 +2657,33 @@ for (const decision of table) {
     }
     forms += 1;
   }
+}
+
+// A request longer than the kernel takes is refused here, where the reason can
+// be read, rather than written and bounced by the guest. A counted decision is
+// where that happens: its length follows a number someone types.
+const counted = table.find((decision) => decision.length.base !== undefined);
+if (counted) {
+  const count = counted.fields.find((field) => field.at === counted.length.countAt);
+  const many = Math.ceil((largest - counted.length.base) / counted.length.stride) + 1;
+  const values = new Map([[count.name, String(many)]]);
+  const length = counted.length.base + counted.length.stride * many;
+  if (length <= largest) throw new Error("the test asked for a request that fits");
+  let refused = "";
+  try {
+    request(counted, values, largest);
+  } catch (error) {
+    refused = String(error.message ?? error);
+  }
+  if (!refused.includes(String(largest))) {
+    throw new Error(`a ${length}-byte request was not refused by the ${largest}-byte limit`);
+  }
+  // And the same request is written when nobody states a limit, so the
+  // refusal is the limit's doing and not the encoder's.
+  if (request(counted, values).length !== length) {
+    throw new Error("the encoder cannot write it at all, so the limit proves nothing");
+  }
+  forms += 2;
 }
 
 // And a format no form has is refused, rather than written as some other one.

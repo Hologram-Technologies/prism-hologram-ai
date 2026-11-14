@@ -102,7 +102,15 @@ pub fn page(root: &Path, write: bool) -> Result<(), Fail> {
     )?)
     .map_err(|e| format!("site/decision-names.json: {e}"))?;
 
-    let table = table(&decisions, &names)?;
+    // The most bytes the kernel will take. A request longer than this is
+    // refused by the guest before any decision is reached, so the page has to
+    // know it: a form that writes one is a form that asks a question nobody
+    // answers.
+    let entry = std::fs::read_to_string(root.join("app/src/Kernel.lex.tex"))?;
+    let largest = after(&entry, "requestMaximum := (")
+        .and_then(number)
+        .ok_or("app/src/Kernel.lex.tex: no requestMaximum to read")?;
+    let table = table(&decisions, &names, largest)?;
     let json = format!(
         "{}\n",
         serde_json::to_string_pretty(&table).map_err(|e| e.to_string())?
@@ -454,7 +462,11 @@ fn number(text: &str) -> Option<usize> {
 }
 
 /// The table the page reads: the kernel's numbers, with the names beside them.
-fn table(decisions: &[Decision], names: &serde_json::Value) -> Result<serde_json::Value, Fail> {
+fn table(
+    decisions: &[Decision],
+    names: &serde_json::Value,
+    largest: usize,
+) -> Result<serde_json::Value, Fail> {
     let mut out = Vec::new();
     for decision in decisions {
         let tag = decision.tag;
@@ -546,8 +558,10 @@ fn table(decisions: &[Decision], names: &serde_json::Value) -> Result<serde_json
     }
     Ok(serde_json::json!({
         "comment": "Written by `cargo xtask page --write` from the kernel's own modules \
-                    and site/decision-names.json. The offsets, widths, lengths, groups and \
-                    tags are the kernel's; the names are the companion file's.",
+                    and site/decision-names.json. The offsets, widths, lengths, groups, \
+                    tags and the largest request are the kernel's; the names are the \
+                    companion file's.",
+        "request": largest,
         "decisions": out,
     }))
 }
