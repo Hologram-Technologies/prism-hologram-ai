@@ -33,12 +33,35 @@ struct Field {
     width: usize,
 }
 
+/// How long a request is, as its module says.
+///
+/// Three forms, because the kernel has three. A decision with a list in it
+/// cannot have one length, and a decision whose shape depends on a format
+/// cannot either; both say so in the same place, the length its answer
+/// accepts.
+#[derive(Debug, PartialEq, Eq)]
+enum Length {
+    /// `=? 25`
+    Fixed(usize),
+    /// `=? (7 + (prim multiply 4 (Kernel.Wire::fieldAt value 6 1) : Nat))`
+    Counted {
+        base: usize,
+        stride: usize,
+        count_at: usize,
+    },
+    /// Several branches, each a length for one value of one field.
+    Chosen {
+        at: usize,
+        lengths: Vec<(usize, usize)>,
+    },
+}
+
 /// One decision, as the kernel routes and reads it.
 #[derive(Debug)]
 struct Decision {
     tag: u8,
     module: String,
-    length: usize,
+    length: Length,
     fields: Vec<Field>,
 }
 
@@ -91,8 +114,7 @@ fn read_kernel(root: &Path) -> Result<Vec<Decision>, Fail> {
             root.join("app/src/Kernel")
                 .join(format!("{module}.lex.tex")),
         )?;
-        let length = after(&source, "(Foundation.Bytes::byteLength value) =? ")
-            .and_then(number)
+        let length = length_of(&source)
             .ok_or_else(|| format!("{module}: its answer checks no request length"))?;
         let mut fields: Vec<Field> = Vec::new();
         // The widths the wire format has: a flag, a number, and a label, which
@@ -151,6 +173,100 @@ fn routed(entry: &str) -> Vec<(u8, String)> {
     out
 }
 
+/// One length check, and the field and values of the branch it stands in.
+type Branch = (usize, Option<(usize, Vec<usize>)>);
+
+/// How long a request is, from every place the module checks its length.
+///
+/// One check is a fixed length. One check of the counted form is a list. More
+/// than one check, each beside a test of the same field, is a length the
+/// format chooses.
+fn length_of(source: &str) -> Option<Length> {
+    const CHECK: &str = "(Foundation.Bytes::byteLength value) =? ";
+    let mut found: Vec<Branch> = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find(CHECK) {
+        let before = &rest[..at];
+        rest = &rest[at + CHECK.len()..];
+        if let Some(fixed) = number(rest) {
+            // What value of what field this branch is for, if it is one of
+            // several: the test stands just before the length check.
+            found.push((fixed, chosen_for(before)));
+            continue;
+        }
+        if let Some(counted) = counted(rest) {
+            return Some(counted);
+        }
+    }
+    match found.as_slice() {
+        [] => None,
+        [(fixed, _)] => Some(Length::Fixed(*fixed)),
+        several => {
+            let at = several
+                .iter()
+                .find_map(|(_, chosen)| chosen.as_ref().map(|(at, _)| *at))?;
+            let mut lengths = Vec::new();
+            for (length, chosen) in several {
+                let (field, values) = chosen.as_ref()?;
+                if *field != at {
+                    return None;
+                }
+                // One branch may be for several values, written as a choice
+                // between them: each of them has this length.
+                for value in values {
+                    lengths.push((*value, *length));
+                }
+            }
+            lengths.sort_unstable();
+            Some(Length::Chosen { at, lengths })
+        }
+    }
+}
+
+/// `(B + (prim multiply S (Kernel.Wire::fieldAt value A W) : Nat))`.
+fn counted(text: &str) -> Option<Length> {
+    let text = text.strip_prefix('(')?;
+    let base = number(text)?;
+    let rest = after(text, " + (prim multiply ")?;
+    let stride = number(rest)?;
+    let count_at = number(after(rest, "(Kernel.Wire::fieldAt value ")?)?;
+    Some(Length::Counted {
+        base,
+        stride,
+        count_at,
+    })
+}
+
+/// The field a branch tests, and every value of it this branch is for.
+///
+/// A branch may be for one value or for a choice between several, written as
+/// `((f =? 2) || (f =? 3))`, and both are one length. The branch is taken to
+/// begin at the nearest `if` before the length check, so a test from an
+/// earlier branch is not read as part of this one.
+fn chosen_for(before: &str) -> Option<(usize, Vec<usize>)> {
+    const READ: &str = "(Kernel.Wire::fieldAt value ";
+    let branch = before.rfind("if (").map_or(before, |at| &before[at..]);
+    let mut field = None;
+    let mut values = Vec::new();
+    let mut rest = branch;
+    while let Some(at) = rest.find(READ) {
+        rest = &rest[at + READ.len()..];
+        let Some(read) = number(rest) else { continue };
+        let Some(value) = after(rest, ") =? ").and_then(number) else {
+            continue;
+        };
+        // Only the field this branch chooses on: a test of another field in
+        // the same branch is a condition, not the choice.
+        match field {
+            None => field = Some(read),
+            Some(field) if field == read => {}
+            Some(_) => continue,
+        }
+        values.push(value);
+    }
+    field.filter(|_| !values.is_empty()).map(|at| (at, values))
+}
+
 /// The text after `needle`, if it is there.
 fn after<'a>(haystack: &'a str, needle: &str) -> Option<&'a str> {
     haystack
@@ -194,12 +310,27 @@ fn table(decisions: &[Decision], names: &serde_json::Value) -> Result<serde_json
             }
             fields.push(serde_json::Value::Object(entry));
         }
+        let length = match &decision.length {
+            Length::Fixed(length) => serde_json::json!(length),
+            Length::Counted {
+                base,
+                stride,
+                count_at,
+            } => serde_json::json!({ "base": base, "stride": stride, "countAt": count_at }),
+            Length::Chosen { at, lengths } => {
+                let mut by_value = serde_json::Map::new();
+                for (value, length) in lengths {
+                    by_value.insert(value.to_string(), serde_json::json!(length));
+                }
+                serde_json::json!({ "at": at, "lengths": by_value })
+            }
+        };
         out.push(serde_json::json!({
             "tag": decision.tag,
             "module": decision.module,
             "name": named["name"],
             "asks": named["asks"],
-            "length": decision.length,
+            "length": length,
             "fields": fields,
         }));
     }
@@ -299,4 +430,86 @@ fn escape(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The length checks of decisions this repository already carries, and of
+    /// the six a browser engine adds, quoted from their modules. A length this
+    /// parser cannot read is a decision the page cannot draw, so each shape is
+    /// here before the decision that needs it arrives.
+    #[test]
+    fn every_length_the_kernel_writes_is_read() {
+        let fixed = "(if (((Foundation.Bytes::byteLength value) =? 25) && ((Kernel.Wire::fieldAt \
+                     value 1 8) <=? 1)) then";
+        assert_eq!(length_of(fixed), Some(Length::Fixed(25)));
+
+        // A list: a base, a stride and the field holding the count.
+        let pick = "(if ((((Foundation.Bytes::byteLength value) =? (7 + (prim multiply 4 \
+                    (Kernel.Wire::fieldAt value 6 1) : Nat))) && ((Kernel.Wire::fieldAt value 1 \
+                    1) <? (Kernel.Wire::fieldAt value 6 1))) then";
+        assert_eq!(
+            length_of(pick),
+            Some(Length::Counted {
+                base: 7,
+                stride: 4,
+                count_at: 6
+            })
+        );
+        let penalty = "(if (((Foundation.Bytes::byteLength value) =? (8 + (prim multiply 4 \
+                       (Kernel.Wire::fieldAt value 7 1) : Nat))) then";
+        assert_eq!(
+            length_of(penalty),
+            Some(Length::Counted {
+                base: 8,
+                stride: 4,
+                count_at: 7
+            })
+        );
+        let speculate = "(if ((((Foundation.Bytes::byteLength value) =? (7 + (prim multiply 8 \
+                         (Kernel.Wire::fieldAt value 1 1) : Nat))) && ((1 <=? \
+                         (Kernel.Wire::fieldAt value 2 1)) && ((Kernel.Wire::fieldAt value 2 1) \
+                         <=? ((Kernel.Wire::fieldAt value 1 1) + 1)))) then";
+        assert_eq!(
+            length_of(speculate),
+            Some(Length::Counted {
+                base: 7,
+                stride: 8,
+                count_at: 1
+            })
+        );
+    }
+
+    /// A length the request's own first byte chooses, with one branch standing
+    /// for two formats.
+    #[test]
+    fn a_length_a_format_chooses_is_read() {
+        let quant = "(if (((Kernel.Wire::fieldAt value 1 1) =? 0) && (((Foundation.Bytes::\
+                     byteLength value) =? 7) && ((Kernel.Wire::fieldAt value 2 1) <? 8))) then \
+                     (a) else (if (((Kernel.Wire::fieldAt value 1 1) =? 1) && \
+                     (((Foundation.Bytes::byteLength value) =? 15) && ((Kernel.Wire::fieldAt \
+                     value 2 1) <? 32))) then (b) else (if ((((Kernel.Wire::fieldAt value 1 1) \
+                     =? 2) || ((Kernel.Wire::fieldAt value 1 1) =? 3)) && \
+                     (((Foundation.Bytes::byteLength value) =? 7) && ((Kernel.Wire::fieldAt \
+                     value 2 1) <? 16))) then (c) else (if (((Kernel.Wire::fieldAt value 1 1) \
+                     =? 4) && (((Foundation.Bytes::byteLength value) =? 5) && \
+                     ((Kernel.Wire::fieldAt value 2 1) <? 8))) then (d) else (e))))";
+        assert_eq!(
+            length_of(quant),
+            Some(Length::Chosen {
+                at: 1,
+                lengths: vec![(0, 7), (1, 15), (2, 7), (3, 7), (4, 5)]
+            }),
+            "the format chooses the length, and one branch stands for two formats"
+        );
+    }
+
+    /// A module whose answer checks no length at all is a module this cannot
+    /// describe, and says so rather than guessing one.
+    #[test]
+    fn a_module_with_no_length_check_is_no_decision() {
+        assert_eq!(length_of("(if (something else) then (a) else (b))"), None);
+    }
 }

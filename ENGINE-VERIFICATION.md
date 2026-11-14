@@ -562,6 +562,26 @@ rejected; none was missed.
 | The generator writes no inline table, so the page would fetch again | `site/card.html` is stale |
 | none, before and after | passed |
 
+### The three lengths a request can have
+
+A decision's length is where the generator starts, and the kernel writes it
+three ways. Most decisions check a number: `=? 25`. A decision with a list in
+it checks a base plus a stride times a count, `=? (7 + (prim multiply 4
+(Kernel.Wire::fieldAt value 6 1) : Nat))`, which says both how long the request
+is and where the count lives. A decision whose shape depends on a format
+checks a different length in each branch, beside the test that picks it, and
+one branch may stand for two formats.
+
+All three are read, and `xtask`'s own tests carry one example of each, quoted
+from the modules that use them — including the six decisions a browser engine
+adds, so the parser is known to read them before they arrive. A module whose
+answer checks no length is refused rather than given one.
+
+What the page does with a list — drawing one control per element and writing
+them at the stride — is not here. There is nothing in the table with a list in
+it yet, so it would be code with nothing to draw and no test to catch it being
+wrong; it arrives with the decisions that need it.
+
 ### What EN-14 does not establish
 
 - That the page works in a browser. The gate runs the encoder in Node and
