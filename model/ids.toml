@@ -273,3 +273,15 @@ id = "EN-25"
 level = "build"
 suite = "engine"
 statement = "A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name"
+
+[[id]]
+id = "GP-01"
+level = "build"
+suite = "gpu"
+statement = "The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance"
+
+[[id]]
+id = "GP-02"
+level = "build"
+suite = "gpu"
+statement = "The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size"
