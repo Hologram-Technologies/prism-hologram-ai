@@ -15,7 +15,14 @@ import { referenceModel } from "./reference.mjs";
 
 const site = process.argv[2];
 const playwright = process.env.PRISM_PLAYWRIGHT ?? "/opt/prismpm/oracles/node_modules/playwright/index.mjs";
-const { chromium } = await import(playwright);
+// No browser is a failure, never a skip: a journey that did not run proves nothing.
+let chromium;
+try {
+  ({ chromium } = await import(playwright));
+} catch (error) {
+  console.error(`journey: no Playwright at ${playwright} (set PRISM_PLAYWRIGHT): ${error.message}`);
+  process.exit(1);
+}
 
 const fixture = buildFixture();
 // One byte inside a block the loader takes after many others: its label no
@@ -114,3 +121,37 @@ if (good.output) {
   good.expected = expected;
 }
 console.log(JSON.stringify(results));
+
+// The verdicts. Each says where the page must have stopped, not only that it
+// did: a page that refuses for the wrong reason fails too.
+const failures = [];
+const fail = (why) => failures.push(why);
+const stoppedAt = (r) => r.checks.filter((c) => c.verdict === "fail")[0];
+
+if (good.phase !== "ready") fail(`good: the page did not reach ready (${good.phase}: ${good.error ?? (good.timeout ? "timed out" : "")})`);
+if (good.checks.some((c) => c.verdict === "fail")) fail(`good: a check failed: ${stoppedAt(good)?.subject}`);
+const alias = good.checks.find((c) => c.step === "alias");
+if (!alias || alias.verdict !== "pass") fail("good: the tied output head was not confirmed as the embedding's bytes");
+if (!good.checks.some((c) => c.step === "root" && c.verdict === "pass")) fail("good: the whole-file root was not checked");
+if (!good.output) fail("good: no answer");
+else {
+  const got = good.output.tokens.slice(0, 16);
+  if (got.length < 16 || got.some((t, i) => t !== good.expected[i])) fail(`good: the page's tokens ${got} are not the reference's ${good.expected}`);
+}
+if (good.errors.length) fail(`good: page errors: ${good.errors.join(" | ")}`);
+
+const flip = results.flip;
+const flipStop = stoppedAt(flip);
+if (flip.phase !== "failed" || flipStop?.step !== "admit" || flipStop?.subject !== `${victim.name} label and length`)
+  fail(`flip: expected to stop at the admission of ${victim.name}, stopped at ${flipStop?.step}: ${flipStop?.subject} (${flip.phase})`);
+if (flip.checks.some((c) => c.subject === "download → compile")) fail("flip: the load went on to compile");
+
+const root = results.root;
+const rootStop = stoppedAt(root);
+if (root.phase !== "failed" || rootStop?.step !== "root") fail(`root: expected to stop at the whole-file root, stopped at ${rootStop?.step}: ${rootStop?.subject} (${root.phase})`);
+
+if (failures.length) {
+  console.error(failures.join("\n"));
+  process.exit(1);
+}
+console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering is");

@@ -8,7 +8,7 @@
 default: vv
 
 # The whole gate.
-vv: fmt-check model template-check lint test deny app
+vv: fmt-check model template-check lint test deny app engine page-journey
     @echo "vv: the acceptance gate passed"
 
 fmt-check:
@@ -103,6 +103,36 @@ engine:
     if command -v gzip >/dev/null; then
       printf 'engine: %s bytes gzipped\n' "$(gzip -9 -c site/app/engine/engine.wasm | wc -c)"
     fi
+
+# The page as it is published, driven end to end: the holo this workspace
+# built, the engine it built, the page assembled from them, and a real
+# browser loading a container through the verified kernel.
+#
+# `vv` runs it after `app` and `engine`, because it needs what both make.
+# `pages.yml` runs this same recipe between its build and its deploy, on
+# the tree it is about to publish: one script, two callers, so the page
+# that passes here is the page that goes out.
+page-journey assembled="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s failglob
+    site="{{assembled}}"
+    if [[ -z $site ]]; then
+      holos=(app/.prism/build/*/*.holo)
+      [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
+      site=target/page-journey
+      rm -rf "$site"
+      mkdir -p "$site"
+      cp -r site/. "$site/"
+      cp "${holos[0]}" "$site/app.holo"
+      cp -r try/vendor "$site/vendor"
+      rm -rf "$site/vendor/prism-code/fixtures"
+      node bootstrap/page.mjs "$site"
+      node bootstrap/precache.mjs "$site"
+    fi
+    [[ -f $site/app.holo ]] || { echo "$site has no holo: run just app" >&2; exit 64; }
+    [[ -f $site/app/engine/engine.wasm ]] || { echo "$site has no engine: run just engine" >&2; exit 64; }
+    node crates/conformance/tests/gpu/journey.mjs "$site"
 
 # Only the meta-gate, while iterating on a scenario. `test` already runs it.
 bdd:

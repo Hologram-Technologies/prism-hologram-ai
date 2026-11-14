@@ -161,3 +161,86 @@ fn gpu_gp_04() {
     // exercised, not only the first chunk.
     assert!(runs.iter().any(|r| r["promptLength"].as_u64() > Some(32)));
 }
+
+/// `GP-03`: The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with
+#[test]
+fn gpu_gp_03() {
+    // The journey needs the holo and the engine this workspace built, so it
+    // runs as `just page-journey`, after `app` and `engine` in the gate, and
+    // the publishing workflow runs that same recipe before it deploys. This
+    // test reads that wiring: a journey nobody calls proves nothing.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let justfile = read("Justfile");
+    let vv = justfile
+        .lines()
+        .find(|l| l.starts_with("vv:"))
+        .expect("the vv recipe");
+    let steps: Vec<&str> = vv.trim_start_matches("vv:").split_whitespace().collect();
+    let at = |name: &str| {
+        steps
+            .iter()
+            .position(|s| *s == name)
+            .unwrap_or_else(|| panic!("vv does not run {name}: {vv}"))
+    };
+    assert!(
+        at("page-journey") > at("app") && at("page-journey") > at("engine"),
+        "vv must run page-journey after app and engine: {vv}"
+    );
+    let recipe = &justfile[justfile
+        .find("\npage-journey assembled=\"\":")
+        .expect("the page-journey recipe")..];
+    let recipe = &recipe[..recipe[1..].find("\n\n").map_or(recipe.len(), |i| i + 1)];
+    assert!(
+        recipe.contains("node crates/conformance/tests/gpu/journey.mjs \"$site\""),
+        "page-journey must run the journey on the assembled site:\n{recipe}"
+    );
+    for refusal in [
+        "has no holo: run just app",
+        "has no engine: run just engine",
+    ] {
+        assert!(
+            recipe.contains(refusal),
+            "page-journey must refuse, not skip, when a part is missing: {refusal}"
+        );
+    }
+
+    let pages = read(".github/workflows/pages.yml");
+    let journey_step = pages
+        .find("just page-journey site")
+        .expect("pages.yml runs the page-journey recipe");
+    assert!(
+        !pages.contains("tests/gpu/journey.mjs"),
+        "pages.yml must call the recipe, not a copy of what it runs"
+    );
+    assert!(
+        journey_step
+            > pages
+                .find("name: Assemble the page")
+                .expect("the assemble step")
+            && journey_step
+                < pages
+                    .find("actions/deploy-pages")
+                    .or_else(|| pages.find("deploy"))
+                    .expect("a deploy step"),
+        "pages.yml must run the journey after assembling the page and before deploying it"
+    );
+
+    // The journey's own verdicts: each says where the page must have stopped.
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "flipStop?.step !== \"admit\"",
+        "flipStop?.subject !== `${victim.name} label and length`",
+        "rootStop?.step !== \"root\"",
+        "got.some((t, i) => t !== good.expected[i])",
+        "the tied output head was not confirmed",
+        "process.exit(1)",
+        "No browser is a failure, never a skip",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks: {wanted}"
+        );
+    }
+}
