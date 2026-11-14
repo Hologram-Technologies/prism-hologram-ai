@@ -297,3 +297,9 @@ id = "GP-04"
 level = "build"
 suite = "gpu"
 statement = "Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time"
+
+[[id]]
+id = "GP-03"
+level = "build"
+suite = "gpu"
+statement = "The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with"

@@ -22,3 +22,11 @@ Feature: gpu
     When one engine runs them one position per submission and another many positions per submission, each pick written to the ring on the GPU and read by the next position
     Then both give the same twelve tokens for each prompt
     And every position ran exactly once
+
+  @GP-03 @build
+  Scenario: The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with
+    Given a weight container in Bonsai's layout built from the generated model, with its output head naming the embedding's bytes, and a hub record and index root that name it
+    When `just page-journey` drives the published page, with the holo and engine this workspace built, in headless Chromium, as `vv` does after `app` and `engine` and `pages.yml` does before it deploys
+    Then the page reaches ready with every check passed, confirms the output head is the embedding's bytes, and answers with the reference's first sixteen tokens
+    And a container with one flipped byte stops at that block's admission, before anything is uploaded
+    And a record naming a wrong whole-file SHA-256 stops at the root
