@@ -86,10 +86,12 @@ async function load() {
       ask,
       checks,
       preflight: async (dims, entries) => {
-        // The largest buffer the engine binds is one bit plane of the biggest matrix.
-        // A ternary block is two planes of N*K/8 bytes and N*K/32 bytes of scales,
-        // so one plane is 4/9 of the block.
-        const largest = Math.max(...entries.map((e) => (e.length * 4) / 9));
+        // The largest buffer the engine binds, per format: a ternary block is two
+        // planes of N*K/8 bytes and N*K/32 bytes of scales, so one plane is 4/9 of
+        // it; a q4 block is N*K/2 bytes of codes and N*K/8 of scales, so the codes
+        // are 4/5; anything else is bound whole.
+        const share = { q1: 4 / 9, q4: 4 / 5 };
+        const largest = Math.max(...entries.map((e) => e.length * (share[e.fmt] ?? 1)));
         await ask("backend", "backend for this device", join(new Uint8Array([12, device ? 1 : 0]), be(limit, 8), be(Math.ceil(largest), 8)), "webgpu");
         status("Downloading and checking every block…");
         $("progress").hidden = false;

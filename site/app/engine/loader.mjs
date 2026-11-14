@@ -153,7 +153,7 @@ export async function loadContainer({ url, size, sha256: wantRoot, module: m, as
     }
     await ask("range", `${name} byte range`, m.call("container_range_question", i, BigInt(size), BigInt(previousEnd)), "accept");
     const length = Number(await ask("block", `${name} block length`, m.call("container_block_question", i), (a) => /^\d+$/.test(a)));
-    entries.push({ index: i, name, ...at, length });
+    entries.push({ index: i, name, fmt: shape.get(name).fmt, ...at, length });
     previousEnd = at.off + at.len;
   }
   await preflight(dims, entries);
