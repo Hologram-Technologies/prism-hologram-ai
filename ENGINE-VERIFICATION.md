@@ -79,7 +79,8 @@ runtime's crates are not published there.
 | `EN-17`: text is split by the model's own pattern and merged in rank order | `engine_en_17` | tested |
 | `EN-18`: decoding what was encoded gives back the text, for any text | `engine_en_18`, over thirteen texts and three hundred generated ones | tested |
 | `FL-20` to `FL-23`: the tokeniser fails only as `model/failures.toml` lists | `engine_fl_20` to `engine_fl_23` | tested |
-| That these counts are the counts HuggingFace's own tokenisers give | **not established**: no published tokeniser file is read here, and no oracle is run against one |
+| `EN-20`: the ids are the ids HuggingFace's own `tokenizers` gives, for the same file and the same text | `engine_en_20`, over 1,526 texts and seven files | tested against the authority |
+| That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | `EN-12`: reading an ONNX model costs time in proportion to its nodes, and fifty thousand are read in under a second | `engine_en_12`, timing 25,000 nodes and 50,000 and comparing | tested |
@@ -625,13 +626,61 @@ pattern that matches only part of the text, so that something is stepped over;
 and a pre-tokeniser that is a pattern and nothing else. All three are now in
 `EN-16` and `EN-17`.
 
+### EN-20, against the authority itself
+
+`EN-16` to `EN-18` say that this crate does what it says it does. They cannot
+say that what it does is what the model's own tokeniser does, and that is the
+claim the counts actually rest on.
+
+So the oracle is the authority's own implementation: HuggingFace's `tokenizers`
+crate, a dev-dependency of the conformance crate, which does not ship, so
+nothing the engine carries changed. Both are given the same file and the same
+text, and the ids must be the same ids. 1,526 comparisons: seven files, from
+merges only to the shape a published model has, over eighteen written texts and
+two hundred generated ones.
+
+It earned its place immediately. The authority's reader refused the files this
+suite was building, for want of `add_prefix_space`, and what that field means
+turned out to be something this crate was not doing at all:
+
+- `use_regex` on a byte-level pre-tokeniser means it splits by the authority's
+  own pattern, which the file does not carry. This crate treated a byte-level
+  pre-tokeniser with no pattern beside it as *no splitting*, which is what a
+  published file asks for least often.
+- `add_prefix_space` means a space goes in front of text that does not start
+  with one, so the first word is the same token as that word anywhere else.
+  This crate was not doing it.
+
+Both are fixed, and both are now planted as defects.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The pattern is the authority's with one alternative dropped | the ids differ on a run of spaces |
+| The space before the first word is never put there | the ids differ for `the` |
+| The space is put there whatever the file says | the same |
+| The byte-level pre-tokeniser never splits, whatever the file says | the ids differ for ` the the the` |
+| The merges are applied from the left instead of by rank | the ids differ for `abc abcabc` |
+| The moved bytes start one place lower | the ids differ for a space |
+| A flag the file leaves out is read as off, not as the authority's default | **missed** |
+| none, before and after | passed |
+
+The missed one cannot be caught this way, and it is worth saying why: the
+authority's own reader refuses a file that leaves those flags out, so there is
+no file on which the two can be compared. What this crate does with such a file
+follows the authority's documented defaults, and that is a claim about a file
+the authority will not read.
+
+Two of the defects above are also the two mistakes this crate actually had. A
+gate that only confirms what its author believed is worth less than one that
+has already found something, and this one found two.
+
 ### What EN-16 to EN-18 do not establish
 
-- **That these counts are the counts a published model would give.** Every
-  tokeniser in this suite is built here. No `tokenizer.json` from a hub is
-  read, and no oracle is run against HuggingFace's own implementation, which
-  the implementation plan asks for. This is the largest thing outstanding about
-  this crate, and until it is done a count from here is this crate's count.
+- **That a published model's own file is read.** Every tokeniser in this suite
+  is built here, in the shapes a published file has. None comes from a hub, so
+  nothing here establishes that a real `tokenizer.json` is read as its
+  publisher meant it; what `EN-20` establishes is that for the files it does
+  read, the ids are the authority's.
 - That the conversation's counts are a published model's. `chat` now counts
   with this crate (`EN-19`), so the two agree with each other; whether either
   agrees with the model's own tokeniser is the open question above.
