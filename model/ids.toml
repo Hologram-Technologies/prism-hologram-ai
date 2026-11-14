@@ -207,3 +207,15 @@ id = "EN-20"
 level = "build"
 suite = "engine"
 statement = "The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text"
+
+[[id]]
+id = "EN-21"
+level = "build"
+suite = "engine"
+statement = "A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused"
+
+[[id]]
+id = "EN-22"
+level = "build"
+suite = "engine"
+statement = "A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks"

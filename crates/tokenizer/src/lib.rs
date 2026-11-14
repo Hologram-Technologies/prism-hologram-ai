@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 mod bytes;
+mod gguf;
 
 /// Why a tokeniser could not be read, or could not be used.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +36,10 @@ pub enum TokeniserError {
     UnknownId,
     /// `FL-23`
     TokenNotByteLevel,
+    /// `FL-24`
+    NotGguf,
+    /// `FL-25`
+    Truncated,
 }
 
 /// What about a tokeniser this crate does not follow.
@@ -52,6 +57,76 @@ pub enum Unfollowable {
     MergeNotAPair,
     /// The vocabulary is missing, empty, or not text to numbers.
     NoVocabulary,
+    /// A name the file carries is not text.
+    NameNotText,
+    /// The file is of a version this crate does not read.
+    VersionNotKnown,
+    /// A metadata value is of a type the format does not define, so its end
+    /// cannot be found.
+    ValueTypeNotKnown,
+    /// The file names its pre-tokeniser, and this crate has no cited pattern
+    /// for that name. The name is all the file carries; the pattern it stands
+    /// for lives in the reader, so guessing it would be inventing one.
+    PreTokeniserNotKnown,
+}
+
+/// The pattern a `gpt2` pre-tokeniser splits by, as `llama.cpp` has it. It is
+/// the published byte-level pattern without the final `\s+` alternative.
+const GPT2_PATTERN: &str =
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)";
+
+/// The pattern a `qwen2` pre-tokeniser splits by, as `llama.cpp` has it:
+/// case-insensitive contractions, single digits, and runs of line endings kept
+/// with what they follow.
+const QWEN2_PATTERN: &str = concat!(
+    r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])",
+    r"|[^
+\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[
+]*|\s*[
+]+|\s+(?!\S)|\s+",
+);
+
+/// The rank of each merge: the lower the rank, the earlier it applies. A pair
+/// written twice keeps the rank it was first given, which is the one the file
+/// means.
+///
+/// Exactly two pieces. A space inside a piece is not possible in a byte-level
+/// vocabulary, where a space is written as a character of the alphabet, so a
+/// merge with two spaces in it is a merge the file means something else by.
+fn ranked(merged: Vec<String>) -> Result<BTreeMap<(String, String), u32>, TokeniserError> {
+    let mut ranks = BTreeMap::new();
+    for (rank, merge) in merged.into_iter().enumerate() {
+        let rank = u32::try_from(rank)
+            .map_err(|_| TokeniserError::Unfollowable(Unfollowable::MergeNotAPair))?;
+        let pair = match merge.split(' ').collect::<Vec<_>>()[..] {
+            [left, right] => (left.to_string(), right.to_string()),
+            _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
+        };
+        ranks.entry(pair).or_insert(rank);
+    }
+    Ok(ranks)
+}
+
+/// The pattern a pre-tokeniser's name stands for, for the names this crate has
+/// a cited pattern for. A file carries the name and not the pattern, so a name
+/// with no cited pattern is refused rather than guessed at.
+///
+/// The names and their patterns are `llama.cpp`'s, cited in
+/// `model/authorities.toml`; the aliases are the ones it lists beside each.
+fn pattern_named(name: Option<&str>) -> Result<fancy_regex::Regex, TokeniserError> {
+    let pattern = match name {
+        None | Some("default" | "gpt-2" | "gpt2" | "olmo" | "jais" | "mpt") => GPT2_PATTERN,
+        Some("qwen2" | "deepseek-r1-qwen" | "kormo" | "f2llmv2" | "stablelm2" | "hunyuan") => {
+            QWEN2_PATTERN
+        }
+        Some(_) => {
+            return Err(TokeniserError::Unfollowable(
+                Unfollowable::PreTokeniserNotKnown,
+            ))
+        }
+    };
+    fancy_regex::Regex::new(pattern)
+        .map_err(|_| TokeniserError::Unfollowable(Unfollowable::PatternNotRunnable))
 }
 
 /// The pattern the byte-level pre-tokeniser splits by when it is asked to.
@@ -120,31 +195,23 @@ impl Tokeniser {
             }
         }
 
-        let mut ranks = BTreeMap::new();
-        for (rank, merge) in model["merges"].as_array().into_iter().flatten().enumerate() {
-            let rank = u32::try_from(rank)
-                .map_err(|_| TokeniserError::Unfollowable(Unfollowable::MergeNotAPair))?;
-            let pair = match merge {
-                // Written either as one string of two pieces, or as the two.
-                // Exactly two pieces. A space inside a piece is not possible
-                // in a byte-level vocabulary, where a space is written as a
-                // character of the alphabet, so a merge with two spaces in it
-                // is a merge this file means something else by.
-                serde_json::Value::String(text) => match text.split(' ').collect::<Vec<_>>()[..] {
-                    [left, right] => (left.to_string(), right.to_string()),
-                    _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
-                },
+        // Written either as one string of two pieces, or as the two. Both
+        // become the same list, and the ranks are taken from it in one place.
+        let mut merged = Vec::new();
+        for merge in model["merges"].as_array().into_iter().flatten() {
+            merged.push(match merge {
+                serde_json::Value::String(text) => text.clone(),
                 serde_json::Value::Array(two) => match two.as_slice() {
                     [left, right] => match (left.as_str(), right.as_str()) {
-                        (Some(left), Some(right)) => (left.to_string(), right.to_string()),
+                        (Some(left), Some(right)) => format!("{left} {right}"),
                         _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
                     },
                     _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
                 },
                 _ => return Err(TokeniserError::Unfollowable(Unfollowable::MergeNotAPair)),
-            };
-            ranks.entry(pair).or_insert(rank);
+            });
         }
+        let ranks = ranked(merged)?;
 
         let described = pre_tokeniser(&read["pre_tokenizer"])?;
         if !described.byte_level {
@@ -159,6 +226,44 @@ impl Tokeniser {
             prefix_space: described.prefix_space,
             alphabet: bytes::alphabet(),
         })
+    }
+
+    /// Build a tokeniser from a vocabulary in id order, merges in rank order,
+    /// and how the text is split before any of it.
+    ///
+    /// Both readers end here: what a tokeniser is does not depend on which
+    /// kind of file it was read from.
+    fn assemble(
+        tokens: Vec<String>,
+        merged: Vec<String>,
+        pattern: Option<fancy_regex::Regex>,
+        prefix_space: bool,
+    ) -> Result<Self, TokeniserError> {
+        let mut ids = BTreeMap::new();
+        let mut by_id = BTreeMap::new();
+        for (id, token) in tokens.into_iter().enumerate() {
+            let id = u32::try_from(id)
+                .map_err(|_| TokeniserError::Unfollowable(Unfollowable::NoVocabulary))?;
+            ids.insert(token.clone(), id);
+            by_id.insert(id, token);
+        }
+        let ranks = ranked(merged)?;
+        Ok(Self {
+            ids,
+            tokens: by_id,
+            ranks,
+            pattern,
+            prefix_space,
+            alphabet: bytes::alphabet(),
+        })
+    }
+
+    /// Read a model's GGUF file, or as much of it as holds the header.
+    ///
+    /// A model of gigabytes carries its vocabulary in the first part of its
+    /// own file; nothing past the metadata is read.
+    pub fn from_gguf(file: &[u8]) -> Result<Self, TokeniserError> {
+        gguf::read(file)
     }
 
     /// How many tokens this vocabulary holds.
