@@ -54,6 +54,12 @@ pub enum Unfollowable {
     NoVocabulary,
 }
 
+/// The pattern the byte-level pre-tokeniser splits by when it is asked to.
+/// It is the authority's own, written here because the files that use it do
+/// not carry it: they say `use_regex`, and this is what that means.
+const BYTE_LEVEL_PATTERN: &str =
+    r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
+
 /// A model's tokeniser: what text is split into, and what each piece is called.
 #[derive(Clone, Debug)]
 pub struct Tokeniser {
@@ -65,6 +71,9 @@ pub struct Tokeniser {
     /// carries one. Without it the whole text is one piece, which is what the
     /// published byte-level pre-tokeniser does on its own.
     pattern: Option<fancy_regex::Regex>,
+    /// Whether a space is put before text that does not start with one, which
+    /// is what makes the first word look like every other word to the model.
+    prefix_space: bool,
     alphabet: [char; 256],
 }
 
@@ -137,8 +146,8 @@ impl Tokeniser {
             ranks.entry(pair).or_insert(rank);
         }
 
-        let (byte_level, pattern) = pre_tokeniser(&read["pre_tokenizer"])?;
-        if !byte_level {
+        let described = pre_tokeniser(&read["pre_tokenizer"])?;
+        if !described.byte_level {
             return Err(TokeniserError::Unfollowable(Unfollowable::NotByteLevel));
         }
 
@@ -146,7 +155,8 @@ impl Tokeniser {
             ids,
             tokens,
             ranks,
-            pattern,
+            pattern: described.pattern,
+            prefix_space: described.prefix_space,
             alphabet: bytes::alphabet(),
         })
     }
@@ -174,7 +184,14 @@ impl Tokeniser {
     #[must_use]
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let mut out = Vec::new();
-        for piece in self.pieces(text) {
+        // A space before the first word, when the file asks for one, so that
+        // the first word is the same token as the same word anywhere else.
+        let spaced = if self.prefix_space && !text.starts_with(' ') && !text.is_empty() {
+            format!(" {text}")
+        } else {
+            text.to_string()
+        };
+        for piece in self.pieces(&spaced) {
             let written: String = piece
                 .bytes()
                 .map(|byte| self.alphabet[usize::from(byte)])
@@ -260,14 +277,36 @@ impl Tokeniser {
     }
 }
 
-/// Whether the pre-tokeniser is the byte-level one, and the pattern it splits
-/// by. A sequence of them is read through: what matters is that the text ends
-/// up in the byte alphabet and is split by the file's own pattern.
-fn pre_tokeniser(
-    described: &serde_json::Value,
-) -> Result<(bool, Option<fancy_regex::Regex>), TokeniserError> {
+/// What a file's pre-tokeniser says: whether the text ends up in the byte
+/// alphabet, what it is split by, and whether a space is put in front.
+struct PreTokeniser {
+    byte_level: bool,
+    pattern: Option<fancy_regex::Regex>,
+    prefix_space: bool,
+}
+
+/// Read a pre-tokeniser. A sequence of them is read through: what matters is
+/// that the text ends up in the byte alphabet and is split the file's way.
+fn pre_tokeniser(described: &serde_json::Value) -> Result<PreTokeniser, TokeniserError> {
     match described["type"].as_str() {
-        Some("ByteLevel") => Ok((true, None)),
+        Some("ByteLevel") => {
+            // The authority's defaults, for a file that leaves them out: it
+            // splits by its own pattern and puts a space in front.
+            let flag = |name: &str| described[name].as_bool().unwrap_or(true);
+            let pattern =
+                if flag("use_regex") {
+                    Some(fancy_regex::Regex::new(BYTE_LEVEL_PATTERN).map_err(|_| {
+                        TokeniserError::Unfollowable(Unfollowable::PatternNotRunnable)
+                    })?)
+                } else {
+                    None
+                };
+            Ok(PreTokeniser {
+                byte_level: true,
+                pattern,
+                prefix_space: flag("add_prefix_space"),
+            })
+        }
         Some("Split") => {
             let pattern = described["pattern"]["Regex"]
                 .as_str()
@@ -276,17 +315,27 @@ fn pre_tokeniser(
                 .map_err(|_| TokeniserError::Unfollowable(Unfollowable::PatternNotRunnable))?;
             // A split on its own is not byte level; it is byte level when a
             // ByteLevel stands beside it in the sequence.
-            Ok((false, Some(compiled)))
+            Ok(PreTokeniser {
+                byte_level: false,
+                pattern: Some(compiled),
+                prefix_space: false,
+            })
         }
         Some("Sequence") => {
-            let mut byte_level = false;
-            let mut pattern = None;
+            let mut out = PreTokeniser {
+                byte_level: false,
+                pattern: None,
+                prefix_space: false,
+            };
             for part in described["pretokenizers"].as_array().into_iter().flatten() {
-                let (part_byte_level, part_pattern) = pre_tokeniser(part)?;
-                byte_level |= part_byte_level;
-                pattern = pattern.or(part_pattern);
+                let part = pre_tokeniser(part)?;
+                out.byte_level |= part.byte_level;
+                out.prefix_space |= part.prefix_space;
+                // The first pattern in the sequence is the one that splits;
+                // what follows it reads pieces, not the whole text.
+                out.pattern = out.pattern.or(part.pattern);
             }
-            Ok((byte_level, pattern))
+            Ok(out)
         }
         _ => Err(TokeniserError::Unfollowable(Unfollowable::NotByteLevel)),
     }

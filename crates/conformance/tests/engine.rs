@@ -2472,13 +2472,26 @@ fn tokeniser(merged: &[&str], pattern: Option<&str>) -> Vec<u8> {
         );
         merges.push(serde_json::json!(merge));
     }
+    // The flags a published file carries, written out: the authority's own
+    // reader requires them, and what they mean is what this suite is about.
+    let byte_level = serde_json::json!({
+        "type": "ByteLevel",
+        "add_prefix_space": false,
+        "trim_offsets": true,
+        "use_regex": false,
+    });
     let pre_tokenizer = match pattern {
-        None => serde_json::json!({ "type": "ByteLevel" }),
+        None => byte_level,
         Some(pattern) => serde_json::json!({
             "type": "Sequence",
             "pretokenizers": [
-                { "type": "Split", "pattern": { "Regex": pattern }, "behavior": "Isolated" },
-                { "type": "ByteLevel" },
+                {
+                    "type": "Split",
+                    "pattern": { "Regex": pattern },
+                    "behavior": "Isolated",
+                    "invert": false,
+                },
+                byte_level,
             ],
         }),
     };
