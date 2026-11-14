@@ -506,6 +506,10 @@
             [
               "ternary per 128",
               4
+            ],
+            [
+              "f32",
+              5
             ]
           ],
           "name": "Format",

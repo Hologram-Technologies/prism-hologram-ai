@@ -36,10 +36,21 @@ fn root() -> PathBuf {
 // seen, and the first sixty-four bytes of that file are quoted here so that
 // what is read is anchored to it rather than to a reader written from a guess.
 
-/// The first sixty-four bytes of the published container, and what was
-/// measured of it: a six-byte magic, a four-byte length of 98,304, and the
-/// JSON beginning at byte ten.
-const PUBLISHED_HEADER: &str = "484f4c4b310a008001007b22666f726d6174223a22686f6c6f2d6b617070612f31222c226d616e6966657374223a7b22666f726d6174223a22686f6c6f2d3262";
+/// The published container's own header, vendored under `model/authorities`
+/// with its checksum in the register: its first 98,314 bytes, which is the
+/// magic, the header length and the header itself.
+fn published_header() -> Vec<u8> {
+    let path = root().join("model/authorities/holk-bonsai-header.bin");
+    let bytes = std::fs::read(&path).expect("the vendored container header");
+    let register = std::fs::read_to_string(root().join("model/authorities.toml"))
+        .expect("the authority register");
+    assert_eq!(
+        sha256(&bytes),
+        cited_checksum(&register, "HOLK-BONSAI"),
+        "the vendored header is not the file the register cites"
+    );
+    bytes
+}
 
 /// A container written the way the published one is: magic, the length of the
 /// header, the JSON, and spaces to fill the room it was given.
@@ -1274,16 +1285,27 @@ fn engine_fl_13() {
 // what was cited cannot quietly pass.
 
 /// The vendored test vectors, with their checksum checked against the register.
+/// The checksum the register cites for one authority, by its id.
+fn cited_checksum(register: &str, id: &str) -> String {
+    register
+        .split("[[authority]]")
+        .find(|block| block.contains(&format!("id = \"{id}\"")))
+        .and_then(|block| {
+            block
+                .lines()
+                .find_map(|line| line.trim().strip_prefix("checksum = \"sha256:"))
+        })
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or_else(|| panic!("the register cites no sha256 for {id}"))
+        .to_string()
+}
+
 fn blake3_vectors() -> serde_json::Value {
     let path = root().join("model/authorities/blake3-test-vectors.json");
     let bytes = std::fs::read(&path).expect("the vendored BLAKE3 test vectors");
     let register = std::fs::read_to_string(root().join("model/authorities.toml"))
         .expect("the authority register");
-    let cited = register
-        .lines()
-        .find_map(|line| line.strip_prefix("checksum = \"sha256:"))
-        .and_then(|rest| rest.strip_suffix('"'))
-        .expect("the BLAKE3 authority's checksum");
+    let cited = cited_checksum(&register, "BLAKE3");
     // The checksum is taken here with the hash the authority is about, which is
     // sound for this purpose: what is being checked is that the vendored file
     // is the one the register cites, not what BLAKE3 is.
@@ -4155,11 +4177,11 @@ fn engine_fl_30() {
 /// `EN-25`: A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name
 #[test]
 fn engine_en_25() {
-    // The published file, as far as it was measured: the magic is six bytes
-    // with the newline in it, the length that follows is 98,304, and the JSON
-    // begins at byte ten. A reader that took the newline for a separator, or
-    // the length for a version, would disagree with the file here.
-    let published = unhex(PUBLISHED_HEADER);
+    // The published file's own header. The magic is six bytes with the newline
+    // in it, the length that follows is 98,304, and the JSON begins at byte
+    // ten. A reader that took the newline for a separator, or the length for a
+    // version, disagrees with the file here.
+    let published = published_header();
     assert_eq!(
         holk::Container::header_span(&published),
         Ok(holk::Span {
@@ -4179,6 +4201,60 @@ fn engine_en_25() {
         holk::Container::header_span(&published).map(holk::Span::end),
         Ok(98_314)
     );
+
+    // All 311 of its buffers, read. Until this file was here, that they read
+    // was what the session holding it reported; now it is what this gate sees.
+    let real = holk::Container::read(&published).expect("the published header is read");
+    assert_eq!(real.entries.len(), 311);
+    assert_eq!(
+        real.tokeniser,
+        holk::Span {
+            at: 98_314,
+            len: 5_945_280
+        },
+        "the tokeniser begins where the header ends"
+    );
+    assert_eq!(
+        (real.manifest.vocabulary, real.manifest.layers),
+        (151_669, 28)
+    );
+    // Two quantisation formats, and both are codes the kernel answers for:
+    // q1, under a manifest that says this model's weights are ternary, and f32.
+    let kinds: BTreeSet<u8> = real.entries.iter().map(|entry| entry.format).collect();
+    assert_eq!(kinds, BTreeSet::from([4, 5]));
+    assert_eq!(
+        real.entries
+            .iter()
+            .filter(|entry| entry.format == 4)
+            .count(),
+        198
+    );
+    // Every buffer begins after the tokeniser and ends inside the file, and
+    // the furthest end is the file's own length, which was measured from the
+    // file rather than read from its header.
+    for entry in &real.entries {
+        assert!(
+            entry.span.at >= real.tokeniser.end(),
+            "{} begins inside the tokeniser",
+            entry.name
+        );
+        assert!(
+            entry.span.end() <= 424_013_749,
+            "{} runs past the file",
+            entry.name
+        );
+    }
+    assert_eq!(real.end(), 424_013_749);
+    // What this file does not do, and so a reader must not assume: its buffers
+    // do not tile the file. Two of them share one span, because the model ties
+    // its embedding to its output layer, so the range question's `previous_end`
+    // is the caller's to decide and never something to infer from the order.
+    let spans: BTreeSet<(u64, u64)> = real
+        .entries
+        .iter()
+        .map(|entry| (entry.span.at, entry.span.len))
+        .collect();
+    assert_eq!(spans.len(), 310, "311 buffers lie in 310 spans");
 
     // A container written the way that one is, read back.
     let entries = [
@@ -4281,19 +4357,37 @@ fn engine_en_25() {
     // build a request it cannot answer; a code with no name here is a model
     // this engine could not pass on, which is how the published container was
     // refused entry by entry until its own names were read.
-    let offered = thirteen["fields"]
+    // Which codes those are is the kernel's to say, and it says so in the
+    // module that decides them: `known` is the bound a format must be within.
+    // Read from the page's table instead, this would only be checking one
+    // hand-written list against another.
+    let module = std::fs::read_to_string(root().join("app/src/Kernel/Blocks.lex.tex"))
+        .expect("the module that answers decision 13");
+    let bound = module
+        .split("name: known,")
+        .nth(1)
+        .and_then(|rest| rest.split("(format <=? ").nth(1))
+        .and_then(|rest| rest.split(')').next())
+        .and_then(|digits| digits.trim().parse::<u64>().ok())
+        .expect("decision 13 bounds its formats with `known`, as `(format <=? N)`");
+    let codes: BTreeSet<u64> = (0..=bound).collect();
+    // And the page offers each of them, or a visitor could not ask about one.
+    let offered: BTreeSet<u64> = thirteen["fields"]
         .as_array()
         .expect("fields")
         .iter()
         .find(|field| field["name"].as_str() == Some("Format"))
         .and_then(|field| field["choice"].as_array())
-        .expect("the formats the kernel knows");
-    let codes: BTreeSet<u64> = offered
+        .expect("the formats the page offers")
         .iter()
         .map(|pair| pair[1].as_u64().expect("a code"))
         .collect();
+    assert_eq!(
+        offered, codes,
+        "the page offers formats decision 13 does not know, or misses ones it does"
+    );
     let mut named = BTreeSet::new();
-    for name in ["q4", "q3f", "t2", "t2r", "ternary", "q1"] {
+    for name in ["q4", "q3f", "t2", "t2r", "ternary", "q1", "f32"] {
         let mut one = container_header(&[("t", "q4", 1, 1, 0, 1)]);
         one["dir"][0]["fmt"] = serde_json::json!(name);
         let read = holk::Container::read(&container(&one, 0, &[]))
@@ -4301,13 +4395,13 @@ fn engine_en_25() {
         let code = u64::from(read.entries[0].format);
         assert!(
             codes.contains(&code),
-            "`{name}` stands for format {code}, which the kernel does not offer"
+            "`{name}` stands for format {code}, which decision 13 does not know"
         );
         named.insert(code);
     }
     assert_eq!(
         named, codes,
-        "a format the kernel offers has no name this reader knows"
+        "a format decision 13 knows has no name this reader knows"
     );
 
     // The published container writes every ternary matrix as `q1`, and the

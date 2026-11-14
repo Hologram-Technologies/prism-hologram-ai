@@ -291,6 +291,9 @@ fn label_of(text: &str) -> Result<Label, HolkError> {
 /// module lists them. A name with no number here is refused rather than read
 /// as a near one.
 ///
+/// The published container writes the vectors it does not quantise as `f32`:
+/// the norms, which stay full width. The kernel answers for those too.
+///
 /// `ternary` says whether the manifest declares this model's weights ternary.
 /// The published container writes its ternary matrices as `q1`, and the same
 /// family writes a one-bit format under that same name with another layout
@@ -304,6 +307,7 @@ fn format_of(name: &str, ternary: bool) -> Result<u8, HolkError> {
         "t2r" => Ok(3),
         "ternary" => Ok(4),
         "q1" if ternary => Ok(4),
+        "f32" => Ok(5),
         _ => Err(unfollowable(Unfollowable::FormatNotKnown)),
     }
 }

@@ -1008,15 +1008,28 @@ file by a root, names each buffer by a label and a span, says where the
 tokeniser lies, and says what shape and quantisation each buffer is.
 
 The layout is not a published specification, and this says so rather than
-implying one. It is measured from the one file this engine has seen, by the
-session that had it: a six-byte magic `HOLK1
-`, a four-byte little-endian
-header length, the JSON, and spaces to fill the room. Two facts of that file
-decide the reading, and both are in the test — its first sixty-four bytes are
-quoted there, the byte at ten is `{`, and the tokeniser it names begins at
-98,314, which is ten plus the length those four bytes carry. A reader that took
-the newline for a separator or the length for a version disagrees with the file
-at one of those two.
+implying one. It is one file's, and that file's first 98,314 bytes — its magic,
+its header length and its header — are vendored at
+`model/authorities/holk-bonsai-header.bin` with their SHA-256 in the register,
+fetched from the revision the register cites. The magic is the five bytes
+`HOLK1` and a newline, then a four-byte little-endian header length, then the
+JSON, then spaces to fill the room. Two facts of the file decide that reading
+and the gate checks both: the byte at ten is `{`, and the tokeniser the header
+names begins at 98,314, which is ten plus the length those four bytes carry. A
+reader that took the newline for a separator, or the length for a version,
+disagrees with the file at one of them.
+
+What the gate now reads there, rather than being told: 311 buffers in two
+quantisation formats — 198 `q1` and 113 `f32` — a vocabulary of 151,669, 28
+layers, and a furthest end of 424,013,749, which is the file's own length as
+measured from the file rather than read from its header. Three things that file
+settled, each of which a reader written from a description would have got
+wrong: its ternary buffers are named `q1` and never `ternary`; it carries
+`f32` buffers, which the kernel had no code for until decision 13 gained one;
+and its buffers do not tile it — two of them share one span, because the model
+ties its embedding to its output layer, so 311 buffers lie in 310 spans. That
+last one is why `range_question` takes `previous_end` from its caller and
+infers nothing from the order.
 
 What `crates/model-reader/src/holk.rs` reads is the header and nothing else.
 The buffers may be hundreds of megabytes and arrive later, or never. Each entry
@@ -1060,8 +1073,8 @@ until `FL-34` said so.
 
 ### The defects
 
-Nine, planted one at a time and then restored. Every one was rejected; none
-was missed.
+Thirteen, planted one at a time and then restored. Twelve were rejected on
+the first planting. The thirteenth was missed, and is recorded below.
 
 | Planted defect | Rejected by |
 | --- | --- |
@@ -1074,22 +1087,40 @@ was missed.
 | Whatever follows the document in the header is stepped over | FL-34: a header padded with `0x00` was read anyway |
 | A buffer's label is taken from whatever its name says | FL-35: a `sha256:` name was read as a label |
 | The block question writes the shape a byte early | EN-25: the rows are not where the kernel reads them |
+| A format decision 13 knows has no name in the reader | EN-25: `f32` is a name this reader has: `Unfollowable(FormatNotKnown)` |
+| The page offers a format decision 13 does not know | EN-25: the page offers formats decision 13 does not know |
+| An unreadable quantisation falls back to the ternary one | EN-25: a `q1` whose manifest says `tern` is false was read as the ternary format |
+| The vendored header is changed by one byte | EN-25: the vendored header is not the file the register cites |
 | none, before and after | passed |
+
+### The one that was missed
+
+The defect "the page offers a format decision 13 does not know" was first
+planted in `site/decision-names.json`, where the names are written, and EN-25
+passed. The gate reads `site/decisions.json`, which is generated from that
+file, and the generated file had not been rewritten, so the planting never
+reached the gate it was aimed at. `cargo xtask page` would have caught it, as a
+table that disagrees with its source, but that is a different gate answering a
+different question.
+
+Replanted in `site/decisions.json`, the file EN-25 actually reads, it was
+rejected. The lesson is about planting rather than about the gate: a defect
+planted in a source that something regenerates tests the regeneration, not the
+reader.
 
 ### What EN-25 does not establish
 
-- That the published container reads. Sixty-four bytes of it are here; the file
-  is 424 MB and is not in this repository. What those bytes establish is where
-  its header lies, which is what a reader has to get right before anything
-  else. That its 311 entries read is, so far, only what the session holding the
-  file reports; a fixture of its first 98,314 bytes would make it this gate's
-  own, and that is not here yet.
-- That `f32` is read. The published container names five of its buffers `f32`,
-  and the kernel this branch is built on has no code for that format, so the
-  reader has no name for it either: the check that every name stands for a code
-  the kernel offers is what stops one being invented. It lands when the
-  kernel's own thirteenth decision knows `f32`, and the check that every code
-  has a name will go red until it does.
+- That the file beyond its header is anything in particular. 98,314 bytes of a
+  424 MB file are here. Every buffer's span is checked against the file's length
+  and against the end of the tokeniser; none of their bytes has been seen.
+- That the root the manifest names is the hash of the file. The manifest says
+  `sha256:8932967d…`; the session that measured the whole file reported its
+  SHA-256 as `acf0b5ad…`. Both cannot be the hash of all 424,013,749 bytes, and
+  nothing here settles which: the reader carries the root the manifest names
+  and compares it to nothing. Whoever has the file is the one who can say, and
+  until then it is an open question rather than a detail.
+- That another container reads. One file is one file. A second one written
+  differently would be refused by name, which is the most this can promise.
 - That the kernel admits what the reader asks about. The questions are built
   and compared to the client's own; the answers are the kernel's, and nothing
   here replays a guest.

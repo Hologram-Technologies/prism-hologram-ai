@@ -126,6 +126,7 @@ Never re-derived, vendored, or gated on.
 | `GGUF` | ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`. | `EN-21` |
 | `LLAMA-CPP-PRE` | ggml-org/llama.cpp, src/llama-vocab.cpp at blob e90f1bd117d412a3fc9672ddd10c5d12ded0beb2, the `regex_exprs` of LLAMA_VOCAB_PRE_TYPE_GPT2 and LLAMA_VOCAB_PRE_TYPE_QWEN2 and the names mapped to each. A GGUF file carries `tokenizer.ggml.pre` as a name only; the pattern it stands for lives in the reader. | `EN-21`, `EN-22` |
 | `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
+| `HOLK-BONSAI` | HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest. | `EN-25` |
 
 ## Claims that are not conformance IDs
 
