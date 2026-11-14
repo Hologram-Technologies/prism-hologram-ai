@@ -8,7 +8,16 @@ yanked = "deny"
 # advisory nobody will re-examine; each one added here should name the crate it
 # excuses and the reason there is no upgrade, so the next reader can tell whether
 # it still applies.
-ignore = []
+ignore = [
+  # `paste` is a proc-macro of `tokenizers`, which is the oracle for `EN-20`
+  # and nothing else: a dev-dependency of `repo-conformance`, which does not
+  # ship. `cargo tree -i paste --target all` shows the one path, and it goes
+  # through that dev-dependency; no shipped crate has it. The advisory is
+  # unmaintained, not a vulnerability, and 0.21, 0.22 and 0.23 of the oracle
+  # all carry it. Allowed by Ilya on 2026-11-14, scoped to this. It goes the
+  # day the oracle drops `paste` or this repository drops the oracle.
+  { id = "RUSTSEC-2024-0436", reason = "unmaintained proc-macro, reached only through the EN-20 oracle, which does not ship" },
+]
 
 [licenses]
 version = 2

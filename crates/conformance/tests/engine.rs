@@ -2472,13 +2472,26 @@ fn tokeniser(merged: &[&str], pattern: Option<&str>) -> Vec<u8> {
         );
         merges.push(serde_json::json!(merge));
     }
+    // The flags a published file carries, written out: the authority's own
+    // reader requires them, and what they mean is what this suite is about.
+    let byte_level = serde_json::json!({
+        "type": "ByteLevel",
+        "add_prefix_space": false,
+        "trim_offsets": true,
+        "use_regex": false,
+    });
     let pre_tokenizer = match pattern {
-        None => serde_json::json!({ "type": "ByteLevel" }),
+        None => byte_level,
         Some(pattern) => serde_json::json!({
             "type": "Sequence",
             "pretokenizers": [
-                { "type": "Split", "pattern": { "Regex": pattern }, "behavior": "Isolated" },
-                { "type": "ByteLevel" },
+                {
+                    "type": "Split",
+                    "pattern": { "Regex": pattern },
+                    "behavior": "Isolated",
+                    "invert": false,
+                },
+                byte_level,
             ],
         }),
     };
@@ -2488,6 +2501,21 @@ fn tokeniser(merged: &[&str], pattern: Option<&str>) -> Vec<u8> {
         "model": { "type": "BPE", "vocab": vocabulary, "merges": merges },
     }))
     .expect("the tokeniser file is written")
+}
+
+/// A tokeniser file of the shape a published model has: the byte-level
+/// pre-tokeniser splits by its own pattern and puts a space in front, and the
+/// file says so with flags rather than carrying the pattern.
+fn published_shape(merged: &[&str], prefix_space: bool) -> Vec<u8> {
+    let mut file: serde_json::Value =
+        serde_json::from_slice(&tokeniser(merged, None)).expect("the file is JSON");
+    file["pre_tokenizer"] = serde_json::json!({
+        "type": "ByteLevel",
+        "add_prefix_space": prefix_space,
+        "trim_offsets": true,
+        "use_regex": true,
+    });
+    serde_json::to_vec(&file).expect("the file is written")
 }
 
 /// The pattern the published byte-level tokenisers carry, look-ahead and all.
@@ -2859,4 +2887,104 @@ fn engine_en_19() {
             "{question:?} and {answer:?} were counted differently"
         );
     }
+}
+
+/// `EN-20`: The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text
+///
+/// The oracle is HuggingFace's `tokenizers`, the implementation the published
+/// files are written for, as a dev-dependency of this crate, which does not
+/// ship. Both are given the same file and the same text, and the ids must be
+/// the same ids.
+#[test]
+fn engine_en_20() {
+    let files = [
+        // No pattern: one piece, merges only.
+        tokeniser(&["t h", "th e", "Ġ the"], None),
+        // The published byte-level pattern, look-ahead and all.
+        tokeniser(
+            &["t h", "th e", "Ġ the", "e l", "el l", "l o"],
+            Some(PUBLISHED_PATTERN),
+        ),
+        // Merges that overlap, where the order they are applied in decides
+        // the answer.
+        tokeniser(&["b c", "a b", "ab c"], Some(PUBLISHED_PATTERN)),
+        // Nothing to merge at all: every byte its own token.
+        tokeniser(&[], Some(PUBLISHED_PATTERN)),
+        // The shape a published model has: the byte-level pre-tokeniser
+        // splitting by its own pattern, without and with the space in front.
+        published_shape(&["t h", "th e", "Ġ the", "e l", "el l", "l o"], false),
+        published_shape(&["t h", "th e", "Ġ the", "e l", "el l", "l o"], true),
+        // A merge that would join two words, which only a tokeniser that did
+        // not split could use: this is what tells a file that splits from one
+        // that does not.
+        published_shape(&["t h", "th e", "Ġ the", "Ġthe Ġthe"], false),
+        // A merge of two spaces, which the look-ahead in the pattern decides
+        // the fate of: a run of spaces before a word is split so that all but
+        // the last go together, so whether this merge ever applies is a
+        // question about the pattern and nothing else.
+        published_shape(&["Ġ Ġ", "ĠĠ Ġ"], false),
+    ];
+
+    let texts: Vec<String> = [
+        "",
+        " ",
+        "the",
+        " the",
+        " the the the",
+        "hello",
+        "hello, world",
+        "abc abcabc",
+        "The quick brown fox jumps over the lazy dog",
+        "Hello\tthere\nnewline  and   spaces   ",
+        "ВЕСНА и зима",
+        "日本語のテキスト",
+        "🙂 emoji 🜛 sigil",
+        "a\u{0}b\u{7f}c\u{ad}d",
+        "1234567890 and 3.14159",
+        "ß ﬁ ǅ ＡＢＣ",
+        "'s 't 're 've 'm 'll 'd",
+        "don't  he'll  we've",
+        // Runs of spaces, which is where the look-ahead in the pattern is the
+        // whole difference: all but the last space go with what follows.
+        "a  b   c    d",
+        "trailing   ",
+        "  leading",
+        "		 tabs  and 
+ newlines 
+
+",
+    ]
+    .iter()
+    .map(|text| (*text).to_string())
+    .collect();
+
+    // And text nobody wrote on purpose, so the agreement is not only about
+    // the cases someone thought of.
+    let mut rng = Rng(0x0acc_1e00_1234_5678);
+    let generated: Vec<String> = (0..200)
+        .map(|_| {
+            (0..rng.below(48))
+                .map(|_| char::from_u32(rng.below(0x2600) as u32).unwrap_or('a'))
+                .collect()
+        })
+        .collect();
+
+    let mut compared = 0usize;
+    for file in &files {
+        let ours = tokeniser::Tokeniser::read(file).expect("this repository reads the file");
+        let theirs = tokenizers::Tokenizer::from_bytes(file).expect("the authority reads it too");
+        for text in texts.iter().chain(generated.iter()) {
+            let encoded = theirs
+                .encode(text.as_str(), false)
+                .expect("the authority encodes the text");
+            assert_eq!(
+                ours.encode(text),
+                encoded.get_ids(),
+                "the ids differ for {text:?}"
+            );
+            compared += 1;
+        }
+    }
+    assert!(compared > 800, "only {compared} texts were compared");
+    println!("EN-20: {compared} texts, same ids as the authority");
 }

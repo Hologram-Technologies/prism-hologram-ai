@@ -201,3 +201,9 @@ id = "EN-19"
 level = "build"
 suite = "engine"
 statement = "A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word"
+
+[[id]]
+id = "EN-20"
+level = "build"
+suite = "engine"
+statement = "The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text"

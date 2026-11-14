@@ -43,6 +43,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-17` | `build` | Text is encoded by splitting it with the model's own pattern, writing each piece in the byte alphabet, and applying the vocabulary's merges in rank order until none applies |
 | `EN-18` | `build` | Decoding what was encoded gives back the text, for any text at all, because every byte has a character and every character of the alphabet has a byte |
 | `EN-19` | `build` | A conversation counts a turn with the model own tokeniser, so what the kernel is asked about is the model tokens and not the caller word |
+| `EN-20` | `build` | The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text |
 
 ## kernel
 
