@@ -1209,6 +1209,69 @@ reader.
   the manifest names; comparing it with the bytes as they arrive is the page's
   loop, which is not written yet.
 
+## EN-26, publishing the engine the page loads
+
+A module nobody builds is a module no page can load. The engine is now built
+where the holo is built — in the locked SDK image, by the workflow that
+publishes the page, in the same step — and put at `site/app/engine/engine.wasm`
+for the page to fetch when a visitor asks for a model.
+
+It is built rather than committed, the way `site/app.holo` is. A committed
+module would be whatever someone last remembered to rebuild; this one is what
+the workspace builds at the commit being published, and `.gitignore` keeps the
+other possibility out.
+
+`just engine` is the recipe, so what CI does is what anyone can do locally,
+and `cargo xtask engine-size` is the ceiling: two mebibytes uncompressed. The
+module is 1,634,615 bytes today, 77 per cent of that, and 505,142 bytes
+gzipped. The ceiling is on what this repository produces; the gzipped figure is
+reported beside it because that is what a visitor fetches, and it is not gated
+because it depends on what the server does.
+
+Two mebibytes is a number someone chose, and what it protects is worth saying
+exactly: the module is fetched only when a visitor asks for a model, never for
+the first paint, so this is not about the page's speed. It is about the
+visitor's connection — a module that doubled without anyone noticing would be a
+slower first model for everyone, and nothing else here would say so.
+
+### What the gate reads
+
+Not the module alone: the wiring that publishes it. A gate that checked only
+the file would pass while nothing published it. EN-26 reads the `engine`
+recipe and requires it to build this workspace's crate, for the browser's
+target, in release, to the path the page asks for, and to run the size check;
+it reads `pages.yml` and requires it to build the engine beside the holo and
+before the page is assembled; it reads `.gitignore` and requires the built
+module to be ignored. Then it runs the size check itself, against the module
+built from this commit — the same check the recipe runs, not a second reading
+of the same rule.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The workflow publishes a page without the engine it loads | EN-26: the pages workflow does not build the engine beside the holo |
+| The recipe builds the engine for the machine it is built on | EN-26: the recipe does not mention `--target wasm32-unknown-unknown` |
+| The recipe builds it but nothing checks its size | EN-26: the recipe does not mention `engine-size` |
+| The built engine may be committed | EN-26: the built engine is not ignored |
+| The ceiling is raised to whatever the module happens to be | EN-26: 1,634,615 bytes, over the 1,048,576 a page may ask for |
+| none, before and after | passed |
+
+### What EN-26 does not establish
+
+- That the published page loads it. Nothing under `site/app/` fetches the
+  module yet: that page is being written in another session, and the gate that
+  will load a real container through a real kernel in a real browser is
+  `GP-03`, which is not here.
+- That the module is fast enough. Its size is gated; nothing measures what it
+  does with the time.
+- That the ceiling is the right ceiling. It was agreed between two sessions and
+  the module sits at 77 per cent of it. Moving it should be a decision someone
+  makes out loud, which is why the failure says so.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

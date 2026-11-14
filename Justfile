@@ -82,6 +82,28 @@ app:
     rm -f .prism-proof.log
     test -s .prism-proof/attestation
 
+# The engine the page loads: this repository's crates as one WebAssembly
+# module, built for the browser and put where the page asks for it. Release,
+# because release is what ships; `engine-size` then fails if it is larger than
+# a page should ask a visitor to fetch.
+#
+# Not committed: `site/app/engine/engine.wasm` is built here and by pages.yml,
+# the way `site/app.holo` is, so what is published is what this workspace
+# builds rather than a file someone remembered to update.
+engine:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm
+    mkdir -p site/app/engine
+    cp target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm site/app/engine/engine.wasm
+    cargo run -q --locked -p xtask -- engine-size site/app/engine/engine.wasm
+    # What a visitor actually fetches, which is the compressed size. Reported,
+    # not gated: it depends on what the server does, and the ceiling is on the
+    # bytes this repository produces.
+    if command -v gzip >/dev/null; then
+      printf 'engine: %s bytes gzipped\n' "$(gzip -9 -c site/app/engine/engine.wasm | wc -c)"
+    fi
+
 # Only the meta-gate, while iterating on a scenario. `test` already runs it.
 bdd:
     cargo test --locked -p repo-conformance

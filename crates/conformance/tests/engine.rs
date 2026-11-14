@@ -3871,41 +3871,8 @@ fn engine_fl_25() {
 /// `EN-23`: The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
 #[test]
 fn engine_en_23() {
-    // The module the page loads, built here from this workspace: a gate that
-    // ran against a module built some other time would be a gate on a file,
-    // not on this code. Release, because release is what ships.
-    let built = std::process::Command::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--target",
-            "wasm32-unknown-unknown",
-            "-p",
-            "hologram-ai-wasm",
-        ])
-        .current_dir(root())
-        .output()
-        .expect("cargo builds the module the page loads");
-    assert!(
-        built.status.success(),
-        "the engine does not build for the browser:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    // Where cargo put it: a helper that sets CARGO_TARGET_DIR builds the same
-    // module somewhere else, and this gate is about the module, not the path.
-    let target = match std::env::var_os("CARGO_TARGET_DIR") {
-        Some(set) => {
-            let set = PathBuf::from(set);
-            if set.is_absolute() {
-                set
-            } else {
-                root().join(set)
-            }
-        }
-        None => root().join("target"),
-    };
-    let module = target.join("wasm32-unknown-unknown/release/hologram_ai_wasm.wasm");
-    assert!(module.is_file(), "no module at {}", module.display());
+    let module = built_module();
+    let target = target_dir();
 
     // What the crates themselves answer, for the same bytes. The merges and
     // the pattern are the ones the tokeniser's own tests use.
@@ -4034,6 +4001,50 @@ fn engine_en_23() {
         "the browser check agreed about nothing:\n{}",
         String::from_utf8_lossy(&ran.stdout)
     );
+}
+
+/// Where cargo puts what it builds: a helper that sets `CARGO_TARGET_DIR`
+/// builds the same module somewhere else, and these gates are about the
+/// module, not the path.
+fn target_dir() -> PathBuf {
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(set) => {
+            let set = PathBuf::from(set);
+            if set.is_absolute() {
+                set
+            } else {
+                root().join(set)
+            }
+        }
+        None => root().join("target"),
+    }
+}
+
+/// The module the page loads, built here from this workspace.
+///
+/// A gate that ran against a module built some other time would be a gate on
+/// a file, not on this code. Release, because release is what ships.
+fn built_module() -> PathBuf {
+    let built = std::process::Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "hologram-ai-wasm",
+        ])
+        .current_dir(root())
+        .output()
+        .expect("cargo builds the module the page loads");
+    assert!(
+        built.status.success(),
+        "the engine does not build for the browser:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let module = target_dir().join("wasm32-unknown-unknown/release/hologram_ai_wasm.wasm");
+    assert!(module.is_file(), "no module at {}", module.display());
+    module
 }
 
 /// Instantiates the module exactly as a page does — no binding generator and
@@ -4731,4 +4742,82 @@ fn engine_fl_35() {
             "`{kappa}` was read as a label"
         );
     }
+}
+
+/// `EN-26`: The page is published with the engine it loads, built from this workspace and under the size it is allowed
+#[test]
+fn engine_en_26() {
+    // The page cannot load an engine nobody built. What this reads is the
+    // wiring itself — the recipe, the workflow that calls it, and the rule
+    // that keeps the built file out of the repository — because a gate that
+    // checked only the module would pass while nothing published it.
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let recipe = justfile
+        .split("\nengine:")
+        .nth(1)
+        .expect("the Justfile has an `engine` recipe");
+    let recipe = recipe.split("\n\n").next().unwrap_or(recipe);
+    for wanted in [
+        "--release",
+        "--target wasm32-unknown-unknown",
+        "-p hologram-ai-wasm",
+        "site/app/engine/engine.wasm",
+        "engine-size",
+    ] {
+        assert!(
+            recipe.contains(wanted),
+            "the `engine` recipe does not mention `{wanted}`, so what it builds or where it \
+             puts it is not what the page loads"
+        );
+    }
+
+    // The workflow that publishes the page builds it, in the same locked SDK
+    // image as the holo, before the page is assembled.
+    let workflow = std::fs::read_to_string(root().join(".github/workflows/pages.yml"))
+        .expect("the pages workflow");
+    assert!(
+        workflow.contains("just app && just engine"),
+        "the pages workflow does not build the engine beside the holo"
+    );
+    let built_at = workflow
+        .find("just engine")
+        .expect("the workflow builds the engine");
+    let assembled_at = workflow
+        .find("node bootstrap/page.mjs site")
+        .expect("the workflow assembles the page");
+    assert!(
+        built_at < assembled_at,
+        "the page is assembled before the engine it loads is built"
+    );
+
+    // And it is built rather than committed, like the holo beside it.
+    let ignored = std::fs::read_to_string(root().join(".gitignore")).expect("the ignore list");
+    assert!(
+        ignored
+            .lines()
+            .any(|line| line.trim() == "site/app/engine/engine.wasm"),
+        "the built engine is not ignored, so a stale one could be committed and published"
+    );
+
+    // The module this workspace builds is within what the page may ask a
+    // visitor to fetch. The check is the one the recipe runs, not a second
+    // reading of the same rule.
+    let module = built_module();
+    let checked = std::process::Command::new("cargo")
+        .args(["run", "--quiet", "-p", "xtask", "--", "engine-size"])
+        .arg(&module)
+        .current_dir(root())
+        .output()
+        .expect("cargo runs the size check");
+    assert!(
+        checked.status.success(),
+        "the engine the page loads is over its ceiling:\n{}{}",
+        String::from_utf8_lossy(&checked.stdout),
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    let said = String::from_utf8_lossy(&checked.stdout);
+    assert!(
+        said.contains("engine-size:"),
+        "the size check said nothing about the size:\n{said}"
+    );
 }

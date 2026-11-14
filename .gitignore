@@ -21,6 +21,7 @@ node_modules/
 test-results/
 playwright-report/
 site/app.holo
+site/app/engine/engine.wasm
 site/vendor/
 .brand-src/
 site/precache.json

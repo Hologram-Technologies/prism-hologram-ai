@@ -49,6 +49,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-23` | `build` | The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer |
 | `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
 | `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
+| `EN-26` | `build` | The page is published with the engine it loads, built from this workspace and under the size it is allowed |
 
 ## gpu
 

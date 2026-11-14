@@ -49,7 +49,7 @@ jobs:
           node bootstrap/brand-sync.mjs --check
           python3 -I bootstrap/brand-fonts.py --check
           node bootstrap/frame-sync.mjs --check
-      - name: Build and verify the holo through the locked SDK
+      - name: Build and verify the holo, and the engine the page loads, through the locked SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -73,7 +73,7 @@ jobs:
             --env BUILDX_CONFIG=/tmp/prismpm-buildx \
             --env HOME=/tmp/prismpm-home \
             --env PRISMPM_EPHEMERAL_HOME=1 \
-            "$image" just app
+            "$image" bash -c 'just app && just engine'
       - name: Find the holo
         id: holo
         shell: bash

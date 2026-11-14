@@ -366,3 +366,9 @@ Feature: engine
     Given the input that makes model-reader return HolkError::Unfollowable
     When the suite exercises FL-35
     Then A container describes something this reader does not follow
+
+  @EN-26 @build
+  Scenario: The page is published with the engine it loads, built from this workspace and under the size it is allowed
+    Given the fixture EN-26 needs
+    When the suite exercises EN-26
+    Then The page is published with the engine it loads, built from this workspace and under the size it is allowed
