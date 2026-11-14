@@ -3705,11 +3705,18 @@ fn engine_en_23() {
         vec![0u8; 1 << 12],
         (0..=255u8).cycle().take(5000).collect(),
     ];
-    let mut arriving = download::Arriving::new();
+    let mut whole = download::Whole::new();
     let mut labels = Vec::new();
+    let mut roots = Vec::new();
+    let mut arriving = download::Arriving::new();
     for block in &blocks {
+        // Each block is labelled on its own, the way a container names them,
+        // and the file they arrive in is rooted across all of them.
+        arriving = download::Arriving::new();
         arriving.take(block);
+        whole.take(block);
         labels.push(enhex(&arriving.label().0));
+        roots.push(enhex(&whole.root().0));
     }
     let expected = download::Label([7u8; download::LABEL_BYTES]);
     let question = arriving.question(expected, 20_165);
@@ -3721,6 +3728,7 @@ fn engine_en_23() {
         "turns": turns,
         "blocks": blocks.iter().map(|block| enhex(block)).collect::<Vec<_>>(),
         "labels": labels,
+        "roots": roots,
         "expected": enhex(&expected.0),
         "declared": 20_165u64,
         "question": enhex(&question),
@@ -3824,9 +3832,12 @@ same("why", read.decode(answer()), "Unfollowable(PreTokeniserNotKnown)");
 // The download, labelled block by block.
 same("download_start", call.download_start(), 0);
 cases.blocks.forEach((block, index) => {
+  same("download_block", index === 0 ? 0 : call.download_block(), 0);
   same("download_take", given(unhex(block), (at, len) => call.download_take(at, len)), 0);
   same("download_label", call.download_label(), 0);
-  same(`label after block ${index}`, enhex(answer()), cases.labels[index]);
+  same(`label of block ${index}`, enhex(answer()), cases.labels[index]);
+  same("download_root", call.download_root(), 0);
+  same(`root after block ${index}`, enhex(answer()), cases.roots[index]);
 });
 same(
   "download_question",
@@ -3894,4 +3905,117 @@ fn engine_fl_29() {
     let at = wasm::given(&[1, 0, 0]);
     assert_eq!(wasm::tokeniser_decode(at, 3), 1);
     assert_eq!(wasm::last_answer(), named(wasm::CallError::WrongSize));
+}
+
+/// `EN-24`: A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples
+#[test]
+fn engine_en_24() {
+    // The standard's own examples, quoted from FIPS 180-4's Appendix B, and
+    // the empty input, which every implementation publishes. These are what
+    // the `SHA-256` authority cites: this reproduces them and establishes
+    // nothing about SHA-256 itself.
+    let published: [(&str, &str); 4] = [
+        (
+            "",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
+        (
+            "abc",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        ),
+        (
+            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+        ),
+        (
+            "a million a's",
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+        ),
+    ];
+    for (input, named) in published {
+        let bytes = if input == "a million a's" {
+            vec![b'a'; 1_000_000]
+        } else {
+            input.as_bytes().to_vec()
+        };
+        let mut whole = download::Whole::new();
+        whole.take(&bytes);
+        assert_eq!(
+            enhex(&whole.root().0),
+            named,
+            "the root of `{input}` is not the one the standard publishes"
+        );
+        assert_eq!(whole.received(), bytes.len() as u64);
+    }
+
+    // As the bytes arrive, in whatever sizes they arrive in. A hash that
+    // depended on where a chunk ended would label a download by how its
+    // connection behaved.
+    let bytes: Vec<u8> = (0..=255u8).cycle().take(100_003).collect();
+    let mut whole = download::Whole::new();
+    whole.take(&bytes);
+    let once = whole.root();
+    for size in [1, 2, 3, 64, 1021, 65_536] {
+        let mut piecemeal = download::Whole::new();
+        for chunk in bytes.chunks(size) {
+            piecemeal.take(chunk);
+        }
+        assert_eq!(
+            piecemeal.root(),
+            once,
+            "a download taken {size} bytes at a time has another root"
+        );
+        assert_eq!(piecemeal.received(), bytes.len() as u64);
+    }
+
+    // The root is of what has arrived, not of what will: taking it in the
+    // middle of a download answers for the middle, and the download goes on.
+    let mut partway = download::Whole::new();
+    partway.take(&bytes[..1000]);
+    let early = partway.root();
+    let mut thousand = download::Whole::new();
+    thousand.take(&bytes[..1000]);
+    assert_eq!(early, thousand.root());
+    partway.take(&bytes[1000..]);
+    assert_eq!(partway.root(), once, "and the rest still arrives");
+
+    // What a manifest writes, and what it reads back.
+    assert_eq!(
+        download::Root::from_hex(&once.to_hex()),
+        Ok(once),
+        "a root written as a manifest writes it is read back as the same root"
+    );
+    assert!(once.to_hex().starts_with("sha256:"));
+    // The label of the same bytes is another hash entirely: a container names
+    // its file by one and its buffers by the other, and they are not swapped.
+    let mut arriving = download::Arriving::new();
+    arriving.take(&bytes);
+    assert_ne!(enhex(&arriving.label().0), enhex(&once.0));
+}
+
+/// `FL-30`: The root a container names is not sixty-four lower-case hexadecimal digits
+#[test]
+fn engine_fl_30() {
+    let good = "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0";
+    assert!(download::Root::from_hex(good).is_ok());
+    assert!(download::Root::from_hex(&format!("sha256:{good}")).is_ok());
+    // A name read loosely is a name that can be made to match, so every way of
+    // being not quite that is refused.
+    for named in [
+        "",
+        "sha256:",
+        &good[..63],
+        &format!("{good}0"),
+        &good.to_uppercase(),
+        &good.replace('c', "g"),
+        &format!("sha256:sha256:{good}"),
+        &format!("blake3:{good}"),
+        &format!(" {good}"),
+    ] {
+        assert_eq!(
+            download::Root::from_hex(named).err(),
+            Some(download::DownloadError::RootNotHex),
+            "`{named}` is not a root and was not refused"
+        );
+    }
 }

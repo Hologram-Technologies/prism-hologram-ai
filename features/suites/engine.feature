@@ -318,3 +318,15 @@ Feature: engine
     Given the input that makes wasm return CallError::WrongSize
     When the suite exercises FL-29
     Then A label handed in is not thirty-two bytes
+
+  @EN-24 @build
+  Scenario: A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples
+    Given the fixture EN-24 needs
+    When the suite exercises EN-24
+    Then A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples
+
+  @FL-30 @build
+  Scenario: The root a container names is not sixty-four lower-case hexadecimal digits
+    Given the input that makes download return DownloadError::RootNotHex
+    When the suite exercises FL-30
+    Then The root a container names is not sixty-four lower-case hexadecimal digits

@@ -953,6 +953,53 @@ missed.
 - Anything about the kernel. The module asks the kernel's questions and carries
   its answers; it decides nothing, and nothing here replays a guest.
 
+## EN-24, the root a container names
+
+A weight container names each buffer it carries by a label, the BLAKE3 hash of
+those bytes, and the whole file they arrive in by a root, its SHA-256. The
+labels were already taken as the bytes arrived; the root is now taken the same
+way, in the same pass, so a download is read once.
+
+`sha2` is the authority's own implementation, locked from crates.io (R6) and
+cited in `model/authorities.toml`. What is reproduced from the standard is
+three digests — FIPS 180-4's Appendix B examples, `abc`, the fifty-six byte
+message and one million `a` — written into the test beside the inputs they are
+for, with the empty message's digest beside them. The test computes them and
+requires them to be those values; it establishes nothing about SHA-256 itself.
+
+Besides the published values, EN-24 requires the root to be of what arrived and
+not of how it arrived: a hundred thousand bytes taken one at a time, two at a
+time, and in chunks of 3, 64, 1021 and 65,536 all come out at the root of the
+same bytes taken at once. Taken partway through a download it answers for what
+has arrived so far, and the download goes on. A root and a label of the same
+bytes are different hashes, which the test also requires, so the two cannot be
+swapped unnoticed.
+
+`FL-30` is a root read loosely: upper case, a digit short, a digit long, a
+letter that is not hexadecimal, the `sha256:` written twice, another algorithm's
+name, a leading space. A name read loosely is a name that can be made to match.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The root is taken of the first chunk only | EN-24: a download taken one byte at a time has another root |
+| The root is another hash under this name | EN-24: the root of the empty message is not the one the standard publishes |
+| A root is read in upper case too | FL-30: an upper-case name is not a root and was not refused |
+| The module roots each block instead of the file | EN-23: the module's answer is not the crate's |
+| The module labels the file instead of the block | the same |
+| none, before and after | passed |
+
+### What EN-24 does not establish
+
+- That SHA-256 is what the standard says it is. Three published digests are
+  reproduced; the rest of the algorithm is the authority's.
+- That a container's own root is the root of its file. Nothing here has read a
+  container yet: that is the reader this engine does not have.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

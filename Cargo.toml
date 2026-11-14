@@ -34,6 +34,10 @@ hologram-ai-wasm = { version = "0.1.0", path = "crates/wasm" }
 # path is used everywhere, which is slower on every host this runs on.
 blake3 = "1.5"
 fancy-regex = "0.14"
+# The hash a weight container names its whole file by. Like BLAKE3 it is the
+# authority's own implementation, cited in `model/authorities.toml` and checked
+# here against the standard's own examples; it is not re-derived (R2).
+sha2 = "0.10"
 serde_json = "1.0"
 
 [workspace.lints.rust]

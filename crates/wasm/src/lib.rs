@@ -3,7 +3,7 @@
 //! The page already runs the kernel: that is the holo's own guest, verified
 //! before it is compiled. What the page could not do is everything around the
 //! kernel — read the tokeniser a model carries, count the tokens of a turn,
-//! label the bytes of a download as they arrive. Those are this repository's
+//! label and root the bytes of a download as they arrive. Those are this repository's
 //! crates, and this module is the one place they are offered to JavaScript, so
 //! that the page parses no model file of its own and no rule is written twice.
 //!
@@ -46,7 +46,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use hologram_ai_download::{Arriving, Label, LABEL_BYTES};
+use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
 use hologram_ai_tokenizer::Tokeniser;
 
 /// The call was answered; the result buffer holds the answer.
@@ -84,8 +84,10 @@ struct State {
     result: Vec<u8>,
     /// The tokeniser last read, if one was.
     tokeniser: Option<Tokeniser>,
-    /// The download being labelled, if one was started.
+    /// The block being labelled, if a download was started.
     arriving: Option<Arriving>,
+    /// The whole file being rooted, if a download was started.
+    whole: Option<Whole>,
 }
 
 thread_local! {
@@ -219,18 +221,36 @@ pub extern "C" fn tokeniser_decode(at: u32, len: u32) -> u32 {
     })
 }
 
-/// Start labelling a download.
+/// Start a download: a file to root, and its first block to label.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
 pub extern "C" fn download_start() -> u32 {
     STATE.with_borrow_mut(|state| {
         state.result.clear();
         state.arriving = Some(Arriving::new());
+        state.whole = Some(Whole::new());
         OK
     })
 }
 
-/// Take the next bytes of the download as they arrive.
+/// Start the next block of the same download.
+///
+/// A container names each buffer it carries by its own label and the file they
+/// arrived in by one root, so the label begins again here and the root does
+/// not.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn download_block() -> u32 {
+    answer(|state| {
+        if state.whole.is_none() {
+            return Err(CallError::NothingRead);
+        }
+        state.arriving = Some(Arriving::new());
+        Ok(Vec::new())
+    })
+}
+
+/// Take the next bytes of the download as they arrive, into both hashes.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
 pub extern "C" fn download_take(at: u32, len: u32) -> u32 {
@@ -238,17 +258,29 @@ pub extern "C" fn download_take(at: u32, len: u32) -> u32 {
         let chunk = taken(state, at, len)?;
         let arriving = state.arriving.as_mut().ok_or(CallError::NothingRead)?;
         arriving.take(&chunk);
+        let whole = state.whole.as_mut().ok_or(CallError::NothingRead)?;
+        whole.take(&chunk);
         Ok(Vec::new())
     })
 }
 
-/// The label of what has arrived so far: thirty-two bytes.
+/// The label of the block so far: thirty-two bytes.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
 pub extern "C" fn download_label() -> u32 {
     answer(|state| {
         let arriving = state.arriving.as_ref().ok_or(CallError::NothingRead)?;
         Ok(arriving.label().0.to_vec())
+    })
+}
+
+/// The root of the whole file so far: thirty-two bytes.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn download_root() -> u32 {
+    answer(|state| {
+        let whole = state.whole.as_ref().ok_or(CallError::NothingRead)?;
+        Ok(whole.root().0.to_vec())
     })
 }
 
@@ -388,11 +420,16 @@ mod tests {
         STATE.with_borrow_mut(|state| {
             state.tokeniser = None;
             state.arriving = None;
+            state.whole = None;
         });
         let at = given(b"hello");
         assert_eq!(tokeniser_count(at, 5), NO);
         assert_eq!(said(), b"NothingRead");
         assert_eq!(download_label(), NO);
+        assert_eq!(said(), b"NothingRead");
+        assert_eq!(download_root(), NO);
+        assert_eq!(said(), b"NothingRead");
+        assert_eq!(download_block(), NO);
         assert_eq!(said(), b"NothingRead");
     }
 

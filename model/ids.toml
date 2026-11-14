@@ -261,3 +261,9 @@ id = "EN-23"
 level = "build"
 suite = "engine"
 statement = "The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer"
+
+[[id]]
+id = "EN-24"
+level = "build"
+suite = "engine"
+statement = "A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples"

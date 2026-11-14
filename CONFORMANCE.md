@@ -47,6 +47,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-21` | `build` | A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused |
 | `EN-22` | `build` | A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks |
 | `EN-23` | `build` | The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer |
+| `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
 
 ## kernel
 
@@ -107,6 +108,7 @@ not that the test provokes the failure.
 | `FL-27` | `wasm` | `CallError::NotText` | The bytes handed in where text was asked for are not UTF-8 |
 | `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser or a download is used before one has been started |
 | `FL-29` | `wasm` | `CallError::WrongSize` | A label handed in is not thirty-two bytes |
+| `FL-30` | `download` | `DownloadError::RootNotHex` | The root a container names is not sixty-four lower-case hexadecimal digits |
 
 ## Cited authorities
 
@@ -117,6 +119,7 @@ Never re-derived, vendored, or gated on.
 | `BLAKE3` | BLAKE3-team/BLAKE3, test_vectors/test_vectors.json at commit ae3e8e6b3a5ae3190ca5d62820789b17886a0038 (2020-09-29), vendored at model/authorities/blake3-test-vectors.json. The algorithm is specified in `BLAKE3: one function, fast everywhere` (O'Connor, Aumasson, Neves, Wilcox-O'Hearn, 2020). | `EN-06` |
 | `GGUF` | ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`. | `EN-21` |
 | `LLAMA-CPP-PRE` | ggml-org/llama.cpp, src/llama-vocab.cpp at blob e90f1bd117d412a3fc9672ddd10c5d12ded0beb2, the `regex_exprs` of LLAMA_VOCAB_PRE_TYPE_GPT2 and LLAMA_VOCAB_PRE_TYPE_QWEN2 and the names mapped to each. A GGUF file carries `tokenizer.ggml.pre` as a name only; the pattern it stands for lives in the reader. | `EN-21`, `EN-22` |
+| `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
 
 ## Claims that are not conformance IDs
 

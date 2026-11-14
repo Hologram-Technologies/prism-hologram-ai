@@ -341,6 +341,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hologram-ai-kernel-client",
+ "sha2",
 ]
 
 [[package]]

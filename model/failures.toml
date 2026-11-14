@@ -263,3 +263,11 @@ type = "CallError"
 variant = "WrongSize"
 suite = "engine"
 condition = "A label handed in is not thirty-two bytes"
+
+[[failure]]
+id = "FL-30"
+crate = "download"
+type = "DownloadError"
+variant = "RootNotHex"
+suite = "engine"
+condition = "The root a container names is not sixty-four lower-case hexadecimal digits"
