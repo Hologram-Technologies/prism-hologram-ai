@@ -1260,6 +1260,33 @@ missed.
 | The ceiling is raised to whatever the module happens to be | EN-26: 1,634,615 bytes, over the 1,048,576 a page may ask for |
 | none, before and after | passed |
 
+### The kernel a page was built for
+
+A visitor can be served a stale holo. A service worker that never reinstalls
+will do it: the one this frame ships reads its cache manifest only when it
+installs, and its own bytes do not change between deploys, so a returning
+visitor keeps last week's kernel indefinitely. That is
+UOR-Foundation/template#83, reported there because `site/sw.js` is byte-bound
+by `frame.lock` and the bug belongs to every app published this way, not to
+this one.
+
+What it does to a page is worse than being out of date. An old kernel refuses
+a question it has never heard of, honestly and in its own words, and a page
+that cannot tell those bytes from the ones it was built against reports that
+refusal as the kernel's verdict. Every signature and every vector check
+passes, because they are all checks of the old artifact. That is how it was
+found: a block-length question answered `invalid request` by a kernel from
+before that format existed, while the server was serving one that answers it.
+
+So the workflow writes the built holo's own archive fingerprint into
+`site/app.json`, beside the attestation URL, before the page is assembled, and
+EN-26 requires that order: the identity is read from the holo, written to the
+page, and only then is the page built. Two planted defects — the build not
+writing it, and the page assembled before it is written — were both rejected.
+
+The page comparing that identity with the holo it is handed is the loader's
+own, and is not here yet.
+
 ### What EN-26 does not establish
 
 - That the published page loads it. Nothing under `site/app/` fetches the

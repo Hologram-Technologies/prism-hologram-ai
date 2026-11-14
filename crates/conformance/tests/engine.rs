@@ -4970,6 +4970,34 @@ fn engine_en_26() {
         "the page is assembled before the engine it loads is built"
     );
 
+    // The page is told which kernel it was built for, before it is assembled.
+    //
+    // A visitor can be served a stale holo — a service worker that never
+    // reinstalls will do it, which is UOR-Foundation/template#83 — and an old
+    // kernel refuses a question it has never heard of, honestly and in its own
+    // words. A page that cannot tell those bytes from the ones it was built
+    // against reports that refusal as the kernel's verdict. So the workflow
+    // writes the built holo's own archive fingerprint into `site/app.json`,
+    // where the page can read it and refuse to ask a kernel it does not know.
+    let wrote_at = workflow
+        .find("attestations.build = { id, url }")
+        .expect("the workflow tells the page which kernel it was built for");
+    let fingerprint_at = workflow
+        .find("archive_fingerprint")
+        .expect("the workflow reads the built holo's own identity");
+    assert!(
+        fingerprint_at < wrote_at && wrote_at < assembled_at,
+        "the page is assembled before it is told which kernel it was built for"
+    );
+    let described: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("site/app.json")).expect("what the page says"),
+    )
+    .expect("app.json is JSON");
+    assert!(
+        described["attestations"].is_object(),
+        "site/app.json has nowhere to carry the kernel's identity"
+    );
+
     // And it is built rather than committed, like the holo beside it.
     let ignored = std::fs::read_to_string(root().join(".gitignore")).expect("the ignore list");
     assert!(
