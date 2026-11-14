@@ -413,13 +413,16 @@ pub extern "C" fn container_tokeniser() -> u32 {
     })
 }
 
-/// The root the container names its whole file by: thirty-two bytes.
+/// What the container's manifest calls its root: thirty-two bytes.
+///
+/// Not the hash of the file. `download_root` is that, and a page that
+/// compares the two is comparing two different numbers about the same model.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
-pub extern "C" fn container_root() -> u32 {
+pub extern "C" fn container_identity() -> u32 {
     answer(|state| {
         let container = state.container.as_ref().ok_or(CallError::NothingRead)?;
-        Ok(container.manifest.root.0.to_vec())
+        Ok(container.manifest.identity.0.to_vec())
     })
 }
 

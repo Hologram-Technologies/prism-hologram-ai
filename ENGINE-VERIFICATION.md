@@ -886,6 +886,82 @@ still be real in a reader that drops what it does not match.
   what the original does.
 - Anything about tensors, weights or quantisation. This reads a header.
 
+## A token the file adds, and the turn that never ended
+
+The tokeniser counted `<|im_end|>` as text. It is in the vocabulary, with an
+id of its own, but nothing matched it as itself: the pre-tokeniser split it
+into `<`, `|`, `im`, and so on, and byte-level merging turned those into
+ordinary ids. A prompt written by a chat template arrived at the model
+mangled, and — the part that matters — the model's own end-of-turn id was
+never a token it had been shown, so it answered and kept going, writing
+`</|im_end|>` as text forever.
+
+That was found by running the thing, not by a gate here. The session that had
+the GPU loaded the real model through this engine and watched a turn fail to
+end. Three of this repository's own gates were green while it happened: the
+oracle agreed with the authority on every text it was given, and none of those
+texts contained a token the file adds.
+
+What a file adds is now matched as itself, before anything is merged, longest
+first so a token that begins another is not taken in its place. Both readers
+say which: a `tokenizer.json` lists them under `added_tokens`, and a GGUF
+header marks them in `tokenizer.ggml.token_type`, as control or user-defined,
+which is the same statement in the other format.
+
+The gate that was blind is the gate that now sees it. `EN-20` gives
+HuggingFace's own tokeniser the exact turn a chat template writes, and eight
+more texts around the awkward edges — a token at the start, at the end, two
+together, a prefix that is nearly one, a close bracket too many — and requires
+the same ids for every one. `EN-22` builds the same vocabulary both ways, the
+control marks in the GGUF header against `added_tokens` in the file, and
+requires the ids to agree, with the authority judging the file it can read.
+
+Writing those fixtures turned up a second thing worth knowing: the authority
+numbers added tokens itself, straight after the vocabulary, rather than taking
+the id the file declares. A published file numbers them that way already, so
+the two never disagree in practice; a fixture that numbered them otherwise did,
+and the fixtures now number them as a published file does.
+
+### The defects
+
+Four, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The tokens a file adds are merged like any other text | EN-20: the ids differ for the turn a chat template writes |
+| An added token is matched but its id is not the file's | the same |
+| The tokens a file adds are tried shortest first | EN-20: the ids differ for `<\|im_start\|>system` |
+| A header's control tokens are read as ordinary text | EN-22: the header and the file disagree |
+| none, before and after | passed |
+
+### A comparison that could not fail
+
+The matcher first held a tie-break: at the same place in the text, the longer
+token wins. Planted against — first match wins, whatever its length — nothing
+failed, and nothing could: `added` is already in longest-first order, so the
+longer token is tried first and the shorter one never displaces it. The
+comparison was dead, and restating a guarantee the order already gives is a
+line that can rot without anything noticing.
+
+It was removed, and the comment says the order is what decides. The defect
+that reads on the same behaviour is the order itself, and reversing it fails
+EN-20 on `<|im_start|>system`, which is the text the fixture gained for this:
+a token whose first characters are another token, which a model that gives its
+system header an id of its own has.
+
+Finding this cost a fixture that was added to catch a defect and a planting
+that did not catch it. That is what the planting is for.
+
+### What this does not establish
+
+- That the whole chat template is right. What is checked is the ids of the
+  text it produces. Whether the page wraps a turn in the tokens this model
+  expects is the page's business and is not checked here.
+- That every published model marks its added tokens the same way. Two formats
+  are read, and a file that records them some third way would have none, which
+  is the behaviour a model with no tokens of its own needs anyway.
+
 ## EN-23, the engine in a browser
 
 The page runs the kernel already: the holo's guest, verified before it is
@@ -1113,12 +1189,17 @@ reader.
 - That the file beyond its header is anything in particular. 98,314 bytes of a
   424 MB file are here. Every buffer's span is checked against the file's length
   and against the end of the tokeniser; none of their bytes has been seen.
-- That the root the manifest names is the hash of the file. The manifest says
-  `sha256:8932967d…`; the session that measured the whole file reported its
-  SHA-256 as `acf0b5ad…`. Both cannot be the hash of all 424,013,749 bytes, and
-  nothing here settles which: the reader carries the root the manifest names
-  and compares it to nothing. Whoever has the file is the one who can say, and
-  until then it is an open question rather than a detail.
+- What the manifest's own root covers. This was an open question here and is
+  now half answered, by measurement rather than by argument: the whole file was
+  streamed through this repository's own download module and came to
+  `acf0b5ad…`, which is what the hub record and the model card both say, so
+  that is the file's hash. The manifest names `8932967d…`, which is therefore
+  not this file's hash but the identity its catalogue pinned, over the manifest
+  the model was built from. What that covers is not recomputed anywhere here.
+  The reader carries it as `Identity`, a type of its own, precisely so that no
+  caller can compare it to the `Root` a download arrives at: they are two
+  different numbers about the same model, and the names invited the mistake
+  until this was measured.
 - That another container reads. One file is one file. A second one written
   differently would be refused by name, which is the most this can promise.
 - That the kernel admits what the reader asks about. The questions are built

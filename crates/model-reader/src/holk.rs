@@ -3,8 +3,9 @@
 //!
 //! A container carries a model's weights in one file: a magic, the length of a
 //! header, that header as JSON, and then the buffers it describes. The header
-//! names the file by a root, names each buffer by a label and a span, and says
-//! where the tokeniser the model carries lies.
+//! names each buffer by a label and a span, says where the tokeniser the model
+//! carries lies, and carries its manifest's own identity, which is not the
+//! hash of the file it is written in.
 //!
 //! What this reads is the header and nothing else. The buffers themselves may
 //! be hundreds of megabytes and arrive later, or never; whether each one lies
@@ -124,11 +125,35 @@ impl Entry {
     }
 }
 
+/// What a container's manifest calls its own root.
+///
+/// Thirty-two bytes, written `sha256:` and sixty-four digits — and not the
+/// hash of the file it is written in. For the published container it is the
+/// identity its catalogue pinned, over the manifest the model was built from:
+/// the header names `8932967d…`, while the file's own bytes hash to
+/// `acf0b5ad…`, which is what a download arrives at and what the hub record
+/// says. Nothing here recomputes what the identity covers.
+///
+/// It is its own type for that reason. A [`Root`] is what the bytes of a
+/// download come to; this is what a manifest says about itself; and the two
+/// being different types is what stops one being compared to the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Identity(pub [u8; 32]);
+
+impl Identity {
+    /// The identity a manifest names, read as strictly as a label is.
+    pub fn from_hex(text: &str) -> Result<Self, HolkError> {
+        Root::from_hex(text)
+            .map(|read| Self(read.0))
+            .map_err(|_| unfollowable(Unfollowable::RootNotSha256))
+    }
+}
+
 /// What the header says about the model as a whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
-    /// The root the container names its whole file by.
-    pub root: Root,
+    /// What the manifest calls its root, which is not this file's hash.
+    pub identity: Identity,
     /// How many tokens the model's vocabulary has.
     pub vocabulary: u64,
     /// How many layers it has.
@@ -229,8 +254,7 @@ impl Container {
 
         Ok(Self {
             manifest: Manifest {
-                root: Root::from_hex(text(&manifest["root"])?)
-                    .map_err(|_| unfollowable(Unfollowable::RootNotSha256))?,
+                identity: Identity::from_hex(text(&manifest["root"])?)?,
                 vocabulary: whole(&manifest["vocab"])?,
                 layers: whole(&manifest["n_layers"])?,
             },

@@ -92,6 +92,13 @@ const QWEN2_PATTERN: &str = concat!(
 ///
 /// Exactly two pieces. A space inside a piece is not possible in a byte-level
 /// vocabulary, where a space is written as a character of the alphabet, so a
+/// Added tokens in the order they are matched: longest first, so a token that
+/// begins another is never taken in its place.
+fn longest_first(mut added: Vec<(String, u32)>) -> Vec<(String, u32)> {
+    added.sort_by(|left, right| right.0.len().cmp(&left.0.len()).then(left.0.cmp(&right.0)));
+    added.dedup();
+    added
+}
 /// merge with two spaces in it is a merge the file means something else by.
 fn ranked(merged: Vec<String>) -> Result<BTreeMap<(String, String), u32>, TokeniserError> {
     let mut ranks = BTreeMap::new();
@@ -149,6 +156,12 @@ pub struct Tokeniser {
     /// Whether a space is put before text that does not start with one, which
     /// is what makes the first word look like every other word to the model.
     prefix_space: bool,
+    /// The tokens the file adds beside its vocabulary — the ones that mark
+    /// the ends of a turn, and anything else written in angle brackets that
+    /// no merge would ever build. Matched as themselves wherever they appear,
+    /// longest first, before any text around them is merged. Sorted longest
+    /// first, which is the order they are tried in.
+    added: Vec<(String, u32)>,
     alphabet: [char; 256],
 }
 
@@ -184,14 +197,16 @@ impl Tokeniser {
         }
         // Tokens the file adds beside the vocabulary, such as the ones that
         // mark the ends of a turn. They are ids like any other to a counter.
-        for added in read["added_tokens"].as_array().into_iter().flatten() {
-            let (Some(content), Some(id)) = (added["content"].as_str(), added["id"].as_u64())
+        let mut added = Vec::new();
+        for entry in read["added_tokens"].as_array().into_iter().flatten() {
+            let (Some(content), Some(id)) = (entry["content"].as_str(), entry["id"].as_u64())
             else {
                 continue;
             };
             if let Ok(id) = u32::try_from(id) {
                 ids.insert(content.to_string(), id);
                 tokens.insert(id, content.to_string());
+                added.push((content.to_string(), id));
             }
         }
 
@@ -225,6 +240,7 @@ impl Tokeniser {
             pattern: described.pattern,
             prefix_space: described.prefix_space,
             alphabet: bytes::alphabet(),
+            added: longest_first(added),
         })
     }
 
@@ -238,6 +254,7 @@ impl Tokeniser {
         merged: Vec<String>,
         pattern: Option<fancy_regex::Regex>,
         prefix_space: bool,
+        added: Vec<(String, u32)>,
     ) -> Result<Self, TokeniserError> {
         let mut ids = BTreeMap::new();
         let mut by_id = BTreeMap::new();
@@ -255,6 +272,7 @@ impl Tokeniser {
             pattern,
             prefix_space,
             alphabet: bytes::alphabet(),
+            added: longest_first(added),
         })
     }
 
@@ -288,10 +306,50 @@ impl Tokeniser {
     /// text this cannot encode and no unknown token to stand in.
     #[must_use]
     pub fn encode(&self, text: &str) -> Vec<u32> {
+        // A token the file adds is matched as itself wherever it appears, and
+        // never merged into or out of: `<|im_end|>` is one id, not the pieces
+        // it would break into. A model whose turn never ends is what happens
+        // when it is merged like any other text, because the id it stops on
+        // is one it was never given.
         let mut out = Vec::new();
+        let mut rest = text;
+        while let Some((at, token, id)) = self.first_added(rest) {
+            self.encode_text(&rest[..at], &mut out);
+            out.push(id);
+            rest = &rest[at + token..];
+        }
+        self.encode_text(rest, &mut out);
+        out
+    }
+
+    /// The first added token in `text`: where it starts, how long it is, and
+    /// its id. Longest first, so a token that begins another is not taken in
+    /// its place.
+    fn first_added(&self, text: &str) -> Option<(usize, usize, u32)> {
+        let mut found: Option<(usize, usize, u32)> = None;
+        for (token, id) in &self.added {
+            let Some(at) = text.find(token.as_str()) else {
+                continue;
+            };
+            // Earlier in the text wins. At the same place the longer token
+            // wins, and that needs no comparison here: `added` is in
+            // longest-first order, so the longer one was tried first and the
+            // shorter one does not displace it.
+            if found.is_none_or(|(seen, _, _)| at < seen) {
+                found = Some((at, token.len(), *id));
+            }
+        }
+        found
+    }
+
+    /// The ids of text with no added token in it.
+    fn encode_text(&self, text: &str, out: &mut Vec<u32>) {
+        if text.is_empty() {
+            return;
+        }
         // A space before the first word, when the file asks for one, so that
         // the first word is the same token as the same word anywhere else.
-        let spaced = if self.prefix_space && !text.starts_with(' ') && !text.is_empty() {
+        let spaced = if self.prefix_space && !text.starts_with(' ') {
             format!(" {text}")
         } else {
             text.to_string()
@@ -310,7 +368,6 @@ impl Tokeniser {
                 }
             }
         }
-        out
     }
 
     /// How many tokens `text` is.

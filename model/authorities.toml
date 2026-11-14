@@ -22,10 +22,10 @@ realized_by = ["EN-06"]
 [[authority]]
 id = "GGUF"
 name = "The GGUF file format"
-citation = """ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens` and `.merges`."""
+citation = """ggml-org/ggml, docs/gguf.md. The header layout read here is its `gguf_header_t` and `gguf_metadata_kv_t`: the magic `GGUF`, a little-endian version, the tensor and metadata counts, then a key, a value type and a value for each entry. The tokeniser keys are its `tokenizer.ggml.model`, `.pre`, `.tokens`, `.merges` and `.token_type`, whose values are the format's own GGUFTokenType enumeration: 1 normal, 2 unknown, 3 control, 4 user-defined, 5 unused, 6 byte."""
 checksum = "none"
 checksum_reason = """The document is not vendored: what is reproduced from it is a layout, written out as a reader in crates/tokenizer/src/gguf.rs and as a writer in the test that builds the files, which disagree the moment either is wrong."""
-statement = """A GGUF file begins with the four bytes GGUF, a version, the number of tensors and the number of metadata entries, and the metadata that follows is read before any tensor. Version 3 is the one described."""
+statement = """A GGUF file begins with the four bytes GGUF, a version, the number of tensors and the number of metadata entries, and the metadata that follows is read before any tensor. Version 3 is the one described. A token the file marks control or user-defined is one the model is given rather than one built from text, which is what a tokenizer.json lists under added_tokens; that the two readings agree is checked by EN-22 rather than taken from here."""
 realized_by = ["EN-21"]
 
 [[authority]]

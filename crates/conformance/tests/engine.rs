@@ -2860,6 +2860,45 @@ fn tokeniser(merged: &[&str], pattern: Option<&str>) -> Vec<u8> {
 /// A tokeniser file of the shape a published model has: the byte-level
 /// pre-tokeniser splits by its own pattern and puts a space in front, and the
 /// file says so with flags rather than carrying the pattern.
+/// The same file with tokens added beside its vocabulary, as a published
+/// model adds the ones a chat template writes: `<|im_start|>`, `<|im_end|>`
+/// and `<|endoftext|>`, which no merge would ever build.
+fn with_added(file: &[u8], added: &[(&str, u64)]) -> Vec<u8> {
+    let mut read: serde_json::Value = serde_json::from_slice(file).expect("the file is JSON");
+    read["added_tokens"] = added
+        .iter()
+        .map(|(content, id)| {
+            serde_json::json!({
+                "id": id,
+                "content": content,
+                "single_word": false,
+                "lstrip": false,
+                "rstrip": false,
+                "normalized": false,
+                "special": true,
+            })
+        })
+        .collect();
+    serde_json::to_vec(&read).expect("the file is written")
+}
+
+/// Three tokens a published model adds, numbered as a published file numbers
+/// them: straight after the vocabulary, which here is the byte alphabet and
+/// one token per merge. A model stops on the id of `<|im_end|>`; one that
+/// never receives that id never stops.
+fn chat_tokens(merges: usize) -> Vec<(&'static str, u64)> {
+    let first = (256 + merges) as u64;
+    vec![
+        ("<|endoftext|>", first),
+        ("<|im_start|>", first + 1),
+        ("<|im_end|>", first + 2),
+        // A token whose first characters are another token, which a model
+        // that gives its system header an id of its own has. Whichever is
+        // matched at that position decides every id after it.
+        ("<|im_start|>system", first + 3),
+    ]
+}
+
 fn published_shape(merged: &[&str], prefix_space: bool) -> Vec<u8> {
     let mut file: serde_json::Value =
         serde_json::from_slice(&tokeniser(merged, None)).expect("the file is JSON");
@@ -3277,6 +3316,19 @@ fn engine_en_20() {
         // the last go together, so whether this merge ever applies is a
         // question about the pattern and nothing else.
         published_shape(&["Ġ Ġ", "ĠĠ Ġ"], false),
+        // Files with the tokens a chat template writes. The authority matches
+        // those as themselves before anything is merged, and so must this.
+        with_added(
+            &tokeniser(
+                &["t h", "th e", "Ġ the", "e l", "el l", "l o"],
+                Some(PUBLISHED_PATTERN),
+            ),
+            &chat_tokens(6),
+        ),
+        with_added(
+            &published_shape(&["t h", "th e", "Ġ the"], true),
+            &chat_tokens(3),
+        ),
     ];
 
     let texts: Vec<String> = [
@@ -3307,6 +3359,23 @@ fn engine_en_20() {
  newlines 
 
 ",
+        // The turn a chat template writes, and the ways its tokens can sit
+        // in text around it.
+        "<|im_start|>user\nthe theme<|im_end|>\n<|im_start|>assistant\n",
+        "<|endoftext|>",
+        "<|im_end|>",
+        "the<|im_end|>the",
+        "<|im_start|><|im_end|>",
+        "<|im_start|",
+        "|im_end|>",
+        "<|im_start|>>",
+        "a <|endoftext|> b",
+        // Where one added token begins another: the longer is the one the
+        // authority matches, and taking the shorter changes every id after it.
+        "<|im_start|>system
+the theme<|im_end|>",
+        "<|im_start|>systematic",
+        "<|im_start|>system<|im_start|>system",
     ]
     .iter()
     .map(|text| (*text).to_string())
@@ -3354,6 +3423,7 @@ fn engine_en_20() {
 enum Value {
     Text(String),
     Texts(Vec<String>),
+    Numbers(Vec<u32>),
     Bool(bool),
     Number(u32),
 }
@@ -3372,6 +3442,14 @@ fn gguf_value(value: &Value) -> (u32, Vec<u8>) {
             for text in texts {
                 out.extend((text.len() as u64).to_le_bytes());
                 out.extend_from_slice(text.as_bytes());
+            }
+            (9, out)
+        }
+        Value::Numbers(numbers) => {
+            let mut out = 5u32.to_le_bytes().to_vec();
+            out.extend((numbers.len() as u64).to_le_bytes());
+            for number in numbers {
+                out.extend(number.to_le_bytes());
             }
             (9, out)
         }
@@ -3396,6 +3474,36 @@ fn gguf(entries: &[(&str, Value)], after: &[u8]) -> Vec<u8> {
     }
     out.extend_from_slice(after);
     out
+}
+
+/// The same metadata, with `control` added to the vocabulary and marked as
+/// the tokens a model is given rather than built from text. That mark is how
+/// a GGUF file records what a `tokenizer.json` lists under `added_tokens`.
+fn gguf_with_control(merged: &[&str], control: &[&str]) -> Vec<u8> {
+    let alphabet = byte_alphabet();
+    let mut tokens: Vec<String> = alphabet.iter().map(char::to_string).collect();
+    for merge in merged {
+        tokens.push(merge.replace(' ', ""));
+    }
+    let mut types = vec![1u32; tokens.len()];
+    for name in control {
+        tokens.push((*name).to_string());
+        types.push(3);
+    }
+    gguf(
+        &[
+            ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+            ("tokenizer.ggml.pre", Value::Text("gpt2".into())),
+            ("tokenizer.ggml.tokens", Value::Texts(tokens)),
+            (
+                "tokenizer.ggml.merges",
+                Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
+            ),
+            ("tokenizer.ggml.token_type", Value::Numbers(types)),
+            ("tokenizer.ggml.add_space_prefix", Value::Bool(false)),
+        ],
+        b"the tensors would be here",
+    )
 }
 
 /// The metadata a byte-level model carries, with `merged` as its merges and
@@ -3602,6 +3710,40 @@ fn engine_en_22() {
     let as_json = tokeniser(&merged, Some(GPT2_PATTERN));
     let from_json = tokeniser::Tokeniser::read(&as_json).expect("the JSON file is read");
     let authority = tokenizers::Tokenizer::from_bytes(&as_json).expect("the authority reads it");
+
+    // A GGUF file says which of its tokens are matched as themselves by
+    // marking them control, where a tokenizer.json lists them under
+    // `added_tokens`. The same tokeniser written both ways must give the same
+    // ids, and the authority judges the one it can read.
+    let control = ["<|endoftext|>", "<|im_start|>", "<|im_end|>"];
+    let marked = gguf_with_control(&merged, &control);
+    let gguf_control = tokeniser::Tokeniser::from_gguf(&marked).expect("the header is read");
+    let json_added: Vec<(&str, u64)> = control
+        .iter()
+        .enumerate()
+        .map(|(step, name)| (*name, (256 + merged.len() + step) as u64))
+        .collect();
+    let with_control = with_added(&as_json, &json_added);
+    let json_control = tokeniser::Tokeniser::read(&with_control).expect("the file is read");
+    let judge = tokenizers::Tokenizer::from_bytes(&with_control).expect("the authority reads it");
+    for text in [
+        "<|im_start|>user\nthe theme<|im_end|>\n",
+        "the<|im_end|>",
+        "<|endoftext|>",
+        "hello there",
+    ] {
+        let theirs = judge.encode(text, false).expect("the authority encodes it");
+        assert_eq!(
+            json_control.encode(text),
+            theirs.get_ids(),
+            "the file the authority reads disagrees with it for {text:?}"
+        );
+        assert_eq!(
+            gguf_control.encode(text),
+            json_control.encode(text),
+            "the header and the file disagree for {text:?}"
+        );
+    }
 
     let mut rng = Rng(0x6767_7566_0001_0002);
     let texts: Vec<String> = [
@@ -3854,7 +3996,7 @@ fn engine_en_23() {
             .iter()
             .map(|entry| [entry.span.at, entry.span.len])
             .collect::<Vec<_>>(),
-        "containerRoot": enhex(&container.manifest.root.0),
+        "containerIdentity": enhex(&container.manifest.identity.0),
         "ranges": container
             .entries
             .iter()
@@ -3980,8 +4122,8 @@ same("question", enhex(answer()), cases.question);
 // The container's header, read by the module the page loads.
 same("container_read", given(unhex(cases.container), (at, len) => call.container_read(at, len)), 0);
 same("container_entries", call.container_entries(), cases.entries);
-same("container_root", call.container_root(), 0);
-same("container root", enhex(answer()), cases.containerRoot);
+same("container_identity", call.container_identity(), 0);
+same("the manifest's identity", enhex(answer()), cases.containerIdentity);
 const numbers = (bytes) => {
   const view = new DataView(bytes.buffer);
   return [String(view.getBigUint64(0, true)), String(view.getBigUint64(8, true))];
@@ -4218,6 +4360,19 @@ fn engine_en_25() {
         (real.manifest.vocabulary, real.manifest.layers),
         (151_669, 28)
     );
+    // What the manifest calls its root is not the hash of the file. The file
+    // was streamed whole elsewhere and came to `acf0b5ad…`, which is what the
+    // hub record says; the manifest names this instead, and what it covers is
+    // not recomputed anywhere here. The two are different types so that no
+    // caller can compare them.
+    assert_eq!(
+        real.manifest.identity,
+        holk::Identity(
+            unhex("8932967dbd30cbabcd5bd446dc3e553991c07088760ba49e6c812c39aba419e6")
+                .try_into()
+                .expect("thirty-two bytes")
+        )
+    );
     // Two quantisation formats, and both are codes the kernel answers for:
     // q1, under a manifest that says this model's weights are ternary, and f32.
     let kinds: BTreeSet<u8> = real.entries.iter().map(|entry| entry.format).collect();
@@ -4281,7 +4436,7 @@ fn engine_en_25() {
     assert_eq!(read.entries.len(), entries.len());
     assert_eq!(read.manifest.vocabulary, 151_936);
     assert_eq!(read.manifest.layers, 36);
-    assert_eq!(read.manifest.root, download::Root([0xcd; 32]));
+    assert_eq!(read.manifest.identity, holk::Identity([0xcd; 32]));
     assert_eq!(
         read.tokeniser,
         holk::Span {

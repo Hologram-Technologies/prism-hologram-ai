@@ -29,6 +29,7 @@ mod key {
     pub(crate) const TOKENS: &str = "tokenizer.ggml.tokens";
     pub(crate) const MERGES: &str = "tokenizer.ggml.merges";
     pub(crate) const SPACE_PREFIX: &str = "tokenizer.ggml.add_space_prefix";
+    pub(crate) const TOKEN_TYPE: &str = "tokenizer.ggml.token_type";
 }
 
 /// The value types the format defines, by the number that names them.
@@ -134,6 +135,25 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    /// An array of whole numbers, which is how a file says what its tokens
+    /// are. A width this reader does not know is stepped over rather than
+    /// guessed at, and the array is read as empty.
+    fn numbers(&mut self) -> Result<Vec<u32>, TokeniserError> {
+        let inner = self.u32()?;
+        let count = usize::try_from(self.u64()?).map_err(|_| TokeniserError::Truncated)?;
+        let mut out = Vec::new();
+        for _ in 0..count {
+            match inner {
+                kind::INT32 | kind::UINT32 => out.push(self.u32()?),
+                _ => {
+                    self.step_over(inner)?;
+                    out.clear();
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// An array of text, which is how a vocabulary and its merges are written.
     fn texts(&mut self) -> Result<Vec<String>, TokeniserError> {
         let inner = self.u32()?;
@@ -152,6 +172,16 @@ impl<'a> Reader<'a> {
         }
         Ok(out)
     }
+}
+
+/// What a file says one of its tokens is, as the format's own enumeration
+/// numbers them. The two that matter here are the ones a `tokenizer.json`
+/// would list under `added_tokens`.
+mod token {
+    /// A token the model is given rather than built from text.
+    pub(crate) const CONTROL: u32 = 3;
+    /// A token someone added to the vocabulary.
+    pub(crate) const USER_DEFINED: u32 = 4;
 }
 
 /// Build a tokeniser from a GGUF file's header.
@@ -176,6 +206,7 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
     let mut tokens = Vec::new();
     let mut merges = Vec::new();
     let mut space_prefix = false;
+    let mut types = Vec::new();
     for _ in 0..entries {
         let name = reader.text()?;
         let kind = reader.u32()?;
@@ -185,6 +216,7 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
             (key::TOKENS, kind::ARRAY) => tokens = reader.texts()?,
             (key::MERGES, kind::ARRAY) => merges = reader.texts()?,
             (key::SPACE_PREFIX, kind::BOOL) => space_prefix = reader.fixed::<1>()? != [0],
+            (key::TOKEN_TYPE, kind::ARRAY) => types = reader.numbers()?,
             _ => reader.step_over(kind)?,
         }
     }
@@ -199,5 +231,20 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
         return Err(TokeniserError::Unfollowable(Unfollowable::NoVocabulary));
     }
     let pattern = crate::pattern_named(pre.as_deref())?;
-    Tokeniser::assemble(tokens, merges, Some(pattern), space_prefix)
+    // Which tokens are matched as themselves: the ones the file marks as
+    // control or user-defined, which is how a GGUF file records what a
+    // `tokenizer.json` lists under `added_tokens`. A file that marks none is
+    // read as one with none, not as one this reader cannot follow: a model
+    // may have no token of its own.
+    let mut added = Vec::new();
+    for (id, kind) in types.iter().enumerate() {
+        if !matches!(*kind, token::CONTROL | token::USER_DEFINED) {
+            continue;
+        }
+        let (Some(token), Ok(id)) = (tokens.get(id), u32::try_from(id)) else {
+            continue;
+        };
+        added.push((token.clone(), id));
+    }
+    Tokeniser::assemble(tokens, merges, Some(pattern), space_prefix, added)
 }
