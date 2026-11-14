@@ -285,3 +285,9 @@ id = "GP-02"
 level = "build"
 suite = "gpu"
 statement = "The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size"
+
+[[id]]
+id = "GP-04"
+level = "build"
+suite = "gpu"
+statement = "Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time"

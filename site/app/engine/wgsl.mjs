@@ -10,7 +10,7 @@
 // out[n] = (+)= sum_k x[k] * w[n][k]. One workgroup per output row; 64 threads
 // stride over the row's 32-weight words. P = (K, N, accumulate, 0).
 export const MATVEC_TERNARY = `
-@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(0) var<storage, read> x4: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> signs: array<u32>;
 @group(0) @binding(2) var<storage, read> nonzeros: array<u32>;
 @group(0) @binding(3) var<storage, read> scales: array<f32>;
@@ -28,14 +28,16 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
   for (var w = t; w < words; w += 64u) {
     let s = signs[n * words + w];
     let z = nonzeros[n * words + w];
-    let k0 = w << 5u;
+    let x0 = w << 3u;
     var part = 0.0;
-    for (var j = 0u; j < 32u; j++) {
-      let bit = 1u << j;
-      if ((z & bit) != 0u) {
-        let v = x[k0 + j];
-        part += select(-v, v, (s & bit) != 0u);
-      }
+    // Four inputs at a time: each weight is +1, -1 or 0 from its two bits,
+    // computed rather than branched on.
+    for (var q = 0u; q < 8u; q++) {
+      let zz = (z >> (q * 4u)) & 0xfu;
+      let ss = (s >> (q * 4u)) & 0xfu;
+      let nz = vec4<f32>(f32(zz & 1u), f32((zz >> 1u) & 1u), f32((zz >> 2u) & 1u), f32((zz >> 3u) & 1u));
+      let sg = vec4<f32>(f32(ss & 1u), f32((ss >> 1u) & 1u), f32((ss >> 2u) & 1u), f32((ss >> 3u) & 1u));
+      part += dot(x4[x0 + q], nz * (sg * 2.0 - 1.0));
     }
     acc += part * scales[n * groups + (w >> 2u)];
   }
@@ -207,24 +209,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   g[i] = a / (1.0 + exp(-a)) * u[i];
 }`;
 
-// x = the embedding row of token, decoded from the ternary planes. P = (K, token).
+// x = the embedding row of the token at ring[P.y], decoded from the ternary
+// planes. The ring holds the sequence on the GPU, so a position can read the
+// token the previous position picked without a trip to the CPU. P = (K, slot).
 export const EMBED_TERNARY = `
 @group(0) @binding(0) var<storage, read> signs: array<u32>;
 @group(0) @binding(1) var<storage, read> nonzeros: array<u32>;
 @group(0) @binding(2) var<storage, read> scales: array<f32>;
 @group(0) @binding(3) var<storage, read_write> x: array<f32>;
-@group(0) @binding(4) var<uniform> P: vec4<u32>;
+@group(0) @binding(4) var<storage, read> ring: array<u32>;
+@group(0) @binding(5) var<uniform> P: vec4<u32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let k = gid.x;
   if (k >= P.x) { return; }
-  let g = P.y * P.x + k;
+  let g = ring[P.y] * P.x + k;
   let bit = 1u << (g & 31u);
   let z = (nonzeros[g >> 5u] & bit) != 0u;
   let s = (signs[g >> 5u] & bit) != 0u;
   let w = scales[g >> 7u];
   x[k] = select(0.0, select(-w, w, s), z);
 }`;
+
+// ring[P.x] = the pick. One thread. P = (slot).
+export const APPEND = `
+@group(0) @binding(0) var<storage, read_write> ring: array<u32>;
+@group(0) @binding(1) var<storage, read> chosen: array<u32>;
+@group(0) @binding(2) var<uniform> P: vec4<u32>;
+@compute @workgroup_size(1)
+fn main() { ring[P.x] = chosen[0]; }`;
 
 // The index of the first maximum of n logits. One workgroup. P = (n).
 export const ARGMAX = `

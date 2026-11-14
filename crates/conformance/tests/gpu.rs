@@ -125,3 +125,39 @@ fn gpu_gp_02() {
         "pair 40 is scaled by the factor"
     );
 }
+
+/// `GP-04`: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
+#[test]
+fn gpu_gp_04() {
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let runs = result["batched"].as_array().expect("the batched runs");
+    assert_eq!(
+        runs.len(),
+        2,
+        "a short prompt and one longer than a submission"
+    );
+    for run in runs {
+        let length = run["promptLength"].as_u64().expect("prompt length");
+        let stepwise = run["stepwise"].as_array().expect("stepwise tokens");
+        let together = run["together"].as_array().expect("batched tokens");
+        assert_eq!(stepwise.len(), 12, "twelve tokens one at a time");
+        assert_eq!(
+            together, stepwise,
+            "a {length}-token prompt: batched tokens differ from one at a time"
+        );
+        // Every prompt position and every generated one ran exactly once.
+        assert_eq!(
+            run["position"].as_u64(),
+            Some(length + 12 - 1),
+            "a {length}-token prompt: positions run"
+        );
+    }
+    // The longer prompt crosses a submission's 32 slots, so a chunk boundary is
+    // exercised, not only the first chunk.
+    assert!(runs.iter().any(|r| r["promptLength"].as_u64() > Some(32)));
+}

@@ -56,6 +56,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | --- | --- | --- |
 | `GP-01` | `build` | The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance |
 | `GP-02` | `build` | The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size |
+| `GP-04` | `build` | Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time |
 
 ## kernel
 

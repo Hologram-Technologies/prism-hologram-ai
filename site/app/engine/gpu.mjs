@@ -4,7 +4,7 @@
 // Decisions about what may be loaded and run are the kernel's; this module only
 // computes.
 
-import { ARGMAX, ATTENTION, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
+import { APPEND, ARGMAX, ATTENTION, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
 import { plain, yarn } from "./yarn.mjs";
 
 const U = typeof GPUBufferUsage === "undefined" ? {} : GPUBufferUsage;
@@ -114,14 +114,12 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   const bind = (p, buffers) =>
     device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })) });
 
-  // Uniforms whose values change with the position are written each step.
-  const at = {
-    embed: uniform([d, 0, 0, 0]),
-    ropeQ: uniform([heads, hd, 0, f32bits(rope.mscale)]),
-    ropeK: uniform([kvHeads, hd, 0, f32bits(rope.mscale)]),
-    kv: uniform([kvdim, 0, 0, 0]),
-    attention: uniform([heads, kvHeads, hd, 1]),
-  };
+  // The sequence lives on the GPU: position p's token is ring[p]. A position
+  // reads its token from the ring and, when it generates, writes its pick to
+  // the next slot, so many positions run in one submission.
+  const ring = storage(capacity * 4);
+  const pipeAppend = pipeline(APPEND);
+
   const fixed = {
     normD: uniform([d, f32bits(eps), 0, 0]),
     normHead: uniform([hd, f32bits(eps), 0, 0]),
@@ -135,35 +133,73 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     return matvecUniform.get(key);
   };
 
-  // Every dispatch of a step, recorded once: [pipeline, bind group, x, y].
-  const plan = [];
+  // A slot is one position's uniforms and the bind groups that read them.
+  // Passes that do not depend on the position share one bind group.
+  const SLOTS = 32;
   const grid = (n) => [Math.min(n, 65535), Math.ceil(n / 65535)];
-  const matvec = (w, input, output, accumulate = false) =>
-    plan.push([P.matvec, bind(P.matvec, [input, w.signs, w.nonzeros, w.scales, output, matvecParams(w.K, w.N, accumulate)]), ...grid(w.N)]);
-
-  plan.push([P.embed, bind(P.embed, [embed.signs, embed.nonzeros, embed.scales, B.x, at.embed]), Math.ceil(d / 64), 1]);
-  for (const L of layer) {
-    plan.push([P.norm, bind(P.norm, [B.x, L.attnNorm, B.h, fixed.normD]), 1, 1]);
-    matvec(L.wq, B.h, B.q);
-    matvec(L.wk, B.h, B.k);
-    matvec(L.wv, B.h, B.v);
-    plan.push([P.headNorm, bind(P.headNorm, [B.q, L.qNorm, fixed.normHead]), heads, 1]);
-    plan.push([P.headNorm, bind(P.headNorm, [B.k, L.kNorm, fixed.normHead]), kvHeads, 1]);
-    plan.push([P.rope, bind(P.rope, [B.q, freqs, at.ropeQ]), Math.ceil((heads * hd) / 2 / 64), 1]);
-    plan.push([P.rope, bind(P.rope, [B.k, freqs, at.ropeK]), Math.ceil((kvHeads * hd) / 2 / 64), 1]);
-    plan.push([P.kv, bind(P.kv, [B.k, B.v, L.kc, L.vc, at.kv]), Math.ceil(kvdim / 64), 1]);
-    plan.push([P.attention, bind(P.attention, [B.q, L.kc, L.vc, B.att, at.attention]), heads, 1]);
-    matvec(L.wo, B.att, B.x, true);
-    plan.push([P.norm, bind(P.norm, [B.x, L.ffnNorm, B.h, fixed.normD]), 1, 1]);
-    matvec(L.gate, B.h, B.g);
-    matvec(L.up, B.h, B.u);
-    plan.push([P.silu, bind(P.silu, [B.g, B.u, fixed.silu]), Math.ceil(ff / 64), 1]);
-    matvec(L.down, B.g, B.x, true);
+  const shared = new Map();
+  const once = (key, make) => {
+    if (!shared.has(key)) shared.set(key, make());
+    return shared.get(key);
+  };
+  const slots = [];
+  for (let s = 0; s < SLOTS; s++) {
+    const u = {
+      embed: uniform([d, 0, 0, 0]),
+      ropeQ: uniform([heads, hd, 0, f32bits(rope.mscale)]),
+      ropeK: uniform([kvHeads, hd, 0, f32bits(rope.mscale)]),
+      kv: uniform([kvdim, 0, 0, 0]),
+      attention: uniform([heads, kvHeads, hd, 1]),
+      append: uniform([0, 0, 0, 0]),
+    };
+    const plan = [];
+    const matvec = (key, w, input, output, accumulate = false) =>
+      plan.push([P.matvec, once(key, () => bind(P.matvec, [input, w.signs, w.nonzeros, w.scales, output, matvecParams(w.K, w.N, accumulate)])), ...grid(w.N)]);
+    plan.push([P.embed, bind(P.embed, [embed.signs, embed.nonzeros, embed.scales, B.x, ring, u.embed]), Math.ceil(d / 64), 1]);
+    layer.forEach((L, l) => {
+      plan.push([P.norm, once(`an${l}`, () => bind(P.norm, [B.x, L.attnNorm, B.h, fixed.normD])), 1, 1]);
+      matvec(`q${l}`, L.wq, B.h, B.q);
+      matvec(`k${l}`, L.wk, B.h, B.k);
+      matvec(`v${l}`, L.wv, B.h, B.v);
+      plan.push([P.headNorm, once(`qn${l}`, () => bind(P.headNorm, [B.q, L.qNorm, fixed.normHead])), heads, 1]);
+      plan.push([P.headNorm, once(`kn${l}`, () => bind(P.headNorm, [B.k, L.kNorm, fixed.normHead])), kvHeads, 1]);
+      plan.push([P.rope, bind(P.rope, [B.q, freqs, u.ropeQ]), Math.ceil((heads * hd) / 2 / 64), 1]);
+      plan.push([P.rope, bind(P.rope, [B.k, freqs, u.ropeK]), Math.ceil((kvHeads * hd) / 2 / 64), 1]);
+      plan.push([P.kv, bind(P.kv, [B.k, B.v, L.kc, L.vc, u.kv]), Math.ceil(kvdim / 64), 1]);
+      plan.push([P.attention, bind(P.attention, [B.q, L.kc, L.vc, B.att, u.attention]), heads, 1]);
+      matvec(`o${l}`, L.wo, B.att, B.x, true);
+      plan.push([P.norm, once(`fn${l}`, () => bind(P.norm, [B.x, L.ffnNorm, B.h, fixed.normD])), 1, 1]);
+      matvec(`g${l}`, L.gate, B.h, B.g);
+      matvec(`u${l}`, L.up, B.h, B.u);
+      plan.push([P.silu, once(`s${l}`, () => bind(P.silu, [B.g, B.u, fixed.silu])), Math.ceil(ff / 64), 1]);
+      matvec(`d${l}`, L.down, B.g, B.x, true);
+    });
+    plan.push([P.norm, once("final", () => bind(P.norm, [B.x, finalNorm, B.h, fixed.normD])), 1, 1]);
+    matvec("head", head, B.h, B.logits);
+    plan.push([P.argmax, once("argmax", () => bind(P.argmax, [B.logits, B.chosen, fixed.argmax])), 1, 1]);
+    slots.push({ u, plan, append: bind(pipeAppend, [ring, B.chosen, u.append]) });
   }
-  plan.push([P.norm, bind(P.norm, [B.x, finalNorm, B.h, fixed.normD]), 1, 1]);
-  matvec(head, B.h, B.logits);
-  plan.push([P.argmax, bind(P.argmax, [B.logits, B.chosen, fixed.argmax]), 1, 1]);
 
+  const record = (encoder, s, pos, generates) => {
+    const { u, plan, append } = slots[s];
+    device.queue.writeBuffer(u.embed, 0, new Uint32Array([d, pos, 0, 0]));
+    device.queue.writeBuffer(u.ropeQ, 0, new Uint32Array([heads, hd, pos, f32bits(rope.mscale)]));
+    device.queue.writeBuffer(u.ropeK, 0, new Uint32Array([kvHeads, hd, pos, f32bits(rope.mscale)]));
+    device.queue.writeBuffer(u.kv, 0, new Uint32Array([kvdim, pos, 0, 0]));
+    device.queue.writeBuffer(u.attention, 0, new Uint32Array([heads, kvHeads, hd, pos + 1]));
+    device.queue.writeBuffer(u.append, 0, new Uint32Array([pos + 1, 0, 0, 0]));
+    // One compute pass per position: dispatches within a pass run in order and
+    // see each other's writes, without a pass's start-up cost each time.
+    const pass = encoder.beginComputePass();
+    for (const [p, group, x, y] of generates ? [...plan, [pipeAppend, append, 1, 1]] : plan) {
+      pass.setPipeline(p);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(x, y);
+    }
+    pass.end();
+  };
+
+  const readRing = device.createBuffer({ size: SLOTS * 4 + 4, usage: U.MAP_READ | U.COPY_DST });
   let position = 0;
 
   // Run one token at the next position; answer the greedy pick, and the logits
@@ -171,19 +207,9 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   async function step(token, { logits = false } = {}) {
     if (position >= capacity) throw new Error(`context full: ${capacity} positions`);
     const pos = position;
-    device.queue.writeBuffer(at.embed, 0, new Uint32Array([d, token, 0, 0]));
-    device.queue.writeBuffer(at.ropeQ, 0, new Uint32Array([heads, hd, pos, f32bits(rope.mscale)]));
-    device.queue.writeBuffer(at.ropeK, 0, new Uint32Array([kvHeads, hd, pos, f32bits(rope.mscale)]));
-    device.queue.writeBuffer(at.kv, 0, new Uint32Array([kvdim, pos, 0, 0]));
-    device.queue.writeBuffer(at.attention, 0, new Uint32Array([heads, kvHeads, hd, pos + 1]));
+    device.queue.writeBuffer(ring, pos * 4, new Uint32Array([token]));
     const encoder = device.createCommandEncoder();
-    for (const [p, group, x, y] of plan) {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(p);
-      pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(x, y);
-      pass.end();
-    }
+    record(encoder, 0, pos, false);
     encoder.copyBufferToBuffer(B.chosen, 0, readChosen, 0, 16);
     if (logits) encoder.copyBufferToBuffer(B.logits, 0, readLogits, 0, vocab * 4);
     device.queue.submit([encoder.finish()]);
@@ -200,20 +226,65 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     return { token: chosen, logits: values };
   }
 
-  // Greedy continuation of a prompt; prompt tokens run one at a time for now.
+  // Greedy continuation of a prompt, many positions per submission: the
+  // prompt's tokens are written to the ring and run in chunks; generation picks
+  // on the GPU and appends to the ring, and only the new tokens are read back.
+  // Stops after `count` new tokens or at a stop token (which is not returned).
+  // `onToken(ids)` sees the tokens so far after each submission.
+  async function run(prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) {
+    if (position + prompt.length + count > capacity) throw new Error(`context full: ${capacity} positions`);
+    device.queue.writeBuffer(ring, position * 4, new Uint32Array(prompt));
+    let p = 0;
+    // All but the last prompt token: nothing to read back.
+    while (p < prompt.length - 1) {
+      const n = Math.min(SLOTS, prompt.length - 1 - p);
+      const encoder = device.createCommandEncoder();
+      for (let s = 0; s < n; s++) record(encoder, s, position + s, false);
+      device.queue.submit([encoder.finish()]);
+      position += n;
+      p += n;
+    }
+    // The last prompt token and every generated one pick and append.
+    const out = [];
+    let first = true;
+    while (out.length < count) {
+      // The first pick alone, so the time to the first token is that and no more.
+      const n = Math.min(first ? 1 : SLOTS, count - out.length);
+      const encoder = device.createCommandEncoder();
+      for (let s = 0; s < n; s++) record(encoder, s, position + s, true);
+      encoder.copyBufferToBuffer(ring, (position + 1) * 4, readRing, 0, n * 4);
+      device.queue.submit([encoder.finish()]);
+      await readRing.mapAsync(GPUMapMode.READ, 0, n * 4);
+      const picked = Array.from(new Uint32Array(readRing.getMappedRange(0, n * 4).slice(0)));
+      readRing.unmap();
+      if (first) { onFirst(); first = false; }
+      let stopAt = picked.findIndex((t) => stops.has(t));
+      const take = stopAt < 0 ? picked : picked.slice(0, stopAt);
+      out.push(...take);
+      // Positions past a stop were computed but are not part of the sequence.
+      position += stopAt < 0 ? n : stopAt + 1;
+      onToken(out.slice());
+      if (stopAt >= 0) break;
+    }
+    return out;
+  }
+
+  // Greedy continuation, one position per submission: the reference run is
+  // compared with.
   async function generate(prompt, count) {
     let last = null;
     for (const token of prompt) last = await step(token);
     const out = [];
     for (let i = 0; i < count && last; i++) {
       out.push(last.token);
-      last = await step(last.token);
+      if (i + 1 < count) last = await step(last.token);
     }
     return out;
   }
 
   return {
     step,
+    run,
     generate,
     reset: () => { position = 0; },
     get position() { return position; },

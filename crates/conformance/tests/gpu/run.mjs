@@ -66,7 +66,17 @@ try {
       gpuNext = g.token;
       refNext = r.token;
     }
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, steps, gpuNext };
+    // GP-04: many positions per submission against one per submission, on the
+    // same model, for a short prompt and one longer than a submission's slots.
+    const batched = [];
+    for (const prompt of [model.prompt, Array.from({ length: 40 }, (_, i) => (i * 37 + 11) % model.dims.vocab)]) {
+      const one = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
+      const many = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
+      const stepwise = await one.generate(prompt, 12);
+      const together = await many.run(prompt, 12);
+      batched.push({ promptLength: prompt.length, stepwise, together, position: many.position });
+    }
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, steps, gpuNext, batched };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {

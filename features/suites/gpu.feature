@@ -15,3 +15,10 @@ Feature: gpu
     When the engine's yarn module computes the frequencies
     Then the pairs below 17 keep their trained frequency, the pairs above 34 turn at a quarter of it, and the pairs between follow the linear ramp
     And the rotated vectors are scaled by 1 + 0.1 ln 4
+
+  @GP-04 @build
+  Scenario: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
+    Given the same generated model and two prompts, one of six tokens and one of forty, longer than a submission's thirty-two slots
+    When one engine runs them one position per submission and another many positions per submission, each pick written to the ring on the GPU and read by the next position
+    Then both give the same twelve tokens for each prompt
+    And every position ran exactly once

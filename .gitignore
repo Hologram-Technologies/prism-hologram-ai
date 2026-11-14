@@ -35,3 +35,4 @@ screens/
 # The proof `just app` keeps for bootstrap.yml to cache (see Justfile).
 .prism-proof/
 .prism-proof.log
+site/app/engine/engine.wasm
