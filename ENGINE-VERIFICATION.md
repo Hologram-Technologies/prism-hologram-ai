@@ -886,6 +886,73 @@ still be real in a reader that drops what it does not match.
   what the original does.
 - Anything about tensors, weights or quantisation. This reads a header.
 
+## EN-23, the engine in a browser
+
+The page runs the kernel already: the holo's guest, verified before it is
+compiled. What it could not run was everything around the kernel. Reading the
+tokeniser a model carries, counting the tokens of a turn, labelling the bytes
+of a download as they arrive — those are this repository's crates, and a page
+that did them again in JavaScript would be a second implementation of rules
+that exist here, which is the thing this repository is organised to prevent.
+
+`crates/wasm` is those crates as one WebAssembly module. It adds no dependency
+and no binding generator: the interface is bytes in linear memory. `allocate`
+reserves a buffer and says where it is, the page writes into it, a call reads
+it and leaves its answer in one result buffer that `result_at` and `result_len`
+describe, and `release` gives the buffer back. Every call answers 0 for yes and
+1 for no, and a call that answers no leaves the failure's registered name where
+the answer would have been.
+
+There is no `unsafe` code in it. A buffer is a `Vec<u8>` the module keeps, and
+a call that names an offset the module did not give is refused rather than
+followed, so nothing reads memory this module does not hold. Exporting a symbol
+is an unsafe attribute — a module that exports nothing cannot be called — and
+each export says so; `audit-limits` now also permits a shipped crate to declare
+`crate-type` and nothing else, because a browser instantiates a cdylib, while a
+`[lib]` that moves the root where the gate would not read it is still refused.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_23`
+
+The test builds the module for `wasm32-unknown-unknown` in release, which is
+what ships, and instantiates it in Node exactly as a page does —
+`WebAssembly.instantiate`, no glue. Then it asks the module what it asks the
+crates, and requires the same bytes: the vocabulary's size; the ids, the count
+and the decoded bytes of four turns, including an empty one and one the model
+has never seen; the same turns again through a tokeniser read from a GGUF
+header rather than a `tokenizer.json`, which must give the same ids; a header
+this engine does not follow, which must be refused by name rather than
+answered; and a download labelled block by block, three blocks, with the label
+compared after each one and the kernel's admission request compared at the end.
+
+Forty-odd answers, each the crate's own. The crates are the source; the module
+is the thing being checked.
+
+### The defects
+
+Six, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The module writes a token's number the other way round | EN-23: the module's answer is not the crate's |
+| The module counts a turn by its bytes rather than its tokens | the same |
+| The module labels only the last block of a download, not all of it | the same |
+| The module reads a GGUF header as if it were a `tokenizer.json` | the same |
+| A call reads memory the module was never asked to allocate | FL-26: the failure is not `NoBuffer` |
+| The crate moves its root where the gate would not read it | `audit-limits`: a shipped crate keeps its targets where Cargo finds them |
+| none, before and after | passed |
+
+### What EN-23 does not establish
+
+- That a browser runs it. Node and a browser both instantiate the same module
+  through the same interface, and this runs Node. The page's own loading of it
+  is not written yet: the module is built and checked, and nothing on the page
+  calls it.
+- That the module is fast enough, or small enough. It is 1.5 MB in release and
+  nothing here measures either.
+- Anything about the kernel. The module asks the kernel's questions and carries
+  its answers; it decides nothing, and nothing here replays a guest.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

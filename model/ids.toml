@@ -255,3 +255,9 @@ id = "KN-17"
 level = "build"
 suite = "kernel"
 statement = "Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level"
+
+[[id]]
+id = "EN-23"
+level = "build"
+suite = "engine"
+statement = "The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer"

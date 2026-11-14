@@ -288,3 +288,33 @@ Feature: engine
     Given the input that makes tokenizer return TokeniserError::Truncated
     When the suite exercises FL-25
     Then A field of the header runs past the end of what was given
+
+  @EN-23 @build
+  Scenario: The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
+    Given the fixture EN-23 needs
+    When the suite exercises EN-23
+    Then The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
+
+  @FL-26 @build
+  Scenario: The page names a buffer this module did not allocate
+    Given the input that makes wasm return CallError::NoBuffer
+    When the suite exercises FL-26
+    Then The page names a buffer this module did not allocate
+
+  @FL-27 @build
+  Scenario: The bytes handed in where text was asked for are not UTF-8
+    Given the input that makes wasm return CallError::NotText
+    When the suite exercises FL-27
+    Then The bytes handed in where text was asked for are not UTF-8
+
+  @FL-28 @build
+  Scenario: A tokeniser or a download is used before one has been started
+    Given the input that makes wasm return CallError::NothingRead
+    When the suite exercises FL-28
+    Then A tokeniser or a download is used before one has been started
+
+  @FL-29 @build
+  Scenario: A label handed in is not thirty-two bytes
+    Given the input that makes wasm return CallError::WrongSize
+    When the suite exercises FL-29
+    Then A label handed in is not thirty-two bytes

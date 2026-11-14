@@ -13,6 +13,7 @@ use hologram_ai_download as download;
 use hologram_ai_model_reader::{config, header, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
+use hologram_ai_wasm as wasm;
 
 use hologram_ai_kernel_client::{
     admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
@@ -25,6 +26,16 @@ fn root() -> PathBuf {
         .nth(2)
         .expect("crates/conformance is two below the root")
         .to_path_buf()
+}
+
+/// The name one of the module's own failures reaches the page by.
+fn named(why: wasm::CallError) -> Vec<u8> {
+    format!("{why:?}").into_bytes()
+}
+
+/// The bytes, written as hexadecimal digits.
+fn enhex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -3633,4 +3644,254 @@ fn engine_fl_25() {
         tokeniser::Tokeniser::from_gguf(&lying).err(),
         Some(tokeniser::TokeniserError::Truncated)
     );
+}
+
+/// `EN-23`: The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer
+#[test]
+fn engine_en_23() {
+    // The module the page loads, built here from this workspace: a gate that
+    // ran against a module built some other time would be a gate on a file,
+    // not on this code. Release, because release is what ships.
+    let built = std::process::Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "hologram-ai-wasm",
+        ])
+        .current_dir(root())
+        .output()
+        .expect("cargo builds the module the page loads");
+    assert!(
+        built.status.success(),
+        "the engine does not build for the browser:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let module = root().join("target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm");
+    assert!(module.is_file(), "no module at {}", module.display());
+
+    // What the crates themselves answer, for the same bytes. The merges and
+    // the pattern are the ones the tokeniser's own tests use.
+    let merges = ["t h", "th e", " the"];
+    let json = tokeniser(&merges, Some(PUBLISHED_PATTERN));
+    let header = gguf_tokeniser(&merges, Some("gpt2"));
+    let from_json = tokeniser::Tokeniser::read(&json).expect("the file is read");
+    let from_gguf = tokeniser::Tokeniser::from_gguf(&header).expect("the header is read");
+    let texts = [
+        "the theme",
+        "",
+        " the",
+        "a sentence the model has never seen, with 42 and umlauts",
+    ];
+    let mut turns = Vec::new();
+    for text in texts {
+        let ids = from_json.encode(text);
+        let decoded = from_json.decode(&ids).expect("what it wrote, it reads");
+        turns.push(serde_json::json!({
+            "text": text,
+            "ids": ids,
+            "count": from_json.count(text),
+            "decoded": enhex(&decoded),
+            "gguf": from_gguf.encode(text),
+        }));
+    }
+
+    // And what the download labelling answers, block by block, so that a
+    // module which hashed only the last block would be caught.
+    let blocks: Vec<Vec<u8>> = vec![
+        b"the first block".to_vec(),
+        vec![0u8; 1 << 12],
+        (0..=255u8).cycle().take(5000).collect(),
+    ];
+    let mut arriving = download::Arriving::new();
+    let mut labels = Vec::new();
+    for block in &blocks {
+        arriving.take(block);
+        labels.push(enhex(&arriving.label().0));
+    }
+    let expected = download::Label([7u8; download::LABEL_BYTES]);
+    let question = arriving.question(expected, 20_165);
+
+    let cases = serde_json::json!({
+        "json": enhex(&json),
+        "gguf": enhex(&header),
+        "size": from_json.len(),
+        "turns": turns,
+        "blocks": blocks.iter().map(|block| enhex(block)).collect::<Vec<_>>(),
+        "labels": labels,
+        "expected": enhex(&expected.0),
+        "declared": 20_165u64,
+        "question": enhex(&question),
+        // A failure of the crate behind a call reaches the page by name.
+        "unfollowable": enhex(&gguf_tokeniser(&merges, Some("llama3"))),
+    });
+    let listed = root().join("target/en-23-cases.json");
+    std::fs::write(
+        &listed,
+        serde_json::to_string(&cases).expect("the cases are JSON"),
+    )
+    .expect("the cases are written");
+    let script = root().join("target/en-23-browser.mjs");
+    std::fs::write(&script, BROWSER_CHECK).expect("the script is written");
+
+    let ran = std::process::Command::new("node")
+        .arg(&script)
+        .arg(&module)
+        .arg(&listed)
+        .output()
+        .expect("node runs the module the page loads");
+    assert!(
+        ran.status.success(),
+        "the module does not answer what the crates answer:\n{}{}",
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&ran.stdout).contains("agreed"),
+        "the browser check agreed about nothing:\n{}",
+        String::from_utf8_lossy(&ran.stdout)
+    );
+}
+
+/// Instantiates the module exactly as a page does — no binding generator and
+/// no glue — and requires every answer to be the bytes the crates gave.
+const BROWSER_CHECK: &str = r#"
+import { readFileSync } from "node:fs";
+
+const [, , modulePath, casesPath] = process.argv;
+const cases = JSON.parse(readFileSync(casesPath, "utf8"));
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), {});
+const call = instance.exports;
+const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
+const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
+// Hand the module bytes the way the page does: ask for a buffer, write into
+// the module's own memory, and give it back when the call is done.
+function given(bytes, use) {
+  const at = call.allocate(bytes.length);
+  new Uint8Array(call.memory.buffer).set(bytes, at);
+  try {
+    return use(at, bytes.length);
+  } finally {
+    call.release(at);
+  }
+}
+
+function answer() {
+  const at = call.result_at();
+  const length = call.result_len();
+  return new Uint8Array(call.memory.buffer).slice(at, at + length);
+}
+
+const text = new TextEncoder();
+const read = new TextDecoder();
+let agreed = 0;
+const same = (what, got, want) => {
+  if (got !== want) throw new Error(`${what}: the module says ${got}, the crate says ${want}`);
+  agreed += 1;
+};
+
+// The tokeniser, read from the file a model carries it in.
+same("tokeniser_read", given(unhex(cases.json), (at, len) => call.tokeniser_read(at, len)), 0);
+same("tokeniser_size", call.tokeniser_size(), cases.size);
+for (const turn of cases.turns) {
+  const bytes = text.encode(turn.text);
+  same("encode", given(bytes, (at, len) => call.tokeniser_encode(at, len)), 0);
+  same(`encode ${turn.text}`, new Uint32Array(answer().buffer).join(","), turn.ids.join(","));
+
+  same("count", given(bytes, (at, len) => call.tokeniser_count(at, len)), 0);
+  same(`count ${turn.text}`, String(new DataView(answer().buffer).getBigUint64(0, true)), String(turn.count));
+
+  const written = new Uint8Array(new Uint32Array(turn.ids).buffer);
+  same("decode", given(written, (at, len) => call.tokeniser_decode(at, len)), 0);
+  same(`decode ${turn.text}`, enhex(answer()), turn.decoded);
+}
+
+// And read from the header the same model carries, which is another file
+// saying the same thing: the ids must come out the same.
+same("tokeniser_read_gguf", given(unhex(cases.gguf), (at, len) => call.tokeniser_read_gguf(at, len)), 0);
+for (const turn of cases.turns) {
+  same("encode", given(text.encode(turn.text), (at, len) => call.tokeniser_encode(at, len)), 0);
+  same(`gguf ${turn.text}`, new Uint32Array(answer().buffer).join(","), turn.gguf.join(","));
+}
+
+// A header this engine does not follow is refused by name, not answered.
+same("unfollowable", given(unhex(cases.unfollowable), (at, len) => call.tokeniser_read_gguf(at, len)), 1);
+same("why", read.decode(answer()), "Unfollowable(PreTokeniserNotKnown)");
+
+// The download, labelled block by block.
+same("download_start", call.download_start(), 0);
+cases.blocks.forEach((block, index) => {
+  same("download_take", given(unhex(block), (at, len) => call.download_take(at, len)), 0);
+  same("download_label", call.download_label(), 0);
+  same(`label after block ${index}`, enhex(answer()), cases.labels[index]);
+});
+same(
+  "download_question",
+  given(unhex(cases.expected), (at, len) => call.download_question(at, len, BigInt(cases.declared))),
+  0,
+);
+same("question", enhex(answer()), cases.question);
+
+console.log(`${agreed} answers agreed`);
+"#;
+
+/// `FL-26`: The page names a buffer this module did not allocate
+#[test]
+fn engine_fl_26() {
+    let at = wasm::given(b"{}");
+    assert_eq!(
+        wasm::release(at),
+        0,
+        "a buffer this module gave is given back"
+    );
+    // Reading memory it does not hold is the one thing a module like this must
+    // never be talked into, so the same offset again is refused.
+    assert_eq!(wasm::tokeniser_read(at, 2), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NoBuffer));
+    assert_eq!(wasm::release(at), 1, "and it cannot be given back twice");
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NoBuffer));
+}
+
+/// `FL-27`: The bytes handed in where text was asked for are not UTF-8
+#[test]
+fn engine_fl_27() {
+    let at = wasm::given(&[0xff, 0xfe, 0x00]);
+    assert_eq!(wasm::tokeniser_count(at, 3), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NotText));
+    assert_eq!(wasm::tokeniser_encode(at, 3), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NotText));
+}
+
+/// `FL-28`: A tokeniser or a download is used before one has been started
+#[test]
+fn engine_fl_28() {
+    // Nothing has been read in this thread, which is where the module keeps
+    // what it holds.
+    let at = wasm::given(b"the theme");
+    assert_eq!(wasm::tokeniser_count(at, 9), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NothingRead));
+    assert_eq!(wasm::download_label(), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NothingRead));
+}
+
+/// `FL-29`: A label handed in is not thirty-two bytes
+#[test]
+fn engine_fl_29() {
+    assert_eq!(wasm::download_start(), 0);
+    for size in [0usize, 31, 33] {
+        let at = wasm::given(&vec![0u8; size]);
+        assert_eq!(
+            wasm::download_question(at, size as u32, 1),
+            1,
+            "a label of {size} bytes is not thirty-two"
+        );
+        assert_eq!(wasm::last_answer(), named(wasm::CallError::WrongSize));
+    }
+    // And a list of tokens that is not whole numbers of four bytes.
+    let at = wasm::given(&[1, 0, 0]);
+    assert_eq!(wasm::tokeniser_decode(at, 3), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::WrongSize));
 }

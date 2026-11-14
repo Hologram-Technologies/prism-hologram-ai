@@ -18,6 +18,7 @@ hologram-ai-kernel-client = { workspace = true }
 hologram-ai-model-reader = { workspace = true }
 hologram-ai-onnx-preflight = { workspace = true }
 hologram-ai-tokenizer = { workspace = true }
+hologram-ai-wasm = { workspace = true }
 # HuggingFace's own implementation, as the oracle for `EN-20` and nothing
 # else: a dev-dependency of a crate that does not ship (R6), so what the engine
 # carries is still only what this repository wrote.

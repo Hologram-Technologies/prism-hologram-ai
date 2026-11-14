@@ -46,6 +46,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-20` | `build` | The ids this repository gives are the ids the authority's own tokeniser gives, for the same file and the same text |
 | `EN-21` | `build` | A model's own GGUF header is read into a tokeniser, with nothing past the metadata read and a pre-tokeniser name this repository has no cited pattern for refused |
 | `EN-22` | `build` | A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks |
+| `EN-23` | `build` | The engine runs in a browser: for the same bytes, the wasm module answers what the crates answer |
 
 ## kernel
 
@@ -102,6 +103,10 @@ not that the test provokes the failure.
 | `FL-23` | `tokenizer` | `TokeniserError::TokenNotByteLevel` | A token holds a character the byte alphabet does not have |
 | `FL-24` | `tokenizer` | `TokeniserError::NotGguf` | The file does not begin with the four bytes that announce the format |
 | `FL-25` | `tokenizer` | `TokeniserError::Truncated` | A field of the header runs past the end of what was given |
+| `FL-26` | `wasm` | `CallError::NoBuffer` | The page names a buffer this module did not allocate |
+| `FL-27` | `wasm` | `CallError::NotText` | The bytes handed in where text was asked for are not UTF-8 |
+| `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser or a download is used before one has been started |
+| `FL-29` | `wasm` | `CallError::WrongSize` | A label handed in is not thirty-two bytes |
 
 ## Cited authorities
 

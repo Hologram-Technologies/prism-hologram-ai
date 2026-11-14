@@ -231,3 +231,35 @@ type = "TokeniserError"
 variant = "Truncated"
 suite = "engine"
 condition = "A field of the header runs past the end of what was given"
+
+[[failure]]
+id = "FL-26"
+crate = "wasm"
+type = "CallError"
+variant = "NoBuffer"
+suite = "engine"
+condition = "The page names a buffer this module did not allocate"
+
+[[failure]]
+id = "FL-27"
+crate = "wasm"
+type = "CallError"
+variant = "NotText"
+suite = "engine"
+condition = "The bytes handed in where text was asked for are not UTF-8"
+
+[[failure]]
+id = "FL-28"
+crate = "wasm"
+type = "CallError"
+variant = "NothingRead"
+suite = "engine"
+condition = "A tokeniser or a download is used before one has been started"
+
+[[failure]]
+id = "FL-29"
+crate = "wasm"
+type = "CallError"
+variant = "WrongSize"
+suite = "engine"
+condition = "A label handed in is not thirty-two bytes"

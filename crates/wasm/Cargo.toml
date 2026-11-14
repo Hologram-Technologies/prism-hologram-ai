@@ -1,0 +1,26 @@
+[package]
+name = "hologram-ai-wasm"
+description = "The Hologram AI engine as one WebAssembly module: the page's tokeniser, download labelling and model reading, called through bytes in linear memory."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# A cdylib is what a browser instantiates; the rlib is what the gate links
+# against to ask the crates behind it the same questions. No binding generator
+# and no dependency of its own: the interface is bytes in linear memory, which
+# needs nothing but the crates it exposes.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hologram-ai-download = { workspace = true }
+hologram-ai-tokenizer = { workspace = true }
+
+[lints]
+workspace = true

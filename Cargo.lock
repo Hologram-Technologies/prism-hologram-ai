@@ -371,6 +371,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hologram-ai-wasm"
+version = "0.1.0"
+dependencies = [
+ "hologram-ai-download",
+ "hologram-ai-tokenizer",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -623,6 +631,7 @@ dependencies = [
  "hologram-ai-model-reader",
  "hologram-ai-onnx-preflight",
  "hologram-ai-tokenizer",
+ "hologram-ai-wasm",
  "repo-model",
  "serde_json",
  "tokenizers",
