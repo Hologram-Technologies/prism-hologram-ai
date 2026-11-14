@@ -50,6 +50,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
 | `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
 | `EN-26` | `build` | The page is published with the engine it loads, built from this workspace and under the size it is allowed |
+| `EN-27` | `build` | A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie |
 
 ## gpu
 
@@ -124,6 +125,11 @@ not that the test provokes the failure.
 | `FL-33` | `model-reader` | `HolkError::NotJson` | A container's header is not JSON |
 | `FL-34` | `model-reader` | `HolkError::PaddedWithSomethingElse` | A container's header is padded with something other than spaces |
 | `FL-35` | `model-reader` | `HolkError::Unfollowable` | A container describes something this reader does not follow |
+| `FL-36` | `model-reader` | `GgufError::NotGguf` | A file handed to the tensor reader does not begin with the GGUF magic |
+| `FL-37` | `model-reader` | `GgufError::VersionNotKnown` | A GGUF file is of a version this reader does not follow |
+| `FL-38` | `model-reader` | `GgufError::Truncated` | A GGUF file's header runs past the bytes given |
+| `FL-39` | `model-reader` | `GgufError::TypeNotFollowed` | A tensor is stored in a type this reader does not follow |
+| `FL-40` | `model-reader` | `GgufError::ShapeNotFollowed` | A tensor's shape is one this reader cannot measure |
 
 ## Cited authorities
 

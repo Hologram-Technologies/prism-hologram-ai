@@ -311,3 +311,43 @@ type = "HolkError"
 variant = "Unfollowable"
 suite = "engine"
 condition = "A container describes something this reader does not follow"
+
+[[failure]]
+id = "FL-36"
+crate = "model-reader"
+type = "GgufError"
+variant = "NotGguf"
+suite = "engine"
+condition = "A file handed to the tensor reader does not begin with the GGUF magic"
+
+[[failure]]
+id = "FL-37"
+crate = "model-reader"
+type = "GgufError"
+variant = "VersionNotKnown"
+suite = "engine"
+condition = "A GGUF file is of a version this reader does not follow"
+
+[[failure]]
+id = "FL-38"
+crate = "model-reader"
+type = "GgufError"
+variant = "Truncated"
+suite = "engine"
+condition = "A GGUF file's header runs past the bytes given"
+
+[[failure]]
+id = "FL-39"
+crate = "model-reader"
+type = "GgufError"
+variant = "TypeNotFollowed"
+suite = "engine"
+condition = "A tensor is stored in a type this reader does not follow"
+
+[[failure]]
+id = "FL-40"
+crate = "model-reader"
+type = "GgufError"
+variant = "ShapeNotFollowed"
+suite = "engine"
+condition = "A tensor's shape is one this reader cannot measure"

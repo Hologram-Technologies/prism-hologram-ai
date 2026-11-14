@@ -297,3 +297,9 @@ id = "GP-04"
 level = "build"
 suite = "gpu"
 statement = "Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time"
+
+[[id]]
+id = "EN-27"
+level = "build"
+suite = "engine"
+statement = "A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie"

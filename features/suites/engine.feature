@@ -372,3 +372,39 @@ Feature: engine
     Given the fixture EN-26 needs
     When the suite exercises EN-26
     Then The page is published with the engine it loads, built from this workspace and under the size it is allowed
+
+  @EN-27 @build
+  Scenario: A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie
+    Given the fixture EN-27 needs
+    When the suite exercises EN-27
+    Then A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie
+
+  @FL-36 @build
+  Scenario: A file handed to the tensor reader does not begin with the GGUF magic
+    Given the input that makes model-reader return GgufError::NotGguf
+    When the suite exercises FL-36
+    Then A file handed to the tensor reader does not begin with the GGUF magic
+
+  @FL-37 @build
+  Scenario: A GGUF file is of a version this reader does not follow
+    Given the input that makes model-reader return GgufError::VersionNotKnown
+    When the suite exercises FL-37
+    Then A GGUF file is of a version this reader does not follow
+
+  @FL-38 @build
+  Scenario: A GGUF file's header runs past the bytes given
+    Given the input that makes model-reader return GgufError::Truncated
+    When the suite exercises FL-38
+    Then A GGUF file's header runs past the bytes given
+
+  @FL-39 @build
+  Scenario: A tensor is stored in a type this reader does not follow
+    Given the input that makes model-reader return GgufError::TypeNotFollowed
+    When the suite exercises FL-39
+    Then A tensor is stored in a type this reader does not follow
+
+  @FL-40 @build
+  Scenario: A tensor's shape is one this reader cannot measure
+    Given the input that makes model-reader return GgufError::ShapeNotFollowed
+    When the suite exercises FL-40
+    Then A tensor's shape is one this reader cannot measure

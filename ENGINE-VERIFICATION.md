@@ -1272,6 +1272,83 @@ missed.
   the module sits at 77 per cent of it. Moving it should be a decision someone
   makes out loud, which is why the failure says so.
 
+## EN-27, the tensor table of a GGUF file
+
+A model published as GGUF carries its weights after a header that names every
+tensor: what it is called, what shape it has, how it is stored, and where its
+bytes begin. A converter turning such a file into a weight container has to
+read that table. `crates/model-reader/src/gguf.rs` reads it and stops.
+
+It reports what the *file* says and nothing about what a container stores. The
+distinction is not pedantry: GGUF's `Q4_0` is eighteen bytes for every
+thirty-two numbers, an f16 scale and a nibble each, while this repository's
+container stores the same numbers in twenty, with an f32 scale. A reader that
+reported twenty because that is what the converter wants would be the converter
+lying through its reader, and the first sign of it would be a table that
+disagrees with the file by two bytes a block, several hundred million bytes in.
+The test says so in as many words.
+
+Two readers of this format now live here, and they stop in different places on
+purpose: the tokeniser reads the metadata, where a vocabulary lives, and this
+reads the table that follows it. They have to agree about where the metadata
+ends or one of them is wrong, so EN-27 builds one file and reads it with both.
+
+### What the published file says
+
+Measured from Qwen2.5-1.5B-Instruct's Q4_0 GGUF at revision 91cad51, by range
+request rather than by downloading a gigabyte:
+
+| | |
+| --- | --- |
+| Metadata ends | 5,931,189 |
+| Tensor table | 19,304 bytes, 339 entries |
+| Tensor data begins | 5,950,496, the default alignment of 32 |
+| Tensor types | 197 `Q4_0`, 141 `F32`, one `Q6_K` |
+| Pre-tokeniser | `qwen2`, which this repository has a cited pattern for |
+| Vocabulary | 151,936 tokens, 151,387 merges, `token_type` as an int32 array |
+| The tokens a turn needs | `<|endoftext|>` 151643, `<|im_start|>` 151644, `<|im_end|>` 151645 |
+
+The one `Q6_K` is `output.weight`, dims [1536, 151936] at tensor offset 0 —
+the largest tensor in the model. The embedding is *not* the same tensor: the
+file carries `token_embd.weight` separately, as `Q4_0`, at offset 191,439,360.
+The model's config ties its embeddings and this file does not, which is the
+kind of thing only reading the table tells you; an earlier draft of this note
+said the two were one tensor, on the strength of the config, and the table says
+otherwise.
+
+Neither session had planned for a `Q6_K`. This reader refuses it by its number
+— `TypeNotFollowed(14)` — rather than reading it as a type it does know,
+because a type read as the wrong one puts every tensor after it in the wrong
+place.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A block is as long as our container stores, not as the file says | EN-27: the file's own block, not ours |
+| The tensor data begins wherever the table ends | EN-27: the data does not begin where the format says |
+| A tensor's offset is left as the file writes it | EN-27: an offset that is not from the start of the file |
+| A type this reader does not follow is read as the nearest one | FL-39: a type this reader does not follow was read anyway |
+| A tensor that does not fill its last block is rounded up | FL-40: a tensor of thirty-one numbers was measured anyway |
+| none, before and after | passed |
+
+### What EN-27 does not establish
+
+- That the published file reads. The numbers above were measured here, by hand,
+  and are not yet a fixture this gate re-reads: its header is 5.95 MB, because
+  the vocabulary is nearly all of it, and whether a repository whose other
+  fixtures are 32 KB and 96 KB should carry that is a decision rather than a
+  detail.
+- That a converter can be built on it. The table is read; nothing reads a
+  tensor's bytes, and the `Q6_K` question — requantise, or teach the container
+  a format — is open.
+- That the types it follows are the only ones a published model uses. Four are
+  followed because four have been seen. The rest are refused by number, which
+  is the behaviour that makes adding one a decision rather than an accident.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
-use hologram_ai_model_reader::{config, header, holk, Kernel};
+use hologram_ai_model_reader::{config, gguf as tensors, header, holk, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
@@ -3420,6 +3420,7 @@ the theme<|im_end|>",
 // the numbers the format's own specification gives.
 
 /// A metadata value, written as the format writes one.
+#[derive(Clone)]
 enum Value {
     Text(String),
     Texts(Vec<String>),
@@ -3504,6 +3505,42 @@ fn gguf_with_control(merged: &[&str], control: &[&str]) -> Vec<u8> {
         ],
         b"the tensors would be here",
     )
+}
+
+/// A GGUF file with a tensor table in it, written as the format writes one:
+/// the magic, the version, the two counts, the metadata, then one entry per
+/// tensor — its name, its shape, its type and where its bytes lie.
+fn gguf_with_tensors(
+    entries: &[(&str, Value)],
+    listed: &[(&str, &[u64], u32, u64)],
+    align: Option<u32>,
+) -> Vec<u8> {
+    let mut all: Vec<(&str, Value)> = entries.to_vec();
+    if let Some(align) = align {
+        all.push(("general.alignment", Value::Number(align)));
+    }
+    let mut out = b"GGUF".to_vec();
+    out.extend(3u32.to_le_bytes());
+    out.extend((listed.len() as u64).to_le_bytes());
+    out.extend((all.len() as u64).to_le_bytes());
+    for (key, value) in &all {
+        out.extend((key.len() as u64).to_le_bytes());
+        out.extend_from_slice(key.as_bytes());
+        let (kind, bytes) = gguf_value(value);
+        out.extend(kind.to_le_bytes());
+        out.extend(bytes);
+    }
+    for (name, shape, kind, at) in listed {
+        out.extend((name.len() as u64).to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend((shape.len() as u32).to_le_bytes());
+        for side in *shape {
+            out.extend(side.to_le_bytes());
+        }
+        out.extend(kind.to_le_bytes());
+        out.extend(at.to_le_bytes());
+    }
+    out
 }
 
 /// The metadata a byte-level model carries, with `merged` as its merges and
@@ -4819,5 +4856,206 @@ fn engine_en_26() {
     assert!(
         said.contains("engine-size:"),
         "the size check said nothing about the size:\n{said}"
+    );
+}
+
+/// `EN-27`: A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie
+#[test]
+fn engine_en_27() {
+    // A file with the three kinds a published model mixes: full-width
+    // numbers, half-width, and thirty-two numbers to a block.
+    let listed: [(&str, &[u64], u32, u64); 3] = [
+        ("blk.0.attn_norm.weight", &[1536], 0, 0),
+        ("blk.0.attn_q.weight", &[1536, 1536], 2, 6_144),
+        ("token_embd.weight", &[1536, 151_936], 1, 1_333_248),
+    ];
+    let file = gguf_with_tensors(
+        &[("general.architecture", Value::Text("qwen2".into()))],
+        &listed,
+        None,
+    );
+    let read = tensors::read(&file).expect("the tensor table is read");
+    assert_eq!(read.tensors.len(), 3);
+
+    // The lengths are the file's own: four bytes a number for F32, two for
+    // F16, and eighteen bytes for every thirty-two numbers of Q4_0 — not the
+    // twenty a weight container stores for the same numbers.
+    let norm = read.named("blk.0.attn_norm.weight").expect("the norm");
+    assert_eq!(
+        (norm.kind, norm.numbers(), norm.bytes),
+        (tensors::Kind::F32, 1536, 6_144)
+    );
+    let matrix = read.named("blk.0.attn_q.weight").expect("the matrix");
+    assert_eq!(matrix.kind, tensors::Kind::Q4_0);
+    assert_eq!(matrix.numbers(), 1536 * 1536);
+    assert_eq!(matrix.bytes, 1536 * 1536 / 32 * 18);
+    assert_eq!(
+        tensors::Kind::Q4_0.block(),
+        (32, 18),
+        "the file's own block, not ours"
+    );
+    let embedding = read.named("token_embd.weight").expect("the embedding");
+    assert_eq!(embedding.bytes, 1536 * 151_936 * 2);
+
+    // Where the bytes are: the table's end rounded up as the format says,
+    // with each tensor's own offset counted from the start of the file, so a
+    // caller never adds the two itself.
+    assert_eq!(read.data_at % 32, 0);
+    assert_eq!(norm.at, read.data_at);
+    assert_eq!(matrix.at, read.data_at + 6_144);
+    assert_eq!(embedding.at, read.data_at + 1_333_248);
+
+    // A file that says how it is aligned is aligned that way.
+    let wider = gguf_with_tensors(&[], &listed, Some(4_096));
+    let wider = tensors::read(&wider).expect("the table is read");
+    assert_eq!(wider.data_at % 4_096, 0);
+    assert!(
+        wider.data_at >= read.data_at,
+        "a wider alignment moves the data no earlier"
+    );
+
+    // Nothing past the table is read: the same file with nothing after it,
+    // and with a megabyte after it, read the same way.
+    let mut padded = file.clone();
+    padded.extend(std::iter::repeat_n(0xabu8, 1 << 20));
+    assert_eq!(tensors::read(&padded), Ok(read.clone()));
+
+    // The two readers of this format stop in different places on purpose, and
+    // must agree about where the metadata ends. One file, read by both: the
+    // tokeniser takes its vocabulary, and this takes the table that follows.
+    let merged = ["t h", "th e", "Ġ the"];
+    let alphabet: Vec<String> = byte_alphabet().iter().map(char::to_string).collect();
+    let mut vocabulary = alphabet.clone();
+    for merge in &merged {
+        vocabulary.push(merge.replace(' ', ""));
+    }
+    let both = gguf_with_tensors(
+        &[
+            ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+            ("tokenizer.ggml.pre", Value::Text("qwen2".into())),
+            ("tokenizer.ggml.tokens", Value::Texts(vocabulary.clone())),
+            (
+                "tokenizer.ggml.merges",
+                Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
+            ),
+        ],
+        &listed,
+        None,
+    );
+    let counted = tokeniser::Tokeniser::from_gguf(&both).expect("the tokeniser reads its part");
+    assert_eq!(counted.len(), vocabulary.len());
+    let table = tensors::read(&both).expect("this reader reads its part");
+    assert_eq!(
+        table.tensors.len(),
+        3,
+        "both readers followed the same metadata"
+    );
+}
+
+/// `FL-36`: A file handed to the tensor reader does not begin with the GGUF magic
+#[test]
+fn engine_fl_36() {
+    // A file that is not this format, including one whose magic is nearly it.
+    //  is not here: its first four bytes are the magic, so it is a
+    // GGUF file of a version this reader does not follow, which is FL-37.
+    for magic in [&b"HOLK1"[..], &b"GGUX"[..], &b"gguf"[..]] {
+        let mut bytes = magic.to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        assert_eq!(
+            tensors::read(&bytes).err(),
+            Some(tensors::GgufError::NotGguf),
+            "a file whose magic is not GGUF was read as one"
+        );
+    }
+    // A file that stops before its magic does is cut short rather than
+    // another format: what it would have said is not known.
+    for short in [&b""[..], &b"G"[..], &b"GGU"[..]] {
+        assert_eq!(
+            tensors::read(short).err(),
+            Some(tensors::GgufError::Truncated)
+        );
+    }
+}
+
+/// `FL-37`: A GGUF file is of a version this reader does not follow
+#[test]
+fn engine_fl_37() {
+    let listed: [(&str, &[u64], u32, u64); 1] = [("one", &[32], 2, 0)];
+    let mut file = gguf_with_tensors(&[], &listed, None);
+    assert!(tensors::read(&file).is_ok());
+    // The version this reader follows is the one it was written for; another
+    // is refused rather than read as if the layout had not changed.
+    for version in [1u32, 2, 4] {
+        file[4..8].copy_from_slice(&version.to_le_bytes());
+        assert_eq!(
+            tensors::read(&file).err(),
+            Some(tensors::GgufError::VersionNotKnown),
+            "version {version} was read anyway"
+        );
+    }
+}
+
+/// `FL-38`: A GGUF file's header runs past the bytes given
+#[test]
+fn engine_fl_38() {
+    let listed: [(&str, &[u64], u32, u64); 2] = [("one", &[32], 2, 0), ("two", &[64], 0, 18)];
+    let file = gguf_with_tensors(
+        &[("general.architecture", Value::Text("qwen2".into()))],
+        &listed,
+        None,
+    );
+    assert!(tensors::read(&file).is_ok());
+    // A table that runs past the bytes given is not read as far as it goes.
+    for cut in [0, 4, 8, 16, 24, file.len() / 2, file.len() - 1] {
+        assert_eq!(
+            tensors::read(&file[..cut]).err(),
+            Some(tensors::GgufError::Truncated),
+            "a file cut to {cut} bytes was read anyway"
+        );
+    }
+}
+
+/// `FL-39`: A tensor is stored in a type this reader does not follow
+#[test]
+fn engine_fl_39() {
+    // Q6_K is the type the published Qwen2.5 file stores its output weight
+    // in, and this reader does not follow it: refused by its own number, so
+    // whoever adds it knows what to look up.
+    let listed: [(&str, &[u64], u32, u64); 1] = [("output.weight", &[1536, 151_936], 14, 0)];
+    let file = gguf_with_tensors(&[], &listed, None);
+    assert_eq!(
+        tensors::read(&file).err(),
+        Some(tensors::GgufError::TypeNotFollowed(14))
+    );
+    for code in [3u32, 7, 12, 30, 1000] {
+        let listed: [(&str, &[u64], u32, u64); 1] = [("t", &[32], code, 0)];
+        assert_eq!(
+            tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+            Some(tensors::GgufError::TypeNotFollowed(code))
+        );
+    }
+}
+
+/// `FL-40`: A tensor's shape is one this reader cannot measure
+#[test]
+fn engine_fl_40() {
+    // A tensor that does not fill its last block is one this reader cannot
+    // measure, rather than one it rounds: a rounded length would put every
+    // tensor after it in the wrong place.
+    for shape in [vec![31u64], vec![33], vec![2, 3], vec![0], vec![]] {
+        let listed: [(&str, &[u64], u32, u64); 1] = [("t", &shape, 2, 0)];
+        assert_eq!(
+            tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+            Some(tensors::GgufError::ShapeNotFollowed),
+            "a Q4_0 tensor of shape {shape:?} was measured anyway"
+        );
+    }
+    // And one whose numbers do not fit a count at all.
+    let listed: [(&str, &[u64], u32, u64); 1] = [("t", &[u64::MAX, 2], 0, 0)];
+    assert_eq!(
+        tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+        Some(tensors::GgufError::ShapeNotFollowed)
     );
 }
