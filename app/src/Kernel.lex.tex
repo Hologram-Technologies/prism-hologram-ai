@@ -5,14 +5,20 @@
 \importmodule{Foundation.Bytes}
 \importmodule{Foundation.View.Text.V1.Model}
 \importmodule{Kernel.Admission}
+\importmodule{Kernel.Backend}
+\importmodule{Kernel.Blocks}
 \importmodule{Kernel.Bucket}
 \importmodule{Kernel.Generation}
 \importmodule{Kernel.Journey}
 \importmodule{Kernel.Operators}
+\importmodule{Kernel.Penalty}
+\importmodule{Kernel.Pick}
 \importmodule{Kernel.Plan}
 \importmodule{Kernel.Preflight}
+\importmodule{Kernel.Quant}
 \importmodule{Kernel.Range}
 \importmodule{Kernel.Shape}
+\importmodule{Kernel.Speculate}
 \importmodule{Kernel.Tier}
 \importmodule{Kernel.Trim}
 \title{Text application model}
@@ -21,7 +27,7 @@ definition{
   name: route,
   parameters: [tag : Nat, value : Bytes],
   result: Bytes,
-  body: (if (tag =? 5) then (Kernel.Admission::admissionAnswer value) else (if (tag =? 6) then (Kernel.Range::rangeAnswer value) else (if (tag =? 8) then (Kernel.Bucket::bucketAnswer value) else (if (tag =? 9) then (Kernel.Generation::generationAnswer value) else (if (tag =? 2) then (Kernel.Preflight::preflightAnswer value) else (if (tag =? 4) then (Kernel.Tier::tierAnswer value) else (if (tag =? 11) then (Kernel.Shape::shapeAnswer value) else (if (tag =? 7) then (Kernel.Trim::trimAnswer value) else (if (tag =? 3) then (Kernel.Plan::planAnswer value) else (if (tag =? 1) then (Kernel.Journey::journeyAnswer value) else (if (tag =? 10) then (Kernel.Operators::operatorAnswer value) else (prim utf8_encode "invalid request" : Bytes)))))))))))),
+  body: (if (tag =? 5) then (Kernel.Admission::admissionAnswer value) else (if (tag =? 6) then (Kernel.Range::rangeAnswer value) else (if (tag =? 8) then (Kernel.Bucket::bucketAnswer value) else (if (tag =? 9) then (Kernel.Generation::generationAnswer value) else (if (tag =? 2) then (Kernel.Preflight::preflightAnswer value) else (if (tag =? 4) then (Kernel.Tier::tierAnswer value) else (if (tag =? 11) then (Kernel.Shape::shapeAnswer value) else (if (tag =? 7) then (Kernel.Trim::trimAnswer value) else (if (tag =? 3) then (Kernel.Plan::planAnswer value) else (if (tag =? 1) then (Kernel.Journey::journeyAnswer value) else (if (tag =? 10) then (Kernel.Operators::operatorAnswer value) else (if (tag =? 12) then (Kernel.Backend::backendAnswer value) else (if (tag =? 13) then (Kernel.Blocks::blockAnswer value) else (if (tag =? 14) then (Kernel.Pick::pickAnswer value) else (if (tag =? 15) then (Kernel.Penalty::penaltyAnswer value) else (if (tag =? 16) then (Kernel.Speculate::speculateAnswer value) else (if (tag =? 17) then (Kernel.Quant::quantAnswer value) else (prim utf8_encode "invalid request" : Bytes)))))))))))))))))),
   axioms: [Quot.sound, propext]
 }
 

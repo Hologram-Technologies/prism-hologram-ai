@@ -1,0 +1,43 @@
+\begin{lexlean}{Kernel.Penalty}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: tokenAt,
+  parameters: [value : Bytes, position : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (8 + (prim multiply 4 position : Nat)) 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: clear,
+  parameters: [position : Nat, start : Nat, token : Nat, seen : Nat],
+  result: Bool,
+  body: ((position <? start) || ((seen <? token) || (token <? seen)))
+}
+
+definition{
+  name: clearFrom,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, start : Nat, token : Nat],
+  result: Bool,
+  body: (match remaining
+    | Nat.zero => true
+    | Nat.succ rest => ((clear position start token (tokenAt value position)) && (clearFrom value (position + 1) rest start token))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: penaltyAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? (8 + (prim multiply 4 (Kernel.Wire::fieldAt value 7 1) : Nat))) then (if (clearFrom value 0 (Kernel.Wire::fieldAt value 7 1) (prim subtract (Kernel.Wire::fieldAt value 7 1) (Kernel.Wire::fieldAt value 1 2) : Nat) (Kernel.Wire::fieldAt value 3 4)) then (prim utf8_encode "keep" : Bytes) else (prim utf8_encode "penalise" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

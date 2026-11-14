@@ -1,0 +1,65 @@
+\begin{lexlean}{Proofs.Speculate}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Speculate}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Agrees,
+  parameters: [position : Nat, count : Nat, draft : Nat, verified : Nat],
+  result: Prop,
+  body: ((((position + 1) < count) -> (draft = verified)) /\ (((position + 1) = count) -> ((draft = verified) -> (1 = 0))))
+}
+
+definition{
+  name: AgreesFrom,
+  parameters: [value : Bytes, window : Nat, position : Nat, remaining : Nat, count : Nat],
+  result: Prop,
+  body: (match remaining
+    | Nat.zero => (0 = 0)
+    | Nat.succ rest => ((Agrees position count (Kernel.Speculate::draftAt value position) (Kernel.Speculate::verifiedAt value window position)) /\ (AgreesFrom value window (position + 1) rest count))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+theorem{
+  name: agrees_decides,
+  parameters: [position : Nat, count : Nat, draft : Nat, verified : Nat],
+  statement: (((Kernel.Speculate::agrees position count draft verified) = true) <-> (Agrees position count draft verified)),
+  proof: linear_arithmetic{definitions: [Agrees, Kernel.Speculate::agrees]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: agrees_from_decides,
+  parameters: [value : Bytes, window : Nat, position : Nat, remaining : Nat, count : Nat],
+  statement: (((Kernel.Speculate::agreesFrom value window position remaining count) = true) <-> (AgreesFrom value window position remaining count)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [AgreesFrom, Kernel.Speculate::agreesFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            AgreesFrom,
+            Bool.and_eq_true,
+            agrees_decides,
+            hypothesis,
+            Kernel.Speculate::agreesFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [position],
+    scrutinee: remaining
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

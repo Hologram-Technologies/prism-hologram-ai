@@ -1,0 +1,51 @@
+\begin{lexlean}{Kernel.Speculate}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: draftAt,
+  parameters: [value : Bytes, position : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (3 + (prim multiply 4 position : Nat)) 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: verifiedAt,
+  parameters: [value : Bytes, window : Nat, position : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value ((3 + (prim multiply 4 window : Nat)) + (prim multiply 4 position : Nat)) 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: agrees,
+  parameters: [position : Nat, count : Nat, draft : Nat, verified : Nat],
+  result: Bool,
+  body: (((count <=? (position + 1)) || (draft =? verified)) && ((((position + 1) <? count) || (count <? (position + 1))) || ((draft <? verified) || (verified <? draft))))
+}
+
+definition{
+  name: agreesFrom,
+  parameters: [value : Bytes, window : Nat, position : Nat, remaining : Nat, count : Nat],
+  result: Bool,
+  body: (match remaining
+    | Nat.zero => true
+    | Nat.succ rest => ((agrees position count (draftAt value position) (verifiedAt value window position)) && (agreesFrom value window (position + 1) rest count))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: speculateAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? (7 + (prim multiply 8 (Kernel.Wire::fieldAt value 1 1) : Nat))) && ((1 <=? (Kernel.Wire::fieldAt value 2 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? ((Kernel.Wire::fieldAt value 1 1) + 1)))) then (if (agreesFrom value (Kernel.Wire::fieldAt value 1 1) 0 (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode "commit" : Bytes) else (prim utf8_encode "wrong count" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

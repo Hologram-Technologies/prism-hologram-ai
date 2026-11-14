@@ -1,0 +1,24 @@
+\begin{lexlean}{Proofs.Blocks}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Blocks}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: shaped_decides,
+  parameters: [format : Nat, rows : Nat, columns : Nat],
+  statement: (((Kernel.Blocks::shaped format rows columns) = true) <-> ((1 <= rows) /\ ((1 <= columns) /\ ((prim remainder columns (Kernel.Blocks::groupOf format) 0 : Nat) = 0)))),
+  proof: linear_arithmetic{definitions: [Kernel.Blocks::shaped]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: group_bounds,
+  parameters: [format : Nat],
+  statement: ((16 <= (Kernel.Blocks::groupOf format)) /\ ((4 <= (Kernel.Blocks::bytesPerGroup format)) /\ ((Kernel.Blocks::bytesPerGroup format) <= 68))),
+  proof: linear_arithmetic{definitions: [Kernel.Blocks::bytesPerGroup, Kernel.Blocks::groupOf]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

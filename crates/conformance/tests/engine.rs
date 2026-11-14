@@ -1963,12 +1963,29 @@ fn engine_en_14() {
     let decisions = page_decisions();
     let examples = examples();
 
-    // Every decision the kernel routes is offered, and nothing else.
-    let routed: BTreeSet<u8> = examples
+    // Every decision the kernel routes is offered, and nothing else. The
+    // route is the source, not the examples: a decision may be routed and
+    // proved before the list of examples has room for it.
+    let entry = std::fs::read_to_string(root().join("app/src/Kernel.lex.tex"))
+        .expect("the kernel's entry module");
+    let routed: BTreeSet<u8> = entry
+        .split("(if (tag =? ")
+        .skip(1)
+        .filter_map(|rest| {
+            rest.split(')')
+                .next()
+                .and_then(|tag| tag.trim().parse().ok())
+        })
+        .collect();
+    let exercised: BTreeSet<u8> = examples
         .iter()
         .filter(|(request, answer)| answer.as_slice() != INVALID_REQUEST && !request.is_empty())
         .map(|(request, _)| request[0])
         .collect();
+    assert!(
+        exercised.is_subset(&routed),
+        "an example answers a decision the route does not carry"
+    );
     let offered: BTreeSet<u8> = decisions
         .iter()
         .map(|d| u8::try_from(d["tag"].as_u64().expect("a tag")).expect("a byte"))
@@ -1980,7 +1997,32 @@ fn engine_en_14() {
 
     for decision in &decisions {
         let tag = u8::try_from(decision["tag"].as_u64().expect("a tag")).expect("a byte");
-        let length = decision["length"].as_u64().expect("a length") as usize;
+        // Three shapes of length, as the kernel writes them: a number, a base
+        // plus a stride times a count, and a length the request's own format
+        // chooses. The last two cannot be tiled by a fixed list of fields, so
+        // what is checked of them is what can be.
+        let described = &decision["length"];
+        let fixed = described.as_u64().map(|length| length as usize);
+        let counted = described["base"].as_u64().map(|base| {
+            (
+                base as usize,
+                described["stride"].as_u64().expect("a stride") as usize,
+            )
+        });
+        let chosen: Vec<usize> = described["lengths"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(_, length)| length.as_u64().expect("a length") as usize)
+            .collect();
+        assert!(
+            fixed.is_some() || counted.is_some() || !chosen.is_empty(),
+            "decision {tag}: its length is none of the three shapes the kernel writes"
+        );
+        // The part every request of this decision has, whatever follows it.
+        let length = fixed
+            .or(counted.map(|(base, _)| base))
+            .unwrap_or_else(|| chosen.iter().copied().max().unwrap_or_default());
         let fields = decision["fields"].as_array().expect("fields");
         assert!(
             !decision["asks"].as_str().unwrap_or_default().is_empty()
@@ -1995,22 +2037,64 @@ fn engine_en_14() {
             let at = field["at"].as_u64().expect("an offset") as usize;
             let width = field["width"].as_u64().expect("a width") as usize;
             assert!(
-                matches!(width, 1 | 8 | 32),
+                matches!(width, 1 | 2 | 4 | 8 | 32),
                 "decision {tag}: a field of {width} bytes is not a width the wire format has"
             );
             assert!(
                 at + width <= length,
                 "decision {tag}: a field runs past the request's {length} bytes"
             );
+            // A decision whose length its format chooses has a shape per
+            // format, so two formats may read the same byte differently. What
+            // is checked of those is that every field lies inside the longest
+            // request its formats have, not that the fields tile one request.
+            let one_shape = chosen.is_empty();
             for (byte, taken) in covered.iter_mut().enumerate().skip(at).take(width) {
-                assert!(!*taken, "decision {tag}: byte {byte} belongs to two fields");
+                assert!(
+                    !*taken || !one_shape,
+                    "decision {tag}: byte {byte} belongs to two fields"
+                );
                 *taken = true;
             }
         }
-        assert!(
-            covered.iter().all(|byte| *byte),
-            "decision {tag}: some byte of the request is no field, so the page cannot say what it is"
-        );
+        if fixed.is_some() {
+            assert!(
+                covered.iter().all(|byte| *byte),
+                "decision {tag}: some byte of the request is no field, so the page cannot say what it is"
+            );
+        }
+        // A list is accounted for by what repeats: where it starts, how wide
+        // each element is, and how many groups of them the stride holds. The
+        // arithmetic has to come out at the length the kernel checks, or the
+        // page would write a request of the wrong size.
+        if let Some((base, stride)) = counted {
+            let repeat = &decision["repeat"];
+            let (from, width, groups, plus) = (
+                repeat["from"].as_u64().unwrap_or_default() as usize,
+                repeat["width"].as_u64().unwrap_or_default() as usize,
+                repeat["groups"].as_u64().unwrap_or_default() as usize,
+                repeat["plus"].as_u64().unwrap_or_default() as usize,
+            );
+            assert!(
+                width > 0 && groups > 0,
+                "decision {tag}: its length counts something, and nothing says what repeats"
+            );
+            assert_eq!(
+                from + width * plus,
+                base,
+                "decision {tag}: what repeats does not start where the length says"
+            );
+            assert_eq!(
+                width * groups,
+                stride,
+                "decision {tag}: what repeats is not as wide as the length's stride"
+            );
+            assert_eq!(
+                repeat["countAt"].as_u64().unwrap_or_default() as usize,
+                described["countAt"].as_u64().expect("a count field") as usize,
+                "decision {tag}: what repeats is counted by another field than the length is"
+            );
+        }
 
         // The length is the one the kernel accepts: every example of this
         // decision that is answered has it.
@@ -2020,17 +2104,31 @@ fn engine_en_14() {
                 request.first() == Some(&tag) && answer.as_slice() != INVALID_REQUEST
             })
             .collect();
-        assert!(
-            !answered.is_empty(),
-            "decision {tag}: no example of it is answered"
-        );
+        if answered.is_empty() {
+            // Routed and proved, with no example yet: the list of examples has
+            // a ceiling, and what cannot be checked here is checked by the
+            // decision's own pinned test.
+            continue;
+        }
         for (request, _) in &answered {
-            assert_eq!(
-                request.len(),
-                length,
-                "decision {tag}: the page writes {length} bytes, the kernel answers {}",
-                request.len()
-            );
+            match (fixed, counted) {
+                (Some(length), _) => assert_eq!(
+                    request.len(),
+                    length,
+                    "decision {tag}: the page writes {length} bytes, the kernel answers {}",
+                    request.len()
+                ),
+                (None, Some((base, stride))) => assert!(
+                    request.len() >= base && (request.len() - base) % stride == 0,
+                    "decision {tag}: the kernel answers {} bytes, which is not {base} plus a                      whole number of {stride}",
+                    request.len()
+                ),
+                (None, None) => assert!(
+                    chosen.contains(&request.len()),
+                    "decision {tag}: the kernel answers {} bytes, which is none of its lengths",
+                    request.len()
+                ),
+            }
         }
 
         // What the form offers to choose covers what the examples use. A state

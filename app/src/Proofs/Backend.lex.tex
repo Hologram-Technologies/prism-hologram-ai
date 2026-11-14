@@ -1,0 +1,24 @@
+\begin{lexlean}{Proofs.Backend}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Backend}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: gpu_usable_decides,
+  parameters: [present : Nat, limit : Nat, largest : Nat],
+  statement: (((Kernel.Backend::gpuUsable present limit largest) = true) <-> ((present = 1) /\ (largest <= limit))),
+  proof: linear_arithmetic{definitions: [Kernel.Backend::gpuUsable]},
+  axioms: [propext]
+}
+
+theorem{
+  name: limit_monotone,
+  parameters: [present : Nat, limit : Nat, wider : Nat, largest : Nat],
+  statement: ((limit <= wider) -> (((Kernel.Backend::gpuUsable present limit largest) = true) -> ((Kernel.Backend::gpuUsable present wider largest) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Backend::gpuUsable]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

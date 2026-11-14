@@ -1,0 +1,47 @@
+\begin{lexlean}{Kernel.Blocks}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{name: known, parameters: [format : Nat], result: Bool, body: (format <=? 4)}
+
+definition{
+  name: groupOf,
+  parameters: [format : Nat],
+  result: Nat,
+  body: (if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else 32)))
+}
+
+definition{
+  name: bytesPerGroup,
+  parameters: [format : Nat],
+  result: Nat,
+  body: (if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else 36))))
+}
+
+definition{
+  name: shaped,
+  parameters: [format : Nat, rows : Nat, columns : Nat],
+  result: Bool,
+  body: ((1 <=? rows) && ((1 <=? columns) && ((prim remainder columns (groupOf format) 0 : Nat) =? 0)))
+}
+
+definition{
+  name: blockLength,
+  parameters: [format : Nat, rows : Nat, columns : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply rows (prim quotient columns (groupOf format) 0 : Nat) : Nat) (bytesPerGroup format) : Nat)
+}
+
+definition{
+  name: blockAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 18) && (known (Kernel.Wire::fieldAt value 1 1))) then (if (shaped (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8)) then (Kernel.Wire::decimal (blockLength (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8))) else (prim utf8_encode "bad shape" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

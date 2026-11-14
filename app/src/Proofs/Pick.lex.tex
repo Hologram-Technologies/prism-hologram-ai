@@ -1,0 +1,65 @@
+\begin{lexlean}{Proofs.Pick}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Pick}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Standing,
+  parameters: [position : Nat, index : Nat, best : Nat, score : Nat],
+  result: Prop,
+  body: (((position < index) -> (score < best)) /\ (((position = index) -> (score = best)) /\ ((index < position) -> (score <= best))))
+}
+
+definition{
+  name: HoldsFrom,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, index : Nat, best : Nat],
+  result: Prop,
+  body: (match remaining
+    | Nat.zero => (0 = 0)
+    | Nat.succ rest => ((Standing position index best (Kernel.Pick::scoreAt value position)) /\ (HoldsFrom value (position + 1) rest index best))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+theorem{
+  name: standing_decides,
+  parameters: [position : Nat, index : Nat, best : Nat, score : Nat],
+  statement: (((Kernel.Pick::standing position index best score) = true) <-> (Standing position index best score)),
+  proof: linear_arithmetic{definitions: [Kernel.Pick::standing, Standing]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: holds_decides,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, index : Nat, best : Nat],
+  statement: (((Kernel.Pick::holdsFrom value position remaining index best) = true) <-> (HoldsFrom value position remaining index best)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [HoldsFrom, Kernel.Pick::holdsFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            Bool.and_eq_true,
+            HoldsFrom,
+            hypothesis,
+            standing_decides,
+            Kernel.Pick::holdsFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [position],
+    scrutinee: remaining
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

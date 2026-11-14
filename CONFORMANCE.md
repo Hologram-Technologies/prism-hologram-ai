@@ -62,6 +62,12 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-03` | `build` | A proposed stage plan is accepted exactly when its stage fits the memory budget, is the largest that does, and its stages cover every layer once |
 | `KN-01` | `build` | Each working state is entered from exactly one state by exactly one event, failed is left only by reset, and every other step is refused |
 | `KN-10` | `build` | A graph is importable exactly when its opset lies within the implemented window and no operator is unimplemented, and a wider window never makes an importable graph unimportable |
+| `KN-12` | `build` | WebGPU is chosen exactly when the adapter is present and the model largest buffer fits its binding limit, and a wider limit never takes WebGPU away |
+| `KN-13` | `build` | A weight block length is the one its format and shape imply, and a shape whose columns do not divide into the format groups is refused |
+| `KN-14` | `build` | A claimed greedy pick is accepted exactly when its index is the first position holding the maximum score and the claimed score is that maximum |
+| `KN-15` | `build` | A token is kept unpenalised exactly when no position inside the recent window holds it |
+| `KN-16` | `build` | A speculative commit count is accepted exactly when every draft before the last committed position equals its verified pick and the draft at that position, if any, differs |
+| `KN-17` | `build` | Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level |
 
 ## Public failures
 

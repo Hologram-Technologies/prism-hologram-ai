@@ -86,6 +86,34 @@ fn assert_proofs_are_gated() {
     }
 }
 
+/// A theorem's statement and axiom set, pinned: a quiet change to either fails here.
+fn assert_pinned(proofs: &str, theorem: &str, statement: &str, axioms: &str) {
+    let found = declaration(proofs, theorem);
+    assert!(
+        found.contains(&format!("statement: {statement},")),
+        "{theorem}'s statement changed:\n{found}"
+    );
+    assert!(
+        found.contains(&format!("axioms: [{axioms}]")),
+        "{theorem} must rest on [{axioms}]:\n{found}"
+    );
+}
+
+/// Decision `tag` is answered by `answer`, and nothing else answers for it.
+fn assert_routed(tag: u8, answer: &str) {
+    let kernel = model("app/src/Kernel.lex.tex");
+    let route = declaration(&kernel, "route");
+    assert!(
+        route.contains(&format!("(if (tag =? {tag}) then ({answer} value)")),
+        "decision {tag} must be routed to {answer}:\n{route}"
+    );
+    assert_eq!(
+        route.matches(&format!("(tag =? {tag})")).count(),
+        1,
+        "decision {tag} is routed once"
+    );
+}
+
 /// The lowercase hex of `text`, as an example's response is written in the model.
 fn hex(text: &str) -> String {
     text.bytes().map(|b| format!("{b:02x}")).collect()
@@ -1451,4 +1479,271 @@ fn kernel_kn_10() {
         )),
         "no example asks about a window that runs backwards"
     );
+}
+
+/// `KN-12`: WebGPU is chosen exactly when the adapter is present and the model largest buffer fits its binding limit, and a wider limit never takes WebGPU away
+#[test]
+fn kernel_kn_12() {
+    assert_proofs_are_gated();
+    let backend = model("app/src/Kernel/Backend.lex.tex");
+    let proofs = model("app/src/Proofs/Backend.lex.tex");
+    assert_pinned(
+        &proofs,
+        "gpu_usable_decides",
+        "(((Kernel.Backend::gpuUsable present limit largest) = true) <-> ((present = 1) /\\ (largest <= limit)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "limit_monotone",
+        "((limit <= wider) -> (((Kernel.Backend::gpuUsable present limit largest) = true) -> ((Kernel.Backend::gpuUsable present wider largest) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    // Eighteen bytes: presence in byte 1, the binding limit at 2, the largest
+    // buffer at 10; the verdict is the function the theorems are about.
+    let answer = declaration(&backend, "backendAnswer");
+    assert!(
+        answer.contains("((Foundation.Bytes::byteLength value) =? 18) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)")
+            && answer.contains("(if (gpuUsable (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8)) then (prim utf8_encode \"webgpu\" : Bytes) else (prim utf8_encode \"cpu\" : Bytes))"),
+        "decision 12 must read 18 bytes at offsets 1, 2 and 10 and answer by gpuUsable:\n{answer}"
+    );
+    assert_routed(12, "Kernel.Backend::backendAnswer");
+}
+
+/// `KN-13`: A weight block length is the one its format and shape imply, and a shape whose columns do not divide into the format groups is refused
+#[test]
+fn kernel_kn_13() {
+    assert_proofs_are_gated();
+    let blocks = model("app/src/Kernel/Blocks.lex.tex");
+    let proofs = model("app/src/Proofs/Blocks.lex.tex");
+    assert_pinned(
+        &proofs,
+        "shaped_decides",
+        "(((Kernel.Blocks::shaped format rows columns) = true) <-> ((1 <= rows) /\\ ((1 <= columns) /\\ ((prim remainder columns (Kernel.Blocks::groupOf format) 0 : Nat) = 0))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "group_bounds",
+        "((16 <= (Kernel.Blocks::groupOf format)) /\\ ((4 <= (Kernel.Blocks::bytesPerGroup format)) /\\ ((Kernel.Blocks::bytesPerGroup format) <= 68)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    // The layouts, as bytes per group of weights: q4 20 per 32, q3f 16 per 32,
+    // t2 4 per 16, t2r 68 per 256, ternary-per-128 36 per 128.
+    let group = declaration(&blocks, "groupOf");
+    assert!(
+        group.contains("(if (format =? 2) then 16 else (if (format =? 3) then 256 else (if (format =? 4) then 128 else 32)))"),
+        "group sizes changed:\n{group}"
+    );
+    let bytes = declaration(&blocks, "bytesPerGroup");
+    assert!(
+        bytes.contains("(if (format =? 0) then 20 else (if (format =? 1) then 16 else (if (format =? 2) then 4 else (if (format =? 3) then 68 else 36))))"),
+        "bytes per group changed:\n{bytes}"
+    );
+    let answer = declaration(&blocks, "blockAnswer");
+    assert!(
+        answer.contains("((Foundation.Bytes::byteLength value) =? 18) && (known (Kernel.Wire::fieldAt value 1 1))")
+            && answer.contains("(Kernel.Wire::decimal (blockLength (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8)))")
+            && answer.contains("(prim utf8_encode \"bad shape\" : Bytes)"),
+        "decision 13 must read 18 bytes at offsets 1, 2 and 10 and answer the length or bad shape:\n{answer}"
+    );
+    assert_routed(13, "Kernel.Blocks::blockAnswer");
+}
+
+/// `KN-14`: A claimed greedy pick is accepted exactly when its index is the first position holding the maximum score and the claimed score is that maximum
+#[test]
+fn kernel_kn_14() {
+    assert_proofs_are_gated();
+    let pick = model("app/src/Kernel/Pick.lex.tex");
+    let proofs = model("app/src/Proofs/Pick.lex.tex");
+    // Before the claimed index every score is strictly below the claimed one,
+    // at it the score is the claimed one, after it none is above: the first
+    // maximum, and its value.
+    let standing = declaration(&proofs, "Standing");
+    assert!(
+        standing.contains("(((position < index) -> (score < best)) /\\ (((position = index) -> (score = best)) /\\ ((index < position) -> (score <= best))))"),
+        "Standing must say first maximum:\n{standing}"
+    );
+    assert_pinned(
+        &proofs,
+        "standing_decides",
+        "(((Kernel.Pick::standing position index best score) = true) <-> (Standing position index best score))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "holds_decides",
+        "(((Kernel.Pick::holdsFrom value position remaining index best) = true) <-> (HoldsFrom value position remaining index best))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert!(
+        declaration(&proofs, "holds_decides").contains("scrutinee: remaining"),
+        "holds_decides is by induction over every position"
+    );
+    let answer = declaration(&pick, "pickAnswer");
+    assert!(
+        answer.contains("((Foundation.Bytes::byteLength value) =? (7 + (prim multiply 4 (Kernel.Wire::fieldAt value 6 1) : Nat)))")
+            && answer.contains("((Kernel.Wire::fieldAt value 1 1) <? (Kernel.Wire::fieldAt value 6 1))")
+            && answer.contains("(if (holdsFrom value 0 (Kernel.Wire::fieldAt value 6 1) (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) then (prim utf8_encode \"first maximum\" : Bytes)"),
+        "decision 14 must check every one of the n scores from position 0:\n{answer}"
+    );
+    assert!(
+        declaration(&pick, "scoreAt")
+            .contains("(Kernel.Wire::fieldAt value (7 + (prim multiply 4 position : Nat)) 4)"),
+        "score i is the four bytes at 7 + 4i"
+    );
+    assert_routed(14, "Kernel.Pick::pickAnswer");
+}
+
+/// `KN-15`: A token is kept unpenalised exactly when no position inside the recent window holds it
+#[test]
+fn kernel_kn_15() {
+    assert_proofs_are_gated();
+    let penalty = model("app/src/Kernel/Penalty.lex.tex");
+    let proofs = model("app/src/Proofs/Penalty.lex.tex");
+    let clear = declaration(&proofs, "Clear");
+    assert!(
+        clear.contains("((start <= position) -> ((seen = token) -> (1 = 0)))"),
+        "Clear must say no position in the window holds the token:\n{clear}"
+    );
+    assert_pinned(
+        &proofs,
+        "clear_decides",
+        "(((Kernel.Penalty::clear position start token seen) = true) <-> (Clear position start token seen))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "clear_from_decides",
+        "(((Kernel.Penalty::clearFrom value position remaining start token) = true) <-> (ClearFrom value position remaining start token))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    // The window starts `window` tokens before the end of the history, or at
+    // its start when the history is shorter.
+    let answer = declaration(&penalty, "penaltyAnswer");
+    assert!(
+        answer.contains("(if (clearFrom value 0 (Kernel.Wire::fieldAt value 7 1) (prim subtract (Kernel.Wire::fieldAt value 7 1) (Kernel.Wire::fieldAt value 1 2) : Nat) (Kernel.Wire::fieldAt value 3 4)) then (prim utf8_encode \"keep\" : Bytes) else (prim utf8_encode \"penalise\" : Bytes))"),
+        "decision 15 must check the whole history against the window:\n{answer}"
+    );
+    assert_routed(15, "Kernel.Penalty::penaltyAnswer");
+}
+
+/// `KN-16`: A speculative commit count is accepted exactly when every draft before the last committed position equals its verified pick and the draft at that position, if any, differs
+#[test]
+fn kernel_kn_16() {
+    assert_proofs_are_gated();
+    let speculate = model("app/src/Kernel/Speculate.lex.tex");
+    let proofs = model("app/src/Proofs/Speculate.lex.tex");
+    let agrees = declaration(&proofs, "Agrees");
+    assert!(
+        agrees.contains("((((position + 1) < count) -> (draft = verified)) /\\ (((position + 1) = count) -> ((draft = verified) -> (1 = 0))))"),
+        "Agrees must say: equal before the last committed position, different at it:\n{agrees}"
+    );
+    assert_pinned(
+        &proofs,
+        "agrees_decides",
+        "(((Kernel.Speculate::agrees position count draft verified) = true) <-> (Agrees position count draft verified))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "agrees_from_decides",
+        "(((Kernel.Speculate::agreesFrom value window position remaining count) = true) <-> (AgreesFrom value window position remaining count))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let answer = declaration(&speculate, "speculateAnswer");
+    assert!(
+        answer.contains("((1 <=? (Kernel.Wire::fieldAt value 2 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? ((Kernel.Wire::fieldAt value 1 1) + 1)))")
+            && answer.contains("(if (agreesFrom value (Kernel.Wire::fieldAt value 1 1) 0 (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode \"commit\" : Bytes)"),
+        "decision 16 must bound the count to 1..k+1 and check every draft:\n{answer}"
+    );
+    assert_routed(16, "Kernel.Speculate::speculateAnswer");
+}
+
+/// `KN-17`: Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level
+#[test]
+fn kernel_kn_17() {
+    assert_proofs_are_gated();
+    let quant = model("app/src/Kernel/Quant.lex.tex");
+    let proofs = model("app/src/Proofs/Quant.lex.tex");
+    // Each format's round trip: unpacking a place of a word packed from codes
+    // below their base gives back the code at that place. The statement names
+    // the function the guest executes, and the code chosen by place.
+    for (theorem, unpack, chosen, axioms) in [
+        (
+            "nibble_round_trip",
+            "Kernel.Quant::nibbleAt",
+            "choose8 place",
+            "Quot.sound, propext",
+        ),
+        (
+            "bit_round_trip",
+            "Kernel.Quant::bitAt",
+            "choose8 place",
+            "Quot.sound, propext",
+        ),
+        (
+            "triple_round_trip",
+            "Kernel.Quant::tripleAt",
+            "choose10 place",
+            "Quot.sound, propext",
+        ),
+        (
+            "pair_low_round_trip",
+            "Kernel.Quant::pairAt",
+            "choose8 place",
+            "Quot.sound, propext",
+        ),
+        (
+            "pair_high_round_trip",
+            "Kernel.Quant::pairAt",
+            "choose8 place",
+            "Quot.sound, propext",
+        ),
+    ] {
+        let found = declaration(&proofs, theorem);
+        let flat: String = found.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(&format!("(({unpack} ")) && flat.contains(&format!("= ({chosen} ")),
+            "{theorem} must say {unpack} gives back the code chosen by place:\n{found}"
+        );
+        assert!(
+            flat.contains(&format!("axioms: [{axioms}]")),
+            "{theorem} must rest on [{axioms}]:\n{found}"
+        );
+    }
+    // The q3f word carries a 2-bit spare above its ten fields; the round trip
+    // includes it, so the spare never disturbs a field.
+    let triple: String = declaration(&proofs, "triple_round_trip")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        triple.contains("(prim multiply 1073741824 spare : Nat)") && triple.contains("(spare < 4)"),
+        "the q3f round trip must include the spare bits"
+    );
+    // The two q3f codes kept in the spares come back from all three words.
+    let spare: String = declaration(&proofs, "spare_round_trip")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        spare.contains("30) = q30)")
+            && spare.contains("31) = q31)")
+            && spare.contains("axioms: [Classical.choice, Quot.sound, propext]"),
+        "spare_round_trip must give back places 30 and 31"
+    );
+    // The answer is the code minus the format's offset, with its sign: q4 8,
+    // q3f 3, t2 and t2r 1 (code 3 is not a ternary code), the ternary planes 1.
+    let answer = declaration(&quant, "quantAnswer");
+    for wanted in [
+        "(signedText (nibbleAt (Kernel.Wire::fieldAt value 3 4) (Kernel.Wire::fieldAt value 2 1)) 8)",
+        "(signedText (fieldCode (Kernel.Wire::fieldAt value 3 4) (Kernel.Wire::fieldAt value 7 4) (Kernel.Wire::fieldAt value 11 4) (Kernel.Wire::fieldAt value 2 1)) 3)",
+        "(prim utf8_encode \"invalid code\" : Bytes)",
+        "(signedText (pairAt (Kernel.Wire::fieldAt value 3 4) (Kernel.Wire::fieldAt value 2 1)) 1)",
+        "(signedText (ternaryCode (bitAt (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 2 1)) (bitAt (Kernel.Wire::fieldAt value 4 1) (Kernel.Wire::fieldAt value 2 1))) 1)",
+    ] {
+        assert!(answer.contains(wanted), "decision 17 must answer {wanted}:\n{answer}");
+    }
+    assert_routed(17, "Kernel.Quant::quantAnswer");
 }

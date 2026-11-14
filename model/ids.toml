@@ -219,3 +219,39 @@ id = "EN-22"
 level = "build"
 suite = "engine"
 statement = "A vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a tokenizer.json, which the authority's own tokeniser checks"
+
+[[id]]
+id = "KN-12"
+level = "build"
+suite = "kernel"
+statement = "WebGPU is chosen exactly when the adapter is present and the model largest buffer fits its binding limit, and a wider limit never takes WebGPU away"
+
+[[id]]
+id = "KN-13"
+level = "build"
+suite = "kernel"
+statement = "A weight block length is the one its format and shape imply, and a shape whose columns do not divide into the format groups is refused"
+
+[[id]]
+id = "KN-14"
+level = "build"
+suite = "kernel"
+statement = "A claimed greedy pick is accepted exactly when its index is the first position holding the maximum score and the claimed score is that maximum"
+
+[[id]]
+id = "KN-15"
+level = "build"
+suite = "kernel"
+statement = "A token is kept unpenalised exactly when no position inside the recent window holds it"
+
+[[id]]
+id = "KN-16"
+level = "build"
+suite = "kernel"
+statement = "A speculative commit count is accepted exactly when every draft before the last committed position equals its verified pick and the draft at that position, if any, differs"
+
+[[id]]
+id = "KN-17"
+level = "build"
+suite = "kernel"
+statement = "Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level"

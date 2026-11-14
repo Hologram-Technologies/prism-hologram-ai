@@ -325,14 +325,22 @@ fn table(decisions: &[Decision], names: &serde_json::Value) -> Result<serde_json
                 serde_json::json!({ "at": at, "lengths": by_value })
             }
         };
-        out.push(serde_json::json!({
-            "tag": decision.tag,
-            "module": decision.module,
-            "name": named["name"],
-            "asks": named["asks"],
-            "length": length,
-            "fields": fields,
-        }));
+        let mut entry = serde_json::Map::new();
+        entry.insert("tag".into(), decision.tag.into());
+        entry.insert("module".into(), decision.module.clone().into());
+        entry.insert("name".into(), named["name"].clone());
+        entry.insert("asks".into(), named["asks"].clone());
+        entry.insert("length".into(), length);
+        entry.insert("fields".into(), fields.into());
+        // What repeats, and what the format chooses, are the companion file's
+        // to say: the module's length expression says there is a list, not
+        // what is in it. The gate checks the two agree.
+        for key in ["repeat", "shapes"] {
+            if !named[key].is_null() {
+                entry.insert(key.into(), named[key].clone());
+            }
+        }
+        out.push(serde_json::Value::Object(entry));
     }
     Ok(serde_json::json!({
         "comment": "Written by `cargo xtask page --write` from the kernel's own modules \

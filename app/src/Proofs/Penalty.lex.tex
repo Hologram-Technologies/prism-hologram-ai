@@ -1,0 +1,65 @@
+\begin{lexlean}{Proofs.Penalty}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Penalty}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Clear,
+  parameters: [position : Nat, start : Nat, token : Nat, seen : Nat],
+  result: Prop,
+  body: ((start <= position) -> ((seen = token) -> (1 = 0)))
+}
+
+definition{
+  name: ClearFrom,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, start : Nat, token : Nat],
+  result: Prop,
+  body: (match remaining
+    | Nat.zero => (0 = 0)
+    | Nat.succ rest => ((Clear position start token (Kernel.Penalty::tokenAt value position)) /\ (ClearFrom value (position + 1) rest start token))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+theorem{
+  name: clear_decides,
+  parameters: [position : Nat, start : Nat, token : Nat, seen : Nat],
+  statement: (((Kernel.Penalty::clear position start token seen) = true) <-> (Clear position start token seen)),
+  proof: linear_arithmetic{definitions: [Clear, Kernel.Penalty::clear]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: clear_from_decides,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, start : Nat, token : Nat],
+  statement: (((Kernel.Penalty::clearFrom value position remaining start token) = true) <-> (ClearFrom value position remaining start token)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [ClearFrom, Kernel.Penalty::clearFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            Bool.and_eq_true,
+            ClearFrom,
+            clear_decides,
+            hypothesis,
+            Kernel.Penalty::clearFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [position],
+    scrutinee: remaining
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
