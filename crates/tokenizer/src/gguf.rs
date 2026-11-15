@@ -30,6 +30,7 @@ mod key {
     pub(crate) const MERGES: &str = "tokenizer.ggml.merges";
     pub(crate) const SPACE_PREFIX: &str = "tokenizer.ggml.add_space_prefix";
     pub(crate) const TOKEN_TYPE: &str = "tokenizer.ggml.token_type";
+    pub(crate) const STOPS_AT: &str = "tokenizer.ggml.eos_token_id";
 }
 
 /// The value types the format defines, by the number that names them.
@@ -207,6 +208,7 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
     let mut merges = Vec::new();
     let mut space_prefix = false;
     let mut types = Vec::new();
+    let mut stops_at = None;
     for _ in 0..entries {
         let name = reader.text()?;
         let kind = reader.u32()?;
@@ -217,6 +219,7 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
             (key::MERGES, kind::ARRAY) => merges = reader.texts()?,
             (key::SPACE_PREFIX, kind::BOOL) => space_prefix = reader.fixed::<1>()? != [0],
             (key::TOKEN_TYPE, kind::ARRAY) => types = reader.numbers()?,
+            (key::STOPS_AT, kind::UINT32 | kind::INT32) => stops_at = Some(reader.u32()?),
             _ => reader.step_over(kind)?,
         }
     }
@@ -246,5 +249,10 @@ pub(crate) fn read(file: &[u8]) -> Result<Tokeniser, TokeniserError> {
         };
         added.push((token.clone(), id));
     }
-    Tokeniser::assemble(tokens, merges, Some(pattern), space_prefix, added)
+    let mut read = Tokeniser::assemble(tokens, merges, Some(pattern), space_prefix, added)?;
+    // The id a model stops on, as its own file names it. A file that
+    // names none is read as one with none: a caller that needs it can
+    // say so, and nothing here invents one.
+    read.stops_at = stops_at;
+    Ok(read)
 }

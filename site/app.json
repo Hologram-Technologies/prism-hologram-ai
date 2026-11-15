@@ -73,90 +73,55 @@
     "plain": "The observed label is the expected label, word for word, and the observed length is the declared length."
   },
   "theorems": [
-    {
-      "name": "admitted_decides",
-      "statement": "Kernel.Admission::admitted claim = true ↔ Admitted claim, for every claim",
-      "how": "Proved by simplification over the record fields, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Admission.lex.tex"
-    },
-    {
-      "name": "within_decides",
-      "statement": "Kernel.Range::within fileLength previousEnd offset length = true ↔ previousEnd ≤ offset ∧ offset + length ≤ fileLength, for every four numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Range.lex.tex"
-    },
-    {
-      "name": "all_accepted_ordered",
-      "statement": "allAccepted fileLength previousEnd spans = true ↔ Ordered fileLength previousEnd spans, for every list of ranges",
-      "how": "Proved by induction over the list, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Range.lex.tex"
-    },
-    {
-      "name": "grow_bounds",
-      "statement": "needed ≤ maximum ∧ current ≤ maximum → needed ≤ grow ∧ grow ≤ maximum ∧ current ≤ grow, for every three numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Bucket.lex.tex"
-    },
-    {
-      "name": "budget_within_context",
-      "statement": "used < context → used + budget ≤ context ∧ 1 ≤ budget, for every three numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Generation.lex.tex"
-    },
-    {
-      "name": "budget_within_request",
-      "statement": "0 < requested → budget ≤ requested, for every three numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Generation.lex.tex"
-    },
-    {
-      "name": "authorised_decides",
-      "statement": "authorised = true ↔ no key missing ∧ no unsupported feature ∧ the manifest fits, for every four flags",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Preflight.lex.tex"
-    },
-    {
-      "name": "tier_monotone",
-      "statement": "budget ≤ larger → tier at budget ≤ tier at larger, for every parameter count",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Tier.lex.tex"
-    },
-    {
-      "name": "bind_bounds",
-      "statement": "requested ≤ upper → requested ≤ bind ∧ bind ≤ upper, for every step",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Shape.lex.tex"
-    },
-    {
-      "name": "trimmed_decides",
-      "statement": "trimmed = true ↔ what remains fits the context ∧ (anything dropped → restoring the newest dropped pair passes the context), for every five totals",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Trim.lex.tex"
-    },
-    {
-      "name": "planned_decides",
-      "statement": "planned = true ↔ the stage fits ∧ one more layer does not, unless it is the whole model ∧ the stages cover every layer, for every six numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Plan.lex.tex"
-    },
-    {
-      "name": "enters_ready",
-      "statement": "next state = ready ↔ (state = materialize ∧ event = labels verified) ∨ (state = generating ∧ (event = turn done ∨ event = cancel turn)), for every state and event",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Journey.lex.tex"
-    },
-    {
-      "name": "importable_decides",
-      "statement": "Kernel.Operators::operatorCode declared lowest highest unimplemented = 3 ↔ lowest ≤ declared ∧ declared ≤ highest ∧ unimplemented = 0, for every four numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Operators.lex.tex"
-    },
-    {
-      "name": "window_monotone",
-      "statement": "Importable at one window ∧ the window widens → Importable at the wider window, for every four numbers",
-      "how": "Proved by linear arithmetic, checked by the Lean kernel by lexlean verify in CI",
-      "where": "app/src/Proofs/Operators.lex.tex"
-    }
+    {"name": "admitted_decides", "module": "Admission", "statement": "(((Kernel.Admission::admitted claim) = true) ↔ (Admitted claim))"},
+    {"name": "gpu_usable_decides", "module": "Backend", "statement": "(((Kernel.Backend::gpuUsable present limit largest) = true) ↔ ((present = 1) ∧ (largest <= limit)))"},
+    {"name": "limit_monotone", "module": "Backend", "statement": "((limit <= wider) → (((Kernel.Backend::gpuUsable present limit largest) = true) → ((Kernel.Backend::gpuUsable present wider largest) = true)))"},
+    {"name": "shaped_decides", "module": "Blocks", "statement": "(((Kernel.Blocks::shaped format rows columns) = true) ↔ ((1 <= rows) ∧ ((1 <= columns) ∧ ((prim remainder columns (Kernel.Blocks::groupOf format) 0 : Nat) = 0))))"},
+    {"name": "group_bounds", "module": "Blocks", "statement": "((16 <= (Kernel.Blocks::groupOf format)) ∧ ((4 <= (Kernel.Blocks::bytesPerGroup format)) ∧ ((Kernel.Blocks::bytesPerGroup format) <= 68)))"},
+    {"name": "fits_decides", "module": "Bucket", "statement": "(((Kernel.Bucket::fits needed current maximum) = true) ↔ (Fits needed current maximum))"},
+    {"name": "grow_bounds", "module": "Bucket", "statement": "((Fits needed current maximum) → (((needed <= (Kernel.Bucket::grow needed current maximum)) ∧ ((Kernel.Bucket::grow needed current maximum) <= maximum)) ∧ (current <= (Kernel.Bucket::grow needed current maximum))))"},
+    {"name": "has_room_decides", "module": "Generation", "statement": "(((Kernel.Generation::hasRoom context used) = true) ↔ (used < context))"},
+    {"name": "budget_within_context", "module": "Generation", "statement": "((used < context) → (((used + (Kernel.Generation::budget context used requested)) <= context) ∧ (1 <= (Kernel.Generation::budget context used requested))))"},
+    {"name": "budget_within_request", "module": "Generation", "statement": "((0 < requested) → ((Kernel.Generation::budget context used requested) <= requested))"},
+    {"name": "enters_preflight", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 1) ↔ ((state = 0) ∧ (event = 1)))"},
+    {"name": "enters_download", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 2) ↔ ((state = 1) ∧ (event = 2)))"},
+    {"name": "enters_compile", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 3) ↔ ((state = 2) ∧ (event = 3)))"},
+    {"name": "enters_materialize", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 4) ↔ ((state = 3) ∧ (event = 4)))"},
+    {"name": "enters_generating", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 6) ↔ ((state = 5) ∧ (event = 6)))"},
+    {"name": "enters_ready", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 5) ↔ ((readyBy state event) = true))"},
+    {"name": "enters_failed", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 7) ↔ ((event = 9) ∧ ((Kernel.Journey::working state) = true)))"},
+    {"name": "enters_idle", "module": "Journey", "statement": "(((Kernel.Journey::nextState state event) = 0) ↔ (event = 10))"},
+    {"name": "failed_only_resets", "module": "Journey", "statement": "((((Kernel.Journey::nextState 7 event) =? 0) || ((Kernel.Journey::nextState 7 event) =? 8)) = true)"},
+    {"name": "importable_decides", "module": "Operators", "statement": "(((Kernel.Operators::operatorCode declared lowest highest unimplemented) = 3) ↔ (Importable declared lowest highest unimplemented))"},
+    {"name": "window_monotone", "module": "Operators", "statement": "(((Importable declared lowest highest unimplemented) ∧ ((wider <= lowest) ∧ (highest <= taller))) → (Importable declared wider taller unimplemented))"},
+    {"name": "reversed_window_is_invalid", "module": "Operators", "statement": "(((Kernel.Operators::operatorCode declared lowest highest unimplemented) = 4) ↔ ((highest + 1) <= lowest))"},
+    {"name": "clear_decides", "module": "Penalty", "statement": "(((Kernel.Penalty::clear position start token seen) = true) ↔ (Clear position start token seen))"},
+    {"name": "clear_from_decides", "module": "Penalty", "statement": "(((Kernel.Penalty::clearFrom value position remaining start token) = true) ↔ (ClearFrom value position remaining start token))"},
+    {"name": "standing_decides", "module": "Pick", "statement": "(((Kernel.Pick::standing position index best score) = true) ↔ (Standing position index best score))"},
+    {"name": "holds_decides", "module": "Pick", "statement": "(((Kernel.Pick::holdsFrom value position remaining index best) = true) ↔ (HoldsFrom value position remaining index best))"},
+    {"name": "planned_decides", "module": "Plan", "statement": "(((Kernel.Plan::planned budget contextBytes layerBytes layers stageLayers stageCount) = true) ↔ (Planned budget contextBytes layerBytes layers stageLayers stageCount))"},
+    {"name": "can_run_decides", "module": "Plan", "statement": "(((Kernel.Plan::canRun budget contextBytes layerBytes) = true) ↔ ((contextBytes + layerBytes) <= budget))"},
+    {"name": "supported_decides", "module": "Preflight", "statement": "(((Kernel.Preflight::verdictCode recognised missing manifestFits unsupported) = 4) ↔ ((Runnable missing manifestFits unsupported) ∧ (recognised = 1)))"},
+    {"name": "derived_decides", "module": "Preflight", "statement": "(((Kernel.Preflight::verdictCode recognised missing manifestFits unsupported) = 3) ↔ ((Runnable missing manifestFits unsupported) ∧ (recognised = 0)))"},
+    {"name": "authorised_decides", "module": "Preflight", "statement": "(((Kernel.Preflight::authorised recognised missing manifestFits unsupported) = true) ↔ ((Runnable missing manifestFits unsupported) ∧ (recognised <= 1)))"},
+    {"name": "nibble_round_trip", "module": "Quant", "statement": "((place < 8) → ((c0 < 16) → ((c1 < 16) → ((c2 < 16) → ((c3 < 16) → ((c4 < 16) → ((c5 < 16) → ((c6 < 16) → ((c7 < 16) → ((Kernel.Quant::nibbleAt (c0 + ((prim multiply 16 c1 : Nat) + ((prim multiply 256 c2 : Nat) + ((prim multiply 4096 c3 : Nat) + ((prim multiply 65536 c4 : Nat) + ((prim multiply 1048576 c5 : Nat) + ((prim multiply 16777216 c6 : Nat) + (prim multiply 268435456 c7 : Nat)))))))) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7)))))))))))"},
+    {"name": "bit_round_trip", "module": "Quant", "statement": "((place < 8) → ((c0 < 2) → ((c1 < 2) → ((c2 < 2) → ((c3 < 2) → ((c4 < 2) → ((c5 < 2) → ((c6 < 2) → ((c7 < 2) → ((Kernel.Quant::bitAt (c0 + ((prim multiply 2 c1 : Nat) + ((prim multiply 4 c2 : Nat) + ((prim multiply 8 c3 : Nat) + ((prim multiply 16 c4 : Nat) + ((prim multiply 32 c5 : Nat) + ((prim multiply 64 c6 : Nat) + (prim multiply 128 c7 : Nat)))))))) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7)))))))))))"},
+    {"name": "triple_round_trip", "module": "Quant", "statement": "((place < 10) → ((c0 < 8) → ((c1 < 8) → ((c2 < 8) → ((c3 < 8) → ((c4 < 8) → ((c5 < 8) → ((c6 < 8) → ((c7 < 8) → ((c8 < 8) → ((c9 < 8) → ((spare < 4) → ((Kernel.Quant::tripleAt ((c0 + ((prim multiply 8 c1 : Nat) + ((prim multiply 64 c2 : Nat) + ((prim multiply 512 c3 : Nat) + ((prim multiply 4096 c4 : Nat) + ((prim multiply 32768 c5 : Nat) + ((prim multiply 262144 c6 : Nat) + ((prim multiply 2097152 c7 : Nat) + ((prim multiply 16777216 c8 : Nat) + (prim multiply 134217728 c9 : Nat)))))))))) + (prim multiply 1073741824 spare : Nat)) place) = (choose10 place c0 c1 c2 c3 c4 c5 c6 c7 c8 c9))))))))))))))"},
+    {"name": "pair_low_round_trip", "module": "Quant", "statement": "((place < 8) → ((c0 < 4) → ((c1 < 4) → ((c2 < 4) → ((c3 < 4) → ((c4 < 4) → ((c5 < 4) → ((c6 < 4) → ((c7 < 4) → ((Kernel.Quant::pairAt ((c0 + ((prim multiply 4 c1 : Nat) + ((prim multiply 16 c2 : Nat) + ((prim multiply 64 c3 : Nat) + ((prim multiply 256 c4 : Nat) + ((prim multiply 1024 c5 : Nat) + ((prim multiply 4096 c6 : Nat) + (prim multiply 16384 c7 : Nat)))))))) + (prim multiply 65536 rest : Nat)) place) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7)))))))))))"},
+    {"name": "pair_high_round_trip", "module": "Quant", "statement": "((place < 8) → ((c0 < 4) → ((c1 < 4) → ((c2 < 4) → ((c3 < 4) → ((c4 < 4) → ((c5 < 4) → ((c6 < 4) → ((c7 < 4) → ((rest < 65536) → ((Kernel.Quant::pairAt (rest + (prim multiply 65536 (c0 + ((prim multiply 4 c1 : Nat) + ((prim multiply 16 c2 : Nat) + ((prim multiply 64 c3 : Nat) + ((prim multiply 256 c4 : Nat) + ((prim multiply 1024 c5 : Nat) + ((prim multiply 4096 c6 : Nat) + (prim multiply 16384 c7 : Nat)))))))) : Nat)) (place + 8)) = (choose8 place c0 c1 c2 c3 c4 c5 c6 c7))))))))))))"},
+    {"name": "spare_round_trip", "module": "Quant", "statement": "((low < 1073741824) → ((middle < 1073741824) → ((high < 1073741824) → ((q30 < 8) → ((q31 < 8) → (((Kernel.Quant::fieldCode (low + (prim multiply 1073741824 (prim remainder (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) : Nat)) (middle + (prim multiply 1073741824 (prim remainder (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) 4 0 : Nat) : Nat)) (high + (prim multiply 1073741824 (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 16 0 : Nat) : Nat)) 30) = q30) ∧ ((Kernel.Quant::fieldCode (low + (prim multiply 1073741824 (prim remainder (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) : Nat)) (middle + (prim multiply 1073741824 (prim remainder (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 4 0 : Nat) 4 0 : Nat) : Nat)) (high + (prim multiply 1073741824 (prim quotient (q30 + (prim multiply 8 q31 : Nat)) 16 0 : Nat) : Nat)) 31) = q31)))))))"},
+    {"name": "within_decides", "module": "Range", "statement": "(((Kernel.Range::within fileLength previousEnd offset length) = true) ↔ (Within fileLength previousEnd offset length))"},
+    {"name": "accepted_decides", "module": "Range", "statement": "(((Kernel.Range::accepted span) = true) ↔ (Accepted span))"},
+    {"name": "all_accepted_ordered", "module": "Range", "statement": "(((allAccepted fileLength previousEnd spans) = true) ↔ (Ordered fileLength previousEnd spans))"},
+    {"name": "in_bounds_decides", "module": "Shape", "statement": "(((Kernel.Shape::inBounds lower upper requested) = true) ↔ ((lower <= requested) ∧ (requested <= upper)))"},
+    {"name": "bind_bounds", "module": "Shape", "statement": "((requested <= upper) → ((requested <= (Kernel.Shape::bind upper requested step)) ∧ ((Kernel.Shape::bind upper requested step) <= upper)))"},
+    {"name": "agrees_decides", "module": "Speculate", "statement": "(((Kernel.Speculate::agrees position count draft verified) = true) ↔ (Agrees position count draft verified))"},
+    {"name": "agrees_from_decides", "module": "Speculate", "statement": "(((Kernel.Speculate::agreesFrom value window position remaining count) = true) ↔ (AgreesFrom value window position remaining count))"},
+    {"name": "half_up_bounds", "module": "Tier", "statement": "(((Kernel.Tier::halfUp parameters) <= parameters) ∧ (parameters <= ((Kernel.Tier::halfUp parameters) + (Kernel.Tier::halfUp parameters))))"},
+    {"name": "tier_fits", "module": "Tier", "statement": "(((((Kernel.Tier::tierCode parameters budget) = 2) ↔ (parameters <= budget)) ∧ (((Kernel.Tier::tierCode parameters budget) = 1) → ((Kernel.Tier::halfUp parameters) <= budget))) ∧ (((Kernel.Tier::halfUp parameters) <= budget) → (1 <= (Kernel.Tier::tierCode parameters budget))))"},
+    {"name": "tier_monotone", "module": "Tier", "statement": "((budget <= larger) → ((Kernel.Tier::tierCode parameters budget) <= (Kernel.Tier::tierCode parameters larger)))"},
+    {"name": "trimmed_decides", "module": "Trim", "statement": "(((Kernel.Trim::trimmed context fixed total dropped last) = true) ↔ (Trimmed context fixed total dropped last))"},
+    {"name": "trim_fits_decides", "module": "Trim", "statement": "(((Kernel.Trim::trimFits context fixed total dropped) = true) ↔ ((fixed + (prim subtract total dropped : Nat)) <= context))"}
   ],
   "pinned": [
     {

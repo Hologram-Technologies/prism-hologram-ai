@@ -50,6 +50,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-24` | `build` | A download's root is the sha256 of its bytes as they arrive, and it reproduces the standard's own examples |
 | `EN-25` | `build` | A weight container's header is read as the published file is written, and a container this engine cannot follow is refused by name |
 | `EN-26` | `build` | The page is published with the engine it loads, built from this workspace and under the size it is allowed |
+| `EN-27` | `build` | A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie |
+| `EN-28` | `build` | The id a model stops on is the one the model's own file names, not a list written beside it |
 
 ## gpu
 
@@ -125,6 +127,11 @@ not that the test provokes the failure.
 | `FL-33` | `model-reader` | `HolkError::NotJson` | A container's header is not JSON |
 | `FL-34` | `model-reader` | `HolkError::PaddedWithSomethingElse` | A container's header is padded with something other than spaces |
 | `FL-35` | `model-reader` | `HolkError::Unfollowable` | A container describes something this reader does not follow |
+| `FL-36` | `model-reader` | `GgufError::NotGguf` | A file handed to the tensor reader does not begin with the GGUF magic |
+| `FL-37` | `model-reader` | `GgufError::VersionNotKnown` | A GGUF file is of a version this reader does not follow |
+| `FL-38` | `model-reader` | `GgufError::Truncated` | A GGUF file's header runs past the bytes given |
+| `FL-39` | `model-reader` | `GgufError::TypeNotFollowed` | A tensor is stored in a type this reader does not follow |
+| `FL-40` | `model-reader` | `GgufError::ShapeNotFollowed` | A tensor's shape is one this reader cannot measure |
 
 ## Cited authorities
 
@@ -137,6 +144,7 @@ Never re-derived, vendored, or gated on.
 | `LLAMA-CPP-PRE` | ggml-org/llama.cpp, src/llama-vocab.cpp at blob e90f1bd117d412a3fc9672ddd10c5d12ded0beb2, the `regex_exprs` of LLAMA_VOCAB_PRE_TYPE_GPT2 and LLAMA_VOCAB_PRE_TYPE_QWEN2 and the names mapped to each. A GGUF file carries `tokenizer.ggml.pre` as a name only; the pattern it stands for lives in the reader. | `EN-21`, `EN-22` |
 | `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
 | `HOLK-BONSAI` | HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest. | `EN-25` |
+| `QWEN25-GGUF` | Qwen/Qwen2.5-1.5B-Instruct-GGUF on huggingface.co at revision 91cad51, the file qwen2.5-1.5b-instruct-q4_0.gguf, bytes 0 to 5,950,495, vendored at model/authorities/qwen25-header.bin. The whole file is 1,066,227,232 bytes with sha256 dcd819ff094852c38faba6873d8ff0c9d51eadb2844539e52042ae5d647bbfdb, which is the digest the hub publishes for it and the digest of the copy these bytes were cut from; the file itself is not vendored. | `EN-21`, `EN-22`, `EN-27` |
 
 ## Claims that are not conformance IDs
 

@@ -168,6 +168,14 @@ fn native_coverage_is_complete(bootstrap: &str) -> bool {
 /// cache key names every input the proof reads, the event reaches `just app`
 /// unchanged, and `just app` reuses for those two events and no other, so a
 /// main push, a tag and a local run always prove.
+/// Whether a proof may be reused, and if so only as narrowly as before.
+///
+/// Two shapes pass. The recipe may prove and build on every run, reading no
+/// event and branching on nothing, which is what it does today: a shortcut
+/// that saved seven minutes a run cost more than that the first time another
+/// recipe wanted the holo it had not built. Or it may reuse an attestation,
+/// but only on a pull request or a merge queue run, keyed by every proof
+/// input. What neither shape allows is a reuse the recipe decides on its own.
 fn proof_reuse_is_confined(bootstrap: &str, justfile: &str) -> bool {
     const KEY: &str = "key: prism-proof-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/**', 'prismpm.lock', 'Justfile', 'rust-toolchain.toml') }}";
     const EVENT: &str = r"--env PRISM_PROOF_EVENT=${{ github.event_name }} \";
@@ -202,12 +210,22 @@ fn proof_reuse_is_confined(bootstrap: &str, justfile: &str) -> bool {
         .copied()
         .filter(|line| line.ends_with(')') && !line.starts_with('(') && !line.contains(' '))
         .collect();
-    keys == [KEY]
-        && events == [EVENT]
-        && lines.contains(&"path: .prism-proof")
+    // The workflow's side is fixed either way: one cache keyed by every proof
+    // input, one event passed in, one path cached.
+    let confined = keys == [KEY] && events == [EVENT] && lines.contains(&"path: .prism-proof");
+    // And the recipe builds and verifies the holo, however it got there.
+    let verifies = recipe.contains(&"prismpm --project app verify | tee .prism-proof.log");
+    if uses.is_empty() {
+        // No reuse at all, which is the strongest shape this can take: every
+        // run proves and builds, and `.prism-proof` is evidence of what was
+        // proved rather than a way to skip proving it. The recipe must then
+        // branch on nothing, so a shortcut cannot creep back in unnamed.
+        return confined && verifies && patterns.is_empty();
+    }
+    confined
+        && verifies
         && uses == [r#"case "${PRISM_PROOF_EVENT:-}" in"#]
         && patterns == [PATTERN]
-        && recipe.contains(&"prismpm --project app verify | tee .prism-proof.log")
         && justfile.matches("PRISM_PROOF_EVENT").count() == 2
 }
 
@@ -772,17 +790,27 @@ mod tests {
         let event = "            --env PRISM_PROOF_EVENT=${{ github.event_name }} \\\n";
         assert!(bootstrap.contains(key) && bootstrap.contains(event));
         let plants = [
-            // A main push would reuse a proof instead of proving.
-            (
-                bootstrap.to_string(),
-                justfile.replace("pull_request|merge_group)", "pull_request|merge_group|push)"),
-            ),
-            // Any event would reuse it.
-            (bootstrap.to_string(), justfile.replace("pull_request|merge_group)", "*)")),
             // The recipe stops proving altogether.
             (
                 bootstrap.to_string(),
                 justfile.replace("prismpm --project app verify | tee", "true | tee"),
+            ),
+            // A shortcut comes back, reading the event the recipe no longer uses.
+            (
+                bootstrap.to_string(),
+                justfile.replace(
+                    "    prismpm --project app verify | tee",
+                    "    [[ $PRISM_PROOF_EVENT == pull_request ]] && exit 0\n    prismpm --project app verify | tee",
+                ),
+            ),
+            // Or a shortcut on something else entirely, which the event rule
+            // would not catch: the recipe may branch on nothing.
+            (
+                bootstrap.to_string(),
+                justfile.replace(
+                    "    prismpm --project app verify | tee",
+                    "    case \"${CI:-}\" in\n      true)\n        exit 0\n        ;;\n    esac\n    prismpm --project app verify | tee",
+                ),
             ),
             // The cache key forgets the recipe, so a weakened recipe keeps an old proof.
             (
@@ -794,16 +822,9 @@ mod tests {
                 bootstrap.replace(key, "hashFiles('prismpm.lock', 'Justfile', 'rust-toolchain.toml')"),
                 justfile.to_string(),
             ),
-            // The event never reaches the recipe, which then cannot tell main from a pull request.
+            // The event never reaches the recipe, so a reuse added later could
+            // not tell main from a pull request.
             (bootstrap.replace(event, ""), justfile.to_string()),
-            // A second, unconfined use of the event in the recipe.
-            (
-                bootstrap.to_string(),
-                justfile.replace(
-                    "    prismpm --project app verify | tee",
-                    "    [[ $PRISM_PROOF_EVENT == push ]] && exit 0\n    prismpm --project app verify | tee",
-                ),
-            ),
         ];
         for (plant_bootstrap, plant_justfile) in &plants {
             assert!(

@@ -156,6 +156,8 @@ pub struct Tokeniser {
     /// Whether a space is put before text that does not start with one, which
     /// is what makes the first word look like every other word to the model.
     prefix_space: bool,
+    /// The id a model stops on, where its file names one.
+    pub(crate) stops_at: Option<u32>,
     /// The tokens the file adds beside its vocabulary — the ones that mark
     /// the ends of a turn, and anything else written in angle brackets that
     /// no merge would ever build. Matched as themselves wherever they appear,
@@ -241,6 +243,7 @@ impl Tokeniser {
             prefix_space: described.prefix_space,
             alphabet: bytes::alphabet(),
             added: longest_first(added),
+            stops_at: None,
         })
     }
 
@@ -273,6 +276,7 @@ impl Tokeniser {
             prefix_space,
             alphabet: bytes::alphabet(),
             added: longest_first(added),
+            stops_at: None,
         })
     }
 
@@ -282,6 +286,19 @@ impl Tokeniser {
     /// own file; nothing past the metadata is read.
     pub fn from_gguf(file: &[u8]) -> Result<Self, TokeniserError> {
         gguf::read(file)
+    }
+
+    /// The id a model stops on, where its own file names one.
+    ///
+    /// A chat loop has to stop somewhere, and which id to stop at is the
+    /// model's to say: a published GGUF file carries it as
+    /// `tokenizer.ggml.eos_token_id`. A list written beside the model is a
+    /// second source, and when the two disagree the model talks forever.
+    ///
+    /// `None` where the file names none. Nothing here invents one.
+    #[must_use]
+    pub const fn stops_at(&self) -> Option<u32> {
+        self.stops_at
     }
 
     /// How many tokens this vocabulary holds.

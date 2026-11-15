@@ -1260,6 +1260,33 @@ missed.
 | The ceiling is raised to whatever the module happens to be | EN-26: 1,634,615 bytes, over the 1,048,576 a page may ask for |
 | none, before and after | passed |
 
+### The kernel a page was built for
+
+A visitor can be served a stale holo. A service worker that never reinstalls
+will do it: the one this frame ships reads its cache manifest only when it
+installs, and its own bytes do not change between deploys, so a returning
+visitor keeps last week's kernel indefinitely. That is
+UOR-Foundation/template#83, reported there because `site/sw.js` is byte-bound
+by `frame.lock` and the bug belongs to every app published this way, not to
+this one.
+
+What it does to a page is worse than being out of date. An old kernel refuses
+a question it has never heard of, honestly and in its own words, and a page
+that cannot tell those bytes from the ones it was built against reports that
+refusal as the kernel's verdict. Every signature and every vector check
+passes, because they are all checks of the old artifact. That is how it was
+found: a block-length question answered `invalid request` by a kernel from
+before that format existed, while the server was serving one that answers it.
+
+So the workflow writes the built holo's own archive fingerprint into
+`site/app.json`, beside the attestation URL, before the page is assembled, and
+EN-26 requires that order: the identity is read from the holo, written to the
+page, and only then is the page built. Two planted defects — the build not
+writing it, and the page assembled before it is written — were both rejected.
+
+The page comparing that identity with the holo it is handed is the loader's
+own, and is not here yet.
+
 ### What EN-26 does not establish
 
 - That the published page loads it. Nothing under `site/app/` fetches the
@@ -1271,6 +1298,190 @@ missed.
 - That the ceiling is the right ceiling. It was agreed between two sessions and
   the module sits at 77 per cent of it. Moving it should be a decision someone
   makes out loud, which is why the failure says so.
+
+## EN-27, the tensor table of a GGUF file
+
+A model published as GGUF carries its weights after a header that names every
+tensor: what it is called, what shape it has, how it is stored, and where its
+bytes begin. A converter turning such a file into a weight container has to
+read that table. `crates/model-reader/src/gguf.rs` reads it and stops.
+
+It reports what the *file* says and nothing about what a container stores. The
+distinction is not pedantry: GGUF's `Q4_0` is eighteen bytes for every
+thirty-two numbers, an f16 scale and a nibble each, while this repository's
+container stores the same numbers in twenty, with an f32 scale. A reader that
+reported twenty because that is what the converter wants would be the converter
+lying through its reader, and the first sign of it would be a table that
+disagrees with the file by two bytes a block, several hundred million bytes in.
+The test says so in as many words.
+
+Two readers of this format now live here, and they stop in different places on
+purpose: the tokeniser reads the metadata, where a vocabulary lives, and this
+reads the table that follows it. They have to agree about where the metadata
+ends or one of them is wrong, so EN-27 builds one file and reads it with both.
+
+### What the published file says
+
+Measured from Qwen2.5-1.5B-Instruct's Q4_0 GGUF at revision 91cad51, by range
+request rather than by downloading a gigabyte:
+
+| | |
+| --- | --- |
+| Metadata ends | 5,931,189 |
+| Tensor table | 19,304 bytes, 339 entries |
+| Tensor data begins | 5,950,496, the default alignment of 32 |
+| Tensor types | 197 `Q4_0`, 141 `F32`, one `Q6_K` |
+| Pre-tokeniser | `qwen2`, which this repository has a cited pattern for |
+| Vocabulary | 151,936 tokens, 151,387 merges, `token_type` as an int32 array |
+| The tokens a turn needs | `<|endoftext|>` 151643, `<|im_start|>` 151644, `<|im_end|>` 151645 |
+
+The one `Q6_K` is `output.weight`, dims [1536, 151936] at tensor offset 0 —
+the largest tensor in the model. The embedding is *not* the same tensor: the
+file carries `token_embd.weight` separately, as `Q4_0`, at offset 191,439,360.
+The model's config ties its embeddings and this file does not, which is the
+kind of thing only reading the table tells you; an earlier draft of this note
+said the two were one tensor, on the strength of the config, and the table says
+otherwise.
+
+Neither session had planned for a `Q6_K`. This reader refuses it by its number
+— `TypeNotFollowed(14)` — rather than reading it as a type it does know,
+because a type read as the wrong one puts every tensor after it in the wrong
+place.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected; none was
+missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A block is as long as our container stores, not as the file says | EN-27: the file's own block, not ours |
+| The tensor data begins wherever the table ends | EN-27: the data does not begin where the format says |
+| A tensor's offset is left as the file writes it | EN-27: an offset that is not from the start of the file |
+| A type this reader does not follow is read as the nearest one | FL-39: a type this reader does not follow was read anyway |
+| A tensor that does not fill its last block is rounded up | FL-40: a tensor of thirty-one numbers was measured anyway |
+| none, before and after | passed |
+
+### What EN-27 does not establish
+
+- That the published file reads. The numbers above were measured here, by hand,
+  and are not yet a fixture this gate re-reads: its header is 5.95 MB, because
+  the vocabulary is nearly all of it, and whether a repository whose other
+  fixtures are 32 KB and 96 KB should carry that is a decision rather than a
+  detail.
+- That a converter can be built on it. The table is read; nothing reads a
+  tensor's bytes, and the `Q6_K` question — requantise, or teach the container
+  a format — is open.
+- That the types it follows are the only ones a published model uses. Four are
+  followed because four have been seen. The rest are refused by number, which
+  is the behaviour that makes adding one a decision rather than an accident.
+
+## The limit, and what the page claims
+
+Two gaps between what this repository proves and what its page says, found by
+reading the published artifact rather than the repository.
+
+### A proof nobody could reach
+
+The kernel states the largest request it will take: `requestMaximum := 81`,
+which was right when every decision was a fixed length and admission was the
+longest at 81 bytes. Decisions 14, 15 and 16 are counted — their length
+follows a number inside the request — and a greedy pick over 255 scores is
+7 + 4 x 255 = 1,027 bytes. The guest refuses that before any decision is
+reached. Those three decisions are proved, and at their full range they could
+not be asked at all.
+
+The page took its lengths from the kernel and knew nothing of the limit, so it
+would compose such a request and watch it bounce. Now `cargo xtask page` reads
+`requestMaximum` from the kernel the way it reads the offsets, writes it into
+`site/decisions.json`, and the page refuses past it with the number in the
+message. EN-14 requires the page and the kernel to agree about it, that every
+fixed decision fits, that every counted decision's shortest request fits, and
+— in the encoder check — that a request past the limit is refused while the
+same request is still written when no limit is stated, so the refusal is the
+limit's doing rather than the encoder failing anyway.
+
+Raising the limit is the kernel's to do and wants a rebuild, so it rides the
+next SDK image rather than landing ahead of it.
+
+### Forty-nine theorems, fourteen named
+
+`site/app.json` listed fourteen theorems, in prose of its own. The proofs
+carry forty-nine, across seventeen modules. A list maintained by hand beside a
+model is a second source by construction, and this one had drifted by
+thirty-five.
+
+The page now states each theorem in the words the module proves it in — the
+statement from its `theorem{}` block, with the symbols drawn — and EN-14 reads
+`app/src/Proofs/*.lex.tex` and requires the two to agree, name for name and
+statement for statement. A theorem added to a module and not named on the page
+fails the gate; so does a statement edited on the page.
+
+### The defects
+
+Four, planted one at a time and then restored. Every one was rejected; none
+was missed.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The page is told a limit the kernel does not state | EN-14: the page and the kernel disagree about the largest request |
+| The page writes a request past the limit rather than refusing it | the encoder check: a request past the limit was not refused |
+| A theorem the proofs carry is not named on the page | EN-14: the page and the proofs disagree about which theorems there are |
+| The page states a theorem differently from its proof | EN-14: the page states `gpu_usable_decides` differently from the module that proves it |
+| none, before and after | passed |
+
+### What this does not establish
+
+- That the limit is right. It says 81 and the page now honours it; whether the
+  kernel should take more is a decision for whoever raises it.
+- That the statements are readable. They are the proofs' own words with four
+  symbols drawn, which makes them true rather than friendly.
+
+## EN-28, the id a model stops on
+
+A chat loop has to stop somewhere. The published page decided where in
+JavaScript: a set built from two token names, with the loop stopping at the
+first member. No kernel decision covered it and no test pinned it — and
+earlier the same day, the tokeniser was not matching those names at all, so
+the model received an id it had never been shown and answered forever.
+
+Which id to stop at is the model's to say, and the published file says it:
+`tokenizer.ggml.eos_token_id`, which for Qwen2.5 is 151,645, the id of
+`<|im_end|>`. The GGUF reader now takes it, `Tokeniser::stops_at()` carries
+it, and the module exports it so the page can stop on the model's own answer
+rather than on a list written beside it. A file that names none reads as one
+with none; nothing here invents one, because a stop id invented for a model
+that did not name one is the same bug in the other direction.
+
+EN-28 reads it from the published header — 151,645, and the token at that id
+is `<|im_end|>` — and requires a file that names none to report none, through
+both readers. EN-23 requires the module to report what the crate read.
+
+### The defects
+
+Three, planted one at a time and then restored. Every one was rejected.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| The id a model stops on is read from the wrong key | EN-28: 151,643 where the file says 151,645 |
+| A file that names no stop id is given one anyway | EN-28: `Some(0)` where the file names none |
+| The module reports a stop id the crate did not read | EN-23: the module's answer is not the crate's |
+| none, before and after | passed |
+
+### What is deliberately not here
+
+The **chat frame** — the text a turn is wrapped in — is not in this
+repository, and this is the reason rather than an omission. The published file
+carries `tokenizer.chat_template`, a Jinja template, which is the model's own
+statement of how a turn is written. Writing ChatML by hand in Rust would be
+the same mistake as the stop set in JavaScript: a rule about a model, kept
+beside the model, correct until a model disagrees. The honest options are to
+execute the template the file carries, or to model the frame as a decision and
+prove it. Both are larger than a day, and neither is started.
+
+So today the page writes the frame and this repository reads the id that ends
+it. That is half the rule in the right place, and the half that was silently
+wrong this morning.
 
 ## How the engine may fail
 

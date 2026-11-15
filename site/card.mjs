@@ -29,7 +29,7 @@ const MOST = 64;
  * Exported with `request` so `EN-14` can run both over the kernel's own
  * numbers: the page's reading of the table is the thing being checked.
  */
-export function shapeOf(decision, values) {
+export function shapeOf(decision, values, largest = 0) {
   const length = decision.length;
   if (typeof length === "number") {
     return { length, fields: decision.fields, items: [] };
@@ -107,8 +107,14 @@ function whole(decision, values, at) {
  * Exported so `EN-14` can run it over the kernel's own examples: the page's
  * encoder is the thing being checked, not a copy of it.
  */
-export function request(decision, values) {
-  const shape = shapeOf(decision, values);
+export function request(decision, values, largest = 0) {
+  const shape = shapeOf(decision, values, largest);
+  // The kernel takes a request of a stated size and no more. A longer one is
+  // refused by the guest before any decision is reached, so it is refused
+  // here, where the reason can be read.
+  if (largest > 0 && shape.length > largest) {
+    throw new Error(`${shape.length} bytes: the kernel takes at most ${largest}`);
+  }
   const out = new Uint8Array(shape.length);
   out[0] = decision.tag;
   for (const field of [...shape.fields, ...shape.items]) {
@@ -179,7 +185,10 @@ export default async function start({ app, reason, $, chip, show }) {
   // writes it there from the kernel, along with the chooser's options and the
   // first decision's fields. The page is whole before this script runs, which
   // is what the frame measures.
-  const decisions = JSON.parse($("decisions").textContent).decisions;
+  const table = JSON.parse($("decisions").textContent);
+  const decisions = table.decisions;
+  /// The most bytes the kernel will take, written here from its own module.
+  const largest = table.request ?? 0;
 
   const chooser = $("decision");
   const asks = $("asks");
@@ -306,7 +315,7 @@ export default async function start({ app, reason, $, chip, show }) {
   function written() {
     const values = new Map();
     for (const [name, control] of controls) values.set(name, control.value);
-    return request(chosen(), values);
+    return request(chosen(), values, largest);
   }
 
   async function decide() {

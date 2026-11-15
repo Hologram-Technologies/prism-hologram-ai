@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
-use hologram_ai_model_reader::{config, header, holk, Kernel};
+use hologram_ai_model_reader::{config, gguf as tensors, header, holk, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
@@ -35,6 +35,22 @@ fn root() -> PathBuf {
 // a published specification; it is measured from the one file this engine has
 // seen, and the first sixty-four bytes of that file are quoted here so that
 // what is read is anchored to it rather than to a reader written from a guess.
+
+/// The published Qwen2.5 model's own GGUF header, vendored under
+/// `model/authorities` with its checksum in the register: its first 5,950,496
+/// bytes, which is everything up to the first tensor's own bytes.
+fn published_gguf() -> Vec<u8> {
+    let path = root().join("model/authorities/qwen25-header.bin");
+    let bytes = std::fs::read(&path).expect("the vendored GGUF header");
+    let register = std::fs::read_to_string(root().join("model/authorities.toml"))
+        .expect("the authority register");
+    assert_eq!(
+        sha256(&bytes),
+        cited_checksum(&register, "QWEN25-GGUF"),
+        "the vendored header is not the file the register cites"
+    );
+    bytes
+}
 
 /// The published container's own header, vendored under `model/authorities`
 /// with its checksum in the register: its first 98,314 bytes, which is the
@@ -100,6 +116,28 @@ fn container_header(entries: &[(&str, &str, u64, u64, u64, u64)]) -> serde_json:
 /// The name one of the module's own failures reaches the page by.
 fn named(why: wasm::CallError) -> Vec<u8> {
     format!("{why:?}").into_bytes()
+}
+
+/// The text after `needle` in `text`, if it is there.
+fn after_in<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
+    text.find(needle).map(|at| &text[at + needle.len()..])
+}
+
+/// The first word of `text`, which is how a name is written.
+fn first_word(text: &str) -> String {
+    text.chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect()
+}
+
+/// A statement as the page draws it: the same words, the symbols drawn.
+fn drawn(statement: &str) -> String {
+    let joined = statement.split_whitespace().collect::<Vec<_>>().join(" ");
+    joined
+        .replace("<->", "\u{2194}")
+        .replace("->", "\u{2192}")
+        .replace("/\\", "\u{2227}")
+        .replace("\\/", "\u{2228}")
 }
 
 /// The bytes, written as hexadecimal digits.
@@ -2037,12 +2075,16 @@ fn engine_en_13() {
 // kernel's own examples have it, every byte of a request accounted for, and
 // every value the examples use offered to whoever is filling the form.
 
-/// The decisions the page offers, from `site/decisions.json`.
-fn page_decisions() -> Vec<serde_json::Value> {
+/// The table the page reads, from `site/decisions.json`.
+fn page_table() -> serde_json::Value {
     let text = std::fs::read_to_string(root().join("site/decisions.json"))
         .expect("the page's decision table");
-    let read: serde_json::Value = serde_json::from_str(&text).expect("the table is JSON");
-    read["decisions"]
+    serde_json::from_str(&text).expect("the table is JSON")
+}
+
+/// The decisions the page offers.
+fn page_decisions() -> Vec<serde_json::Value> {
+    page_table()["decisions"]
         .as_array()
         .expect("a list of decisions")
         .clone()
@@ -2084,6 +2126,23 @@ fn engine_en_14() {
     assert_eq!(
         offered, routed,
         "the page offers decisions the kernel does not route, or misses ones it does"
+    );
+
+    // The most bytes the kernel takes, which the page must know: a request
+    // longer than this is refused by the guest before any decision is
+    // reached, so a form that writes one asks a question nobody answers.
+    let largest = page_table()["request"]
+        .as_u64()
+        .expect("the page knows the largest request the kernel takes") as usize;
+    let said = entry
+        .split("requestMaximum := (")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|digits| digits.parse::<usize>().ok())
+        .expect("the kernel states the largest request it takes");
+    assert_eq!(
+        largest, said,
+        "the page and the kernel disagree about the largest request"
     );
 
     for decision in &decisions {
@@ -2287,6 +2346,22 @@ fn engine_en_14() {
             );
         }
 
+        // Every request the page can write is one the kernel will take. A
+        // fixed decision fits or it cannot be asked at all; a counted one is
+        // the page's to stop at, which `EN-14`'s encoder check exercises.
+        if let Some(length) = fixed {
+            assert!(
+                length <= largest,
+                "decision {tag}: {length} bytes, more than the {largest} the kernel takes"
+            );
+        }
+        if let Some((base, _)) = counted {
+            assert!(
+                base <= largest,
+                "decision {tag}: its shortest request is {base} bytes, more than {largest}"
+            );
+        }
+
         // The length is the one the kernel accepts: every example of this
         // decision that is answered has it.
         let answered: Vec<&(Vec<u8>, Vec<u8>)> = examples
@@ -2421,6 +2496,61 @@ fn engine_en_14() {
         );
     }
 
+    // The page names every theorem the proofs carry, in the proofs' own words.
+    // A theorem added to a module and not named here would be a proof the page
+    // never mentions; one named here and not proved would be a claim with
+    // nothing behind it.
+    let mut proved: BTreeMap<String, String> = BTreeMap::new();
+    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
+        let path = entry.expect("a proof module").path();
+        let text = std::fs::read_to_string(&path).expect("the module reads");
+        for block in text.split("theorem{").skip(1) {
+            let block = block.split("\n}").next().unwrap_or(block);
+            let Some(name) = after_in(block, "name: ").map(first_word) else {
+                continue;
+            };
+            let Some(statement) = after_in(block, "statement: ") else {
+                continue;
+            };
+            let statement = statement
+                .split("\n  proof:")
+                .next()
+                .unwrap_or(statement)
+                .split("\n  axioms:")
+                .next()
+                .unwrap_or(statement);
+            proved.insert(name, drawn(statement.trim().trim_end_matches(',')));
+        }
+    }
+    assert!(
+        proved.len() >= 49,
+        "only {} theorems were read",
+        proved.len()
+    );
+    let listed: BTreeMap<String, String> = described["theorems"]
+        .as_array()
+        .expect("the theorems the page names")
+        .iter()
+        .map(|one| {
+            (
+                one["name"].as_str().unwrap_or_default().to_string(),
+                one["statement"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed.keys().collect::<Vec<_>>(),
+        proved.keys().collect::<Vec<_>>(),
+        "the page and the proofs disagree about which theorems there are"
+    );
+    for (name, statement) in &proved {
+        assert_eq!(
+            listed.get(name).map(String::as_str),
+            Some(statement.as_str()),
+            "the page states {name} differently from the module that proves it"
+        );
+    }
+
     // Every answer the kernel gives to an example is one the page knows how to
     // colour, or the refusal it names.
     let answers = &described["answers"];
@@ -2456,7 +2586,9 @@ import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
 const { request, shapeOf } = await import(pathToFileURL(join(root, "site/card.mjs")).href);
-const table = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8")).decisions;
+const read = JSON.parse(readFileSync(join(root, "site/decisions.json"), "utf8"));
+const table = read.decisions;
+const largest = read.request;
 const model = readFileSync(join(root, "app/src/Kernel.lex.tex"), "utf8");
 
 const examples = [...model.matchAll(/request := 0x([0-9a-f]*), response := 0x([0-9a-f]*)/g)]
@@ -2515,7 +2647,7 @@ for (const decision of table) {
     }
   }
   for (const [values, expected] of asked) {
-    const bytes = request(decision, values);
+    const bytes = request(decision, values, largest);
     if (bytes.length !== expected) {
       throw new Error(
         `decision ${decision.tag}: the page writes ${bytes.length} bytes, ` +
@@ -2541,6 +2673,33 @@ for (const decision of table) {
     }
     forms += 1;
   }
+}
+
+// A request longer than the kernel takes is refused here, where the reason can
+// be read, rather than written and bounced by the guest. A counted decision is
+// where that happens: its length follows a number someone types.
+const counted = table.find((decision) => decision.length.base !== undefined);
+if (counted) {
+  const count = counted.fields.find((field) => field.at === counted.length.countAt);
+  const many = Math.ceil((largest - counted.length.base) / counted.length.stride) + 1;
+  const values = new Map([[count.name, String(many)]]);
+  const length = counted.length.base + counted.length.stride * many;
+  if (length <= largest) throw new Error("the test asked for a request that fits");
+  let refused = "";
+  try {
+    request(counted, values, largest);
+  } catch (error) {
+    refused = String(error.message ?? error);
+  }
+  if (!refused.includes(String(largest))) {
+    throw new Error(`a ${length}-byte request was not refused by the ${largest}-byte limit`);
+  }
+  // And the same request is written when nobody states a limit, so the
+  // refusal is the limit's doing and not the encoder's.
+  if (request(counted, values).length !== length) {
+    throw new Error("the encoder cannot write it at all, so the limit proves nothing");
+  }
+  forms += 2;
 }
 
 // And a format no form has is refused, rather than written as some other one.
@@ -3420,6 +3579,7 @@ the theme<|im_end|>",
 // the numbers the format's own specification gives.
 
 /// A metadata value, written as the format writes one.
+#[derive(Clone)]
 enum Value {
     Text(String),
     Texts(Vec<String>),
@@ -3506,6 +3666,42 @@ fn gguf_with_control(merged: &[&str], control: &[&str]) -> Vec<u8> {
     )
 }
 
+/// A GGUF file with a tensor table in it, written as the format writes one:
+/// the magic, the version, the two counts, the metadata, then one entry per
+/// tensor — its name, its shape, its type and where its bytes lie.
+fn gguf_with_tensors(
+    entries: &[(&str, Value)],
+    listed: &[(&str, &[u64], u32, u64)],
+    align: Option<u32>,
+) -> Vec<u8> {
+    let mut all: Vec<(&str, Value)> = entries.to_vec();
+    if let Some(align) = align {
+        all.push(("general.alignment", Value::Number(align)));
+    }
+    let mut out = b"GGUF".to_vec();
+    out.extend(3u32.to_le_bytes());
+    out.extend((listed.len() as u64).to_le_bytes());
+    out.extend((all.len() as u64).to_le_bytes());
+    for (key, value) in &all {
+        out.extend((key.len() as u64).to_le_bytes());
+        out.extend_from_slice(key.as_bytes());
+        let (kind, bytes) = gguf_value(value);
+        out.extend(kind.to_le_bytes());
+        out.extend(bytes);
+    }
+    for (name, shape, kind, at) in listed {
+        out.extend((name.len() as u64).to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend((shape.len() as u32).to_le_bytes());
+        for side in *shape {
+            out.extend(side.to_le_bytes());
+        }
+        out.extend(kind.to_le_bytes());
+        out.extend(at.to_le_bytes());
+    }
+    out
+}
+
 /// The metadata a byte-level model carries, with `merged` as its merges and
 /// `pre` as the name of its pre-tokeniser.
 fn gguf_tokeniser(merged: &[&str], pre: Option<&str>) -> Vec<u8> {
@@ -3524,6 +3720,11 @@ fn gguf_tokeniser(merged: &[&str], pre: Option<&str>) -> Vec<u8> {
             Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
         ),
         ("tokenizer.ggml.add_space_prefix", Value::Bool(false)),
+        // The id a model stops on, as a published file names it.
+        (
+            "tokenizer.ggml.eos_token_id",
+            Value::Number((256 + merged.len()) as u32),
+        ),
     ];
     if let Some(pre) = pre {
         entries.push(("tokenizer.ggml.pre", Value::Text(pre.to_string())));
@@ -3695,6 +3896,56 @@ fn engine_en_21() {
         Some(tokeniser::TokeniserError::Unfollowable(
             tokeniser::Unfollowable::ValueTypeNotKnown
         ))
+    );
+}
+
+/// The published Qwen2.5 model's own vocabulary, read from its own header.
+///
+/// Everything else about the GGUF reader is checked against files this
+/// repository writes. This checks it against one it did not: the names, the
+/// counts and the three ids a chat template needs are the published file's.
+#[test]
+fn the_published_model_vocabulary_is_read() {
+    let read =
+        tokeniser::Tokeniser::from_gguf(&published_gguf()).expect("the published header is read");
+    assert_eq!(read.len(), 151_936, "the vocabulary the file lists");
+
+    // The three tokens a turn is wrapped in, at the ids the file gives them.
+    // A model stops on the last of these; one that never receives that id
+    // never stops.
+    for (name, id) in [
+        ("<|endoftext|>", 151_643u32),
+        ("<|im_start|>", 151_644),
+        ("<|im_end|>", 151_645),
+    ] {
+        assert_eq!(
+            read.decode(&[id]),
+            Ok(name.as_bytes().to_vec()),
+            "{name} is not id {id} in the published file"
+        );
+        // And it is matched as itself in text, which is the whole point of
+        // reading `token_type`: the file marks these control, so they are not
+        // merged into the words around them.
+        assert_eq!(
+            read.encode(&format!("the{name}theme")),
+            [read.encode("the"), vec![id], read.encode("theme")].concat(),
+            "{name} is not matched whole in the published vocabulary"
+        );
+    }
+
+    // A turn as a chat template writes it, through the published vocabulary.
+    let turn = "<|im_start|>user\nthe theme<|im_end|>\n<|im_start|>assistant\n";
+    let ids = read.encode(turn);
+    assert_eq!(ids.first(), Some(&151_644));
+    assert!(
+        ids.contains(&151_645),
+        "the turn carries the id a model stops on"
+    );
+    assert_eq!(
+        read.decode(&ids)
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_string()),
+        Ok(turn.to_string()),
+        "what the published vocabulary writes, it reads back"
     );
 }
 
@@ -3955,6 +4206,7 @@ fn engine_en_23() {
         "question": enhex(&question),
         // A failure of the crate behind a call reaches the page by name.
         "unfollowable": enhex(&gguf_tokeniser(&merges, Some("llama3"))),
+        "stopsAt": from_gguf.stops_at().expect("the fixture names an id to stop on"),
         "container": enhex(&held),
         "entries": container.entries.len(),
         "names": container.entries.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
@@ -4108,6 +4360,11 @@ for (const turn of cases.turns) {
   same("encode", given(text.encode(turn.text), (at, len) => call.tokeniser_encode(at, len)), 0);
   same(`gguf ${turn.text}`, new Uint32Array(answer().buffer).join(","), turn.gguf.join(","));
 }
+
+// The id to stop on is the one the file names, and the module reports what the
+// crate reads.
+same("tokeniser_stops_at", call.tokeniser_stops_at(), 0);
+same("the id it stops on", new DataView(answer().buffer).getUint32(0, true), cases.stopsAt);
 
 // A header this engine does not follow is refused by name, not answered.
 same("unfollowable", given(unhex(cases.unfollowable), (at, len) => call.tokeniser_read_gguf(at, len)), 1);
@@ -4790,6 +5047,34 @@ fn engine_en_26() {
         "the page is assembled before the engine it loads is built"
     );
 
+    // The page is told which kernel it was built for, before it is assembled.
+    //
+    // A visitor can be served a stale holo — a service worker that never
+    // reinstalls will do it, which is UOR-Foundation/template#83 — and an old
+    // kernel refuses a question it has never heard of, honestly and in its own
+    // words. A page that cannot tell those bytes from the ones it was built
+    // against reports that refusal as the kernel's verdict. So the workflow
+    // writes the built holo's own archive fingerprint into `site/app.json`,
+    // where the page can read it and refuse to ask a kernel it does not know.
+    let wrote_at = workflow
+        .find("attestations.build = { id, url }")
+        .expect("the workflow tells the page which kernel it was built for");
+    let fingerprint_at = workflow
+        .find("archive_fingerprint")
+        .expect("the workflow reads the built holo's own identity");
+    assert!(
+        fingerprint_at < wrote_at && wrote_at < assembled_at,
+        "the page is assembled before it is told which kernel it was built for"
+    );
+    let described: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("site/app.json")).expect("what the page says"),
+    )
+    .expect("app.json is JSON");
+    assert!(
+        described["attestations"].is_object(),
+        "site/app.json has nowhere to carry the kernel's identity"
+    );
+
     // And it is built rather than committed, like the holo beside it.
     let ignored = std::fs::read_to_string(root().join(".gitignore")).expect("the ignore list");
     assert!(
@@ -4820,4 +5105,246 @@ fn engine_en_26() {
         said.contains("engine-size:"),
         "the size check said nothing about the size:\n{said}"
     );
+}
+
+/// `EN-27`: A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie
+#[test]
+fn engine_en_27() {
+    // A file with the three kinds a published model mixes: full-width
+    // numbers, half-width, and thirty-two numbers to a block.
+    let listed: [(&str, &[u64], u32, u64); 3] = [
+        ("blk.0.attn_norm.weight", &[1536], 0, 0),
+        ("blk.0.attn_q.weight", &[1536, 1536], 2, 6_144),
+        ("token_embd.weight", &[1536, 151_936], 1, 1_333_248),
+    ];
+    let file = gguf_with_tensors(
+        &[("general.architecture", Value::Text("qwen2".into()))],
+        &listed,
+        None,
+    );
+    let read = tensors::read(&file).expect("the tensor table is read");
+    assert_eq!(read.tensors.len(), 3);
+
+    // The lengths are the file's own: four bytes a number for F32, two for
+    // F16, and eighteen bytes for every thirty-two numbers of Q4_0 — not the
+    // twenty a weight container stores for the same numbers.
+    let norm = read.named("blk.0.attn_norm.weight").expect("the norm");
+    assert_eq!(
+        (norm.kind, norm.numbers(), norm.bytes),
+        (tensors::Kind::F32, 1536, 6_144)
+    );
+    let matrix = read.named("blk.0.attn_q.weight").expect("the matrix");
+    assert_eq!(matrix.kind, tensors::Kind::Q4_0);
+    assert_eq!(matrix.numbers(), 1536 * 1536);
+    assert_eq!(matrix.bytes, 1536 * 1536 / 32 * 18);
+    assert_eq!(
+        tensors::Kind::Q4_0.block(),
+        (32, 18),
+        "the file's own block, not ours"
+    );
+    let embedding = read.named("token_embd.weight").expect("the embedding");
+    assert_eq!(embedding.bytes, 1536 * 151_936 * 2);
+
+    // Where the bytes are: the table's end rounded up as the format says,
+    // with each tensor's own offset counted from the start of the file, so a
+    // caller never adds the two itself.
+    assert_eq!(read.data_at % 32, 0);
+    assert_eq!(norm.at, read.data_at);
+    assert_eq!(matrix.at, read.data_at + 6_144);
+    assert_eq!(embedding.at, read.data_at + 1_333_248);
+
+    // A file that says how it is aligned is aligned that way.
+    let wider = gguf_with_tensors(&[], &listed, Some(4_096));
+    let wider = tensors::read(&wider).expect("the table is read");
+    assert_eq!(wider.data_at % 4_096, 0);
+    assert!(
+        wider.data_at >= read.data_at,
+        "a wider alignment moves the data no earlier"
+    );
+
+    // Nothing past the table is read: the same file with nothing after it,
+    // and with a megabyte after it, read the same way.
+    let mut padded = file.clone();
+    padded.extend(std::iter::repeat_n(0xabu8, 1 << 20));
+    assert_eq!(tensors::read(&padded), Ok(read.clone()));
+
+    // The published model's own table: 339 tensors in three storage types,
+    // one of which this reader does not follow. Until this file was here,
+    // those numbers were a measurement in the verification notes; now they
+    // are what the gate reads.
+    let published = published_gguf();
+    let refused = tensors::read(&published);
+    assert_eq!(
+        refused.err(),
+        Some(tensors::GgufError::TypeNotFollowed(14)),
+        "the published file stores its output weight in Q6_K, which this reader does not follow"
+    );
+
+    // The two readers of this format stop in different places on purpose, and
+    // must agree about where the metadata ends. One file, read by both: the
+    // tokeniser takes its vocabulary, and this takes the table that follows.
+    let merged = ["t h", "th e", "Ġ the"];
+    let alphabet: Vec<String> = byte_alphabet().iter().map(char::to_string).collect();
+    let mut vocabulary = alphabet.clone();
+    for merge in &merged {
+        vocabulary.push(merge.replace(' ', ""));
+    }
+    let both = gguf_with_tensors(
+        &[
+            ("tokenizer.ggml.model", Value::Text("gpt2".into())),
+            ("tokenizer.ggml.pre", Value::Text("qwen2".into())),
+            ("tokenizer.ggml.tokens", Value::Texts(vocabulary.clone())),
+            (
+                "tokenizer.ggml.merges",
+                Value::Texts(merged.iter().map(|m| (*m).to_string()).collect()),
+            ),
+        ],
+        &listed,
+        None,
+    );
+    let counted = tokeniser::Tokeniser::from_gguf(&both).expect("the tokeniser reads its part");
+    assert_eq!(counted.len(), vocabulary.len());
+    let table = tensors::read(&both).expect("this reader reads its part");
+    assert_eq!(
+        table.tensors.len(),
+        3,
+        "both readers followed the same metadata"
+    );
+}
+
+/// `FL-36`: A file handed to the tensor reader does not begin with the GGUF magic
+#[test]
+fn engine_fl_36() {
+    // A file that is not this format, including one whose magic is nearly it.
+    //  is not here: its first four bytes are the magic, so it is a
+    // GGUF file of a version this reader does not follow, which is FL-37.
+    for magic in [&b"HOLK1"[..], &b"GGUX"[..], &b"gguf"[..]] {
+        let mut bytes = magic.to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        assert_eq!(
+            tensors::read(&bytes).err(),
+            Some(tensors::GgufError::NotGguf),
+            "a file whose magic is not GGUF was read as one"
+        );
+    }
+    // A file that stops before its magic does is cut short rather than
+    // another format: what it would have said is not known.
+    for short in [&b""[..], &b"G"[..], &b"GGU"[..]] {
+        assert_eq!(
+            tensors::read(short).err(),
+            Some(tensors::GgufError::Truncated)
+        );
+    }
+}
+
+/// `FL-37`: A GGUF file is of a version this reader does not follow
+#[test]
+fn engine_fl_37() {
+    let listed: [(&str, &[u64], u32, u64); 1] = [("one", &[32], 2, 0)];
+    let mut file = gguf_with_tensors(&[], &listed, None);
+    assert!(tensors::read(&file).is_ok());
+    // The version this reader follows is the one it was written for; another
+    // is refused rather than read as if the layout had not changed.
+    for version in [1u32, 2, 4] {
+        file[4..8].copy_from_slice(&version.to_le_bytes());
+        assert_eq!(
+            tensors::read(&file).err(),
+            Some(tensors::GgufError::VersionNotKnown),
+            "version {version} was read anyway"
+        );
+    }
+}
+
+/// `FL-38`: A GGUF file's header runs past the bytes given
+#[test]
+fn engine_fl_38() {
+    let listed: [(&str, &[u64], u32, u64); 2] = [("one", &[32], 2, 0), ("two", &[64], 0, 18)];
+    let file = gguf_with_tensors(
+        &[("general.architecture", Value::Text("qwen2".into()))],
+        &listed,
+        None,
+    );
+    assert!(tensors::read(&file).is_ok());
+    // A table that runs past the bytes given is not read as far as it goes.
+    for cut in [0, 4, 8, 16, 24, file.len() / 2, file.len() - 1] {
+        assert_eq!(
+            tensors::read(&file[..cut]).err(),
+            Some(tensors::GgufError::Truncated),
+            "a file cut to {cut} bytes was read anyway"
+        );
+    }
+}
+
+/// `FL-39`: A tensor is stored in a type this reader does not follow
+#[test]
+fn engine_fl_39() {
+    // Q6_K is the type the published Qwen2.5 file stores its output weight
+    // in, and this reader does not follow it: refused by its own number, so
+    // whoever adds it knows what to look up.
+    let listed: [(&str, &[u64], u32, u64); 1] = [("output.weight", &[1536, 151_936], 14, 0)];
+    let file = gguf_with_tensors(&[], &listed, None);
+    assert_eq!(
+        tensors::read(&file).err(),
+        Some(tensors::GgufError::TypeNotFollowed(14))
+    );
+    for code in [3u32, 7, 12, 30, 1000] {
+        let listed: [(&str, &[u64], u32, u64); 1] = [("t", &[32], code, 0)];
+        assert_eq!(
+            tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+            Some(tensors::GgufError::TypeNotFollowed(code))
+        );
+    }
+}
+
+/// `FL-40`: A tensor's shape is one this reader cannot measure
+#[test]
+fn engine_fl_40() {
+    // A tensor that does not fill its last block is one this reader cannot
+    // measure, rather than one it rounds: a rounded length would put every
+    // tensor after it in the wrong place.
+    for shape in [vec![31u64], vec![33], vec![2, 3], vec![0], vec![]] {
+        let listed: [(&str, &[u64], u32, u64); 1] = [("t", &shape, 2, 0)];
+        assert_eq!(
+            tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+            Some(tensors::GgufError::ShapeNotFollowed),
+            "a Q4_0 tensor of shape {shape:?} was measured anyway"
+        );
+    }
+    // And one whose numbers do not fit a count at all.
+    let listed: [(&str, &[u64], u32, u64); 1] = [("t", &[u64::MAX, 2], 0, 0)];
+    assert_eq!(
+        tensors::read(&gguf_with_tensors(&[], &listed, None)).err(),
+        Some(tensors::GgufError::ShapeNotFollowed)
+    );
+}
+
+/// `EN-28`: The id a model stops on is the one the model's own file names, not a list written beside it
+#[test]
+fn engine_en_28() {
+    // The published model says which id it stops on, and this reads it from
+    // the model rather than from a list written beside it. The page stopped
+    // on a set built in JavaScript from two names; when the tokeniser did not
+    // match those names at all, the model answered forever.
+    let read = tokeniser::Tokeniser::from_gguf(&published_gguf()).expect("the header is read");
+    let stops = read
+        .stops_at()
+        .expect("the published file names the id it stops on");
+    assert_eq!(stops, 151_645);
+    assert_eq!(
+        read.decode(&[stops]),
+        Ok(b"<|im_end|>".to_vec()),
+        "the id it stops on is the token that ends a turn"
+    );
+
+    // A file that names none is read as one with none, rather than given one.
+    let merged = ["t h", "th e"];
+    let quiet = tokeniser::Tokeniser::from_gguf(&gguf_with_control(&merged, &[]))
+        .expect("a header with no stop id is still a header");
+    assert_eq!(quiet.stops_at(), None);
+
+    // And a tokenizer.json says nothing about stopping, so neither does this.
+    let json = tokeniser::Tokeniser::read(&tokeniser(&merged, None)).expect("the file is read");
+    assert_eq!(json.stops_at(), None);
 }
