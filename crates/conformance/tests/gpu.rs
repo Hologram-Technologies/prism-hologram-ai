@@ -237,6 +237,81 @@ fn gpu_gp_03() {
         "the tied output head was not confirmed",
         "process.exit(1)",
         "No browser is a failure, never a skip",
+        "the prompt box started with text",
+        "await page.press(\"#prompt\", \"Enter\");",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks: {wanted}"
+        );
+    }
+}
+
+/// `GP-06`: The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists
+#[test]
+fn gpu_gp_06() {
+    // The journey runs the stale case in a browser (`just page-journey`, as in
+    // GP-03); this test reads that it does, and the premises it rests on.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+
+    // The listing is fresh only because the service worker never answers it.
+    // If the frame's worker starts caching precache.json, this pin can go
+    // stale with the kernel, and this test must say so.
+    let worker = read("site/sw.js");
+    assert!(
+        worker.contains("if (url.pathname.endsWith(\"/precache.json\")) return;"),
+        "site/sw.js (the template's frame, not this repository's) no longer passes /precache.json          to the network, so the page's stale-kernel check (GP-06) rests on a listing that can now go          stale with the kernel; see UOR-Foundation/template#83, and choose a new source for the pin          in site/app/app.mjs before taking this frame"
+    );
+
+    // The page compares before it asks the kernel anything.
+    let page = read("site/app/app.mjs");
+    let at = |needle: &str| {
+        page.find(needle)
+            .unwrap_or_else(|| panic!("app.mjs no longer has: {needle}"))
+    };
+    assert!(page.contains("fetch(\"../precache.json\", { cache: \"no-store\" })"));
+    let load = at("async function load()");
+    let compare = load
+        + page[load..]
+            .find("await sameKernel(holo, listed);")
+            .expect("load compares the kernel");
+    let first_question = load
+        + page[load..]
+            .find("asker(kernel, checks)")
+            .expect("load builds the asker");
+    assert!(
+        compare < first_question,
+        "the page must compare the kernel with the deploy's listing before it can ask a question"
+    );
+
+    // The listing exists wherever the journey runs.
+    let justfile = read("Justfile");
+    assert!(justfile.contains(
+        "node bootstrap/precache.mjs \"$site\"
+    fi"
+    ));
+    let pages = read(".github/workflows/pages.yml");
+    let listed = pages
+        .find("node bootstrap/precache.mjs site")
+        .expect("pages.yml writes precache.json");
+    let journey_step = pages
+        .find("just page-journey site")
+        .expect("pages.yml runs the journey");
+    assert!(
+        listed < journey_step,
+        "pages.yml must write precache.json before the journey"
+    );
+
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true }",
+        "f.sha256 = \"0\".repeat(64)",
+        "staleStop?.subject !== \"kernel is the one this deploy lists\"",
+        "!/^stale kernel/.test(stale.error ?? \"\")",
+        "the page went on past the kernel",
+        "the kernel was not compared with the deploy's listing",
     ] {
         assert!(
             journey.contains(wanted),

@@ -30,3 +30,11 @@ Feature: gpu
     Then the page reaches ready with every check passed, confirms the output head is the embedding's bytes, and answers with the reference's first sixteen tokens
     And a container with one flipped byte stops at that block's admission, before anything is uploaded
     And a record naming a wrong whole-file SHA-256 stops at the root
+    And the prompt box starts empty, so typed text is the whole prompt, and Enter in it sends
+
+  @GP-06 @build
+  Scenario: The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists
+    Given the assembled site, with the precache.json the deploy writes, and the journey's container
+    When the deploy's listing names a different SHA-256 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
+    Then the page stops at "kernel is the one this deploy lists" with an error beginning "stale kernel", naming both, before it reads the record or asks the kernel any question
+    And with the listing matching, the comparison passes and the load goes on

@@ -61,6 +61,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-02` | `build` | The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size |
 | `GP-04` | `build` | Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time |
 | `GP-03` | `build` | The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with |
+| `GP-06` | `build` | The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists |
 
 ## kernel
 
