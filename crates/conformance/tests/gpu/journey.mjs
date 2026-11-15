@@ -35,6 +35,9 @@ const variants = {
   good: { container: fixture.container, sha256: fixture.sha256 },
   flip: { container: flipped, sha256: fixture.sha256 },
   root: { container: fixture.container, sha256: "f".repeat(64) },
+  // The deploy lists a kernel other than the one the browser holds, as when the
+  // service worker serves app.holo from an earlier deploy's cache.
+  stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true },
 };
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
@@ -79,6 +82,13 @@ try {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
+    if (variants[name].staleKernel) {
+      await page.route("**/precache.json", async (route) => {
+        const listing = await (await route.fetch()).json();
+        for (const f of listing.files) if (f.path === "./app.holo") f.sha256 = "0".repeat(64);
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify(listing) });
+      });
+    }
     await page.goto(`${origin}/app/?repo=${fixture.repo}&path=${fixture.path}&index=/fixture/${name}/index`);
     await page.click("#load");
     page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
@@ -92,14 +102,16 @@ try {
       continue;
     }
     let output = null;
+    let promptStart = null;
     if (name === "good") {
+      promptStart = await page.inputValue("#prompt");
       await page.fill("#prompt", "hi");
-      await page.click("#send");
+      await page.press("#prompt", "Enter");
       await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
       output = await page.evaluate(() => window.__qengine.output);
     }
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks }));
-    results[name] = { ...state, output, errors, victim: victim.name };
+    results[name] = { ...state, output, promptStart, errors, victim: victim.name };
     await page.close();
   }
 } finally {
@@ -138,6 +150,9 @@ else {
   const got = good.output.tokens.slice(0, 16);
   if (got.length < 16 || got.some((t, i) => t !== good.expected[i])) fail(`good: the page's tokens ${got} are not the reference's ${good.expected}`);
 }
+const listed = good.checks.find((c) => c.subject === "kernel is the one this deploy lists");
+if (listed?.verdict !== "pass") fail(`good: the kernel was not compared with the deploy's listing (${listed?.verdict ?? "no check"})`);
+if (good.promptStart !== "") fail(`good: the prompt box started with text, so typing would join it: ${JSON.stringify(good.promptStart)}`);
 if (good.errors.length) fail(`good: page errors: ${good.errors.join(" | ")}`);
 
 const flip = results.flip;
@@ -150,8 +165,14 @@ const root = results.root;
 const rootStop = stoppedAt(root);
 if (root.phase !== "failed" || rootStop?.step !== "root") fail(`root: expected to stop at the whole-file root, stopped at ${rootStop?.step}: ${rootStop?.subject} (${root.phase})`);
 
+const stale = results.stale;
+const staleStop = stoppedAt(stale);
+if (stale.phase !== "failed" || staleStop?.subject !== "kernel is the one this deploy lists" || !/^stale kernel/.test(stale.error ?? ""))
+  fail(`stale: expected to stop with "stale kernel" at the deploy comparison, stopped at ${staleStop?.step}: ${staleStop?.subject} (${stale.phase}: ${stale.error})`);
+if (stale.checks.some((c) => !["kernel", "stop"].includes(c.step))) fail(`stale: the page went on past the kernel: ${stale.checks.map((c) => c.subject).join(", ")}`);
+
 if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering is");
+console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering or a stale kernel is");

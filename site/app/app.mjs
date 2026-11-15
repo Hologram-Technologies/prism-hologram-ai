@@ -48,17 +48,54 @@ const join = (...parts) => {
 
 let session = null;
 
+// The kernel this page was deployed with. The site's service worker serves
+// app.holo from its cache, and a cache from an earlier deploy can outlive it
+// (UOR-Foundation/template#83): an old kernel then refuses requests it never
+// knew, and its refusal would read as a verdict. precache.json is written at
+// deploy with every served file's SHA-256 and the worker never answers it, so
+// it is the one listing the cache cannot serve stale.
+const HOLO = "../app.holo";
+const fetchBytes = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+};
+async function deployedKernel() {
+  const response = await fetch("../precache.json", { cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`precache.json: HTTP ${response.status}`);
+  const entry = (await response.json()).files.find((f) => f.path === "./app.holo");
+  if (!entry) throw new Error("precache.json lists no app.holo");
+  return entry.sha256;
+}
+async function sameKernel(holo, listed) {
+  const subject = "kernel is the one this deploy lists";
+  const hex = (buffer) => Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, "0")).join("");
+  const held = hex(await crypto.subtle.digest("SHA-256", holo));
+  // A page served outside a deploy (a local preview) has no listing to compare.
+  if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held sha256 ${held}`);
+  if (held === listed) return checks.add("kernel", subject, "pass", `sha256 ${held}`);
+  checks.add("kernel", subject, "fail", `deployed sha256 ${listed}, held sha256 ${held}`);
+  // Remove the stale copy so the next load fetches this deploy's kernel.
+  for (const name of globalThis.caches ? await caches.keys() : []) {
+    if (name.startsWith("prism-")) await (await caches.open(name)).delete(new URL(HOLO, location.href).href, { ignoreSearch: true });
+  }
+  throw new Error(`stale kernel: this page was deployed with kernel ${listed.slice(0, 12)}…, the browser held ${held.slice(0, 12)}… from an old cache. The old copy is removed; reload the page.`);
+}
+
 async function load() {
   $("load").disabled = true;
   state.phase = "loading";
   const started = performance.now();
   try {
     status("Verifying the kernel…");
-    const { load: loadHolo } = await import("../vendor/prism-code/src/browser.mjs");
-    const kernel = await loadHolo("../app.holo");
+    const { loadArchive } = await import("../vendor/prism-code/src/index.mjs");
+    const [holo, listed] = await Promise.all([fetchBytes(HOLO), deployedKernel()]);
+    const kernel = await loadArchive(holo);
     const verified = kernel.identities.verified;
     checks.add("kernel", "kernel holo verified in this browser", verified ? "pass" : "fail", kernel.identities.archiveFingerprint);
     if (!verified) throw new Error("the kernel did not verify");
+    await sameKernel(holo, listed);
     const ask = asker(kernel, checks);
 
     status("Opening the GPU…");
@@ -129,7 +166,8 @@ function decode(ids) {
 
 async function send(event) {
   event.preventDefault();
-  if (!session) return;
+  // Enter reaches here too, so a turn in progress is not started twice.
+  if (!session || $("send").disabled) return;
   $("send").disabled = true;
   try {
     await answer();
@@ -143,9 +181,13 @@ async function send(event) {
 
 async function answer() {
   const { engine, ask } = session;
-  const prompt = encode(frame($("prompt").value));
-  // A stop is a special string the tokenizer reads as one token.
-  const stops = new Set(["<|im_end|>", "<|endoftext|>"].map(encode).filter((ids) => ids.length === 1).map((ids) => ids[0]));
+  // An empty box asks the example its placeholder shows.
+  const text = $("prompt").value.trim() || $("prompt").placeholder;
+  const prompt = encode(frame(text));
+  // The model stops on the id its own file names (EN-28); a file naming none
+  // runs to the turn's budget.
+  const said = session.module.call("tokeniser_stops_at");
+  const stops = new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
   engine.reset();
   const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(256, 8)), (a) => /^\d+$/.test(a)));
   const t0 = performance.now();
@@ -156,7 +198,7 @@ async function answer() {
     onToken: (ids) => { $("answer").textContent = decode(ids); },
   });
   const end = performance.now();
-  state.output = { prompt: $("prompt").value, promptIds: prompt, promptTokens: prompt.length, tokens: out, text: decode(out) };
+  state.output = { prompt: text, promptIds: prompt, promptTokens: prompt.length, tokens: out, text: decode(out) };
   state.stats = {
     timeToFirstToken: (firstAt - t0) / 1000,
     tokensPerSecond: out.length > 1 ? (out.length - 1) / ((end - firstAt) / 1000) : 0,
@@ -167,3 +209,9 @@ async function answer() {
 
 $("load").addEventListener("click", load);
 $("ask").addEventListener("submit", send);
+// Enter sends, Shift+Enter starts a new line; Enter that ends an IME composition does neither.
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $("ask").requestSubmit();
+});
