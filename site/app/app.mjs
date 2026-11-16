@@ -17,6 +17,8 @@ const MODEL = {
 const CAPACITY = 2048;
 
 const $ = (id) => document.getElementById(id);
+// A link naming another model says which one the page will load.
+if (asked.get("repo")) $("model-name").textContent = `${MODEL.repo}, file ${MODEL.path}, from the index at ${MODEL.indexBase}.`;
 const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
 window.__qengine = state;
 
@@ -152,8 +154,12 @@ async function load() {
   }
 }
 
-// Qwen3's chat frame, with an empty thinking block so it answers directly.
-const frame = (prompt) => `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`;
+// The chat frame by what the vocabulary knows. Qwen3 reads <think> as one token,
+// so it gets an empty thinking block and answers directly; Qwen2.5 does not, and
+// gets the system line its own template writes when none is given.
+const frame = (prompt) => encode("<think>").length === 1
+  ? `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
+  : `<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
 
 function encode(text) {
   const bytes = session.module.callWith("tokeniser_encode", new TextEncoder().encode(text));

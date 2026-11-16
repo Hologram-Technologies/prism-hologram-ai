@@ -39,7 +39,7 @@ try {
   await page.goto(`${origin}/`);
   const result = await page.evaluate(async (origin) => {
     const { createEngine } = await import(`${origin}/site/app/engine/gpu.mjs`);
-    const { tinyModel, referenceModel } = await import(`${origin}/crates/conformance/tests/gpu/reference.mjs`);
+    const { tinyModel, tinyQwen2, referenceModel } = await import(`${origin}/crates/conformance/tests/gpu/reference.mjs`);
     if (!navigator.gpu) return { error: "no navigator.gpu" };
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return { error: "no WebGPU adapter" };
@@ -47,7 +47,9 @@ try {
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(String(event.error.message)));
 
-    const model = tinyModel(1);
+    // The same three checks for each model: step by step against the
+    // reference, 140 positions against it, and blocks against one at a time.
+    const exercise = async (model) => {
     const engine = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
     const reference = referenceModel(model);
 
@@ -66,17 +68,36 @@ try {
       gpuNext = g.token;
       refNext = r.token;
     }
+    // GP-01 past one attention chunk: 140 positions span three of attention's
+    // 64-position chunks, so the combine of partials is compared with the
+    // reference, not only one chunk alone.
+    const longEngine = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 192 });
+    const longReference = referenceModel(model);
+    let longWorst = 0;
+    let longPositions = 0;
+    for (let i = 0; i < 140; i++) {
+      const input = (i * 53 + 7) % model.dims.vocab;
+      const g = await longEngine.step(input, { logits: true });
+      const r = longReference.step(input);
+      for (let j = 0; j < r.logits.length; j++) longWorst = Math.max(longWorst, Math.abs(g.logits[j] - r.logits[j]));
+      longPositions++;
+    }
     // GP-04: many positions per submission against one per submission, on the
     // same model, for a short prompt and one longer than a submission's slots.
     const batched = [];
-    for (const prompt of [model.prompt, Array.from({ length: 40 }, (_, i) => (i * 37 + 11) % model.dims.vocab)]) {
-      const one = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
-      const many = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
+    for (const prompt of [model.prompt, Array.from({ length: 100 }, (_, i) => (i * 37 + 11) % model.dims.vocab)]) {
+      const one = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 128 });
+      const many = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 128 });
       const stepwise = await one.generate(prompt, 12);
       const together = await many.run(prompt, 12);
       batched.push({ promptLength: prompt.length, stepwise, together, position: many.position });
     }
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, steps, gpuNext, batched };
+    return { steps, gpuNext, batched, longWorst, longPositions };
+    };
+    // GP-01 and GP-04 on the ternary Qwen3 model; GP-05 on the q4 Qwen2 one.
+    const ternary = await exercise(tinyModel(1));
+    const qwen2 = await exercise(tinyQwen2(3));
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2 };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {

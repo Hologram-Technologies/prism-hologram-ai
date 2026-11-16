@@ -28,6 +28,56 @@ export function packTernary(codes, scales, n, k) {
   return bytes;
 }
 
+// Pack an N by K matrix of codes in -8..7, one scale per 32 weights, into q4:
+// four-bit codes offset by 8, weight g at bits 4 * (g % 2) of byte g / 2, then
+// the scales.
+export function packQ4(codes, scales, n, k) {
+  const bytes = new Uint8Array((n * k) / 2 + ((n * k) / 32) * 4);
+  for (let g = 0; g < n * k; g++) bytes[g >> 1] |= ((codes[g] + 8) & 15) << ((g & 1) * 4);
+  new Float32Array(bytes.buffer, (n * k) / 2).set(scales);
+  return bytes;
+}
+
+// A small model with Qwen2's shape: q4 weights, biases on q, k and v, no
+// per-head norm, plain rotary, and an output head of its own.
+export function tinyQwen2(seed = 1) {
+  const random = generator(seed);
+  const dims = { d: 128, n_heads: 4, n_kv_heads: 2, hd: 32, ff: 256, vocab: 320, n_layers: 2, rope_base: 10000, eps: 1e-6 };
+  const tensors = new Map();
+  const matrix = (name, n, k) => {
+    const codes = new Int8Array(n * k);
+    for (let i = 0; i < n * k; i++) codes[i] = Math.floor(random() * 16) - 8;
+    const scales = new Float32Array((n * k) / 32);
+    for (let i = 0; i < scales.length; i++) scales[i] = Math.fround(0.006 + 0.012 * random());
+    tensors.set(name, { fmt: "q4", N: n, K: k, bytes: packQ4(codes, scales, n, k), codes, scales });
+  };
+  const vector = (name, n, low, span) => {
+    const values = new Float32Array(n);
+    for (let i = 0; i < n; i++) values[i] = Math.fround(low + span * random());
+    tensors.set(name, { fmt: "f32", N: 1, K: n, bytes: new Uint8Array(values.buffer), values });
+  };
+  const { d, n_heads: h, n_kv_heads: kv, hd, ff, vocab } = dims;
+  matrix("embed", vocab, d);
+  for (let l = 0; l < dims.n_layers; l++) {
+    vector(`l${l}.attn_norm`, d, 0.8, 0.4);
+    matrix(`l${l}.wq`, h * hd, d);
+    matrix(`l${l}.wk`, kv * hd, d);
+    matrix(`l${l}.wv`, kv * hd, d);
+    vector(`l${l}.bq`, h * hd, -0.3, 0.6);
+    vector(`l${l}.bk`, kv * hd, -0.3, 0.6);
+    vector(`l${l}.bv`, kv * hd, -0.3, 0.6);
+    matrix(`l${l}.wo`, d, h * hd);
+    vector(`l${l}.ffn_norm`, d, 0.8, 0.4);
+    matrix(`l${l}.w_gate`, ff, d);
+    matrix(`l${l}.w_up`, ff, d);
+    matrix(`l${l}.w_down`, d, ff);
+  }
+  vector("final_norm", d, 0.8, 0.4);
+  matrix("lm_head", vocab, d);
+  const prompt = Array.from({ length: 6 }, () => Math.floor(random() * vocab));
+  return { dims, tensors, prompt };
+}
+
 // A small model with Bonsai's shape of layers and its tensor names.
 export function tinyModel(seed = 1) {
   const random = generator(seed);
@@ -69,6 +119,7 @@ export function tinyModel(seed = 1) {
 // YaRN, written from the published description rather than from the engine.
 function rotary(dims) {
   const { hd, rope_base: base } = dims;
+  if (!dims.yarn) return { theta: Array.from({ length: hd / 2 }, (_, i) => base ** (-(2 * i) / hd)), mscale: 1 };
   const { factor, orig } = dims.yarn;
   const correction = (turns) => (hd * Math.log(orig / (turns * 2 * Math.PI))) / (2 * Math.log(base));
   const low = Math.max(0, Math.floor(correction(32)));
@@ -88,10 +139,12 @@ export function referenceModel({ dims, tensors }) {
   const weight = (name) => {
     const t = tensors.get(name);
     const w = new Float64Array(t.N * t.K);
-    for (let g = 0; g < t.N * t.K; g++) w[g] = t.codes[g] * t.scales[Math.floor(g / 128)];
+    const group = { q1: 128, q4: 32 }[t.fmt];
+    for (let g = 0; g < t.N * t.K; g++) w[g] = t.codes[g] * t.scales[Math.floor(g / group)];
     return { w, N: t.N, K: t.K };
   };
   const gamma = (name) => Float64Array.from(tensors.get(name).values);
+  const optional = (name) => (tensors.has(name) ? gamma(name) : null);
   const mul = ({ w, N, K }, x) => {
     const out = new Float64Array(N);
     for (let n = 0; n < N; n++) {
@@ -131,7 +184,8 @@ export function referenceModel({ dims, tensors }) {
   for (let l = 0; l < layers; l++) {
     L.push({
       attnNorm: gamma(`l${l}.attn_norm`), wq: weight(`l${l}.wq`), wk: weight(`l${l}.wk`), wv: weight(`l${l}.wv`),
-      qNorm: gamma(`l${l}.q_norm`), kNorm: gamma(`l${l}.k_norm`), wo: weight(`l${l}.wo`), ffnNorm: gamma(`l${l}.ffn_norm`),
+      qNorm: optional(`l${l}.q_norm`), kNorm: optional(`l${l}.k_norm`), wo: weight(`l${l}.wo`), ffnNorm: gamma(`l${l}.ffn_norm`),
+      bq: optional(`l${l}.bq`), bk: optional(`l${l}.bk`), bv: optional(`l${l}.bv`),
       gate: weight(`l${l}.w_gate`), up: weight(`l${l}.w_up`), down: weight(`l${l}.w_down`), keys: [], values: [],
     });
   }
@@ -145,8 +199,9 @@ export function referenceModel({ dims, tensors }) {
       const q = mul(layer.wq, h);
       const k = mul(layer.wk, h);
       const v = mul(layer.wv, h);
-      headNorm(q, heads, layer.qNorm);
-      headNorm(k, kvHeads, layer.kNorm);
+      for (const [x, b] of [[q, layer.bq], [k, layer.bk], [v, layer.bv]]) if (b) for (let i = 0; i < x.length; i++) x[i] += b[i];
+      if (layer.qNorm) headNorm(q, heads, layer.qNorm);
+      if (layer.kNorm) headNorm(k, kvHeads, layer.kNorm);
       rotate(q, heads, position);
       rotate(k, kvHeads, position);
       layer.keys.push(k);

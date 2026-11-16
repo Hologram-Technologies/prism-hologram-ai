@@ -139,63 +139,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   vc[P.y * P.x + i] = v[i];
 }`;
 
-// Causal attention for one query position over the cache, grouped-query: query
-// head h reads key/value head h / (heads / kvheads). One workgroup per query
-// head. P = (heads, kvheads, hd, length).
-export const ATTENTION = (capacity) => `
-@group(0) @binding(0) var<storage, read> q: array<f32>;
-@group(0) @binding(1) var<storage, read> kc: array<f32>;
-@group(0) @binding(2) var<storage, read> vc: array<f32>;
-@group(0) @binding(3) var<storage, read_write> o: array<f32>;
-@group(0) @binding(4) var<uniform> P: vec4<u32>;
-var<workgroup> score: array<f32, ${capacity}>;
-var<workgroup> top: array<f32, 64>;
-var<workgroup> total: array<f32, 64>;
-@compute @workgroup_size(64)
-fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-  let t = lid.x;
-  let h = wg.x;
-  let hd = P.z;
-  let len = P.w;
-  let kvdim = P.y * hd;
-  let kvh = h / (P.x / P.y);
-  let qb = h * hd;
-  let kb = kvh * hd;
-  let scale = inverseSqrt(f32(hd));
-  var m = -3.4e38;
-  for (var p = t; p < len; p += 64u) {
-    var d = 0.0;
-    for (var i = 0u; i < hd; i++) { d += q[qb + i] * kc[p * kvdim + kb + i]; }
-    score[p] = d * scale;
-    m = max(m, score[p]);
-  }
-  top[t] = m;
-  workgroupBarrier();
-  for (var stride = 32u; stride > 0u; stride >>= 1u) {
-    if (t < stride) { top[t] = max(top[t], top[t + stride]); }
-    workgroupBarrier();
-  }
-  let best = top[0];
-  var s = 0.0;
-  for (var p = t; p < len; p += 64u) {
-    let e = exp(score[p] - best);
-    score[p] = e;
-    s += e;
-  }
-  total[t] = s;
-  workgroupBarrier();
-  for (var stride = 32u; stride > 0u; stride >>= 1u) {
-    if (t < stride) { total[t] += total[t + stride]; }
-    workgroupBarrier();
-  }
-  let inv = 1.0 / total[0];
-  for (var i = t; i < hd; i += 64u) {
-    var acc = 0.0;
-    for (var p = 0u; p < len; p++) { acc += score[p] * vc[p * kvdim + kb + i]; }
-    o[qb + i] = acc * inv;
-  }
-}`;
-
 // g = silu(g) * u, in place. P = (n).
 export const SILU_MUL = `
 @group(0) @binding(0) var<storage, read_write> g: array<f32>;

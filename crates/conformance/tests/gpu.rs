@@ -37,6 +37,82 @@ fn node(script: &str, args: &[&str]) -> serde_json::Value {
 /// precision and the reference's double-precision logit. The first runs on
 /// SwiftShader measured at most 6.6e-4 on logits spread over about 6 to 8.
 const LOGIT_TOLERANCE: f64 = 2e-3;
+// Over 140 positions f32 rounding in the cache accumulates: the single
+// workgroup attention and the split one both measured 2.53e-3 from the
+// reference. A combine that drops chunks measured 5.6, three orders above.
+const LONG_LOGIT_TOLERANCE: f64 = 5e-3;
+
+// The engine against the reference for one model's results: sixteen steps
+// with every logit within tolerance and the same pick, and 140 positions,
+// three attention chunks, within the long tolerance.
+fn reference_agrees(model: &serde_json::Value, label: &str) {
+    let steps = model["steps"].as_array().expect("the steps");
+    assert_eq!(
+        steps.len(),
+        16,
+        "{label}: six prompt tokens and ten generated"
+    );
+    for (i, step) in steps.iter().enumerate() {
+        let worst = step["worst"].as_f64().expect("worst");
+        let margin = step["margin"].as_f64().expect("margin");
+        assert!(
+            worst <= LOGIT_TOLERANCE,
+            "{label}: step {i}: a logit differs by {worst} from the reference"
+        );
+        // Equal picks are required only where the reference's best two
+        // logits are further apart than twice the tolerance; closer than that,
+        // rounding may pick either. The fixture keeps every step outside that.
+        assert!(
+            margin > 2.0 * LOGIT_TOLERANCE,
+            "{label}: step {i}: the fixture has a near tie ({margin}); choose another seed"
+        );
+        assert_eq!(
+            step["gpu"], step["reference"],
+            "{label}: step {i}: the engine picked a different token from the reference"
+        );
+    }
+    // Attention splits the cache into 64-position chunks and combines them;
+    // a context of one chunk would leave the combine unchecked.
+    assert_eq!(
+        model["longPositions"].as_u64(),
+        Some(140),
+        "{label}: the long run covers three attention chunks"
+    );
+    let long_worst = model["longWorst"].as_f64().expect("longWorst");
+    assert!(
+        long_worst <= LONG_LOGIT_TOLERANCE,
+        "{label}: past one attention chunk, a logit differs by {long_worst} from the reference"
+    );
+}
+
+// A prompt run in blocks against one position at a time, for one model.
+fn blocks_agree(model: &serde_json::Value, label: &str) {
+    let runs = model["batched"].as_array().expect("the batched runs");
+    assert_eq!(
+        runs.len(),
+        2,
+        "{label}: a short prompt and one longer than a submission"
+    );
+    for run in runs {
+        let length = run["promptLength"].as_u64().expect("prompt length");
+        let stepwise = run["stepwise"].as_array().expect("stepwise tokens");
+        let together = run["together"].as_array().expect("batched tokens");
+        assert_eq!(stepwise.len(), 12, "{label}: twelve tokens one at a time");
+        assert_eq!(
+            together, stepwise,
+            "{label}: a {length}-token prompt: batched tokens differ from one at a time"
+        );
+        // Every prompt position and every generated one ran exactly once.
+        assert_eq!(
+            run["position"].as_u64(),
+            Some(length + 12 - 1),
+            "{label}: a {length}-token prompt: positions run"
+        );
+    }
+    // The longer prompt crosses a submission's 32 slots and attention's
+    // 64-position chunks, so both boundaries are exercised, not only the first.
+    assert!(runs.iter().any(|r| r["promptLength"].as_u64() > Some(64)));
+}
 
 /// `GP-01`: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
 #[test]
@@ -51,27 +127,7 @@ fn gpu_gp_01() {
     );
     let errors = result["errors"].as_array().expect("the error list");
     assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let steps = result["steps"].as_array().expect("the steps");
-    assert_eq!(steps.len(), 16, "six prompt tokens and ten generated");
-    for (i, step) in steps.iter().enumerate() {
-        let worst = step["worst"].as_f64().expect("worst");
-        let margin = step["margin"].as_f64().expect("margin");
-        assert!(
-            worst <= LOGIT_TOLERANCE,
-            "step {i}: a logit differs by {worst} from the reference"
-        );
-        // Equal picks are required only where the reference's best two
-        // logits are further apart than twice the tolerance; closer than that,
-        // rounding may pick either. The fixture keeps every step outside that.
-        assert!(
-            margin > 2.0 * LOGIT_TOLERANCE,
-            "step {i}: the fixture has a near tie ({margin}); choose another seed"
-        );
-        assert_eq!(
-            step["gpu"], step["reference"],
-            "step {i}: the engine picked a different token from the reference"
-        );
-    }
+    reference_agrees(&result, "ternary Qwen3");
 }
 
 /// `GP-02`: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
@@ -135,31 +191,27 @@ fn gpu_gp_04() {
         "the engine did not run: {}",
         result["error"]
     );
-    let runs = result["batched"].as_array().expect("the batched runs");
-    assert_eq!(
-        runs.len(),
-        2,
-        "a short prompt and one longer than a submission"
+    blocks_agree(&result, "ternary Qwen3");
+}
+
+/// `GP-05`: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
+#[test]
+fn gpu_gp_05() {
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
     );
-    for run in runs {
-        let length = run["promptLength"].as_u64().expect("prompt length");
-        let stepwise = run["stepwise"].as_array().expect("stepwise tokens");
-        let together = run["together"].as_array().expect("batched tokens");
-        assert_eq!(stepwise.len(), 12, "twelve tokens one at a time");
-        assert_eq!(
-            together, stepwise,
-            "a {length}-token prompt: batched tokens differ from one at a time"
-        );
-        // Every prompt position and every generated one ran exactly once.
-        assert_eq!(
-            run["position"].as_u64(),
-            Some(length + 12 - 1),
-            "a {length}-token prompt: positions run"
-        );
-    }
-    // The longer prompt crosses a submission's 32 slots, so a chunk boundary is
-    // exercised, not only the first chunk.
-    assert!(runs.iter().any(|r| r["promptLength"].as_u64() > Some(32)));
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    // The generated model carries q4 weights, q/k/v biases and no per-head
+    // norm, and an output head of its own; the reference decodes all of it
+    // without the engine's code.
+    let qwen2 = &result["qwen2"];
+    assert!(qwen2.is_object(), "the run has no q4 Qwen2 model: {result}");
+    reference_agrees(qwen2, "q4 Qwen2");
+    blocks_agree(qwen2, "q4 Qwen2");
 }
 
 /// `GP-03`: The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with

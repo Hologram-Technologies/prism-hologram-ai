@@ -321,3 +321,9 @@ id = "GP-06"
 level = "build"
 suite = "gpu"
 statement = "The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists"
+
+[[id]]
+id = "GP-05"
+level = "build"
+suite = "gpu"
+statement = "The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time"
