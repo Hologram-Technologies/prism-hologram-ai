@@ -35,3 +35,25 @@ export function plain({ hd, base }) {
   for (let i = 0; i < hd / 2; i++) freqs[i] = Math.pow(base, (-2 * i) / hd);
   return { freqs, low: hd / 2, high: hd / 2, mscale: 1 };
 }
+
+// Llama 3's rotary frequencies, as transformers computes them for rope type
+// "llama3": a pair whose wavelength is shorter than orig / high keeps its
+// frequency, one longer than orig / low turns `factor` times slower, and those
+// between blend by where orig / wavelength falls from low to high. There is no
+// attention scale. onnx-community's Llama 3.2 1B export bakes these into its
+// cos and sin caches (factor 32, low 1, high 4, orig 8192) while its config.json
+// names no scaling, so the family's parameters are taken from the family.
+export function llama3({ hd, base, factor, low, high, orig }) {
+  const freqs = new Float32Array(hd / 2);
+  for (let i = 0; i < hd / 2; i++) {
+    const f = Math.pow(base, (-2 * i) / hd);
+    const wavelength = (2 * Math.PI) / f;
+    if (wavelength < orig / high) freqs[i] = f;
+    else if (wavelength > orig / low) freqs[i] = f / factor;
+    else {
+      const smooth = (orig / wavelength - low) / (high - low);
+      freqs[i] = (1 - smooth) * (f / factor) + smooth * f;
+    }
+  }
+  return { freqs, low: hd / 2, high: hd / 2, mscale: 1 };
+}

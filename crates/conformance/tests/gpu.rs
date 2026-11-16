@@ -508,3 +508,89 @@ fn gpu_gp_09() {
         blocks_agree(model, &format!("dense {key}"));
     }
 }
+
+/// `GP-10`: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
+#[test]
+fn gpu_gp_10() {
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let model = &result["exportShape"]["qwen2"];
+    assert!(
+        model.is_object(),
+        "the run has no Qwen2.5-shaped model: {result}"
+    );
+    // Every norm weight and bias reached the engine in f16, and the biases
+    // are there, so the f16 path is the one run.
+    assert_eq!(model["vectorFormats"], serde_json::json!(["f16"]));
+    assert_eq!(
+        model["biases"].as_bool(),
+        Some(true),
+        "the model has biases"
+    );
+    reference_agrees(model, "Qwen2.5 q4f16 shape");
+    blocks_agree(model, "Qwen2.5 q4f16 shape");
+}
+
+/// `GP-11`: The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance
+#[test]
+fn gpu_gp_11() {
+    // Llama 3.2 1B: head size 64, base 5e5; rope type llama3 with factor 32,
+    // low and high frequency factors 1 and 4, original context 8192.
+    let (hd, base, factor, low, high, orig) = (64.0_f64, 500_000.0_f64, 32.0, 1.0, 4.0, 8192.0);
+    let result = node(
+        "crates/conformance/tests/gpu/yarn.mjs",
+        &["llama3", "64", "500000", "32", "1", "4", "8192"],
+    );
+    assert_eq!(result["mscale"].as_f64(), Some(1.0), "no attention scale");
+    let freqs = result["freqs"].as_array().expect("freqs");
+    assert_eq!(freqs.len(), 32, "one frequency per pair");
+    let mut bands = [0; 3];
+    for (i, f) in freqs.iter().enumerate() {
+        let theta = base.powf(-2.0 * i as f64 / hd);
+        let wavelength = 2.0 * std::f64::consts::PI / theta;
+        let want = if wavelength < orig / high {
+            bands[0] += 1;
+            theta
+        } else if wavelength > orig / low {
+            bands[2] += 1;
+            theta / factor
+        } else {
+            bands[1] += 1;
+            let smooth = (orig / wavelength - low) / (high - low);
+            (1.0 - smooth) * theta / factor + smooth * theta
+        };
+        let got = f.as_f64().expect("a frequency");
+        assert!(
+            ((got - want) / want).abs() < 1e-6,
+            "pair {i}: frequency {got}, formula {want}"
+        );
+    }
+    assert_eq!(bands, [15, 3, 14], "kept, blended and slowed pairs");
+
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let model = &result["exportShape"]["llama"];
+    assert!(
+        model.is_object(),
+        "the run has no Llama-shaped model: {result}"
+    );
+    assert_eq!(
+        model["biases"].as_bool(),
+        Some(false),
+        "Llama has no biases"
+    );
+    reference_agrees(model, "Llama 3 shape");
+    blocks_agree(model, "Llama 3 shape");
+}

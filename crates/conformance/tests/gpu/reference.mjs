@@ -38,19 +38,27 @@ export function packQ4(codes, scales, n, k) {
   return bytes;
 }
 
-// IEEE half precision, for scales an f16 file would hold: the nearest f16 (ties
-// to even) of a number in f16's normal range, and the number an f16 holds.
+// IEEE half precision, as an f16 file holds numbers: the nearest f16 (ties to
+// even) of a number below f16's largest, and the number an f16 holds.
 export function f16bits(x) {
+  const sign = x < 0 || Object.is(x, -0) ? 0x8000 : 0;
+  // Below 2^-14 an f16 is subnormal: a count of 2^-24 steps.
+  if (Math.abs(x) < 2 ** -14) {
+    const steps = Math.abs(x) / 2 ** -24;
+    let m = Math.floor(steps);
+    if (steps - m > 0.5 || (steps - m === 0.5 && m & 1)) m++;
+    return sign | m;
+  }
   const bits = new Uint32Array(new Float32Array([x]).buffer)[0];
   let exponent = ((bits >>> 23) & 255) - 127 + 15;
   let mantissa = (bits & 0x7fffff) >>> 13;
   const rest = bits & 0x1fff;
   if (rest > 0x1000 || (rest === 0x1000 && mantissa & 1)) mantissa++;
   if (mantissa === 0x400) (mantissa = 0), exponent++;
-  if (exponent < 1 || exponent > 30) throw new Error(`${x} is outside f16's normal range`);
+  if (exponent > 30) throw new Error(`${x} is above f16's range`);
   return ((bits >>> 16) & 0x8000) | (exponent << 10) | mantissa;
 }
-export const f16value = (h) => (h & 0x8000 ? -1 : 1) * (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15);
+export const f16value = (h) => (h & 0x8000 ? -1 : 1) * (((h >> 10) & 31) === 0 ? (h & 1023) * 2 ** -24 : (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15));
 
 // An N by K matrix of codes in -8..7 as ONNX's MatMulNBits holds it at 4 bits,
 // block size 32 and no zero points, written from the operator's definition:
@@ -76,9 +84,13 @@ export function packMatMulNBits(codes, scales, n, k, scaleType) {
 // or with f16 ones when scaleType is "f16". With embedding "dense" the
 // embedding is a plain matrix in the scales' type, f32 or f16, and the head is
 // tied to it with no tensor of its own, as in onnx-community's exports.
-export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding = "q4") {
+// shape.vectors "f16" holds the norm weights and biases in f16, as a q4f16
+// export does; shape.llama3 gives Llama's shape instead: no biases, and Llama
+// 3's rotary scaling with the parameters given.
+export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding = "q4", shape = {}) {
   const random = generator(seed);
   const dims = { d: 128, n_heads: 4, n_kv_heads: 2, hd: 32, ff: 256, vocab: 320, n_layers: 2, rope_base: 10000, eps: 1e-6 };
+  if (shape.llama3) dims.llama3 = shape.llama3;
   const tensors = new Map();
   const matrix = (name, n, k) => {
     const codes = new Int8Array(n * k);
@@ -94,7 +106,11 @@ export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding 
   const vector = (name, n, low, span) => {
     const values = new Float32Array(n);
     for (let i = 0; i < n; i++) values[i] = Math.fround(low + span * random());
-    tensors.set(name, { fmt: "f32", N: 1, K: n, bytes: new Uint8Array(values.buffer), values });
+    if (shape.vectors === "f16") {
+      const halves = Uint16Array.from(values, f16bits);
+      values.set(Array.from(halves, f16value));
+      tensors.set(name, { fmt: "f16", N: 1, K: n, bytes: new Uint8Array(halves.buffer), values });
+    } else tensors.set(name, { fmt: "f32", N: 1, K: n, bytes: new Uint8Array(values.buffer), values });
   };
   const { d, n_heads: h, n_kv_heads: kv, hd, ff, vocab } = dims;
   if (embedding === "dense") {
@@ -112,9 +128,11 @@ export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding 
     matrix(`l${l}.wq`, h * hd, d);
     matrix(`l${l}.wk`, kv * hd, d);
     matrix(`l${l}.wv`, kv * hd, d);
-    vector(`l${l}.bq`, h * hd, -0.3, 0.6);
-    vector(`l${l}.bk`, kv * hd, -0.3, 0.6);
-    vector(`l${l}.bv`, kv * hd, -0.3, 0.6);
+    if (!shape.llama3) {
+      vector(`l${l}.bq`, h * hd, -0.3, 0.6);
+      vector(`l${l}.bk`, kv * hd, -0.3, 0.6);
+      vector(`l${l}.bv`, kv * hd, -0.3, 0.6);
+    }
     matrix(`l${l}.wo`, d, h * hd);
     vector(`l${l}.ffn_norm`, d, 0.8, 0.4);
     matrix(`l${l}.w_gate`, ff, d);
@@ -168,6 +186,21 @@ export function tinyModel(seed = 1) {
 // YaRN, written from the published description rather than from the engine.
 function rotary(dims) {
   const { hd, rope_base: base } = dims;
+  // Llama 3, from transformers' description of rope type "llama3": by each
+  // pair's wavelength 2 pi / theta against the original context divided by the
+  // low and high frequency factors.
+  if (dims.llama3) {
+    const { factor, low, high, orig } = dims.llama3;
+    const theta = Array.from({ length: hd / 2 }, (_, i) => {
+      const t = base ** (-(2 * i) / hd);
+      const wavelength = (2 * Math.PI) / t;
+      if (wavelength < orig / high) return t;
+      if (wavelength > orig / low) return t / factor;
+      const smooth = (orig / wavelength - low) / (high - low);
+      return (1 - smooth) * (t / factor) + smooth * t;
+    });
+    return { theta, mscale: 1 };
+  }
   if (!dims.yarn) return { theta: Array.from({ length: hd / 2 }, (_, i) => base ** (-(2 * i) / hd)), mscale: 1 };
   const { factor, orig } = dims.yarn;
   const correction = (turns) => (hd * Math.log(orig / (turns * 2 * Math.PI))) / (2 * Math.log(base));
