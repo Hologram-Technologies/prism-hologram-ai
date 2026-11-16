@@ -96,3 +96,17 @@ Feature: gpu
     And Llama's cache confirms Llama 3 scaling at factor 32, low 1, high 4, original 8192
     And a missing weight, a duplicate, an operator no role takes, zero points, a block size of 64, a head count the shapes contradict, an unknown family, too few layers, a cache no parameters match and interleaved rotary are each refused, naming what is wrong
     And GP-10's and GP-11's models, written as a decomposed and a fused export, placed from their graphs alone and run from the tensors the map names, give the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions
+
+  @GP-13 @build
+  Scenario: A BERT encoder shaped as all-MiniLM-L6-v2's q4f16 ONNX export, with q4f16 weights, f16 biases, LayerNorms and embedding tables and token types, gives on WebGPU the CPU reference's hidden states and its mean-pooled unit-length sentence embedding within tolerance
+    Given a two-layer encoder generated from a fixed seed in the formats Xenova's q4f16 export of all-MiniLM-L6-v2 holds: 4-bit weights as MatMulNBits' tensors with f16 scales, f16 biases and LayerNorm weights and biases, f16 word, position and token-type tables, LayerNorm epsilon 1e-12
+    When site/app/engine/encoder.mjs runs a sentence of 6 tokens and one of 60 in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/encoder-reference.mjs
+    Then every hidden state is within 1e-4 of the reference's
+    And the mean of the token states scaled to unit length is within 1e-4 of the reference's, cosine above 0.99999
+
+  @GP-14 @build
+  Scenario: A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label
+    Given a two-layer encoder generated from a fixed seed in the formats of Xenova's q4f16 export of distilbert-base-uncased-finetuned-sst-2-english: no token types, and a head of an f16 768-wide dense layer, ReLU and an f16 two-label dense layer, both with biases
+    When the encoder classifies a sentence of 6 tokens and one of 60, which the reference labels differently
+    Then each label score is within 1e-4 of the reference's and each probability within 1e-4
+    And the engine picks the reference's label for both
