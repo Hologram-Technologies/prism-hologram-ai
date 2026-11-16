@@ -126,3 +126,11 @@ Feature: gpu
     Then every logit at the 16 positions after the prefix is the same bits in all three
     And running the prefix in blocks, keeping it, resetting and running 50 other tokens, restoring and running the suffix picks the same 12 tokens as running prefix and suffix together
     And keeping more positions than were computed, or restoring a prefix saved from another shape of model, is refused
+
+  @GP-17 @build
+  Scenario: Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels
+    Given the graphs of the two exports at 751bff3 and 0b6928e, recorded in crates/conformance/tests/gpu/exports as their weight-reading nodes and tensor shapes with their config.json
+    When site/app/engine/onnx-roles.mjs places each with encoderRoles
+    Then all-MiniLM-L6-v2 has 101 tensors placed, 36 of them q4f16, and DistilBERT 104 with its classifier head and its labels NEGATIVE and POSITIVE
+    And an activation other than exact GELU, an unknown family, a missing bias, a head Gemm not transposed, a config with three labels, an operator no role takes and a feed-forward width the shapes contradict are each refused, naming what is wrong
+    And GP-13's and GP-14's encoders, written as these exports name their nodes and placed from their graphs alone, give the reference's embedding within 1e-4 and its labels

@@ -902,3 +902,80 @@ fn gpu_gp_16() {
         );
     }
 }
+
+/// `GP-17`: Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels
+#[test]
+fn gpu_gp_17() {
+    let result = node("crates/conformance/tests/gpu/encoder-roles.mjs", &[]);
+    for (name, placed, f16, width) in [
+        ("all-MiniLM-L6-v2", 101, 65, 384),
+        (
+            "distilbert-base-uncased-finetuned-sst-2-english",
+            104,
+            68,
+            768,
+        ),
+    ] {
+        let x = &result["exports"][name];
+        assert!(x.is_object(), "{name}: not placed: {result}");
+        // Six layers of six 4-bit matrices, the rest f16.
+        assert_eq!(x["placed"].as_u64(), Some(placed), "{name}: tensors placed");
+        assert_eq!(x["formats"]["q4f16"].as_u64(), Some(36), "{name}: q4f16");
+        assert_eq!(x["formats"]["f16"].as_u64(), Some(f16), "{name}: f16");
+        assert_eq!(x["dims"]["d"].as_u64(), Some(width), "{name}: width");
+        assert_eq!(x["dims"]["n_layers"].as_u64(), Some(6), "{name}: layers");
+    }
+    assert_eq!(
+        result["exports"]["distilbert-base-uncased-finetuned-sst-2-english"]["labels"],
+        serde_json::json!({"0": "NEGATIVE", "1": "POSITIVE"})
+    );
+    assert_eq!(
+        result["exports"]["distilbert-base-uncased-finetuned-sst-2-english"]["head"].as_str(),
+        Some("classifier.weight")
+    );
+    for (case, start) in [
+        ("activation", "activation: gelu_new"),
+        ("family", "family: roberta"),
+        ("missing", "missing: the graph has no l4.b2"),
+        ("transB", "shape: /classifier/Gemm is not y = x W^T + b"),
+        (
+            "labels",
+            "shape: /classifier/Gemm rows is 2, the config gives 3",
+        ),
+        (
+            "unplaced",
+            "unplaced: MatMulNBits /encoder/layer.1/extra/dense",
+        ),
+        (
+            "width",
+            "shape: /encoder/layer.0/intermediate/dense/MatMul_Q4 rows",
+        ),
+    ] {
+        let got = result["refusals"][case].as_str().unwrap_or_default();
+        assert!(
+            got.starts_with(start),
+            "{case}: refused with {got:?}, not {start:?}"
+        );
+    }
+
+    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the encoder did not run: {}",
+        result["error"]
+    );
+    for key in ["bert", "distilbert"] {
+        let placed = &result["placed"][key];
+        assert!(placed.is_object(), "no placed {key}: {result}");
+        assert_eq!(
+            placed["sameAsModel"].as_bool(),
+            Some(true),
+            "{key}: the map placed other tensors than the model has"
+        );
+        for run in placed["runs"].as_array().expect("runs") {
+            let worst = run["worst"].as_f64().expect("worst");
+            assert!(worst <= ENCODER_TOLERANCE, "{key}: differs by {worst}");
+            assert_eq!(run["gpu"], run["reference"], "{key}: another label");
+        }
+    }
+}
