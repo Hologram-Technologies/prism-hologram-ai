@@ -63,6 +63,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-03` | `build` | The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with |
 | `GP-06` | `build` | The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists |
 | `GP-05` | `build` | The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time |
+| `GP-07` | `build` | A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page |
 
 ## kernel
 

@@ -47,3 +47,11 @@ Feature: gpu
     Then at each of sixteen steps the engine picks the reference's token, and every logit is within 0.002 of the reference's
     And over a run of 140 positions the picks agree and every logit is within 0.005
     And prompts of six and a hundred tokens run in blocks give the same tokens as one position at a time
+
+  @GP-07 @build
+  Scenario: A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page
+    Given the assembled site, with the precache.json the deploy writes, and a cache named as the service worker names its own that holds one file of an earlier deploy and one of this deploy
+    When the engine page is opened, which the worker always fetches from the network
+    Then before importing the engine the page compares every cached file the listing names with the SHA-256 listed, removes the one that differs, keeps the one that matches, and reloads once
+    And after the reload it says files from an earlier deploy were replaced and imports the engine
+    And when a reload has already been spent and a cached file still differs, it stops with "Stopped: stale page", disables Load and does not import the engine

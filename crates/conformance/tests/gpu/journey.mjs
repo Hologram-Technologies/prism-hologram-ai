@@ -114,6 +114,51 @@ try {
     results[name] = { ...state, output, promptStart, errors, victim: victim.name };
     await page.close();
   }
+
+  // A cache left by an earlier deploy (GP-07): one file that is not this
+  // deploy's, and one that is. The page must remove the first, keep the
+  // second, reload once, and then import the engine.
+  const earlier = async (context) => {
+    const seed = await context.newPage();
+    await seed.goto(`${origin}/precache.json`);
+    await seed.evaluate(async (origin) => {
+      const cache = await caches.open("prism-earlier");
+      await cache.put(`${origin}/app/engine/gpu.mjs`, new Response("// an earlier deploy's engine"));
+      await cache.put(`${origin}/app/app.css`, await fetch(`${origin}/app/app.css`));
+    }, origin);
+    await seed.close();
+  };
+  const held = (page) => page.evaluate(async (origin) => {
+    const cache = await caches.open("prism-earlier");
+    return { engine: Boolean(await cache.match(`${origin}/app/engine/gpu.mjs`)), css: Boolean(await cache.match(`${origin}/app/app.css`)) };
+  }, origin);
+  {
+    const context = await browser.newContext();
+    await earlier(context);
+    const page = await context.newPage();
+    let loads = 0;
+    page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) loads += 1; });
+    await page.goto(`${origin}/app/`);
+    const imported = await page.waitForFunction(() => window.__qengine && window.__qpage, null, { timeout: 30000 }).then(() => true, () => false);
+    results.earlier = { imported, loads, page: await page.evaluate(() => window.__qpage ?? null), status: await page.textContent("#status"), held: await held(page) };
+    await context.close();
+  }
+  // The same cache when one reload has already been spent: the page must stop
+  // and not import the engine, or it would reload for ever.
+  {
+    const context = await browser.newContext();
+    await earlier(context);
+    const page = await context.newPage();
+    await page.addInitScript(() => sessionStorage.setItem("prism-stale-reload", "1"));
+    let loads = 0;
+    page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) loads += 1; });
+    await page.goto(`${origin}/app/`);
+    await page.waitForFunction(() => window.__qpage, null, { timeout: 30000 }).catch(() => {});
+    // Long enough for an engine imported by mistake to show itself.
+    await page.waitForFunction(() => window.__qengine, null, { timeout: 3000 }).catch(() => {});
+    results.again = { loads, imported: await page.evaluate(() => Boolean(window.__qengine)), page: await page.evaluate(() => window.__qpage ?? null), status: await page.textContent("#status"), disabled: await page.isDisabled("#load") };
+    await context.close();
+  }
 } finally {
   await browser.close();
   server.close();
@@ -171,8 +216,21 @@ if (stale.phase !== "failed" || staleStop?.subject !== "kernel is the one this d
   fail(`stale: expected to stop with "stale kernel" at the deploy comparison, stopped at ${staleStop?.step}: ${staleStop?.subject} (${stale.phase}: ${stale.error})`);
 if (stale.checks.some((c) => !["kernel", "stop"].includes(c.step))) fail(`stale: the page went on past the kernel: ${stale.checks.map((c) => c.subject).join(", ")}`);
 
+// GP-07: an earlier deploy's file is removed, this deploy's kept, one reload.
+const earlier = results.earlier;
+if (!earlier.imported) fail(`earlier: the engine was not imported after the stale file was removed (${earlier.status})`);
+if (earlier.loads !== 2) fail(`earlier: the page loaded ${earlier.loads} times, expected one reload`);
+if (earlier.page?.removed !== 1 || earlier.page?.stale.length !== 0) fail(`earlier: expected one file removed and none stale after the reload, saw ${JSON.stringify(earlier.page)}`);
+if (earlier.held.engine) fail("earlier: the earlier deploy's engine file is still in the cache");
+if (!earlier.held.css) fail("earlier: a cached file that is this deploy's was removed");
+if (!/^Updated: files from an earlier deploy were replaced \(1\)\.$/.test(earlier.status ?? "")) fail(`earlier: the page did not say what it replaced: ${earlier.status}`);
+const again = results.again;
+if (again.imported) fail("again: the engine was imported with a stale file still served after a reload");
+if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expected no further reload`);
+if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
+
 if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering or a stale kernel is");
+console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering or a stale kernel is, and replaces an earlier deploy's files");

@@ -371,3 +371,70 @@ fn gpu_gp_06() {
         );
     }
 }
+
+/// `GP-07`: A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page
+#[test]
+fn gpu_gp_07() {
+    // The journey runs both cases in a browser (`just page-journey`, as in
+    // GP-03); this test reads that it does, and the premises it rests on.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+
+    // The check reaches a visitor holding an earlier deploy only because the
+    // worker fetches the page itself from the network first. If the frame's
+    // worker starts serving index.html from its cache, the check goes stale
+    // with everything else, and this test must say so.
+    let worker = read("site/sw.js");
+    assert!(
+        worker.contains("const isPage = event.request.mode === \"navigate\" || url.pathname.endsWith(\"/\") || url.pathname.endsWith(\"/index.html\");")
+            && worker.contains("const fresh = await fetch(event.request);
+        if (fresh.ok && cache) await cache.put(\"./\", fresh.clone());"),
+        "site/sw.js no longer fetches the page from the network first; the stale-file check in site/app/index.html rests on that (UOR-Foundation/template#83)"
+    );
+    assert!(
+        worker.contains(".filter((name) => name.startsWith(\"prism-\"))"),
+        "the worker's caches are no longer named prism-*; site/app/index.html looks for them by that name"
+    );
+
+    // The comparison is in the page, ahead of the engine: the engine is
+    // imported only on the branch where nothing stale was found.
+    let page = read("site/app/index.html");
+    let check = page.find("fetch(\"../precache.json\", { cache: \"no-store\" })");
+    let import = page.find("await import(\"./app.mjs\");");
+    assert!(
+        matches!((check, import), (Some(c), Some(i)) if c < i),
+        "site/app/index.html must read the deploy's listing before it imports the engine"
+    );
+    assert!(
+        !page.contains("src=\"./app.mjs\""),
+        "the engine must not be loaded by a script tag, which runs whatever the cache holds"
+    );
+    for wanted in [
+        "if (held !== want) {",
+        "await cache.delete(request);",
+        "location.reload();",
+        "Stopped: stale page",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/index.html no longer has `{wanted}`"
+        );
+    }
+
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "caches.open(\"prism-earlier\")",
+        "earlier: the engine was not imported after the stale file was removed",
+        "earlier: the earlier deploy's engine file is still in the cache",
+        "earlier: a cached file that is this deploy's was removed",
+        "expected one reload",
+        "again: the engine was imported with a stale file still served after a reload",
+        "again: expected \"Stopped: stale page\" and no Load button",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}

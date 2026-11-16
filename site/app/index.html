@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: 'sha256-SVozqTflJGa4xzTTQ7+REOt5cGHA1ro2m8+xf2JVr6o='; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://hologram-technologies.github.io; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: 'sha256-SVozqTflJGa4xzTTQ7+REOt5cGHA1ro2m8+xf2JVr6o=' 'sha256-eB4dqW4fpDA14g0DazTG/mz/R91qyw1mBIPlbsrk4Qg='; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://hologram-technologies.github.io; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; object-src 'none'">
 <title>Hologram AI — engine</title>
 <link rel="stylesheet" href="./app.css">
 </head>
@@ -15,7 +15,7 @@
   <section aria-labelledby="model-heading">
     <h2 id="model-heading">Model</h2>
     <p id="model-name"><strong>Bonsai 1.7B</strong>, ternary, from <code>HOLOGRAMTECH/q-ternary-bonsai-1.7b</code> at revision <code>c6d6a12</code>. About 424 MB, downloaded once per visit.</p>
-    <button id="load" type="button">Load the model</button>
+    <button id="load" type="button" disabled>Load the model</button>
     <progress id="progress" max="1" value="0" hidden></progress>
     <p id="status" role="status" aria-live="polite"></p>
   </section>
@@ -38,6 +38,54 @@
   </section>
 </main>
 <script type="importmap">{"imports":{"node:crypto":"../vendor/node-crypto-shim.mjs"}}</script>
-<script type="module" src="./app.mjs"></script>
+<script type="module">
+// A cache from an earlier deploy can outlive it (UOR-Foundation/template#83),
+// and the worker then serves that deploy's engine to this one's page. This page
+// is the one file always fetched fresh, so the comparison is here, before the
+// engine is imported: a cached file that is not the one this deploy lists is
+// removed, and the page reloads once so it is fetched again.
+const NOTE = "prism-stale-reload";
+const stale = [];
+let listing = null;
+try {
+  const response = await fetch("../precache.json", { cache: "no-store" });
+  if (response.ok) listing = await response.json();
+} catch {
+  // Offline: there is no deploy to compare with, and the cache is the app.
+}
+if (listing && globalThis.caches) {
+  const root = new URL("../", location.href);
+  const listed = new Map(listing.files.map((f) => [new URL(f.path, root).href, f.sha256]));
+  for (const name of await caches.keys()) {
+    if (!name.startsWith("prism-")) continue;
+    const cache = await caches.open(name);
+    for (const request of await cache.keys()) {
+      const want = listed.get(request.url.split(/[?#]/)[0]);
+      if (!want) continue;
+      const digest = await crypto.subtle.digest("SHA-256", await (await cache.match(request)).arrayBuffer());
+      const held = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+      if (held !== want) {
+        stale.push(request.url);
+        await cache.delete(request);
+      }
+    }
+  }
+}
+const removed = Number(sessionStorage.getItem(NOTE) ?? 0);
+window.__qpage = { stale, removed };
+if (stale.length && !removed) {
+  sessionStorage.setItem(NOTE, String(stale.length));
+  location.reload();
+} else if (stale.length) {
+  // Removed once already and stale again: the cache is being refilled with old
+  // files, and reloading would loop.
+  document.getElementById("load").disabled = true;
+  document.getElementById("status").textContent = `Stopped: stale page: ${stale.length} cached files are not this deploy's after a reload. Clear this site's data and open the page again.`;
+} else {
+  sessionStorage.removeItem(NOTE);
+  if (removed) document.getElementById("status").textContent = `Updated: files from an earlier deploy were replaced (${removed}).`;
+  await import("./app.mjs");
+}
+</script>
 </body>
 </html>
