@@ -377,6 +377,12 @@ suite = "gpu"
 statement = "A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label"
 
 [[id]]
+id = "GP-15"
+level = "build"
+suite = "gpu"
+statement = "Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

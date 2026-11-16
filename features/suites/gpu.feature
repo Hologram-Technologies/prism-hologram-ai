@@ -110,3 +110,11 @@ Feature: gpu
     When the encoder classifies a sentence of 6 tokens and one of 60, which the reference labels differently
     Then each label score is within 1e-4 of the reference's and each probability within 1e-4
     And the engine picks the reference's label for both
+
+  @GP-15 @build
+  Scenario: Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed
+    Given GP-10's model A, 40 blocks of tensor bytes, and a model B that is A with layer 1's feed-forward from another seed, five of its 40 blocks new
+    When a first visit stores A, then B, then A again, through site/app/engine/store.mjs in the browser's private file system, each block under the blake3: label of its bytes
+    Then A stores 40 blocks, B stores only its 5 new ones and holds the 35 it shares, 212,992 bytes not written again, and A again stores nothing
+    And a second visit to the same origin, with the network off, reads all 40 of A's blocks back, each admitted again before use, and the engine run from them picks the reference's token at each of sixteen steps with every logit within 0.002
+    And a stored block changed by one bit is not admitted, is removed and reads as missing, and a sha256: label is refused by its prefix
