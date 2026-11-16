@@ -20,6 +20,10 @@ categories.workspace = true
 # for, so the two are one type, not two.
 hologram-ai-download = { workspace = true }
 hologram-ai-kernel-client = { workspace = true }
+# The graph is read as it arrives, by the reader the preflight already uses.
+hologram-ai-onnx-preflight = { workspace = true }
+# A tensor's address is its BLAKE3, the hash the download crate labels with.
+blake3 = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

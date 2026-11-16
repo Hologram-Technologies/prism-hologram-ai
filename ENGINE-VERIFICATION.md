@@ -1606,6 +1606,75 @@ proofs and, in the browser, by the page journey; this test shows only that the
 engine writes what the kernel reads and reads what it writes. Nothing calls
 these modules yet.
 
+## EN-31, importing an ONNX model as it arrives
+
+`hologram_ai_model_reader::onnx` takes a model's graph file, and any data
+files beside it, as their bytes arrive. Each byte is taken once. The whole
+file is hashed for the SHA-256 its hub record gives; each tensor's data is
+hashed on its own for its address, the BLAKE3 of its raw bytes. The graph is
+read by the streaming reader of EN-29, which now also reports where a
+tensor's data begins as it steps over it, so the importer can hash those bytes
+as they pass rather than learn the range afterwards.
+
+Nothing is decided here; the kernel is asked:
+
+- **decision 23**, each tensor's span, after the previous one, as the graph
+  passes it, and every span of a data file before any of that file's bytes are
+  taken;
+- **decision 5**, each whole file against its record's SHA-256 and length;
+- **decision 18**, each operator the graph names, in the fused style when any
+  node is in the `com.microsoft` domain and the decomposed style otherwise;
+- **decision 20**, each MatMulNBits weight's codes and scales against the
+  node's `N`, `K` and `block_size`.
+
+A refusal stops the import with the kernel's own verdict (FL-44 to FL-47). A
+graph the reader cannot follow is FL-43, and a tensor whose data never passes
+is FL-48.
+
+A failure names what failed by its place, not by text the file wrote: a tensor
+by its position among the graph's tensor records, an operator by its position
+among the distinct operators, a file by its index in the record. R5 refuses
+free text in a failure, and a name read from a file is text someone else
+wrote; the caller holds the graph and can say what each place is called.
+
+What comes out is the model's tensor table: each tensor's name, shape, type,
+file, offset, length and address. It is the row a store keyed by address files
+the weights under, and the shape of the hub's `hologram.hub.uor/v2` rows, which
+do not yet exist for ONNX models.
+
+### The tests
+
+None of decisions 18 to 28 has an example in the guest, so EN-31 runs against
+a kernel that answers in its own words: each text is checked to be one the
+kernel's module gives, and admission's answers are taken from its recorded
+examples. The model is fed in pieces of 1, 7, 64 and 4096 bytes and whole;
+every way imports the same tensors, each named by the BLAKE3 of exactly its
+bytes, and asks the kernel the same ten questions in the same order, which the
+test lists request by request.
+
+### The defects
+
+Five, planted one at a time and then restored. Every one was rejected.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A span hashed from its second byte | EN-31: `pieces of 1: DataMissing(TensorAt(0))`; FL-47 and FL-48 also fail |
+| Inline spans not put to the kernel | EN-31: `the import asked the kernel other questions, or in another order`; FL-44 |
+| The record's SHA-256 sent as the observed one | FL-45: `the file's own SHA-256 is the observed one` |
+| A weight's scales never checked | EN-31 (the questions asked); FL-47 |
+| Every graph asked in the decomposed style | EN-31 (the questions asked) |
+| none, before and after | passed |
+
+Two of the plants were first written against lines `cargo fmt` had reflowed;
+they applied to nothing, and were planted again against the formatted text.
+
+### What is not here yet
+
+The importer has been run only on the model EN-31 builds. Run over a real
+export it would download the whole file, since every byte is hashed: 570 MB
+for Qwen3-0.6B at q4f16. Nothing yet stores the tensors by address, is in the
+wasm module, or is called by the page.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

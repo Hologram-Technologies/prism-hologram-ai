@@ -114,6 +114,16 @@ pub enum Event {
     Node(Node),
     /// A tensor, once its record has been read to its end.
     Tensor(Tensor),
+    /// The reader is about to step over a tensor's data inside the file: the
+    /// bytes from `offset` for `length`. Reported as the data begins, before
+    /// the tensor's own event, so a caller can take those bytes as they pass;
+    /// the [`Event::Tensor`] that follows names the same span.
+    Data {
+        /// The file offset of the first byte.
+        offset: u64,
+        /// How many bytes.
+        length: u64,
+    },
 }
 
 #[derive(Default)]
@@ -440,6 +450,10 @@ impl Stream {
             }
             (Inside::Tensor, number::TENSOR_RAW_DATA, Encoding::Bytes) => {
                 self.building(|building| building.inline = Some((payload_at, payload)));
+                events.push(Event::Data {
+                    offset: payload_at,
+                    length: payload,
+                });
                 self.cursor += head;
                 self.pass(payload);
             }

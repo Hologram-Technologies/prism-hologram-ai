@@ -367,3 +367,51 @@ type = "OnnxError"
 variant = "ExternalNotFollowed"
 suite = "engine"
 condition = "A tensor kept outside the file names no location, or an offset or a length that is not a number"
+
+[[failure]]
+id = "FL-43"
+crate = "model-reader"
+type = "ImportError"
+variant = "Unreadable"
+suite = "engine"
+condition = "The graph is not an ONNX model the streaming reader follows"
+
+[[failure]]
+id = "FL-44"
+crate = "model-reader"
+type = "ImportError"
+variant = "SpanRefused"
+suite = "engine"
+condition = "The kernel refuses a tensor's span in its file"
+
+[[failure]]
+id = "FL-45"
+crate = "model-reader"
+type = "ImportError"
+variant = "FileRefused"
+suite = "engine"
+condition = "The kernel refuses a whole file against the SHA-256 and length its record gives"
+
+[[failure]]
+id = "FL-46"
+crate = "model-reader"
+type = "ImportError"
+variant = "OperatorRefused"
+suite = "engine"
+condition = "The kernel refuses an operator the graph names"
+
+[[failure]]
+id = "FL-47"
+crate = "model-reader"
+type = "ImportError"
+variant = "WeightRefused"
+suite = "engine"
+condition = "A 4-bit weight's codes or scales are not the length the kernel gives for its shape"
+
+[[failure]]
+id = "FL-48"
+crate = "model-reader"
+type = "ImportError"
+variant = "DataMissing"
+suite = "engine"
+condition = "A tensor's data lies in a file the import is not given, or past the end of the one it is"

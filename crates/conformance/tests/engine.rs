@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
-use hologram_ai_model_reader::{config, gguf as tensors, header, holk, Kernel};
+use hologram_ai_model_reader::{config, gguf as tensors, header, holk, onnx as import, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
@@ -5444,6 +5444,10 @@ fn engine_en_29() {
             ints: vec![],
             floats: vec![("epsilon".into(), 1e-6)],
         }),
+        Event::Data {
+            offset: data_at,
+            length: weights.len() as u64,
+        },
         Event::Tensor(Tensor {
             name: "w_Q4".into(),
             dims: vec![32, 2, 16],
@@ -5541,7 +5545,7 @@ fn engine_en_29() {
     assert_eq!(stream.finish(file.len() as u64), Ok(()));
     assert_eq!(
         events,
-        [&expected[..2], &expected[6..]].concat(),
+        [&expected[..2], &expected[7..]].concat(),
         "leaving the graph gives the nodes and the opsets"
     );
 
@@ -5968,4 +5972,526 @@ fn engine_en_30() {
     assert_eq!(opname::name(&"x".repeat(33)), None);
     assert_eq!(family::word("qwen2"), Some(*b"qwen2\0\0\0"));
     assert_eq!(family::word("starcoder2"), None);
+}
+
+// ─── Importing an ONNX model ────────────────────────────────────────────────
+
+/// A kernel that answers each decision with text the test chooses, and keeps
+/// every request it was asked. The texts are checked to be ones the kernel's
+/// own modules give, so no answer is invented here.
+/// How a scripted kernel answers a request.
+type Answering = Box<dyn FnMut(&[u8]) -> Vec<u8>>;
+
+struct Scripted {
+    answer: Answering,
+    asked: Vec<Vec<u8>>,
+}
+
+impl Kernel for Scripted {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        self.asked.push(request.to_vec());
+        (self.answer)(request)
+    }
+}
+
+/// `text`, which the kernel module `module` must give somewhere.
+fn kernel_says(module: &str, text: &str) -> Vec<u8> {
+    let source = std::fs::read_to_string(root().join(format!("app/src/Kernel/{module}.lex.tex")))
+        .expect("the kernel module");
+    assert!(
+        source.contains(&format!("(prim utf8_encode \"{text}\" : Bytes)")),
+        "the kernel's {module} never answers `{text}`"
+    );
+    text.as_bytes().to_vec()
+}
+
+/// What the import of [`import_model`] is asked, answered as the kernel
+/// answers a model it accepts: every span, operator and file, and each 4-bit
+/// part at the length the model's own tensors have.
+fn accepting() -> Scripted {
+    let accept = kernel_says("Chunks", "accept");
+    let supported = kernel_says("Opnames", "supported");
+    let admit = examples()
+        .into_iter()
+        .find(|(request, answer)| request.first() == Some(&5) && answer.as_slice() == b"admit")
+        .expect("the kernel admits some example buffer")
+        .1;
+    Scripted {
+        answer: Box::new(move |request| match request[0] {
+            5 => admit.clone(),
+            18 => supported.clone(),
+            20 => match request[1] {
+                0 => b"1024".to_vec(),
+                _ => b"128".to_vec(),
+            },
+            23 => accept.clone(),
+            other => panic!("the import asked decision {other}"),
+        }),
+        asked: Vec::new(),
+    }
+}
+
+/// A fused-style model of one 4-bit projection and a multiply: its codes and
+/// scales inside the graph file, two more tensors in a data file beside it.
+/// The graph's bytes, the data file's, and the bytes of each tensor by name.
+fn import_model() -> (Vec<u8>, Vec<u8>, BTreeMap<&'static str, Vec<u8>>) {
+    let bytes = |seed: usize, n: usize| -> Vec<u8> {
+        (0..n)
+            .map(|i| u8::try_from((i * 7 + seed * 13) % 256).expect("a byte"))
+            .collect()
+    };
+    let data: BTreeMap<&'static str, Vec<u8>> = [
+        ("w_Q4", bytes(1, 1024)),
+        ("w_scales", bytes(2, 128)),
+        ("w_ext", bytes(3, 256)),
+        ("w_ext2", bytes(4, 64)),
+    ]
+    .into_iter()
+    .collect();
+    let attribute = |name: &str, value: u64| {
+        let mut out = proto_field_bytes(1, name.as_bytes());
+        out.extend(proto_field_number(3, value));
+        proto_field_bytes(5, &out)
+    };
+    let mut matmul = proto_field_bytes(1, b"x");
+    matmul.extend(proto_field_bytes(1, b"w_Q4"));
+    matmul.extend(proto_field_bytes(1, b"w_scales"));
+    matmul.extend(proto_field_bytes(2, b"y"));
+    matmul.extend(proto_field_bytes(4, b"MatMulNBits"));
+    matmul.extend(attribute("K", 64));
+    matmul.extend(attribute("N", 32));
+    matmul.extend(attribute("bits", 4));
+    matmul.extend(attribute("block_size", 32));
+    matmul.extend(proto_field_bytes(7, b"com.microsoft"));
+    let mut mul = proto_field_bytes(1, b"y");
+    mul.extend(proto_field_bytes(1, b"w_ext"));
+    mul.extend(proto_field_bytes(2, b"z"));
+    mul.extend(proto_field_bytes(4, b"Mul"));
+    let inline = |name: &str, dims: &[u64], kind: u64| {
+        let mut out = Vec::new();
+        for dim in dims {
+            out.extend(proto_field_number(1, *dim));
+        }
+        out.extend(proto_field_number(2, kind));
+        out.extend(proto_field_bytes(8, name.as_bytes()));
+        out.extend(proto_field_bytes(9, &data[name]));
+        out
+    };
+    let outside = |name: &str, offset: u64, length: u64| {
+        let entry = |key: &str, value: &str| {
+            let mut out = proto_field_bytes(1, key.as_bytes());
+            out.extend(proto_field_bytes(2, value.as_bytes()));
+            proto_field_bytes(13, &out)
+        };
+        let mut out = proto_field_number(1, length / 2);
+        out.extend(proto_field_number(2, 10));
+        out.extend(proto_field_bytes(8, name.as_bytes()));
+        out.extend(entry("location", "model.onnx_data"));
+        out.extend(entry("offset", &offset.to_string()));
+        out.extend(entry("length", &length.to_string()));
+        out.extend(proto_field_number(14, 1));
+        out
+    };
+    let mut graph = proto_field_bytes(1, &matmul);
+    graph.extend(proto_field_bytes(1, &mul));
+    graph.extend(proto_field_bytes(5, &inline("w_Q4", &[32, 2, 16], 2)));
+    graph.extend(proto_field_bytes(5, &inline("w_scales", &[64], 10)));
+    graph.extend(proto_field_bytes(5, &outside("w_ext", 0, 256)));
+    graph.extend(proto_field_bytes(5, &outside("w_ext2", 256, 64)));
+    let file = onnx_file(&[opset("", 21), opset("com.microsoft", 1)], Some(&graph));
+    let mut beside = data["w_ext"].clone();
+    beside.extend(&data["w_ext2"]);
+    (file, beside, data)
+}
+
+/// The record of a file: its name, index, the data files declared, and the
+/// SHA-256 and length of `bytes`.
+fn import_record(name: &str, index: u8, bytes: &[u8]) -> import::File {
+    let mut whole = download::Whole::new();
+    whole.take(bytes);
+    import::File {
+        name: name.to_string(),
+        index,
+        declared: 1,
+        length: bytes.len() as u64,
+        root: whole.root(),
+    }
+}
+
+/// Import `graph` and `beside` fed in pieces of `piece` bytes.
+fn import_in_pieces(
+    graph: &[u8],
+    beside: &[u8],
+    piece: usize,
+    kernel: &mut dyn Kernel,
+) -> Result<import::Model, import::ImportError> {
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, graph));
+    for chunk in graph.chunks(piece) {
+        reading.take(chunk, kernel)?;
+    }
+    let imported = reading.finish(kernel)?;
+    let mut read = Vec::new();
+    for name in imported.data_files() {
+        let mut file = imported.data(import_record(&name, 1, beside), kernel)?;
+        for chunk in beside.chunks(piece) {
+            file.take(chunk);
+        }
+        read.push(file.finish(kernel)?);
+    }
+    imported.finish(read, kernel)
+}
+
+fn blake3_of(bytes: &[u8]) -> download::Label {
+    let mut arriving = download::Arriving::new();
+    arriving.take(bytes);
+    arriving.label()
+}
+
+/// `EN-31`: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives
+#[test]
+fn engine_en_31() {
+    use hologram_ai_kernel_client::{admission, chunk, nbits, opname};
+    let (graph, beside, data) = import_model();
+    let mut first: Option<(import::Model, Vec<Vec<u8>>)> = None;
+    for piece in [1usize, 7, 64, 4096, graph.len()] {
+        let mut kernel = accepting();
+        let model = import_in_pieces(&graph, &beside, piece, &mut kernel)
+            .unwrap_or_else(|e| panic!("pieces of {piece}: {e:?}"));
+        // Every tensor whose data is bytes, named by the BLAKE3 of those bytes.
+        let names: Vec<&str> = model.tensors.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["w_Q4", "w_scales", "w_ext", "w_ext2"],
+            "pieces of {piece}"
+        );
+        for tensor in &model.tensors {
+            assert_eq!(
+                tensor.address,
+                blake3_of(&data[tensor.name.as_str()]),
+                "{} by pieces of {piece}",
+                tensor.name
+            );
+            assert_eq!(tensor.length, data[tensor.name.as_str()].len() as u64);
+        }
+        let ext = &model.tensors[2];
+        assert_eq!(
+            (ext.file, ext.offset, ext.dims.as_slice()),
+            (1, 0, &[128][..])
+        );
+        assert_eq!((model.tensors[3].file, model.tensors[3].offset), (1, 256));
+        assert_eq!(model.operators, ["MatMulNBits", "Mul"]);
+        assert!(
+            model.fused,
+            "a graph naming a com.microsoft operator is fused"
+        );
+        match &first {
+            None => first = Some((model, kernel.asked)),
+            Some((model0, asked0)) => {
+                assert_eq!(&model, model0, "pieces of {piece} import differently");
+                assert_eq!(
+                    &kernel.asked, asked0,
+                    "pieces of {piece} ask the kernel differently"
+                );
+            }
+        }
+    }
+    let (model, asked) = first.expect("an import");
+
+    // What was asked, and in what order: each inline span as the graph passes
+    // it, after the previous; the graph whole; each operator in the fused
+    // style; the data file's spans before any of its bytes; that file whole;
+    // and each 4-bit part against its shape.
+    let graph_file = chunk::File {
+        declared: 1,
+        index: 0,
+        length: graph.len() as u64,
+    };
+    let data_file = chunk::File {
+        declared: 1,
+        index: 1,
+        length: beside.len() as u64,
+    };
+    let (q4, scales) = (&model.tensors[0], &model.tensors[1]);
+    let name = |n: &str| opname::name(n).expect("a short name");
+    let roots = |bytes: &[u8]| {
+        let mut whole = download::Whole::new();
+        whole.take(bytes);
+        whole.root().0
+    };
+    let wanted: Vec<Vec<u8>> = vec![
+        chunk::request(graph_file, q4.offset, 1024, 0).to_vec(),
+        chunk::request(graph_file, scales.offset, 128, q4.offset + 1024).to_vec(),
+        admission::request(
+            &roots(&graph),
+            &roots(&graph),
+            graph.len() as u64,
+            graph.len() as u64,
+        )
+        .to_vec(),
+        opname::request(opname::Style::Fused, &name("MatMulNBits")).to_vec(),
+        opname::request(opname::Style::Fused, &name("Mul")).to_vec(),
+        chunk::request(data_file, 0, 256, 0).to_vec(),
+        chunk::request(data_file, 256, 64, 256).to_vec(),
+        admission::request(
+            &roots(&beside),
+            &roots(&beside),
+            beside.len() as u64,
+            beside.len() as u64,
+        )
+        .to_vec(),
+        nbits::request(nbits::Part::Codes, 32, 64, 32).to_vec(),
+        nbits::request(nbits::Part::ScalesF16, 32, 64, 32).to_vec(),
+    ];
+    assert_eq!(
+        asked, wanted,
+        "the import asked the kernel other questions, or in another order"
+    );
+
+    // A graph with no fused operator is in the decomposed style.
+    let plain = onnx_file(
+        &[opset("", 21)],
+        Some(&proto_field_bytes(1, &node(b"Add", ""))),
+    );
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &plain));
+    reading.take(&plain, &mut kernel).expect("it reads");
+    let model = import::whole(
+        reading.finish(&mut kernel).expect("it finishes"),
+        &mut kernel,
+    )
+    .expect("it imports");
+    assert!(!model.fused);
+    assert_eq!(
+        kernel.asked.last().expect("asked"),
+        &opname::request(opname::Style::Decomposed, &name("Add")).to_vec()
+    );
+}
+
+/// `FL-43`: The graph is not an ONNX model the streaming reader follows
+#[test]
+fn engine_fl_43() {
+    let (graph, beside, _) = import_model();
+    // The graph cut short inside a tensor's data: the reader cannot tell until
+    // the file ends, and then says so.
+    let short = &graph[..graph.len() - 200];
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(import::File {
+        length: short.len() as u64,
+        ..import_record("model.onnx", 0, short)
+    });
+    reading.take(short, &mut kernel).expect("a prefix reads");
+    assert!(matches!(
+        reading.finish(&mut kernel),
+        Err(import::ImportError::Unreadable(onnx::OnnxError::Truncated))
+    ));
+    // A field that runs past its record is refused as it is met.
+    let mut bad = proto_number((7 << 3) | 2);
+    bad.extend(proto_number(4));
+    bad.extend(proto_number((2 << 3) | 2));
+    bad.extend(proto_number(64));
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &bad));
+    assert!(matches!(
+        reading.take(&bad, &mut accepting()),
+        Err(import::ImportError::Unreadable(onnx::OnnxError::Truncated))
+    ));
+    let _ = beside;
+}
+
+/// `FL-44`: The kernel refuses a tensor's span in its file
+#[test]
+fn engine_fl_44() {
+    use hologram_ai_kernel_client::chunk;
+    let (graph, beside, _) = import_model();
+    let reject = kernel_says("Chunks", "reject");
+    let undeclared = kernel_says("Chunks", "undeclared file");
+    for (answer, verdict, at) in [
+        (reject, chunk::Verdict::Reject, 0usize),
+        (undeclared, chunk::Verdict::Undeclared, 2),
+    ] {
+        let mut kernel = accepting();
+        let mut spans = 0;
+        let mut inner = std::mem::replace(&mut kernel.answer, Box::new(|_| Vec::new()));
+        kernel.answer = Box::new(move |request: &[u8]| {
+            if request[0] == 23 {
+                spans += 1;
+                if spans > at {
+                    return answer.clone();
+                }
+            }
+            inner(request)
+        });
+        let refused = import_in_pieces(&graph, &beside, 64, &mut kernel);
+        let place = if at == 0 { 0 } else { 2 };
+        assert_eq!(
+            refused,
+            Err(import::ImportError::SpanRefused(
+                import::TensorAt(place),
+                verdict
+            ))
+        );
+    }
+}
+
+/// `FL-45`: The kernel refuses a whole file against the SHA-256 and length its record gives
+#[test]
+fn engine_fl_45() {
+    use hologram_ai_kernel_client::admission;
+    let (graph, beside, _) = import_model();
+    // A record naming another SHA-256: the import puts the file's own to the
+    // kernel beside it, and carries the kernel's refusal.
+    let refuse = examples()
+        .into_iter()
+        .find(|(request, answer)| request.first() == Some(&5) && answer.as_slice() == b"refuse")
+        .expect("the kernel refuses some example buffer")
+        .1;
+    let mut kernel = accepting();
+    let mut inner = std::mem::replace(&mut kernel.answer, Box::new(|_| Vec::new()));
+    kernel.answer = Box::new(move |request: &[u8]| {
+        if request[0] == 5 {
+            refuse.clone()
+        } else {
+            inner(request)
+        }
+    });
+    let mut record = import_record("model.onnx", 0, &graph);
+    record.root = download::Root([7; 32]);
+    let mut reading = import::Graph::new(record);
+    reading.take(&graph, &mut kernel).expect("it reads");
+    assert!(matches!(
+        reading.finish(&mut kernel),
+        Err(import::ImportError::FileRefused(
+            0,
+            admission::Verdict::Refuse
+        ))
+    ));
+    let asked = kernel
+        .asked
+        .iter()
+        .find(|r| r[0] == 5)
+        .expect("the file was asked about");
+    assert_eq!(
+        &asked[1..33],
+        &[7; 32],
+        "the record's SHA-256 is the expected one"
+    );
+    assert_eq!(
+        &asked[33..65],
+        &import_record("model.onnx", 0, &graph).root.0,
+        "the file's own SHA-256 is the observed one"
+    );
+    let _ = beside;
+}
+
+/// `FL-46`: The kernel refuses an operator the graph names
+#[test]
+fn engine_fl_46() {
+    use hologram_ai_kernel_client::opname;
+    let (graph, beside, _) = import_model();
+    let unsupported = kernel_says("Opnames", "unsupported operator");
+    let mut kernel = accepting();
+    let mut inner = std::mem::replace(&mut kernel.answer, Box::new(|_| Vec::new()));
+    kernel.answer = Box::new(move |request: &[u8]| {
+        if request[0] == 18 && request[2..5] == *b"Mul" {
+            unsupported.clone()
+        } else {
+            inner(request)
+        }
+    });
+    assert_eq!(
+        import_in_pieces(&graph, &beside, 4096, &mut kernel),
+        Err(import::ImportError::OperatorRefused(
+            import::OperatorAt(1),
+            opname::Verdict::Unsupported
+        ))
+    );
+}
+
+/// `FL-47`: A 4-bit weight's codes or scales are not the length the kernel gives for its shape
+#[test]
+fn engine_fl_47() {
+    use hologram_ai_kernel_client::nbits;
+    let (graph, beside, _) = import_model();
+    let mut kernel = accepting();
+    let mut inner = std::mem::replace(&mut kernel.answer, Box::new(|_| Vec::new()));
+    kernel.answer = Box::new(move |request: &[u8]| {
+        if request[0] == 20 && request[1] == 0 {
+            b"1000".to_vec()
+        } else {
+            inner(request)
+        }
+    });
+    assert_eq!(
+        import_in_pieces(&graph, &beside, 4096, &mut kernel),
+        Err(import::ImportError::WeightRefused(
+            import::TensorAt(0),
+            1024,
+            nbits::Answer::Bytes(1000)
+        ))
+    );
+    // A bad shape is a refusal too, in the kernel's words.
+    let bad = kernel_says("Nbits", "bad shape");
+    let mut kernel = accepting();
+    let mut inner = std::mem::replace(&mut kernel.answer, Box::new(|_| Vec::new()));
+    kernel.answer = Box::new(move |request: &[u8]| {
+        if request[0] == 20 && request[1] == 2 {
+            bad.clone()
+        } else {
+            inner(request)
+        }
+    });
+    assert_eq!(
+        import_in_pieces(&graph, &beside, 4096, &mut kernel),
+        Err(import::ImportError::WeightRefused(
+            import::TensorAt(1),
+            128,
+            nbits::Answer::BadShape
+        ))
+    );
+}
+
+/// `FL-48`: A tensor's data lies in a file the import is not given, or past the end of the one it is
+#[test]
+fn engine_fl_48() {
+    let (graph, beside, _) = import_model();
+    let mut kernel = accepting();
+    // The graph alone, when its tensors lie in a data file.
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+    reading.take(&graph, &mut kernel).expect("it reads");
+    let imported = reading.finish(&mut kernel).expect("the graph finishes");
+    assert_eq!(imported.data_files(), ["model.onnx_data"]);
+    assert_eq!(
+        import::whole(imported, &mut kernel),
+        Err(import::ImportError::DataMissing(import::TensorAt(2)))
+    );
+    // The data file cut short: the kernel refuses the file first, since its
+    // length is not the record's.
+    let short = &beside[..300];
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+    reading.take(&graph, &mut kernel).expect("it reads");
+    let imported = reading.finish(&mut kernel).expect("the graph finishes");
+    let refuse = examples()
+        .into_iter()
+        .find(|(request, answer)| request.first() == Some(&5) && answer.as_slice() == b"refuse")
+        .expect("a refusal")
+        .1;
+    let admit = examples()
+        .into_iter()
+        .find(|(request, answer)| request.first() == Some(&5) && answer.as_slice() == b"admit")
+        .expect("an admission")
+        .1;
+    // With the file admitted regardless, the span that never ended is missing.
+    let mut lax = accepting();
+    lax.answer = Box::new(move |request: &[u8]| match request[0] {
+        5 => admit.clone(),
+        _ => kernel_says("Chunks", "accept"),
+    });
+    let mut file = imported
+        .data(import_record("model.onnx_data", 1, &beside), &mut lax)
+        .expect("its spans are accepted");
+    file.take(short);
+    assert!(matches!(
+        file.finish(&mut lax),
+        Err(import::ImportError::DataMissing(import::TensorAt(3)))
+    ));
+    let _ = refuse;
 }
