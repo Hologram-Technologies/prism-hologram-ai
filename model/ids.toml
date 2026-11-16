@@ -341,6 +341,12 @@ suite = "gpu"
 statement = "A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance"
 
 [[id]]
+id = "GP-09"
+level = "build"
+suite = "gpu"
+statement = "A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

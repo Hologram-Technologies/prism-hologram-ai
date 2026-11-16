@@ -63,3 +63,11 @@ Feature: gpu
     Then the f32 export's tensors are byte for byte the engine's q4 codes and scales
     And for both exports, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
     And a prompt run in blocks gives the same tokens as one position at a time
+
+  @GP-09 @build
+  Scenario: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
+    Given GP-08's two models with the embedding written as onnx-community's exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B hold it, one dense [vocab][width] matrix, f32 in a q4 export and f16 in a q4f16 one, read by a Gather and, through a Transpose, by the head's MatMul, with no head tensor of its own
+    When the engine runs each with its binding limit set to 15,000 bytes, so the head is split into tiles of whole rows and the last tile is short
+    Then the f32 head is in twelve tiles and the f16 head in six
+    And for both, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
+    And a prompt run in blocks gives the same tokens as one position at a time
