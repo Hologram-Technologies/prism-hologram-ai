@@ -1483,6 +1483,63 @@ So today the page writes the frame and this repository reads the id that ends
 it. That is half the rule in the right place, and the half that was silently
 wrong this morning.
 
+## EN-29, an ONNX file read as it arrives
+
+Milestone 2 reads models from their own ONNX exports, and those files are
+mostly weights: 1.2 GB for Qwen2.5-1.5B at q4f16, all of it in one file. The
+preflight reader takes a whole file in memory, which a browser cannot give it
+for a file that size. `onnx_preflight::stream::Stream` is fed the file in
+pieces, as the network hands them over, and reports what it passes: each
+opset, each node with its inputs, outputs and attributes, and each tensor's
+name, shape, type and where its data lies, inside the file or in a file
+beside it. It never holds a tensor's data. When it meets one it steps over it,
+and `position()` names the next byte it needs, so a caller reading by ranges
+skips the weights and one reading a stream can hash them as they go by.
+
+What it holds is a field whose bytes have not all arrived. A node is read
+whole, so it is held whole; that is bounded at sixteen mebibytes
+(`RECORD_LIMIT`), and a record past it is refused (FL-41), not buffered
+without end. A tensor kept in another file must name it, and its offset and
+length must be numbers (FL-42).
+
+`finish` takes the file's length. The reader is not fed what it steps over,
+so a file that ends inside a tensor's data leaves nothing held to show it;
+only the length does. The first version of the test found that: a file cut
+one byte short finished cleanly.
+
+EN-29 builds a file shaped as the exports are (the graph before the opsets,
+nodes before tensors, a megabyte of weights inside the file, a tensor kept
+outside it, one written as numbers, a negative attribute, fields nothing
+reads) and feeds it whole and in pieces of 1, 2, 3, 7, 61, 64 and 4096 bytes,
+each time from the byte the reader asks for. Every way gives the same events;
+the megabyte is never fed; the reader never holds more than the largest node
+and one piece. It also checks leaving the graph early, agreement with the
+whole-file reader, truncation at four places, and a field that runs past its
+record.
+
+### The defects
+
+Three, planted one at a time and then restored. Every one was rejected.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| A tensor's inline data is read whole instead of stepped over | EN-29: `pieces of 1: 1048968 bytes were fed of a file whose weights alone are 1048576` |
+| `finish` ignores the file's length | EN-29: `cut at 1049033`, `Ok(())` where `Err(Truncated)` was wanted |
+| An offset that is not a number reads as zero | FL-42: `an offset that is a word`, a tensor at offset 0 where `Err(ExternalNotFollowed)` was wanted |
+| none, before and after | passed |
+
+The second plant was first written against the line before `cargo fmt` split
+it; it applied to nothing and the test passed. It was planted again against
+the formatted line and rejected.
+
+### What is not here yet
+
+The reader has been run only on the file EN-29 builds. The operator census
+behind KN-18 read four real exports with a separate script; the streaming
+reader has not yet been run over them, and that comparison is the next test.
+Nothing yet hashes the tensors it locates, asks the kernel about them, or
+builds an engine from them.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

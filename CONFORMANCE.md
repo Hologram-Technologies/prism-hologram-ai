@@ -52,6 +52,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-26` | `build` | The page is published with the engine it loads, built from this workspace and under the size it is allowed |
 | `EN-27` | `build` | A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie |
 | `EN-28` | `build` | The id a model stops on is the one the model's own file names, not a list written beside it |
+| `EN-29` | `build` | An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data |
 
 ## gpu
 
@@ -146,6 +147,8 @@ not that the test provokes the failure.
 | `FL-38` | `model-reader` | `GgufError::Truncated` | A GGUF file's header runs past the bytes given |
 | `FL-39` | `model-reader` | `GgufError::TypeNotFollowed` | A tensor is stored in a type this reader does not follow |
 | `FL-40` | `model-reader` | `GgufError::ShapeNotFollowed` | A tensor's shape is one this reader cannot measure |
+| `FL-41` | `onnx-preflight` | `OnnxError::RecordTooLarge` | A node or an opset record is larger than the reader will hold |
+| `FL-42` | `onnx-preflight` | `OnnxError::ExternalNotFollowed` | A tensor kept outside the file names no location, or an offset or a length that is not a number |
 
 ## Cited authorities
 
