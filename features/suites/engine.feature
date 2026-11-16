@@ -438,3 +438,11 @@ Feature: engine
     When the reader reaches the end of its record
     Then it returns OnnxError::ExternalNotFollowed
     And a tensor that names a location alone is followed, its offset the start of that file
+
+  @EN-30 @build
+  Scenario: Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict
+    Given the request table the page generator derives from the kernel's own answer functions, in site/decisions.json
+    When the engine's client writes a request for each of decisions 18 to 28, every field a value that fills its width and differs from the others
+    Then each request is the length the kernel reads, names its decision in its first byte, and carries each value at the offset and width the kernel reads it from
+    And seventeen stop ids are written as a request the kernel refuses, not cut to sixteen
+    And every answer text in each decision's kernel module reads as a verdict, and text the kernel never gives does not

@@ -5697,3 +5697,275 @@ fn engine_fl_42() {
     // length is left to the type and shape.
     assert!(Stream::new().feed(&file(&[entry("location", "d")])).is_ok());
 }
+
+/// `EN-30`: Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict
+#[test]
+fn engine_en_30() {
+    use hologram_ai_kernel_client::{
+        chunk, device, evict, family, manifest, nbits, opname, precision, reuse, source, stop,
+    };
+
+    // A value for each field that fills its width and differs from every
+    // other field's, so a field written at the wrong place or width is seen.
+    fn sentinel(index: usize, width: usize) -> Vec<u8> {
+        (0..width)
+            .map(|i| u8::try_from((index * 37 + i * 11 + 1) % 251 + 1).expect("a byte"))
+            .collect()
+    }
+    fn number(bytes: &[u8]) -> u64 {
+        bytes.iter().fold(0, |n, b| (n << 8) | u64::from(*b))
+    }
+    // Choice fields hold a small number, not a sentinel: each decision's
+    // choices are written by an enum, and its value is given here.
+    let table = page_table();
+    let decisions: BTreeMap<u64, serde_json::Value> = table["decisions"]
+        .as_array()
+        .expect("decisions")
+        .iter()
+        .map(|d| (d["tag"].as_u64().expect("a tag"), d.clone()))
+        .collect();
+    let fields = |tag: u64| -> Vec<(usize, usize)> {
+        decisions[&tag]["fields"]
+            .as_array()
+            .expect("fields")
+            .iter()
+            .map(|f| {
+                (
+                    f["at"].as_u64().expect("at") as usize,
+                    f["width"].as_u64().expect("width") as usize,
+                )
+            })
+            .collect()
+    };
+    // For each decision: the request written from the sentinels, the fields
+    // that are choices (with the byte the enum chose), and the length.
+    let check = |tag: u64, request: &[u8], choices: &[(usize, u8)], extra: usize| {
+        let entry = &decisions[&tag];
+        let length = entry["length"].as_u64().map_or_else(
+            || entry["length"]["base"].as_u64().expect("a base") as usize + extra,
+            |l| l as usize,
+        );
+        assert_eq!(
+            request.len(),
+            length,
+            "decision {tag}: the request is {} bytes, the kernel reads {length}",
+            request.len()
+        );
+        assert_eq!(
+            u64::from(request[0]),
+            tag,
+            "decision {tag}: the first byte names another decision"
+        );
+        for (index, (at, width)) in fields(tag).into_iter().enumerate() {
+            let got = &request[at..at + width];
+            if let Some((_, chosen)) = choices.iter().find(|(c, _)| *c == at) {
+                assert_eq!(
+                    number(got),
+                    u64::from(*chosen),
+                    "decision {tag}: the choice at {at}"
+                );
+            } else {
+                assert_eq!(got, sentinel(index, width).as_slice(), "decision {tag}: the field at {at}, {width} bytes, is not where the kernel reads it");
+            }
+        }
+    };
+    let s = |tag: u64, index: usize| -> u64 { number(&sentinel(index, fields(tag)[index].1)) };
+    let label = |tag: u64, index: usize| -> [u8; 32] {
+        sentinel(index, fields(tag)[index].1)
+            .try_into()
+            .expect("32 bytes")
+    };
+    let small = |v: u64| u32::try_from(v).expect("fits");
+
+    let name: [u8; 32] = [
+        &sentinel(1, 8)[..],
+        &sentinel(2, 8),
+        &sentinel(3, 8),
+        &sentinel(4, 8),
+    ]
+    .concat()
+    .try_into()
+    .expect("32");
+    check(
+        18,
+        &opname::request(opname::Style::Fused, &name),
+        &[(1, 1)],
+        0,
+    );
+    let kind: [u8; 8] = sentinel(0, 8).try_into().expect("8");
+    let activation: [u8; 8] = sentinel(1, 8).try_into().expect("8");
+    let shape = family::Shape {
+        heads: u16::try_from(s(19, 2)).expect("2 bytes"),
+        groups: u16::try_from(s(19, 3)).expect("2 bytes"),
+        head_size: u16::try_from(s(19, 4)).expect("2 bytes"),
+        layers: u16::try_from(s(19, 5)).expect("2 bytes"),
+        width: small(s(19, 6)),
+        vocabulary: small(s(19, 7)),
+    };
+    check(19, &family::request(&kind, &activation, shape), &[], 0);
+    check(
+        20,
+        &nbits::request(
+            nbits::Part::ScalesF16,
+            small(s(20, 1)),
+            small(s(20, 2)),
+            u16::try_from(s(20, 3)).expect("2"),
+        ),
+        &[(1, 2)],
+        0,
+    );
+    check(
+        21,
+        &precision::request(s(21, 3), Some(s(21, 4)), None, Some(s(21, 6))),
+        &[(1, 1), (2, 0), (3, 1), (20, 0)],
+        0,
+    );
+    check(
+        22,
+        &device::request(true, s(22, 1), s(22, 2), s(22, 3), s(22, 4)),
+        &[(1, 1)],
+        0,
+    );
+    let file = chunk::File {
+        declared: 3,
+        index: 2,
+        length: s(23, 2),
+    };
+    check(
+        23,
+        &chunk::request(file, s(23, 3), s(23, 4), s(23, 5)),
+        &[(1, 3), (2, 2)],
+        0,
+    );
+    check(
+        24,
+        &source::request(source::Precision::Fp16, 7, 5),
+        &[(1, 0), (2, 2), (3, 7), (4, 5)],
+        0,
+    );
+    let ids = [s(25, 1), s(25, 2), s(25, 3)].map(|v| small(v) ^ 0x55);
+    let written = stop::request(small(s(25, 1)), small(s(25, 2)), small(s(25, 3)), &ids);
+    check(25, written.bytes(), &[(1, 3)], 12);
+    for (i, id) in ids.iter().enumerate() {
+        assert_eq!(
+            &written.bytes()[14 + 4 * i..18 + 4 * i],
+            &id.to_be_bytes(),
+            "stop id {i} is not where the kernel reads it"
+        );
+    }
+    // Too many ids: refused by the kernel's length check, not cut short.
+    let many: Vec<u32> = (0..17).collect();
+    let refused = stop::request(1, 0, 9, &many);
+    assert_eq!(refused.bytes()[1], 17);
+    assert_ne!(
+        refused.bytes().len(),
+        14 + 4 * 17,
+        "seventeen ids must not be written as a request the kernel would answer"
+    );
+    check(
+        26,
+        &evict::request(true, small(s(26, 1)), s(26, 2), s(26, 3), s(26, 4)),
+        &[(1, 1)],
+        0,
+    );
+    check(
+        27,
+        &reuse::request(
+            &label(27, 0),
+            &label(27, 1),
+            small(s(27, 2)),
+            small(s(27, 3)),
+        ),
+        &[],
+        0,
+    );
+    check(
+        28,
+        &manifest::request(&label(28, 0), &label(28, 1), s(28, 2), s(28, 3)),
+        &[],
+        0,
+    );
+
+    // Every text each decision's module can answer reads as a verdict, and
+    // nothing else does. The texts are the kernel's, read from its modules.
+    let texts = |module: &str| -> Vec<String> {
+        let text = std::fs::read_to_string(root().join(format!("app/src/Kernel/{module}.lex.tex")))
+            .expect("the module");
+        text.split("(prim utf8_encode \"")
+            .skip(1)
+            .map(|rest| rest.split('"').next().expect("a closing quote").to_string())
+            .collect()
+    };
+    // Whether a client reads a text as one of its verdicts.
+    type Reads<'a> = &'a dyn Fn(&[u8]) -> bool;
+    let recognised: [(&str, Reads); 10] = [
+        ("Opnames", &|t| {
+            !matches!(opname::answer(t), opname::Verdict::Unrecognised)
+        }),
+        ("Family", &|t| {
+            !matches!(family::answer(t), family::Verdict::Unrecognised)
+        }),
+        ("Nbits", &|t| {
+            !matches!(nbits::answer(t), nbits::Answer::Unrecognised)
+        }),
+        ("Precision", &|t| {
+            !matches!(precision::answer(t), precision::Choice::Unrecognised)
+        }),
+        ("Device", &|t| {
+            !matches!(device::answer(t), device::Device::Unrecognised)
+        }),
+        ("Chunks", &|t| {
+            !matches!(chunk::answer(t), chunk::Verdict::Unrecognised)
+        }),
+        ("Stop", &|t| {
+            !matches!(stop::answer(t), stop::Answer::Unrecognised)
+        }),
+        ("Evict", &|t| {
+            !matches!(evict::answer(t), evict::Answer::Unrecognised)
+        }),
+        ("Reuse", &|t| {
+            !matches!(reuse::answer(t), reuse::Answer::Unrecognised)
+        }),
+        ("Manifest", &|t| {
+            !matches!(manifest::answer(t), manifest::Answer::Unrecognised)
+        }),
+    ];
+    for (module, reads) in recognised {
+        let said = texts(module);
+        assert!(!said.is_empty(), "{module} answers nothing");
+        for text in said {
+            assert!(
+                reads(text.as_bytes()),
+                "decision module {module} answers `{text}`, which the client does not read"
+            );
+        }
+        assert!(
+            !reads(b"something the kernel never says"),
+            "{module}'s client reads text the kernel never gives"
+        );
+    }
+    // A number is the only other answer decision 20 gives.
+    assert_eq!(nbits::answer(b"786432"), nbits::Answer::Bytes(786_432));
+    // Decision 24 answers a path or one of its refusals; the refusals are the
+    // module's whole answers, the path pieces are not.
+    for text in texts("Source")
+        .iter()
+        .filter(|t| !t.starts_with("onnx/") && !t.starts_with('_'))
+    {
+        assert!(
+            !matches!(source::answer(text.as_bytes()), source::Answer::Path(_)),
+            "`{text}` reads as a path"
+        );
+    }
+    assert_eq!(
+        source::answer(b"onnx/model_q4.onnx_data_2"),
+        source::Answer::Path(b"onnx/model_q4.onnx_data_2")
+    );
+    assert_eq!(
+        opname::name("MatMulNBits").map(|n| n[..11].to_vec()),
+        Some(b"MatMulNBits".to_vec())
+    );
+    assert_eq!(opname::name(&"x".repeat(33)), None);
+    assert_eq!(family::word("qwen2"), Some(*b"qwen2\0\0\0"));
+    assert_eq!(family::word("starcoder2"), None);
+}

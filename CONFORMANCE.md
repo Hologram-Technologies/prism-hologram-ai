@@ -53,6 +53,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-27` | `build` | A GGUF file's tensor table is read as the file writes it: every tensor's type, shape and where its bytes lie |
 | `EN-28` | `build` | The id a model stops on is the one the model's own file names, not a list written beside it |
 | `EN-29` | `build` | An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data |
+| `EN-30` | `build` | Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict |
 
 ## gpu
 

@@ -405,3 +405,9 @@ id = "EN-29"
 level = "build"
 suite = "engine"
 statement = "An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data"
+
+[[id]]
+id = "EN-30"
+level = "build"
+suite = "engine"
+statement = "Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict"
