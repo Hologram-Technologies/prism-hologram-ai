@@ -55,3 +55,11 @@ Feature: gpu
     Then before importing the engine the page compares every cached file the listing names with the SHA-256 listed, removes the one that differs, keeps the one that matches, and reloads once
     And after the reload it says files from an earlier deploy were replaced and imports the engine
     And when a reload has already been spent and a cached file still differs, it stops with "Stopped: stale page", disables Load and does not import the engine
+
+  @GP-08 @build
+  Scenario: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
+    Given GP-05's generated q4 Qwen2 model, with each weight matrix written as MatMulNBits holds it at 4 bits, block size 32 and no zero points: B as [N][K / 32][16] bytes, low nibble first, and scales as [N][K / 32], once in f32 as a q4 export has them and once in f16 as a q4f16 export has them
+    When the engine in site/app/engine runs each from those two tensors as given, in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/reference.mjs
+    Then the f32 export's tensors are byte for byte the engine's q4 codes and scales
+    And for both exports, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
+    And a prompt run in blocks gives the same tokens as one position at a time

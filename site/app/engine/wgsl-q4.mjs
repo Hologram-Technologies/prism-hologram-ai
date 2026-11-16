@@ -5,15 +5,31 @@
 // scale per 32 weights along a row. A weight is (code - 8) * scale. KN-13 gives
 // a block's length (20 bytes per 32 weights) and KN-17 the unpacking.
 //
+// ONNX's MatMulNBits at 4 bits and block 32, with no zero points, writes the
+// same bytes: its B input is [N][K / 32][16], two codes to a byte, low nibble
+// first, so row n's codes start at byte n * K / 2; its scales are [N][K / 32];
+// a missing zero point is 8. So an exported weight runs from the file's own
+// bytes, with no repack. Its scales are f32 in a q4 export and f16 in a q4f16
+// one; f16 scales are read two to a u32 and widened in the kernel, which is
+// exact, so both read the same numbers and the f16 file moves fewer bytes.
+//
 // The batched kernel repeats the one-position arithmetic in the same order row
 // by row, so a prompt run in blocks gives the same bits as one position at a
 // time.
 
+// The scales binding and the read of scale i, for f32 or f16 scales.
+const SCALES = {
+  f32: `array<f32>;
+fn scale(i: u32) -> f32 { return scales[i]; }`,
+  f16: `array<u32>;
+fn scale(i: u32) -> f32 { return unpack2x16float(scales[i >> 1u])[i & 1u]; }`,
+};
+
 // One output row per workgroup. P = (K, N, accumulate, 0).
-export const MATVEC_Q4 = `
+export const matvecQ4 = (s) => `
 @group(0) @binding(0) var<storage, read> x4: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> codes: array<u32>;
-@group(0) @binding(2) var<storage, read> scales: array<f32>;
+@group(0) @binding(2) var<storage, read> scales: ${SCALES[s]}
 @group(0) @binding(3) var<storage, read_write> o: array<f32>;
 @group(0) @binding(4) var<uniform> P: vec4<u32>;
 var<workgroup> red: array<f32, 64>;
@@ -30,7 +46,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
     let lo = vec4<f32>(f32(c & 0xfu), f32((c >> 4u) & 0xfu), f32((c >> 8u) & 0xfu), f32((c >> 12u) & 0xfu)) - 8.0;
     let hi = vec4<f32>(f32((c >> 16u) & 0xfu), f32((c >> 20u) & 0xfu), f32((c >> 24u) & 0xfu), f32(c >> 28u)) - 8.0;
     let part = dot(x4[2u * w], lo) + dot(x4[2u * w + 1u], hi);
-    acc += part * scales[n * groups + (w >> 2u)];
+    acc += part * scale(n * groups + (w >> 2u));
   }
   red[t] = acc;
   workgroupBarrier();
@@ -45,10 +61,10 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
 
 // Up to M rows of input at once, each weight word read once. P = (K, N,
 // accumulate, rows).
-export const MATMUL_Q4 = (M) => `
+export const matmulQ4 = (s, M) => `
 @group(0) @binding(0) var<storage, read> x4: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> codes: array<u32>;
-@group(0) @binding(2) var<storage, read> scales: array<f32>;
+@group(0) @binding(2) var<storage, read> scales: ${SCALES[s]}
 @group(0) @binding(3) var<storage, read_write> o: array<f32>;
 @group(0) @binding(4) var<uniform> P: vec4<u32>;
 var<workgroup> red: array<f32, ${64 * M}>;
@@ -67,7 +83,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
     let c = codes[n * words + w];
     let lo = vec4<f32>(f32(c & 0xfu), f32((c >> 4u) & 0xfu), f32((c >> 8u) & 0xfu), f32((c >> 12u) & 0xfu)) - 8.0;
     let hi = vec4<f32>(f32((c >> 16u) & 0xfu), f32((c >> 20u) & 0xfu), f32((c >> 24u) & 0xfu), f32(c >> 28u)) - 8.0;
-    let sc = scales[n * groups + (w >> 2u)];
+    let sc = scale(n * groups + (w >> 2u));
     for (var m = 0u; m < count; m++) {
       let part = dot(x4[m * row4 + 2u * w], lo) + dot(x4[m * row4 + 2u * w + 1u], hi);
       acc[m] += part * sc;
@@ -90,9 +106,9 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
 
 // x = the embedding rows of tokens ring[P.y .. P.y + P.z); P.x is the width.
 // A position run alone is P.z = 1.
-export const EMBED_Q4 = `
+export const embedQ4 = (s) => `
 @group(0) @binding(0) var<storage, read> codes: array<u32>;
-@group(0) @binding(1) var<storage, read> scales: array<f32>;
+@group(0) @binding(1) var<storage, read> scales: ${SCALES[s]}
 @group(0) @binding(2) var<storage, read_write> x: array<f32>;
 @group(0) @binding(3) var<storage, read> ring: array<u32>;
 @group(0) @binding(4) var<uniform> P: vec4<u32>;
@@ -104,8 +120,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let k = i % P.x;
   let g = ring[P.y + m] * P.x + k;
   let c = (codes[g >> 3u] >> ((g & 7u) * 4u)) & 0xfu;
-  x[i] = (f32(c) - 8.0) * scales[g >> 5u];
+  x[i] = (f32(c) - 8.0) * scale(g >> 5u);
 }`;
+
+export const MATVEC_Q4 = matvecQ4("f32");
+export const MATMUL_Q4 = (M) => matmulQ4("f32", M);
+export const EMBED_Q4 = embedQ4("f32");
 
 // x[r * P.x + i] += b[i] for rows r < P.y.
 export const ADD_BIAS = `
