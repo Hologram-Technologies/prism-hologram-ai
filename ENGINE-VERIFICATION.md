@@ -1532,13 +1532,35 @@ The second plant was first written against the line before `cargo fmt` split
 it; it applied to nothing and the test passed. It was planted again against
 the formatted line and rejected.
 
-### What is not here yet
+### Run over the real exports
 
-The reader has been run only on the file EN-29 builds. The operator census
-behind KN-18 read four real exports with a separate script; the streaming
-reader has not yet been run over them, and that comparison is the next test.
-Nothing yet hashes the tensors it locates, asks the kernel about them, or
-builds an engine from them.
+On 2026-11-16 the reader was run over each `onnx/model_q4f16.onnx` the hub
+indexes for milestone 2, at the revision its record pins, fed only the bytes
+it asked for by HTTP range reads from Hugging Face. A local probe, not part of
+the gate: the gate has no network.
+
+| Export | File | Bytes fed | Held at most | Nodes | Tensors, and where their data is | Finish |
+| --- | --- | --- | --- | --- | --- | --- |
+| Llama-3.2-1B-Instruct-ONNX at `82ac693` | 149,790 | 149,724 | 273 | 221 | 260, all in `model_q4f16.onnx_data`, 1,089,605,632 bytes | `Ok` |
+| Qwen3-0.6B-ONNX at `79346d3` | 569,789,750 | 26,224,112 | 117 | 611 | 508 inline, 569,507,840 bytes | `Ok` |
+| Qwen2.5-1.5B-Instruct at `d54957e` | 1,221,878,940 | 23,088,828 | 223 | 3,207 | 2,629 inline, 1,220,818,578 bytes | `Ok` |
+
+- Every operator count, in both domains, equals the census KN-18's lists were
+  read from (a separate script over the same files): the decomposed export's
+  27 operators and the fused exports' 18, node for node.
+- The tensor counts equal the census's initialiser counts.
+- Llama's 260 external tensors add up to 1,089,605,632 bytes, which is the
+  size the hub record gives for `model_q4f16.onnx_data`: the offsets and
+  lengths the reader reports tile that file exactly.
+- Every MatMulNBits node is `bits=4, block_size=32`, the layout KN-20 measures.
+
+The bytes fed are what the probe fetched, not what the reader needed: it asked
+for 64 KiB at each position, so after every tensor it took the first part of
+the next tensor's data before the reader stepped over it. The reader itself
+held at most 273 bytes.
+
+Nothing yet hashes the tensors the reader locates, asks the kernel about
+them, or builds an engine from them.
 
 ## How the engine may fail
 
