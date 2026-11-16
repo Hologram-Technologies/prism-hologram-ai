@@ -38,9 +38,43 @@ export function packQ4(codes, scales, n, k) {
   return bytes;
 }
 
+// IEEE half precision, for scales an f16 file would hold: the nearest f16 (ties
+// to even) of a number in f16's normal range, and the number an f16 holds.
+export function f16bits(x) {
+  const bits = new Uint32Array(new Float32Array([x]).buffer)[0];
+  let exponent = ((bits >>> 23) & 255) - 127 + 15;
+  let mantissa = (bits & 0x7fffff) >>> 13;
+  const rest = bits & 0x1fff;
+  if (rest > 0x1000 || (rest === 0x1000 && mantissa & 1)) mantissa++;
+  if (mantissa === 0x400) (mantissa = 0), exponent++;
+  if (exponent < 1 || exponent > 30) throw new Error(`${x} is outside f16's normal range`);
+  return ((bits >>> 16) & 0x8000) | (exponent << 10) | mantissa;
+}
+export const f16value = (h) => (h & 0x8000 ? -1 : 1) * (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15);
+
+// An N by K matrix of codes in -8..7 as ONNX's MatMulNBits holds it at 4 bits,
+// block size 32 and no zero points, written from the operator's definition:
+// B is [N][K / 32][16] bytes, element 2j of a block in the low nibble of byte
+// j and element 2j + 1 in the high one, each stored plus the default zero
+// point 8; scales are [N][K / 32], f32 or f16.
+export function packMatMulNBits(codes, scales, n, k, scaleType) {
+  const blocks = k / 32;
+  const b = new Uint8Array(n * blocks * 16);
+  for (let row = 0; row < n; row++)
+    for (let block = 0; block < blocks; block++)
+      for (let j = 0; j < 16; j++) {
+        const at = row * k + block * 32 + 2 * j;
+        b[(row * blocks + block) * 16 + j] = (codes[at] + 8) | ((codes[at + 1] + 8) << 4);
+      }
+  const s = scaleType === "f16" ? new Uint8Array(Uint16Array.from(scales, f16bits).buffer) : new Uint8Array(Float32Array.from(scales).buffer);
+  return [b, s];
+}
+
 // A small model with Qwen2's shape: q4 weights, biases on q, k and v, no
-// per-head norm, plain rotary, and an output head of its own.
-export function tinyQwen2(seed = 1) {
+// per-head norm, plain rotary, and an output head of its own. With layout
+// "onnx" each weight is given as MatMulNBits' two tensors, with f32 scales,
+// or with f16 ones when scaleType is "f16".
+export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32") {
   const random = generator(seed);
   const dims = { d: 128, n_heads: 4, n_kv_heads: 2, hd: 32, ff: 256, vocab: 320, n_layers: 2, rope_base: 10000, eps: 1e-6 };
   const tensors = new Map();
@@ -49,7 +83,11 @@ export function tinyQwen2(seed = 1) {
     for (let i = 0; i < n * k; i++) codes[i] = Math.floor(random() * 16) - 8;
     const scales = new Float32Array((n * k) / 32);
     for (let i = 0; i < scales.length; i++) scales[i] = Math.fround(0.006 + 0.012 * random());
-    tensors.set(name, { fmt: "q4", N: n, K: k, bytes: packQ4(codes, scales, n, k), codes, scales });
+    if (scaleType === "f16") for (let i = 0; i < scales.length; i++) scales[i] = f16value(f16bits(scales[i]));
+    if (layout === "onnx") {
+      const fmt = scaleType === "f16" ? "q4f16" : "q4";
+      tensors.set(name, { fmt, N: n, K: k, parts: packMatMulNBits(codes, scales, n, k, scaleType), codes, scales });
+    } else tensors.set(name, { fmt: "q4", N: n, K: k, bytes: packQ4(codes, scales, n, k), codes, scales });
   };
   const vector = (name, n, low, span) => {
     const values = new Float32Array(n);
@@ -139,7 +177,7 @@ export function referenceModel({ dims, tensors }) {
   const weight = (name) => {
     const t = tensors.get(name);
     const w = new Float64Array(t.N * t.K);
-    const group = { q1: 128, q4: 32 }[t.fmt];
+    const group = { q1: 128, q4: 32, q4f16: 32 }[t.fmt];
     for (let g = 0; g < t.N * t.K; g++) w[g] = t.codes[g] * t.scales[Math.floor(g / group)];
     return { w, N: t.N, K: t.K };
   };

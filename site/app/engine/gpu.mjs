@@ -1,5 +1,5 @@
 // The WebGPU decode engine for Qwen2 and Qwen3 models with ternary (Bonsai's
-// layout) or q4 weights. One
+// layout), q4 or q4f16 weights. One
 // step is one command buffer: every layer's kernels are recorded back to back
 // and the only read back is the chosen token (and the logits when asked for).
 // Decisions about what may be loaded and run are the kernel's; this module only
@@ -9,7 +9,7 @@ import { APPEND, ARGMAX, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS
 import { plain, yarn } from "./yarn.mjs";
 import { ATTENTION_CHUNK, ATTENTION_COMBINE, ATTENTION_PARTIAL } from "./wgsl-attention.mjs";
 import { EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
-import { ADD_BIAS, EMBED_Q4, MATMUL_Q4, MATVEC_Q4 } from "./wgsl-q4.mjs";
+import { ADD_BIAS, embedQ4, matmulQ4, matvecQ4 } from "./wgsl-q4.mjs";
 
 const U = typeof GPUBufferUsage === "undefined" ? {} : GPUBufferUsage;
 const f32bits = (value) => new Uint32Array(new Float32Array([value]).buffer)[0];
@@ -18,6 +18,8 @@ const f32bits = (value) => new Uint32Array(new Float32Array([value]).buffer)[0];
 export const ternaryLength = (n, k) => (n * k) / 4 + ((n * k) / 128) * 4;
 // Bytes of a q4 tensor: a code per weight in four bits, one f32 scale per 32.
 export const q4Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 4;
+// q4f16 is q4 with f16 scales: ONNX's MatMulNBits weight in a q4f16 export.
+export const q4f16Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 2;
 
 export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   const { d, n_heads: heads, n_kv_heads: kvHeads, hd, ff, vocab, n_layers: layers } = dims;
@@ -33,6 +35,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   };
   const upload = (array) => {
     const buffer = storage(array.byteLength);
+    // writeBuffer moves whole words; f16 scales can end mid-word.
+    if (array.byteLength % 4) array = Uint8Array.from({ length: Math.ceil(array.byteLength / 4) * 4 }, (_, i) => (i < array.byteLength ? array[i] : 0));
     device.queue.writeBuffer(buffer, 0, array.buffer, array.byteOffset, array.byteLength);
     return buffer;
   };
@@ -48,18 +52,28 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     return t;
   };
   // A weight matrix in one of the formats this engine runs, as the buffers its
-  // kernels bind, in binding order.
+  // kernels bind, in binding order. A q4 or q4f16 weight comes as one block of
+  // bytes, codes then scales, or as parts: [codes, scales], the two tensors an
+  // ONNX file holds apart, each uploaded as it is, with no repack.
   const matrix = (name) => {
     const t = tensor(name);
-    const length = { q1: ternaryLength, q4: q4Length }[t.fmt];
-    if (!length) throw new Error(`${name} is ${t.fmt}; this engine runs q1 and q4 matrices`);
+    const length = { q1: ternaryLength, q4: q4Length, q4f16: q4f16Length }[t.fmt];
+    if (!length) throw new Error(`${name} is ${t.fmt}; this engine runs q1, q4 and q4f16 matrices`);
+    if (t.K % 32) throw new Error(`${name} has ${t.K} columns; this engine runs whole blocks of 32`);
+    const codes = (t.N * t.K) / 2;
+    if (t.parts) {
+      if (t.fmt === "q1") throw new Error(`${name} is q1, which comes as one block of bytes`);
+      const [c, sc] = t.parts;
+      const want = length(t.N, t.K) - codes;
+      if (c.byteLength !== codes || sc.byteLength !== want) throw new Error(`${name} holds ${c.byteLength} code and ${sc.byteLength} scale bytes, its format needs ${codes} and ${want}`);
+      return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(c), upload(sc)] };
+    }
     const want = length(t.N, t.K);
     if (t.bytes.byteLength !== want) throw new Error(`${name} holds ${t.bytes.byteLength} bytes, its format needs ${want}`);
     if (t.fmt === "q1") {
       const plane = (t.N * t.K) / 8;
       return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(t.bytes.subarray(0, plane)), upload(t.bytes.subarray(plane, 2 * plane)), upload(t.bytes.subarray(2 * plane))] };
     }
-    const codes = (t.N * t.K) / 2;
     return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(t.bytes.subarray(0, codes)), upload(t.bytes.subarray(codes))] };
   };
   const vector = (name) => {
@@ -69,7 +83,9 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   };
 
   const embed = matrix("embed");
-  const head = tensors.has("lm_head") && tensors.get("lm_head").bytes !== tensor("embed").bytes ? matrix("lm_head") : embed;
+  // A head tied to the embedding names the same bytes; embed's were checked above.
+  const tied = tensors.has("lm_head") && (tensors.get("lm_head").bytes ?? tensors.get("lm_head").parts?.[0]) === (tensor("embed").bytes ?? tensor("embed").parts[0]);
+  const head = tensors.has("lm_head") && !tied ? matrix("lm_head") : embed;
   // Qwen3 normalises each query and key head; Qwen2 adds a bias to q, k and v.
   const qkNorm = tensors.has("l0.q_norm");
   const bias = tensors.has("l0.bq");
@@ -120,8 +136,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     const made = {};
     return (fmt) => (made[fmt] ??= pipeline(kernels[fmt]));
   };
-  const matvecPipe = byFormat({ q1: MATVEC_TERNARY, q4: MATVEC_Q4 });
-  const embedPipe = byFormat({ q1: EMBED_TERNARY, q4: EMBED_Q4 });
+  const matvecPipe = byFormat({ q1: MATVEC_TERNARY, q4: matvecQ4("f32"), q4f16: matvecQ4("f16") });
+  const embedPipe = byFormat({ q1: EMBED_TERNARY, q4: embedQ4("f32"), q4f16: embedQ4("f16") });
   const P = {
     bias: pipeline(ADD_BIAS),
     norm: pipeline(RMS_NORM),
@@ -243,8 +259,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     q: storage(BLOCK * qdim * 4), k: storage(BLOCK * kvdim * 4), v: storage(BLOCK * kvdim * 4),
     att: storage(BLOCK * qdim * 4), g: storage(BLOCK * ff * 4), u: storage(BLOCK * ff * 4),
   };
-  const matmulPipe = byFormat({ q1: MATMUL_TERNARY(BLOCK), q4: MATMUL_Q4(BLOCK) });
-  const embedRowsPipe = byFormat({ q1: EMBED_ROWS, q4: EMBED_Q4 });
+  const matmulPipe = byFormat({ q1: MATMUL_TERNARY(BLOCK), q4: matmulQ4("f32", BLOCK), q4f16: matmulQ4("f16", BLOCK) });
+  const embedRowsPipe = byFormat({ q1: EMBED_ROWS, q4: embedQ4("f32"), q4f16: embedQ4("f16") });
   const PP = {
     norm: pipeline(RMS_NORM_ROWS),
     rope: pipeline(ROPE_ROWS), kv: pipeline(KV_WRITE_ROWS),

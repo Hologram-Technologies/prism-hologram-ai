@@ -438,3 +438,41 @@ fn gpu_gp_07() {
         );
     }
 }
+
+/// `GP-08`: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
+#[test]
+fn gpu_gp_08() {
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let onnx = &result["onnx"];
+    assert!(
+        onnx.is_object(),
+        "the run has no ONNX-layout models: {result}"
+    );
+    // The claim that a q4 export needs no repack rests on this: the reference
+    // writes MatMulNBits' tensors from the operator's definition, and they are
+    // the engine's own q4 bytes.
+    assert_eq!(
+        onnx["sameBytes"].as_bool(),
+        Some(true),
+        "MatMulNBits' q4 tensors differ from the engine's q4 block"
+    );
+    for (key, format) in [("q4", "q4"), ("q4f16", "q4f16")] {
+        let model = &onnx[key];
+        // Each weight reached the engine as two tensors in the format named,
+        // so the f16 scales were read by the f16 kernels, not widened first.
+        assert_eq!(
+            model["formats"],
+            serde_json::json!([format]),
+            "{key}: the weights were not given as {format} parts"
+        );
+        reference_agrees(model, &format!("ONNX {key}"));
+        blocks_agree(model, &format!("ONNX {key}"));
+    }
+}

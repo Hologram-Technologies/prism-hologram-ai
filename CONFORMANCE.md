@@ -67,6 +67,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-06` | `build` | The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists |
 | `GP-05` | `build` | The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time |
 | `GP-07` | `build` | A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page |
+| `GP-08` | `build` | A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance |
 
 ## kernel
 

@@ -92,12 +92,30 @@ try {
       const together = await many.run(prompt, 12);
       batched.push({ promptLength: prompt.length, stepwise, together, position: many.position });
     }
-    return { steps, gpuNext, batched, longWorst, longPositions };
+    return { steps, gpuNext, batched, longWorst, longPositions, model: model.tensors };
     };
     // GP-01 and GP-04 on the ternary Qwen3 model; GP-05 on the q4 Qwen2 one.
     const ternary = await exercise(tinyModel(1));
     const qwen2 = await exercise(tinyQwen2(3));
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2 };
+    // GP-08: the same model with every weight given as ONNX's MatMulNBits
+    // tensors, f32 scales (a q4 export) and f16 ones (q4f16). sameBytes records
+    // whether each q4 export tensor is byte for byte the engine's q4 block.
+    const q4 = tinyQwen2(3, "onnx", "f32");
+    const formats = (model) => [...new Set([...model.tensors.values()].filter((t) => t.parts).map((t) => t.fmt))];
+    const sameBytes = [...q4.tensors].filter(([, t]) => t.parts).every(([name, t]) => {
+      const block = qwen2.model.get(name).bytes;
+      const [codes, scales] = t.parts;
+      return codes.every((b, i) => b === block[i]) && scales.every((b, i) => b === block[codes.length + i]);
+    });
+    const q4f16 = tinyQwen2(3, "onnx", "f16");
+    const onnx = {
+      sameBytes,
+      q4: { formats: formats(q4), ...(await exercise(q4)) },
+      q4f16: { formats: formats(q4f16), ...(await exercise(q4f16)) },
+    };
+    delete qwen2.model;
+    delete ternary.model;
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {
