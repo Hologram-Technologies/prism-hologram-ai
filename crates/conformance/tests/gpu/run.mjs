@@ -51,7 +51,7 @@ try {
     // reference, 140 positions against it, and blocks against one at a time.
     const exercise = async (model, options = {}) => {
     const engine = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 64 });
-    const reference = referenceModel(model);
+    const reference = referenceModel(options.reference ?? model);
 
     const steps = [];
     let gpuNext = null;
@@ -72,7 +72,7 @@ try {
     // 64-position chunks, so the combine of partials is compared with the
     // reference, not only one chunk alone.
     const longEngine = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 192 });
-    const longReference = referenceModel(model);
+    const longReference = referenceModel(options.reference ?? model);
     let longWorst = 0;
     let longPositions = 0;
     for (let i = 0; i < 140; i++) {
@@ -135,6 +135,29 @@ try {
       qwen2: await exercise(tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16" })),
       llama: await exercise(tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16", llama3 })),
     };
+    // GP-12: the same two models written as exports, Qwen2.5's model in the
+    // decomposed style and the Llama one in the fused, placed by the role map
+    // from the graph alone and run from the tensors it names.
+    const { asExport } = await import(`${origin}/crates/conformance/tests/gpu/export.mjs`);
+    const { roles, engineTensors, ropeCandidates, confirmRope } = await import(`${origin}/site/app/engine/onnx-roles.mjs`);
+    const placed = {};
+    for (const [key, model, style, family] of [
+      ["qwen2", tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16" }), "decomposed", "qwen2"],
+      ["llama", tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16", llama3 }), "fused", "llama"],
+    ]) {
+      const exp = asExport(model, style, family);
+      const { dims, weights } = roles(exp, exp.config);
+      // The rotary check reads rows of a cache; the generated model has none,
+      // so its rows are the reference's own rotation at two positions.
+      const { theta } = (await import(`${origin}/crates/conformance/tests/gpu/reference.mjs`)).rotary(model.dims);
+      const rows = [1, 50].map((position) => ({ position, cos: theta.map((t) => Math.cos(position * t)), sin: theta.map((t) => Math.sin(position * t)) }));
+      const rope = confirmRope(ropeCandidates(exp.config), dims, rows);
+      const run = await exercise({ dims: { ...dims, ...rope.dims }, tensors: engineTensors(weights, (n) => exp.bytes.get(n)), prompt: model.prompt }, { reference: model });
+      run.placed = weights.size;
+      run.sameAsModel = [...weights.keys()].every((n) => model.tensors.has(n)) && [...model.tensors.keys()].every((n) => weights.has(n));
+      placed[key] = run;
+      delete run.model;
+    }
     for (const m of Object.values(exportShape)) {
       m.vectorFormats = [...new Set([...m.model.values()].filter((t) => t.N === 1).map((t) => t.fmt))];
       m.biases = m.model.has("l0.bq");
@@ -144,7 +167,7 @@ try {
     delete onnx.q4f16.model;
     delete qwen2.model;
     delete ternary.model;
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx, dense, exportShape };
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx, dense, exportShape, placed };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {

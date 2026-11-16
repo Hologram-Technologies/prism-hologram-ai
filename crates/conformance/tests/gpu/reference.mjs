@@ -184,7 +184,7 @@ export function tinyModel(seed = 1) {
 }
 
 // YaRN, written from the published description rather than from the engine.
-function rotary(dims) {
+export function rotary(dims) {
   const { hd, rope_base: base } = dims;
   // Llama 3, from transformers' description of rope type "llama3": by each
   // pair's wavelength 2 pi / theta against the original context divided by the
