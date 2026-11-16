@@ -114,6 +114,8 @@ async function load() {
     const base = record.origin?.resolve ?? MODEL.fallback;
     if (!base) throw new Error("the record names no origin and no fallback is configured");
     checks.add("record", "file named by the record", "pass", `${file.size} bytes, sha256 ${file.sha256}, from ${base}`);
+    // The page states Bonsai's size itself; for a model named in the address the size is the record's, said before the download starts.
+    if (asked.get("repo")) $("model-name").textContent += ` About ${Math.round(file.size / 1e6)} MB, downloaded once per visit.`;
 
     const module = await openModule("./engine/engine.wasm");
     status("Checking the container…");
@@ -214,6 +216,8 @@ async function answer() {
 }
 
 $("load").addEventListener("click", load);
+// The button is disabled in the page until this module is listening, so a click is never lost.
+$("load").disabled = false;
 $("ask").addEventListener("submit", send);
 // Enter sends, Shift+Enter starts a new line; Enter that ends an IME composition does neither.
 $("prompt").addEventListener("keydown", (event) => {

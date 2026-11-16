@@ -74,6 +74,7 @@ Set by Ilya on 2026-11-14 to close the milestone. Each line has an owner; the mi
 | 4 | Typed text replaces the default prompt rather than joining it, and Enter sends (Shift+Enter adds a line). | Q engine |
 | 5 | Qwen2.5-1.5B-Instruct runs in the browser on this engine (WebGPU for the math, the wasm module for reading, hashing and tokenizing) as its checkpoint below states, aiming at 100 tokens per second and under 300 ms to the first token. | Q engine |
 | 6 | A final run on the published page: first visit, return visit, and a prompt of about 440 tokens. | Coordinator |
+| 7 | A returning visitor whose browser holds an earlier deploy's page or engine files gets this deploy's: the page removes them and reloads once before the engine is imported (GP-07). Added on 2026-11-16, when the final run found the worker serving the engine of the deploy before; Ilya closes the milestone when this is published. | Q engine |
 
 Speed is reported, not gated. The 300 ms aim is for a short prompt (about 30 tokens) with the model loaded and nothing cached. The cold 440-token prompt is reported beside it, and is a stretch aim: it is about 1.3 trillion operations, 150 to 300 ms at a good fraction of this GPU's compute. The 100 tokens per second aim is half of Qwen2.5's bandwidth bound on this machine.
 
