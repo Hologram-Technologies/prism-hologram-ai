@@ -473,10 +473,49 @@ export async function createEngine({ device, dims, tensors, capacity = 1024, max
     return out;
   }
 
+  // A computed prefix: positions 0 .. length - 1 of every layer's keys and
+  // values, and the tokens at those positions, copied on the GPU. Restored into
+  // an engine of the same model, the next position runs exactly as it would
+  // have after computing the prefix itself, so the tokens and logits that
+  // follow are the same bits. Whether a prefix may be reused is the kernel's
+  // decision 27 (its label equals the one asked for and it is shorter than
+  // the prompt); this only keeps and restores.
+  const shape = { layers, kvdim, capacity };
+  function saveState(length = position) {
+    if (!(length >= 1 && length <= position)) throw new Error(`prefix: ${length} positions asked, ${position} computed`);
+    const encoder = device.createCommandEncoder();
+    const copy = (source, size) => {
+      const buffer = device.createBuffer({ size: Math.max(16, size), usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+      encoder.copyBufferToBuffer(source, 0, buffer, 0, size);
+      return buffer;
+    };
+    const rows = length * kvdim * 4;
+    const kept = layer.map((L) => ({ k: copy(L.kc, rows), v: copy(L.vc, rows) }));
+    const tokens = copy(ring, length * 4);
+    device.queue.submit([encoder.finish()]);
+    return { length, shape: { ...shape }, kept, tokens, bytes: 2 * layers * rows + length * 4 };
+  }
+  function restoreState(state) {
+    const { length, shape: from } = state;
+    if (from.layers !== layers || from.kvdim !== kvdim) throw new Error(`prefix: saved from ${from.layers} layers of ${from.kvdim}, this model has ${layers} of ${kvdim}`);
+    if (length > capacity) throw new Error(`prefix: ${length} positions, this engine holds ${capacity}`);
+    const encoder = device.createCommandEncoder();
+    const rows = length * kvdim * 4;
+    state.kept.forEach((saved, l) => {
+      encoder.copyBufferToBuffer(saved.k, 0, layer[l].kc, 0, rows);
+      encoder.copyBufferToBuffer(saved.v, 0, layer[l].vc, 0, rows);
+    });
+    encoder.copyBufferToBuffer(state.tokens, 0, ring, 0, length * 4);
+    device.queue.submit([encoder.finish()]);
+    position = length;
+  }
+
   return {
     step,
     run,
     generate,
+    saveState,
+    restoreState,
     reset: () => { position = 0; },
     get position() { return position; },
     get gpuBytes() { return gpuBytes; },

@@ -383,6 +383,12 @@ suite = "gpu"
 statement = "Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed"
 
 [[id]]
+id = "GP-16"
+level = "build"
+suite = "gpu"
+statement = "A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

@@ -845,3 +845,60 @@ fn gpu_gp_15() {
         "a sha256: label: {prefix:?}"
     );
 }
+
+/// `GP-16`: A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt
+#[test]
+fn gpu_gp_16() {
+    let result = node("crates/conformance/tests/gpu/prefix-run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    for key in ["qwen2", "llama"] {
+        let r = &result["results"][key];
+        assert!(r.is_object(), "no {key} run: {result}");
+        assert_eq!(
+            r["restoredAt"].as_u64(),
+            Some(40),
+            "{key}: restored at the prefix's end"
+        );
+        assert_eq!(
+            r["positions"].as_u64(),
+            Some(16),
+            "{key}: 16 positions compared"
+        );
+        // Bits, not a tolerance: the restored cache is the computed one.
+        assert_eq!(
+            r["differingB"].as_u64(),
+            Some(0),
+            "{key}: logits after restoring into the same engine differ"
+        );
+        assert_eq!(
+            r["differingC"].as_u64(),
+            Some(0),
+            "{key}: logits after restoring into a fresh engine differ"
+        );
+        assert_eq!(
+            r["resumed"].as_array().map(Vec::len),
+            Some(12),
+            "{key}: twelve tokens"
+        );
+        assert_eq!(
+            r["resumed"], r["straight"],
+            "{key}: the resumed run picked other tokens"
+        );
+        let too_long = r["tooLong"].as_str().unwrap_or_default();
+        assert!(
+            too_long.starts_with("prefix: 57 positions asked, 56 computed"),
+            "{key}: {too_long:?}"
+        );
+        let other = r["otherShape"].as_str().unwrap_or_default();
+        assert!(
+            other.starts_with("prefix: saved from 3 layers"),
+            "{key}: {other:?}"
+        );
+    }
+}

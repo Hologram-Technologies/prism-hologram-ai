@@ -118,3 +118,11 @@ Feature: gpu
     Then A stores 40 blocks, B stores only its 5 new ones and holds the 35 it shares, 212,992 bytes not written again, and A again stores nothing
     And a second visit to the same origin, with the network off, reads all 40 of A's blocks back, each admitted again before use, and the engine run from them picks the reference's token at each of sixteen steps with every logit within 0.002
     And a stored block changed by one bit is not admitted, is removed and reads as missing, and a sha256: label is refused by its prefix
+
+  @GP-16 @build
+  Scenario: A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt
+    Given GP-10's and GP-11's models, a 40-token prefix longer than one submission, and an 8-token suffix
+    When one engine computes prefix and suffix and 8 greedy picks position by position, and another computes the prefix, keeps it with saveState, starts again from position 0 with 50 other tokens that overwrite every row the prefix held, restores the prefix and continues, and a third, fresh, is given the second's prefix and continues
+    Then every logit at the 16 positions after the prefix is the same bits in all three
+    And running the prefix in blocks, keeping it, resetting and running 50 other tokens, restoring and running the suffix picks the same 12 tokens as running prefix and suffix together
+    And keeping more positions than were computed, or restoring a prefix saved from another shape of model, is refused
