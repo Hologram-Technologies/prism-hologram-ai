@@ -6,7 +6,15 @@
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
-const [root, hd, base, factor, orig] = process.argv.slice(2);
-const { yarn } = await import(pathToFileURL(join(root, "site/app/engine/yarn.mjs")).href);
-const r = yarn({ hd: Number(hd), base: Number(base), factor: Number(factor), orig: Number(orig) });
+// GP-11 runs it with "llama3" first: <root> llama3 <hd> <base> <factor> <low> <high> <orig>.
+const [root, ...rest] = process.argv.slice(2);
+const { llama3, yarn } = await import(pathToFileURL(join(root, "site/app/engine/yarn.mjs")).href);
+let r;
+if (rest[0] === "llama3") {
+  const [hd, base, factor, low, high, orig] = rest.slice(1).map(Number);
+  r = llama3({ hd, base, factor, low, high, orig });
+} else {
+  const [hd, base, factor, orig] = rest.map(Number);
+  r = yarn({ hd, base, factor, orig });
+}
 console.log(JSON.stringify({ low: r.low, high: r.high, mscale: r.mscale, freqs: Array.from(r.freqs) }));

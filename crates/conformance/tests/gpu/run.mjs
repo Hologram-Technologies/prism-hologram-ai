@@ -125,11 +125,26 @@ try {
       q4f16: await exercise(tinyQwen2(3, "onnx", "f16", "dense"), { maxBinding: tile }),
     };
     for (const m of [dense.q4, dense.q4f16]) delete m.model;
+    // GP-10: Qwen2.5's q4f16 export as a whole: q4f16 weights, the dense f16
+    // embedding and tied head, and norm weights and biases in f16.
+    // GP-11: Llama's shape, with no biases and Llama 3's rotary scaling over
+    // bands that the small model's 32-wide heads all reach: two pairs kept,
+    // three blended, eleven slowed.
+    const llama3 = { factor: 4, low: 1, high: 4, orig: 64 };
+    const exportShape = {
+      qwen2: await exercise(tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16" })),
+      llama: await exercise(tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16", llama3 })),
+    };
+    for (const m of Object.values(exportShape)) {
+      m.vectorFormats = [...new Set([...m.model.values()].filter((t) => t.N === 1).map((t) => t.fmt))];
+      m.biases = m.model.has("l0.bq");
+      delete m.model;
+    }
     delete onnx.q4.model;
     delete onnx.q4f16.model;
     delete qwen2.model;
     delete ternary.model;
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx, dense };
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx, dense, exportShape };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {

@@ -6,7 +6,7 @@
 // computes.
 
 import { APPEND, ARGMAX, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
-import { plain, yarn } from "./yarn.mjs";
+import { llama3, plain, yarn } from "./yarn.mjs";
 import { ATTENTION_CHUNK, ATTENTION_COMBINE, ATTENTION_PARTIAL } from "./wgsl-attention.mjs";
 import { EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
 import { ADD_BIAS, embedQ4, matmulQ4, matvecQ4 } from "./wgsl-q4.mjs";
@@ -22,6 +22,14 @@ export const q4Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 4;
 // q4f16 is q4 with f16 scales: ONNX's MatMulNBits weight in a q4f16 export.
 export const q4f16Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 2;
 
+// An IEEE half as the f32 that holds it exactly.
+const half = (h) => {
+  const e = (h >> 10) & 31;
+  const m = h & 1023;
+  const v = e === 0 ? m * 2 ** -24 : e === 31 ? (m ? NaN : Infinity) : (1024 + m) * 2 ** (e - 25);
+  return h & 0x8000 ? -v : v;
+};
+
 // Bytes of one number of a dense matrix, by format.
 const DENSE = { f32: 4, f16: 2 };
 
@@ -31,7 +39,11 @@ export async function createEngine({ device, dims, tensors, capacity = 1024, max
   const eps = dims.eps ?? 1e-6;
   const qdim = heads * hd;
   const kvdim = kvHeads * hd;
-  const rope = dims.yarn ? yarn({ hd, base: dims.rope_base, factor: dims.yarn.factor, orig: dims.yarn.orig }) : plain({ hd, base: dims.rope_base });
+  const rope = dims.yarn
+    ? yarn({ hd, base: dims.rope_base, factor: dims.yarn.factor, orig: dims.yarn.orig })
+    : dims.llama3
+      ? llama3({ hd, base: dims.rope_base, ...dims.llama3 })
+      : plain({ hd, base: dims.rope_base });
 
   let gpuBytes = 0;
   const storage = (size, extra = 0) => {
@@ -81,9 +93,18 @@ export async function createEngine({ device, dims, tensors, capacity = 1024, max
     }
     return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(t.bytes.subarray(0, codes)), upload(t.bytes.subarray(codes))] };
   };
+  // A norm weight or bias. A q4f16 export holds these in f16; they are a few
+  // kilobytes a layer, so they are widened here, exactly, and the kernels that
+  // read them stay f32.
   const vector = (name) => {
     const t = tensor(name);
-    if (t.fmt !== "f32") throw new Error(`${name} is ${t.fmt}, not f32`);
+    if (t.fmt === "f16") {
+      if (t.bytes.byteLength % 2) throw new Error(`${name} holds ${t.bytes.byteLength} bytes, not a whole number of f16`);
+      const h = new Uint16Array(t.bytes.byteLength / 2);
+      new Uint8Array(h.buffer).set(t.bytes);
+      return upload(Float32Array.from(h, half));
+    }
+    if (t.fmt !== "f32") throw new Error(`${name} is ${t.fmt}, not f32 or f16`);
     return upload(new Float32Array(t.bytes.buffer, t.bytes.byteOffset, t.bytes.byteLength / 4));
   };
 

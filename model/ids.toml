@@ -347,6 +347,18 @@ suite = "gpu"
 statement = "A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding"
 
 [[id]]
+id = "GP-10"
+level = "build"
+suite = "gpu"
+statement = "A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance"
+
+[[id]]
+id = "GP-11"
+level = "build"
+suite = "gpu"
+statement = "The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

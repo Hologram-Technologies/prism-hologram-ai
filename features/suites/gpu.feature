@@ -71,3 +71,19 @@ Feature: gpu
     Then the f32 head is in twelve tiles and the f16 head in six
     And for both, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
     And a prompt run in blocks gives the same tokens as one position at a time
+
+  @GP-10 @build
+  Scenario: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
+    Given GP-09's q4f16 model with its norm weights and its q, k and v biases written in f16, as onnx-community's q4f16 export of Qwen2.5-1.5B holds them
+    When the engine runs it from those bytes, widening each f16 vector exactly
+    Then the model's vectors reached the engine as f16 and it has its biases
+    And at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
+    And a prompt run in blocks gives the same tokens as one position at a time
+
+  @GP-11 @build
+  Scenario: The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance
+    Given Llama 3.2 1B's parameters: head size 64, base 500000, factor 32, low frequency factor 1, high frequency factor 4, original context 8192, which onnx-community's export bakes into its cos and sin caches although its config.json names no scaling
+    When the engine's rotary module computes the frequencies
+    Then pairs 0 to 14 keep their frequency, pairs 18 to 31 turn 32 times slower, and pairs 15 to 17 blend, every one within one part in a million of the formula, with no attention scale
+    And GP-10's model with no biases and Llama 3's scaling at factor 4 over an original context of 64, so its pairs fall in all three bands, gives the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions
+    And a prompt run in blocks gives the same tokens as one position at a time
