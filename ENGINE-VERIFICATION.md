@@ -1562,6 +1562,50 @@ held at most 273 bytes.
 Nothing yet hashes the tensors the reader locates, asks the kernel about
 them, or builds an engine from them.
 
+## EN-30, asking decisions 18 to 28
+
+The kernel has answered decisions 18 to 28 since they were proved, but the
+engine could not ask them: `hologram_ai_kernel_client` wrote requests for
+decisions 1 to 17 only. It now has a module for each of the eleven, in the
+crate's existing shape: a `request` that cannot fail and an `answer` that is
+total, text the kernel is not known to give reading as `Unrecognised`.
+
+Two of them write more than numbers. Decision 18's operator name and decision
+19's family and activation are the bytes of the name, which `opname::name` and
+`family::word` write and refuse when too long, since a longer name is on no
+list. Decision 25 carries a list of stop ids; more than sixteen are written
+with a count the length does not match, which the kernel refuses as invalid,
+rather than cut to sixteen, which it would answer as if the model had fewer.
+
+None of the eleven has an example in the compiled guest (KERNEL-VERIFICATION.md
+says why), so a test cannot replay requests against recorded answers as the
+older decisions' tests do. EN-30 checks the requests against the layout the
+kernel reads instead: `site/decisions.json`, which `cargo xtask page` derives
+from the kernel's own answer functions and the gate keeps equal to them. Each
+request is written with a value in every field that fills its width and
+differs from every other field's, and each must land at the offset and width
+the table gives, at the length the kernel reads. Every answer text in each
+decision's kernel module must read as a verdict.
+
+### The defects
+
+Four, planted one at a time and then restored. Every one was rejected.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| Decision 19's width written one byte early | EN-30: `decision 19: the field at 23, 2 bytes, is not where the kernel reads it` |
+| Decision 22's binding limit and largest buffer swapped | EN-30: `decision 22: the field at 2, 8 bytes, is not where the kernel reads it` |
+| Seventeen stop ids cut to sixteen | EN-30: the count written is 16 where 17 was given |
+| `stop: budget` not read by the client | EN-30: ``decision module Stop answers `stop: budget`, which the client does not read`` |
+| none, before and after | passed |
+
+### What this does not show
+
+That the kernel answers these requests as its proofs say is shown by the
+proofs and, in the browser, by the page journey; this test shows only that the
+engine writes what the kernel reads and reads what it writes. Nothing calls
+these modules yet.
+
 ## How the engine may fail
 
 Rule R5 says every public failure is typed, modelled, documented and covered by

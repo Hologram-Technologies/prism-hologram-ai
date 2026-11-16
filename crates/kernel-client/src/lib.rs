@@ -729,6 +729,622 @@ pub mod blocks {
     }
 }
 
+/// Write `number`'s low `width` bytes, big-endian, at `at`.
+fn put_width(out: &mut [u8], at: usize, width: usize, number: u64) {
+    out[at..at + width].copy_from_slice(&number.to_be_bytes()[8 - width..]);
+}
+
+/// Decision 18: whether an ONNX operator, by its name, is one the engine runs.
+pub mod opname {
+    /// Which export style the graph is in.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Style {
+        /// Normalisation, rotation and attention written out in standard operators.
+        Decomposed,
+        /// Those written as the runtime's fused extension operators.
+        Fused,
+    }
+
+    /// The kernel's verdict on an operator.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Verdict {
+        /// The name is on its style's list.
+        Supported,
+        /// It is not.
+        Unsupported,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// An operator's name as the 32 bytes the kernel compares, zero after it;
+    /// `None` for a name longer than 32 bytes, which is no listed name.
+    #[must_use]
+    pub fn name(text: &str) -> Option<[u8; 32]> {
+        let bytes = text.as_bytes();
+        let mut out = [0; 32];
+        out.get_mut(..bytes.len())?.copy_from_slice(bytes);
+        Some(out)
+    }
+
+    /// The request for operator `name`, written by [`name`], in a graph of `style`.
+    #[must_use]
+    pub fn request(style: Style, name: &[u8; 32]) -> [u8; 34] {
+        let mut out = [0; 34];
+        out[0] = 18;
+        out[1] = match style {
+            Style::Decomposed => 0,
+            Style::Fused => 1,
+        };
+        out[2..34].copy_from_slice(name);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Verdict {
+        match text {
+            b"supported" => Verdict::Supported,
+            b"unsupported operator" => Verdict::Unsupported,
+            crate::INVALID_REQUEST => Verdict::Invalid,
+            _ => Verdict::Unrecognised,
+        }
+    }
+}
+
+/// Decision 19: whether a model's family and shape are ones the engine runs.
+pub mod family {
+    /// What a model's configuration says about its shape.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Shape {
+        /// Attention heads.
+        pub heads: u16,
+        /// Key-value heads.
+        pub groups: u16,
+        /// The size of one head.
+        pub head_size: u16,
+        /// Layers.
+        pub layers: u16,
+        /// The hidden width.
+        pub width: u32,
+        /// The vocabulary.
+        pub vocabulary: u32,
+    }
+
+    /// The kernel's verdict on a configuration.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Verdict {
+        /// A listed family, the gated activation, a shape the engine runs.
+        Supported,
+        /// The family is not listed.
+        UnknownFamily,
+        /// Listed, but its activation or shape is not one the engine runs.
+        UnsupportedShape,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// A configuration's `model_type` or activation as the eight bytes the
+    /// kernel compares; `None` for one longer than eight, which is unlisted.
+    #[must_use]
+    pub fn word(text: &str) -> Option<[u8; 8]> {
+        let bytes = text.as_bytes();
+        let mut out = [0; 8];
+        out.get_mut(..bytes.len())?.copy_from_slice(bytes);
+        Some(out)
+    }
+
+    /// The request for a model of type `kind` and activation `activation`,
+    /// each written by [`word`], with `shape`.
+    #[must_use]
+    pub fn request(kind: &[u8; 8], activation: &[u8; 8], shape: Shape) -> [u8; 33] {
+        let mut out = [0; 33];
+        out[0] = 19;
+        out[1..9].copy_from_slice(kind);
+        out[9..17].copy_from_slice(activation);
+        crate::put_width(&mut out, 17, 2, u64::from(shape.heads));
+        crate::put_width(&mut out, 19, 2, u64::from(shape.groups));
+        crate::put_width(&mut out, 21, 2, u64::from(shape.head_size));
+        crate::put_width(&mut out, 23, 2, u64::from(shape.layers));
+        crate::put_width(&mut out, 25, 4, u64::from(shape.width));
+        crate::put_width(&mut out, 29, 4, u64::from(shape.vocabulary));
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Verdict {
+        match text {
+            b"supported" => Verdict::Supported,
+            b"rejected: unknown family" => Verdict::UnknownFamily,
+            b"rejected: unsupported shape" => Verdict::UnsupportedShape,
+            crate::INVALID_REQUEST => Verdict::Invalid,
+            _ => Verdict::Unrecognised,
+        }
+    }
+}
+
+/// Decision 20: how many bytes one part of a MatMulNBits weight is.
+pub mod nbits {
+    /// Which part.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Part {
+        /// The packed 4-bit codes.
+        Codes,
+        /// One f32 scale for each block.
+        ScalesF32,
+        /// One f16 scale for each block.
+        ScalesF16,
+    }
+
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// This part is this many bytes.
+        Bytes(u64),
+        /// The shape or block size is not one this layout takes.
+        BadShape,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for `part` of a weight of `rows` by `columns` in blocks of `block`.
+    #[must_use]
+    pub fn request(part: Part, rows: u32, columns: u32, block: u16) -> [u8; 12] {
+        let mut out = [0; 12];
+        out[0] = 20;
+        out[1] = match part {
+            Part::Codes => 0,
+            Part::ScalesF32 => 1,
+            Part::ScalesF16 => 2,
+        };
+        crate::put_width(&mut out, 2, 4, u64::from(rows));
+        crate::put_width(&mut out, 6, 4, u64::from(columns));
+        crate::put_width(&mut out, 10, 2, u64::from(block));
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"bad shape" => Answer::BadShape,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => crate::decimal(text).map_or(Answer::Unrecognised, Answer::Bytes),
+        }
+    }
+}
+
+/// Decision 21: which offered precision fits.
+pub mod precision {
+    /// What one precision costs, if the repository offers it.
+    pub type Offer = Option<u64>;
+
+    /// The kernel's choice.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Choice {
+        /// 4-bit weights, f16 scales and activations.
+        Q4F16,
+        /// 4-bit weights, f32 scales and activations.
+        Q4,
+        /// f16 weights.
+        Fp16,
+        /// No offered precision fits.
+        NoneFits,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a `budget` of bytes, with what q4f16, q4 and fp16 cost
+    /// where the repository offers them.
+    #[must_use]
+    pub fn request(budget: u64, q4f16: Offer, q4: Offer, fp16: Offer) -> [u8; 36] {
+        let mut out = [0; 36];
+        out[0] = 21;
+        for (i, offer) in [q4f16, q4, fp16].into_iter().enumerate() {
+            out[1 + i] = u8::from(offer.is_some());
+            crate::put(&mut out, 12 + 8 * i, offer.unwrap_or(0));
+        }
+        crate::put(&mut out, 4, budget);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Choice {
+        match text {
+            b"q4f16" => Choice::Q4F16,
+            b"q4" => Choice::Q4,
+            b"fp16" => Choice::Fp16,
+            b"none fits" => Choice::NoneFits,
+            crate::INVALID_REQUEST => Choice::Invalid,
+            _ => Choice::Unrecognised,
+        }
+    }
+}
+
+/// Decision 22: WebGPU, the CPU, or neither.
+pub mod device {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Device {
+        /// The adapter can hold the model.
+        WebGpu,
+        /// It cannot, and the model is within the CPU ceiling.
+        Cpu,
+        /// Neither.
+        Refused,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a model of `model` bytes whose largest buffer is
+    /// `largest`, on an adapter that is `present` with binding limit `limit`,
+    /// with the CPU taking models up to `ceiling` bytes.
+    #[must_use]
+    pub fn request(present: bool, limit: u64, largest: u64, model: u64, ceiling: u64) -> [u8; 34] {
+        let mut out = [0; 34];
+        out[0] = 22;
+        out[1] = u8::from(present);
+        crate::put(&mut out, 2, limit);
+        crate::put(&mut out, 10, largest);
+        crate::put(&mut out, 18, model);
+        crate::put(&mut out, 26, ceiling);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Device {
+        match text {
+            b"webgpu" => Device::WebGpu,
+            b"cpu" => Device::Cpu,
+            b"refused: too large for cpu" => Device::Refused,
+            crate::INVALID_REQUEST => Device::Invalid,
+            _ => Device::Unrecognised,
+        }
+    }
+}
+
+/// Decision 23: whether a span of one of a model's files may be read.
+pub mod chunk {
+    /// The kernel's verdict.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Verdict {
+        /// The span lies inside the file, after the previous one.
+        Accept,
+        /// It does not.
+        Reject,
+        /// The file is not one the model declares.
+        Undeclared,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// Which file, and what the model declares.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct File {
+        /// How many data files the model declares beside its graph.
+        pub declared: u8,
+        /// This file: 0 for the graph, then 1 onward for the data files.
+        pub index: u8,
+        /// Its length in bytes.
+        pub length: u64,
+    }
+
+    /// The request for `length` bytes at `offset` of `file`, after a span that ended at `previous_end`.
+    #[must_use]
+    pub fn request(file: File, offset: u64, length: u64, previous_end: u64) -> [u8; 35] {
+        let mut out = [0; 35];
+        out[0] = 23;
+        out[1] = file.declared;
+        out[2] = file.index;
+        crate::put(&mut out, 3, file.length);
+        crate::put(&mut out, 11, offset);
+        crate::put(&mut out, 19, length);
+        crate::put(&mut out, 27, previous_end);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Verdict {
+        match text {
+            b"accept" => Verdict::Accept,
+            b"reject" => Verdict::Reject,
+            b"undeclared file" => Verdict::Undeclared,
+            crate::INVALID_REQUEST => Verdict::Invalid,
+            _ => Verdict::Unrecognised,
+        }
+    }
+}
+
+/// Decision 24: what each of a model's files is called.
+pub mod source {
+    /// The precision a file is for.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Precision {
+        /// `_q4f16`.
+        Q4F16,
+        /// `_q4`.
+        Q4,
+        /// `_fp16`.
+        Fp16,
+        /// No suffix.
+        Fp32,
+    }
+
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer<'a> {
+        /// The file's path in the repository.
+        Path(&'a [u8]),
+        /// The part is beyond the data files declared.
+        Undeclared,
+        /// More data files are declared than a model may have.
+        TooMany,
+        /// The kernel has no files for this precision.
+        UnsupportedPrecision,
+        /// The kernel has no files for this task.
+        UnsupportedTask,
+        /// The kernel did not accept the request.
+        Invalid,
+    }
+
+    /// The request for part `part` (0 the graph, then the data files) of the
+    /// text-generation files at `precision`, with `declared` data files.
+    #[must_use]
+    pub fn request(precision: Precision, declared: u8, part: u8) -> [u8; 5] {
+        [
+            24,
+            0,
+            match precision {
+                Precision::Q4F16 => 0,
+                Precision::Q4 => 1,
+                Precision::Fp16 => 2,
+                Precision::Fp32 => 3,
+            },
+            declared,
+            part,
+        ]
+    }
+
+    /// Read the kernel's answer. A path is any other text, which is why this
+    /// answer has no `Unrecognised`: the kernel's names are its own to choose.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer<'_> {
+        match text {
+            b"undeclared file" => Answer::Undeclared,
+            b"too many files" => Answer::TooMany,
+            b"unsupported precision" => Answer::UnsupportedPrecision,
+            b"unsupported task" => Answer::UnsupportedTask,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            path => Answer::Path(path),
+        }
+    }
+}
+
+/// Decision 25: whether generation stops.
+pub mod stop {
+    /// The most stop ids one request carries.
+    pub const MOST: usize = 16;
+
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The token is one of the model's stop ids.
+        EndToken,
+        /// The budget is spent.
+        Budget,
+        /// Neither.
+        Continue,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// A request: its bytes, of which the first `length` are sent.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Request {
+        bytes: [u8; 14 + 4 * MOST],
+        length: usize,
+    }
+
+    impl Request {
+        /// The bytes to send.
+        #[must_use]
+        pub fn bytes(&self) -> &[u8] {
+            &self.bytes[..self.length]
+        }
+    }
+
+    /// The request for `token`, the `generated`-th of a turn of `budget`, with
+    /// the model's stop ids `ids`. More than [`MOST`] ids are written as a
+    /// count the length does not match, which the kernel refuses as invalid,
+    /// rather than cut short, which it would answer.
+    #[must_use]
+    pub fn request(token: u32, generated: u32, budget: u32, ids: &[u32]) -> Request {
+        let mut bytes = [0; 14 + 4 * MOST];
+        bytes[0] = 25;
+        bytes[1] = u8::try_from(ids.len()).unwrap_or(u8::MAX);
+        crate::put_width(&mut bytes, 2, 4, u64::from(token));
+        crate::put_width(&mut bytes, 6, 4, u64::from(generated));
+        crate::put_width(&mut bytes, 10, 4, u64::from(budget));
+        for (i, id) in ids.iter().take(MOST).enumerate() {
+            crate::put_width(&mut bytes, 14 + 4 * i, 4, u64::from(*id));
+        }
+        Request {
+            bytes,
+            length: 14 + 4 * ids.len().min(MOST),
+        }
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"stop: end token" => Answer::EndToken,
+            b"stop: budget" => Answer::Budget,
+            b"continue" => Answer::Continue,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
+/// Decision 26: whether a cached block is dropped to make room.
+pub mod evict {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// There is room already; drop nothing more.
+        Enough,
+        /// Drop this block.
+        Evict,
+        /// Keep it: it is pinned.
+        Keep,
+        /// No candidate is left and there is still no room.
+        DoesNotFit,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a block that is `pinned` or not, with `remaining`
+    /// candidates including it, when `needed` bytes are wanted, `free` are free
+    /// and `freed` have been freed so far.
+    #[must_use]
+    pub fn request(pinned: bool, remaining: u32, needed: u64, free: u64, freed: u64) -> [u8; 30] {
+        let mut out = [0; 30];
+        out[0] = 26;
+        out[1] = u8::from(pinned);
+        crate::put_width(&mut out, 2, 4, u64::from(remaining));
+        crate::put(&mut out, 6, needed);
+        crate::put(&mut out, 14, free);
+        crate::put(&mut out, 22, freed);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"enough" => Answer::Enough,
+            b"evict" => Answer::Evict,
+            b"keep" => Answer::Keep,
+            b"does not fit" => Answer::DoesNotFit,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
+/// Decision 27: whether a computed prefix may be reused.
+pub mod reuse {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// Reuse it.
+        Reuse,
+        /// Compute the prompt from the start.
+        Recompute,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a prefix held under `held`, `held_length` positions
+    /// long, for a prompt of `prompt_length` whose prefix label is `asked`.
+    #[must_use]
+    pub fn request(
+        asked: &[u8; 32],
+        held: &[u8; 32],
+        held_length: u32,
+        prompt_length: u32,
+    ) -> [u8; 73] {
+        let mut out = [0; 73];
+        out[0] = 27;
+        out[1..33].copy_from_slice(asked);
+        out[33..65].copy_from_slice(held);
+        crate::put_width(&mut out, 65, 4, u64::from(held_length));
+        crate::put_width(&mut out, 69, 4, u64::from(prompt_length));
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"reuse" => Answer::Reuse,
+            b"recompute" => Answer::Recompute,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
+/// Decision 28: whether a model's manifest is satisfied.
+pub mod manifest {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// Every listed tensor is held and admitted under the manifest's label.
+        Ready,
+        /// The label matches; some tensors are not yet admitted.
+        Incomplete,
+        /// The addresses admitted are not the manifest's.
+        Refused,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a manifest whose label is `expected`, when the label
+    /// of the addresses admitted is `observed`, `admitted` of `listed` tensors.
+    #[must_use]
+    pub fn request(
+        expected: &[u8; 32],
+        observed: &[u8; 32],
+        listed: u64,
+        admitted: u64,
+    ) -> [u8; 81] {
+        let mut out = [0; 81];
+        out[0] = 28;
+        out[1..33].copy_from_slice(expected);
+        out[33..65].copy_from_slice(observed);
+        crate::put(&mut out, 65, listed);
+        crate::put(&mut out, 73, admitted);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"ready" => Answer::Ready,
+            b"incomplete" => Answer::Incomplete,
+            b"refused" => Answer::Refused,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;
