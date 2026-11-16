@@ -352,8 +352,10 @@ version = "0.1.0"
 name = "hologram-ai-model-reader"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "hologram-ai-download",
  "hologram-ai-kernel-client",
+ "hologram-ai-onnx-preflight",
  "serde_json",
 ]
 

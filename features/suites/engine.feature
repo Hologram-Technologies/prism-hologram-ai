@@ -419,7 +419,7 @@ Feature: engine
   Scenario: An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data
     Given an ONNX file shaped as the exports are, the graph before the opsets and nodes before tensors, with a megabyte of weights inside the file, a tensor kept in another file, one written as numbers, a negative attribute and fields no reader needs
     When it is fed to the streaming reader whole, and in pieces of 1, 2, 3, 7, 61, 64 and 4096 bytes asking each time for the byte the reader names
-    Then every way gives the same opsets, nodes with their inputs, outputs and attributes, and tensors with their names, shapes, types and where their data lies
+    Then every way gives the same opsets, nodes with their inputs, outputs and attributes, tensors with their names, shapes, types and where their data lies, and the span of each tensor's data inside the file as the data begins
     And the megabyte of weights is never fed, and the reader never holds more than the largest node and one piece
     And a caller that leaves the graph at its first tensor gets the nodes and the opsets
     And the whole-file reader reads the same operators and tensor count
@@ -446,3 +446,49 @@ Feature: engine
     Then each request is the length the kernel reads, names its decision in its first byte, and carries each value at the offset and width the kernel reads it from
     And seventeen stop ids are written as a request the kernel refuses, not cut to sixteen
     And every answer text in each decision's kernel module reads as a verdict, and text the kernel never gives does not
+
+  @EN-31 @build
+  Scenario: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives
+    Given a fused-style model of one 4-bit projection and a multiply, its codes and scales inside the graph file and two tensors in a data file beside it, and each file's record
+    When it is imported fed in pieces of 1, 7, 64 and 4096 bytes and whole, against a kernel answering in its own words
+    Then every tensor whose data is bytes is listed with its file, offset and length and named by the BLAKE3 of exactly those bytes
+    And every way of feeding imports the same model and asks the kernel the same questions in the same order
+    And the kernel is asked each inline span as the graph passes it, the graph file whole, each operator in the fused style, the data file's spans before any of its bytes, that file whole, and each 4-bit weight's codes and scales against its shape
+    And a graph that names no fused operator is asked in the decomposed style
+
+  @FL-43 @build
+  Scenario: The graph is not an ONNX model the streaming reader follows
+    Given a graph file cut short inside a tensor's data, and one with a field that runs past its record
+    When each is imported
+    Then the first returns ImportError::Unreadable with OnnxError::Truncated when the file ends, and the second as the field is met
+
+  @FL-44 @build
+  Scenario: The kernel refuses a tensor's span in its file
+    Given the model of EN-31, and a kernel that rejects the first inline span, or calls the first data-file span undeclared
+    When it is imported
+    Then it returns ImportError::SpanRefused with that tensor's name and the kernel's own verdict
+
+  @FL-45 @build
+  Scenario: The kernel refuses a whole file against the SHA-256 and length its record gives
+    Given the graph of EN-31 under a record that names another SHA-256, and a kernel that refuses it
+    When it is imported
+    Then it returns ImportError::FileRefused with the file's name and the kernel's verdict
+    And the question carried the record's SHA-256 as expected and the file's own as observed
+
+  @FL-46 @build
+  Scenario: The kernel refuses an operator the graph names
+    Given the model of EN-31 and a kernel that answers unsupported operator for Mul
+    When it is imported
+    Then it returns ImportError::OperatorRefused for Mul with the kernel's verdict
+
+  @FL-47 @build
+  Scenario: A 4-bit weight's codes or scales are not the length the kernel gives for its shape
+    Given the model of EN-31 and a kernel that gives 1,000 bytes for its codes, or bad shape for its scales
+    When it is imported
+    Then it returns ImportError::WeightRefused with the tensor, its length and the kernel's answer
+
+  @FL-48 @build
+  Scenario: A tensor's data lies in a file the import is not given, or past the end of the one it is
+    Given the model of EN-31, imported from its graph alone, and again with its data file cut short and admitted anyway
+    When the import finishes
+    Then it returns ImportError::DataMissing for the first tensor in the data file, and for the span that never ended

@@ -24,6 +24,7 @@ pub mod config;
 pub mod gguf;
 pub mod header;
 pub mod holk;
+pub mod onnx;
 
 /// Whoever holds the verified kernel holo.
 ///

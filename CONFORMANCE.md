@@ -54,6 +54,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-28` | `build` | The id a model stops on is the one the model's own file names, not a list written beside it |
 | `EN-29` | `build` | An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data |
 | `EN-30` | `build` | Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict |
+| `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives |
 
 ## gpu
 
@@ -150,6 +151,12 @@ not that the test provokes the failure.
 | `FL-40` | `model-reader` | `GgufError::ShapeNotFollowed` | A tensor's shape is one this reader cannot measure |
 | `FL-41` | `onnx-preflight` | `OnnxError::RecordTooLarge` | A node or an opset record is larger than the reader will hold |
 | `FL-42` | `onnx-preflight` | `OnnxError::ExternalNotFollowed` | A tensor kept outside the file names no location, or an offset or a length that is not a number |
+| `FL-43` | `model-reader` | `ImportError::Unreadable` | The graph is not an ONNX model the streaming reader follows |
+| `FL-44` | `model-reader` | `ImportError::SpanRefused` | The kernel refuses a tensor's span in its file |
+| `FL-45` | `model-reader` | `ImportError::FileRefused` | The kernel refuses a whole file against the SHA-256 and length its record gives |
+| `FL-46` | `model-reader` | `ImportError::OperatorRefused` | The kernel refuses an operator the graph names |
+| `FL-47` | `model-reader` | `ImportError::WeightRefused` | A 4-bit weight's codes or scales are not the length the kernel gives for its shape |
+| `FL-48` | `model-reader` | `ImportError::DataMissing` | A tensor's data lies in a file the import is not given, or past the end of the one it is |
 
 ## Cited authorities
 
