@@ -1,0 +1,39 @@
+\begin{lexlean}{Kernel.Receipt}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: receiptCode,
+  parameters: [
+    outputClaimed : Kernel.Admission::Label,
+    outputReplayed : Kernel.Admission::Label,
+    modelReady : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  result: Nat,
+  body: (if ((modelReady =? 1) && (Kernel.Determinism::comparable classOfRun sameAdapter)) then (if (Kernel.Admission::sameLabel outputClaimed outputReplayed) then 2 else 1) else 0)
+}
+
+definition{
+  name: receiptText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 2) then (prim utf8_encode "confirmed" : Bytes) else (if (code =? 1) then (prim utf8_encode "mismatch" : Bytes) else (prim utf8_encode "not comparable" : Bytes)))
+}
+
+definition{
+  name: receiptAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((((Foundation.Bytes::byteLength value) =? 68) && ((Kernel.Wire::fieldAt value 65 1) <=? 1)) && ((Kernel.Wire::fieldAt value 66 1) <=? 2)) && ((Kernel.Wire::fieldAt value 67 1) <=? 1)) then (receiptText (receiptCode (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 1) (Kernel.Wire::fieldAt value 66 1) (Kernel.Wire::fieldAt value 67 1))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

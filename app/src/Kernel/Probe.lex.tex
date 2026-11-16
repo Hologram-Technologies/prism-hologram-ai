@@ -1,0 +1,55 @@
+\begin{lexlean}{Kernel.Probe}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: probeInRange,
+  parameters: [
+    layer : Nat,
+    layers : Nat,
+    position : Nat,
+    positions : Nat,
+    component : Nat,
+    components : Nat
+  ],
+  result: Bool,
+  body: (((layer <? layers) && (position <? positions)) && (component <? components))
+}
+
+definition{
+  name: probeCode,
+  parameters: [
+    layer : Nat,
+    layers : Nat,
+    position : Nat,
+    positions : Nat,
+    component : Nat,
+    components : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  result: Nat,
+  body: (if (probeInRange layer layers position positions component components) then (if (Kernel.Determinism::comparable classOfRun sameAdapter) then 2 else 1) else 0)
+}
+
+definition{
+  name: probeText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 2) then (prim utf8_encode "exact replay" : Bytes) else (if (code =? 1) then (prim utf8_encode "approximate replay" : Bytes) else (prim utf8_encode "out of range" : Bytes)))
+}
+
+definition{
+  name: probeAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? 21) && ((Kernel.Wire::fieldAt value 19 1) <=? 2)) && ((Kernel.Wire::fieldAt value 20 1) <=? 1)) then (probeText (probeCode (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 1) (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 1))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

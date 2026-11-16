@@ -224,3 +224,38 @@ Feature: kernel
     When the Lean kernel checks manifest_complete_decides during lexlean verify in the gate
     Then a manifest is complete exactly when it lists at least one tensor and the tensors admitted are as many as it lists
     And the answer to decision 28 is refused when the label of the addresses admitted differs from the one the manifest gives, by the sameLabel of decision 5, and otherwise ready or incomplete by that same manifestComplete
+
+  @KN-29 @build
+  Scenario: An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it
+    Given the exact model in app/src/Kernel/Exact.lex.tex and its proofs in app/src/Proofs/Exact.lex.tex
+    When the Lean kernel checks exact_fits_decides, exact_fits_wider and exact_fits_shorter during lexlean verify in the gate
+    Then an accumulator is exact exactly when the activation and weight bits are at least one and the activation, weight and group bits sum to no more than the accumulator bits
+    And the answer to decision 29 is exact or may overflow by that same exactFits, over the bit widths at bytes 1 to 4
+
+  @KN-30 @build
+  Scenario: A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all
+    Given the determinism model in app/src/Kernel/Determinism.lex.tex and its proofs in app/src/Proofs/Determinism.lex.tex
+    When the Lean kernel checks class_everywhere_decides, class_same_hardware_decides, class_none_decides and comparable_decides during lexlean verify in the gate
+    Then the class is everywhere exactly when products and every other stage are exact, same hardware exactly when it is not and the float reductions keep a fixed order, and none otherwise
+    And the answer to decision 30 is everywhere, same hardware or none by that same classCode, and a run is comparable exactly when its class is everywhere or it is same hardware on the same adapter
+
+  @KN-31 @build
+  Scenario: A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable
+    Given the receipt model in app/src/Kernel/Receipt.lex.tex and its proofs in app/src/Proofs/Receipt.lex.tex
+    When the Lean kernel checks receipt_confirmed_decides, receipt_mismatch_decides and receipt_not_comparable_decides during lexlean verify in the gate
+    Then a receipt is confirmed exactly when decision 28 found its model ready, the run is comparable by decision 30 and the output label equals its replay by the sameLabel of decision 5
+    And the answer to decision 31 is confirmed, mismatch or not comparable by that same receiptCode, over the labels at bytes 1 and 33
+
+  @KN-32 @build
+  Scenario: A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range
+    Given the probe model in app/src/Kernel/Probe.lex.tex and its proofs in app/src/Proofs/Probe.lex.tex
+    When the Lean kernel checks probe_exact_decides, probe_approximate_decides and probe_out_of_range_decides during lexlean verify in the gate
+    Then a probe replays exactly when its layer, position and component are each below their counts and the run is comparable by decision 30
+    And the answer to decision 32 is exact replay, approximate replay or out of range by that same probeCode
+
+  @KN-33 @build
+  Scenario: A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable
+    Given the share model in app/src/Kernel/Share.lex.tex and its proofs in app/src/Proofs/Share.lex.tex
+    When the Lean kernel checks shareable_decides during lexlean verify in the gate
+    Then a held prefix is shared exactly when decision 27 finds it reusable and it was computed on this device or the run is comparable by decision 30
+    And the answer to decision 33 is reuse or recompute by that same shareable, over the labels at bytes 1 and 33

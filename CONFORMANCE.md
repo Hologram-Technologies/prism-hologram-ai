@@ -102,6 +102,11 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-26` | `build` | A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short |
 | `KN-27` | `build` | A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt |
 | `KN-28` | `build` | A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one |
+| `KN-29` | `build` | An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it |
+| `KN-30` | `build` | A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all |
+| `KN-31` | `build` | A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable |
+| `KN-32` | `build` | A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range |
+| `KN-33` | `build` | A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable |
 
 ## Public failures
 

@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Twenty-eight decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27) and whether a model's manifest is satisfied (28). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-three decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32) and whether a prefix computed elsewhere may be reused (33). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -174,7 +174,21 @@
     {"name": "source_task_decides", "module": "Source", "statement": "(((Kernel.Source::sourceCode task precision declared part) = 0) ↔ (1 <= task))"},
     {"name": "stop_differs_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopDiffers token listed) = true) ↔ (Differs token listed))"},
     {"name": "stop_none_from_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopNoneFrom value position remaining token) = true) ↔ (NoneFrom value position remaining token))"},
-    {"name": "stop_spent_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopSpent generated budget) = true) ↔ (budget <= generated))"}
+    {"name": "stop_spent_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopSpent generated budget) = true) ↔ (budget <= generated))"},
+    {"name": "exact_fits_decides", "module": "Exact", "statement": "(((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) ↔ ((1 <= activationBits) ∧ ((1 <= weightBits) ∧ (((activationBits + weightBits) + groupBits) <= accumulatorBits))))"},
+    {"name": "exact_fits_wider", "module": "Exact", "statement": "((accumulatorBits <= wider) → (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) → ((Kernel.Exact::exactFits activationBits weightBits groupBits wider) = true)))"},
+    {"name": "exact_fits_shorter", "module": "Exact", "statement": "((shorter <= groupBits) → (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) → ((Kernel.Exact::exactFits activationBits weightBits shorter accumulatorBits) = true)))"},
+    {"name": "class_everywhere_decides", "module": "Determinism", "statement": "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2) ↔ ((productsExact = 1) ∧ (restExact = 1)))"},
+    {"name": "class_same_hardware_decides", "module": "Determinism", "statement": "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 1) ↔ ((((productsExact = 1) ∧ (restExact = 1)) → (1 = 0)) ∧ (fixedOrder = 1)))"},
+    {"name": "class_none_decides", "module": "Determinism", "statement": "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 0) ↔ ((((productsExact = 1) ∧ (restExact = 1)) → (1 = 0)) ∧ ((fixedOrder = 1) → (1 = 0))))"},
+    {"name": "comparable_decides", "module": "Determinism", "statement": "(((Kernel.Determinism::comparable classOfRun sameAdapter) = true) ↔ (((classOfRun = 2) → (1 = 0)) → ((classOfRun = 1) ∧ (sameAdapter = 1))))"},
+    {"name": "receipt_confirmed_decides", "module": "Receipt", "statement": "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 2) ↔ ((modelReady = 1) ∧ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) ∧ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = true))))"},
+    {"name": "receipt_mismatch_decides", "module": "Receipt", "statement": "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 1) ↔ ((modelReady = 1) ∧ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) ∧ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = false))))"},
+    {"name": "receipt_not_comparable_decides", "module": "Receipt", "statement": "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 0) ↔ (((modelReady = 1) ∧ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)) → (1 = 0)))"},
+    {"name": "probe_exact_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 2) ↔ (((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ (((component + 1) <= components) ∧ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)))))"},
+    {"name": "probe_approximate_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 1) ↔ (((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ (((component + 1) <= components) ∧ ((Kernel.Determinism::comparable classOfRun sameAdapter) = false)))))"},
+    {"name": "probe_out_of_range_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 0) ↔ ((((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ ((component + 1) <= components))) → (1 = 0)))"},
+    {"name": "shareable_decides", "module": "Share", "statement": "(((Kernel.Share::shareable asked held heldLength promptLength origin classOfRun sameAdapter) = true) ↔ (((Kernel.Reuse::reusable asked held heldLength promptLength) = true) ∧ (((origin = 0) → (1 = 0)) → ((Kernel.Determinism::comparable classOfRun sameAdapter) = true))))"}
   ],
   "pinned": [
     {
@@ -285,6 +299,31 @@
     {
       "name": "kernel_kn_28",
       "what": "The theorem's statement and axioms, that a differing label is refused before completeness is asked, the request offsets, and that decision 28 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_29",
+      "what": "The theorems' statements and axioms, the bit-width offsets, and that decision 29 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_30",
+      "what": "The theorems' statements and axioms, the flag offsets, and that decision 30 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_31",
+      "what": "The theorems' statements and axioms, the label and flag offsets, and that decision 31 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_32",
+      "what": "The theorems' statements and axioms, the request offsets, and that decision 32 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_33",
+      "what": "The theorem's statement and axioms, decision 27's offsets and the three after them, and that decision 33 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

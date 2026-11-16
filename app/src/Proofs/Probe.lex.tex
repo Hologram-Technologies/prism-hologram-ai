@@ -1,0 +1,78 @@
+\begin{lexlean}{Proofs.Probe}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Probe}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: probe_exact_decides,
+  parameters: [
+    layer : Nat,
+    layers : Nat,
+    position : Nat,
+    positions : Nat,
+    component : Nat,
+    components : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 2) <-> (((layer + 1) <= layers) /\ (((position + 1) <= positions) /\ (((component + 1) <= components) /\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Determinism::comparable,
+      Kernel.Probe::probeCode,
+      Kernel.Probe::probeInRange
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: probe_approximate_decides,
+  parameters: [
+    layer : Nat,
+    layers : Nat,
+    position : Nat,
+    positions : Nat,
+    component : Nat,
+    components : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 1) <-> (((layer + 1) <= layers) /\ (((position + 1) <= positions) /\ (((component + 1) <= components) /\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = false))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Determinism::comparable,
+      Kernel.Probe::probeCode,
+      Kernel.Probe::probeInRange
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: probe_out_of_range_decides,
+  parameters: [
+    layer : Nat,
+    layers : Nat,
+    position : Nat,
+    positions : Nat,
+    component : Nat,
+    components : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 0) <-> ((((layer + 1) <= layers) /\ (((position + 1) <= positions) /\ ((component + 1) <= components))) -> (1 = 0))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Determinism::comparable,
+      Kernel.Probe::probeCode,
+      Kernel.Probe::probeInRange
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

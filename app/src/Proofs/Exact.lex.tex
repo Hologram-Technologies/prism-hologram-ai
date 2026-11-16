@@ -1,0 +1,44 @@
+\begin{lexlean}{Proofs.Exact}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Exact}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: exact_fits_decides,
+  parameters: [activationBits : Nat, weightBits : Nat, groupBits : Nat, accumulatorBits : Nat],
+  statement: (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) <-> ((1 <= activationBits) /\ ((1 <= weightBits) /\ (((activationBits + weightBits) + groupBits) <= accumulatorBits)))),
+  proof: linear_arithmetic{definitions: [Kernel.Exact::exactFits]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: exact_fits_wider,
+  parameters: [
+    activationBits : Nat,
+    weightBits : Nat,
+    groupBits : Nat,
+    accumulatorBits : Nat,
+    wider : Nat
+  ],
+  statement: ((accumulatorBits <= wider) -> (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) -> ((Kernel.Exact::exactFits activationBits weightBits groupBits wider) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Exact::exactFits]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: exact_fits_shorter,
+  parameters: [
+    activationBits : Nat,
+    weightBits : Nat,
+    groupBits : Nat,
+    accumulatorBits : Nat,
+    shorter : Nat
+  ],
+  statement: ((shorter <= groupBits) -> (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) -> ((Kernel.Exact::exactFits activationBits weightBits shorter accumulatorBits) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Exact::exactFits]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
