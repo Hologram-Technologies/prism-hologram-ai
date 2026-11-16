@@ -73,8 +73,10 @@ export function packMatMulNBits(codes, scales, n, k, scaleType) {
 // A small model with Qwen2's shape: q4 weights, biases on q, k and v, no
 // per-head norm, plain rotary, and an output head of its own. With layout
 // "onnx" each weight is given as MatMulNBits' two tensors, with f32 scales,
-// or with f16 ones when scaleType is "f16".
-export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32") {
+// or with f16 ones when scaleType is "f16". With embedding "dense" the
+// embedding is a plain matrix in the scales' type, f32 or f16, and the head is
+// tied to it with no tensor of its own, as in onnx-community's exports.
+export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding = "q4") {
   const random = generator(seed);
   const dims = { d: 128, n_heads: 4, n_kv_heads: 2, hd: 32, ff: 256, vocab: 320, n_layers: 2, rope_base: 10000, eps: 1e-6 };
   const tensors = new Map();
@@ -95,7 +97,16 @@ export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32") {
     tensors.set(name, { fmt: "f32", N: 1, K: n, bytes: new Uint8Array(values.buffer), values });
   };
   const { d, n_heads: h, n_kv_heads: kv, hd, ff, vocab } = dims;
-  matrix("embed", vocab, d);
+  if (embedding === "dense") {
+    const values = new Float32Array(vocab * d);
+    // Magnitudes 0.005 to 0.1, either sign: inside f16's normal range.
+    for (let i = 0; i < values.length; i++) values[i] = Math.fround((random() < 0.5 ? -1 : 1) * (0.005 + 0.095 * random()));
+    if (scaleType === "f16") {
+      const halves = Uint16Array.from(values, f16bits);
+      values.set(Array.from(halves, f16value));
+      tensors.set("embed", { fmt: "f16", N: vocab, K: d, bytes: new Uint8Array(halves.buffer), values });
+    } else tensors.set("embed", { fmt: "f32", N: vocab, K: d, bytes: new Uint8Array(values.buffer), values });
+  } else matrix("embed", vocab, d);
   for (let l = 0; l < dims.n_layers; l++) {
     vector(`l${l}.attn_norm`, d, 0.8, 0.4);
     matrix(`l${l}.wq`, h * hd, d);
@@ -111,7 +122,7 @@ export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32") {
     matrix(`l${l}.w_down`, d, ff);
   }
   vector("final_norm", d, 0.8, 0.4);
-  matrix("lm_head", vocab, d);
+  if (embedding !== "dense") matrix("lm_head", vocab, d);
   const prompt = Array.from({ length: 6 }, () => Math.floor(random() * vocab));
   return { dims, tensors, prompt };
 }
@@ -176,6 +187,7 @@ export function referenceModel({ dims, tensors }) {
   const { d, n_heads: heads, n_kv_heads: kvHeads, hd, ff, vocab, n_layers: layers, eps } = dims;
   const weight = (name) => {
     const t = tensors.get(name);
+    if (t.fmt === "f32" || t.fmt === "f16") return { w: Float64Array.from(t.values), N: t.N, K: t.K };
     const w = new Float64Array(t.N * t.K);
     const group = { q1: 128, q4: 32, q4f16: 32 }[t.fmt];
     for (let g = 0; g < t.N * t.K; g++) w[g] = t.codes[g] * t.scales[Math.floor(g / group)];
@@ -217,7 +229,7 @@ export function referenceModel({ dims, tensors }) {
   };
 
   const embed = weight("embed");
-  const head = weight("lm_head");
+  const head = tensors.has("lm_head") ? weight("lm_head") : embed;
   const L = [];
   for (let l = 0; l < layers; l++) {
     L.push({

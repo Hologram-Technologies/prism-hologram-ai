@@ -1,5 +1,5 @@
 // The WebGPU decode engine for Qwen2 and Qwen3 models with ternary (Bonsai's
-// layout), q4 or q4f16 weights. One
+// layout), q4 or q4f16 weights, and a dense f32 or f16 embedding and head. One
 // step is one command buffer: every layer's kernels are recorded back to back
 // and the only read back is the chosen token (and the logits when asked for).
 // Decisions about what may be loaded and run are the kernel's; this module only
@@ -10,6 +10,7 @@ import { plain, yarn } from "./yarn.mjs";
 import { ATTENTION_CHUNK, ATTENTION_COMBINE, ATTENTION_PARTIAL } from "./wgsl-attention.mjs";
 import { EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
 import { ADD_BIAS, embedQ4, matmulQ4, matvecQ4 } from "./wgsl-q4.mjs";
+import { embedDense, matvecDense } from "./wgsl-dense.mjs";
 
 const U = typeof GPUBufferUsage === "undefined" ? {} : GPUBufferUsage;
 const f32bits = (value) => new Uint32Array(new Float32Array([value]).buffer)[0];
@@ -21,7 +22,11 @@ export const q4Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 4;
 // q4f16 is q4 with f16 scales: ONNX's MatMulNBits weight in a q4f16 export.
 export const q4f16Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 2;
 
-export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
+// Bytes of one number of a dense matrix, by format.
+const DENSE = { f32: 4, f16: 2 };
+
+// maxBinding defaults to the device's limit; tests lower it to force tiles.
+export async function createEngine({ device, dims, tensors, capacity = 1024, maxBinding }) {
   const { d, n_heads: heads, n_kv_heads: kvHeads, hd, ff, vocab, n_layers: layers } = dims;
   const eps = dims.eps ?? 1e-6;
   const qdim = heads * hd;
@@ -82,10 +87,28 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     return upload(new Float32Array(t.bytes.buffer, t.bytes.byteOffset, t.bytes.byteLength / 4));
   };
 
-  const embed = matrix("embed");
+  // A dense embedding or head in tiles of whole rows, each within one binding.
+  const dense = (name) => {
+    const t = tensor(name);
+    const size = DENSE[t.fmt];
+    if (t.K % 4) throw new Error(`${name} has ${t.K} columns; a dense matrix is read four at a time`);
+    if (t.bytes.byteLength !== t.N * t.K * size) throw new Error(`${name} holds ${t.bytes.byteLength} bytes, ${t.fmt} needs ${t.N * t.K * size}`);
+    const limit = Math.min(maxBinding ?? device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize);
+    const rows = Math.floor(limit / (t.K * size));
+    if (rows < 1) throw new Error(`one row of ${name} is larger than a binding (${limit} bytes)`);
+    const tiles = [];
+    for (let first = 0; first < t.N; first += rows) {
+      const count = Math.min(rows, t.N - first);
+      tiles.push({ first, rows: count, buffer: upload(t.bytes.subarray(first * t.K * size, (first + count) * t.K * size)), span: uniform([first, count, 0, 0]) });
+    }
+    return { fmt: t.fmt, N: t.N, K: t.K, tiles };
+  };
+  const weights = (name) => (DENSE[tensor(name).fmt] ? dense(name) : matrix(name));
+
+  const embed = weights("embed");
   // A head tied to the embedding names the same bytes; embed's were checked above.
   const tied = tensors.has("lm_head") && (tensors.get("lm_head").bytes ?? tensors.get("lm_head").parts?.[0]) === (tensor("embed").bytes ?? tensor("embed").parts[0]);
-  const head = tensors.has("lm_head") && !tied ? matrix("lm_head") : embed;
+  const head = tensors.has("lm_head") && !tied ? weights("lm_head") : embed;
   // Qwen3 normalises each query and key head; Qwen2 adds a bias to q, k and v.
   const qkNorm = tensors.has("l0.q_norm");
   const bias = tensors.has("l0.bq");
@@ -138,6 +161,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   };
   const matvecPipe = byFormat({ q1: MATVEC_TERNARY, q4: matvecQ4("f32"), q4f16: matvecQ4("f16") });
   const embedPipe = byFormat({ q1: EMBED_TERNARY, q4: embedQ4("f32"), q4f16: embedQ4("f16") });
+  const densePipe = byFormat({ f32: matvecDense("f32"), f16: matvecDense("f16") });
+  const embedDensePipe = byFormat({ f32: embedDense("f32"), f16: embedDense("f16") });
   const P = {
     bias: pipeline(ADD_BIAS),
     norm: pipeline(RMS_NORM),
@@ -194,11 +219,17 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     };
     const plan = [];
     const matvec = (key, w, input, output, accumulate = false) => {
+      if (w.tiles) {
+        const p = densePipe(w.fmt);
+        w.tiles.forEach((tile, i) => plan.push([p, once(`${key}.${i}`, () => bind(p, [input, tile.buffer, output, uniform([w.K, tile.rows, accumulate ? 1 : 0, tile.first])])), ...grid(tile.rows)]));
+        return;
+      }
       const p = matvecPipe(w.fmt);
       plan.push([p, once(key, () => bind(p, [input, ...w.buffers, output, matvecParams(w.K, w.N, accumulate)])), ...grid(w.N)]);
     };
     const addBias = (key, x, b, params, n) => plan.push([P.bias, once(key, () => bind(P.bias, [x, b, params])), Math.ceil(n / 64), 1]);
-    plan.push([embedPipe(embed.fmt), bind(embedPipe(embed.fmt), [...embed.buffers, B.x, ring, u.embed]), Math.ceil(d / 64), 1]);
+    if (embed.tiles) for (const tile of embed.tiles) plan.push([embedDensePipe(embed.fmt), bind(embedDensePipe(embed.fmt), [tile.buffer, B.x, ring, u.embed, tile.span]), Math.ceil(d / 64), 1]);
+    else plan.push([embedPipe(embed.fmt), bind(embedPipe(embed.fmt), [...embed.buffers, B.x, ring, u.embed]), Math.ceil(d / 64), 1]);
     layer.forEach((L, l) => {
       plan.push([P.norm, once(`an${l}`, () => bind(P.norm, [B.x, L.attnNorm, B.h, fixed.normD])), 1, 1]);
       matvec(`q${l}`, L.wq, B.h, B.q);
@@ -288,7 +319,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     prefillPlan.push([p, bind(p, [input, ...w.buffers, output, mmParams(w.K, w.N, accumulate)]), () => Math.min(w.N, 65535), () => Math.ceil(w.N / 65535)]);
   };
   const ppBias = (x, b, params, n) => prefillPlan.push([P.bias, bind(P.bias, [x, b, params]), (c) => Math.ceil((c * n) / 64), () => 1]);
-  prefillPlan.push([embedRowsPipe(embed.fmt), bind(embedRowsPipe(embed.fmt), [...embed.buffers, PB.x, ring, pu.embed]), (c) => Math.ceil((c * d) / 64), () => 1]);
+  if (embed.tiles) for (const tile of embed.tiles) prefillPlan.push([embedDensePipe(embed.fmt), bind(embedDensePipe(embed.fmt), [tile.buffer, PB.x, ring, pu.embed, tile.span]), (c) => Math.ceil((c * d) / 64), () => 1]);
+  else prefillPlan.push([embedRowsPipe(embed.fmt), bind(embedRowsPipe(embed.fmt), [...embed.buffers, PB.x, ring, pu.embed]), (c) => Math.ceil((c * d) / 64), () => 1]);
   for (const L of layer) {
     prefillPlan.push([PP.norm, bind(PP.norm, [PB.x, L.attnNorm, PB.h, fixed.normD]), (c) => c, () => 1]);
     mm(L.wq, PB.h, PB.q);
@@ -427,6 +459,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     reset: () => { position = 0; },
     get position() { return position; },
     get gpuBytes() { return gpuBytes; },
+    // How many tiles the head was split into; 1 for a q1 or q4 head.
+    headTiles: head.tiles ? head.tiles.length : 1,
     rope,
   };
 }

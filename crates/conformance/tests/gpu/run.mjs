@@ -49,8 +49,8 @@ try {
 
     // The same three checks for each model: step by step against the
     // reference, 140 positions against it, and blocks against one at a time.
-    const exercise = async (model) => {
-    const engine = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 64 });
+    const exercise = async (model, options = {}) => {
+    const engine = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 64 });
     const reference = referenceModel(model);
 
     const steps = [];
@@ -71,7 +71,7 @@ try {
     // GP-01 past one attention chunk: 140 positions span three of attention's
     // 64-position chunks, so the combine of partials is compared with the
     // reference, not only one chunk alone.
-    const longEngine = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 192 });
+    const longEngine = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 192 });
     const longReference = referenceModel(model);
     let longWorst = 0;
     let longPositions = 0;
@@ -86,13 +86,13 @@ try {
     // same model, for a short prompt and one longer than a submission's slots.
     const batched = [];
     for (const prompt of [model.prompt, Array.from({ length: 100 }, (_, i) => (i * 37 + 11) % model.dims.vocab)]) {
-      const one = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 128 });
-      const many = await createEngine({ device, dims: model.dims, tensors: model.tensors, capacity: 128 });
+      const one = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 128 });
+      const many = await createEngine({ device, dims: model.dims, tensors: model.tensors, ...options, capacity: 128 });
       const stepwise = await one.generate(prompt, 12);
       const together = await many.run(prompt, 12);
       batched.push({ promptLength: prompt.length, stepwise, together, position: many.position });
     }
-    return { steps, gpuNext, batched, longWorst, longPositions, model: model.tensors };
+    return { steps, gpuNext, batched, longWorst, longPositions, headTiles: engine.headTiles, model: model.tensors };
     };
     // GP-01 and GP-04 on the ternary Qwen3 model; GP-05 on the q4 Qwen2 one.
     const ternary = await exercise(tinyModel(1));
@@ -113,9 +113,23 @@ try {
       q4: { formats: formats(q4), ...(await exercise(q4)) },
       q4f16: { formats: formats(q4f16), ...(await exercise(q4f16)) },
     };
+    // GP-09: the exports' own embedding, a dense f32 (q4) or f16 (q4f16)
+    // matrix with the head tied to it, and a binding limit of 15,000 bytes so
+    // the head is split into tiles as a 467 MB head is on a phone: 29 rows a
+    // tile in f32 and 58 in f16, neither dividing the 320 rows, so the last
+    // tile is a short one.
+    const tile = 15000;
+    const dense = {
+      tile,
+      q4: await exercise(tinyQwen2(3, "onnx", "f32", "dense"), { maxBinding: tile }),
+      q4f16: await exercise(tinyQwen2(3, "onnx", "f16", "dense"), { maxBinding: tile }),
+    };
+    for (const m of [dense.q4, dense.q4f16]) delete m.model;
+    delete onnx.q4.model;
+    delete onnx.q4f16.model;
     delete qwen2.model;
     delete ternary.model;
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx };
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, ...ternary, qwen2, onnx, dense };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {

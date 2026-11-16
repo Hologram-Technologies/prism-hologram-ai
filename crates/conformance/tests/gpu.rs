@@ -476,3 +476,35 @@ fn gpu_gp_08() {
         blocks_agree(model, &format!("ONNX {key}"));
     }
 }
+
+/// `GP-09`: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
+#[test]
+fn gpu_gp_09() {
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let dense = &result["dense"];
+    assert!(
+        dense.is_object(),
+        "the run has no dense-embedding models: {result}"
+    );
+    // The limit is 15,000 bytes over 320 rows 128 wide: 29 rows a tile at four
+    // bytes a number and 58 at two, so a head of one tile would mean the limit
+    // was ignored, and neither count divides 320, so the last tile is short.
+    assert_eq!(dense["tile"].as_u64(), Some(15_000), "the binding limit");
+    for (key, tiles) in [("q4", 12), ("q4f16", 6)] {
+        let model = &dense[key];
+        assert_eq!(
+            model["headTiles"].as_u64(),
+            Some(tiles),
+            "{key}: the head was not split into {tiles} tiles"
+        );
+        reference_agrees(model, &format!("dense {key}"));
+        blocks_agree(model, &format!("dense {key}"));
+    }
+}
