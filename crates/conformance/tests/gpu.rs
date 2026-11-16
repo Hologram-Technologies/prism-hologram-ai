@@ -694,3 +694,74 @@ fn gpu_gp_12() {
         blocks_agree(model, &format!("placed {key}"));
     }
 }
+
+/// The largest difference allowed between the encoder's single-precision
+/// numbers and the reference's. SwiftShader measured 1.0e-6 on hidden states
+/// and 9e-8 on label scores; a misplaced bias or norm moves them by tenths.
+const ENCODER_TOLERANCE: f64 = 1e-4;
+
+/// `GP-13`: A BERT encoder shaped as all-MiniLM-L6-v2's q4f16 ONNX export, with q4f16 weights, f16 biases, LayerNorms and embedding tables and token types, gives on WebGPU the CPU reference's hidden states and its mean-pooled unit-length sentence embedding within tolerance
+#[test]
+fn gpu_gp_13() {
+    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the encoder did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let runs = result["embeddings"].as_array().expect("the embeddings");
+    let lengths: Vec<u64> = runs.iter().filter_map(|r| r["tokens"].as_u64()).collect();
+    assert_eq!(lengths, [6, 60], "a short sentence and a long one");
+    for run in runs {
+        let n = &run["tokens"];
+        let states = run["statesWorst"].as_f64().expect("statesWorst");
+        assert!(
+            states <= ENCODER_TOLERANCE,
+            "{n} tokens: a hidden state differs by {states}"
+        );
+        let embedding = run["embeddingWorst"].as_f64().expect("embeddingWorst");
+        assert!(
+            embedding <= ENCODER_TOLERANCE,
+            "{n} tokens: the embedding differs by {embedding}"
+        );
+        let cosine = run["cosine"].as_f64().expect("cosine");
+        assert!(cosine > 0.99999, "{n} tokens: cosine {cosine}");
+    }
+}
+
+/// `GP-14`: A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label
+#[test]
+fn gpu_gp_14() {
+    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the encoder did not run: {}",
+        result["error"]
+    );
+    let runs = result["classes"].as_array().expect("the classifications");
+    assert_eq!(runs.len(), 2, "two sentences");
+    // The fixture gives the two sentences different labels, so a head that
+    // always answers one label fails.
+    assert_ne!(
+        runs[0]["reference"], runs[1]["reference"],
+        "the fixture's sentences must differ in label; choose another seed"
+    );
+    for run in runs {
+        let n = &run["tokens"];
+        let margin = run["margin"].as_f64().expect("margin");
+        assert!(
+            margin > 2.0 * ENCODER_TOLERANCE,
+            "{n} tokens: the fixture has a near tie ({margin})"
+        );
+        for key in ["logitsWorst", "probabilityWorst"] {
+            let got = run[key].as_f64().expect(key);
+            assert!(got <= ENCODER_TOLERANCE, "{n} tokens: {key} {got}");
+        }
+        assert_eq!(
+            run["gpu"], run["reference"],
+            "{n} tokens: the encoder picked another label"
+        );
+    }
+}
