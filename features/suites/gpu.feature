@@ -87,3 +87,12 @@ Feature: gpu
     Then pairs 0 to 14 keep their frequency, pairs 18 to 31 turn 32 times slower, and pairs 15 to 17 blend, every one within one part in a million of the formula, with no attention scale
     And GP-10's model with no biases and Llama 3's scaling at factor 4 over an original context of 64, so its pairs fall in all three bands, gives the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions
     And a prompt run in blocks gives the same tokens as one position at a time
+
+  @GP-12 @build
+  Scenario: Every weight of onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B is given its engine role by the node that reads it, with shapes checked against the config, what cannot be placed is refused by name, and a model placed this way gives the CPU reference's greedy tokens
+    Given the graphs of the three q4f16 exports at their hub revisions, recorded in crates/conformance/tests/gpu/exports as their nodes and tensor shapes with their config.json, and four rows of Llama's cos and sin cache
+    When site/app/engine/onnx-roles.mjs places each graph's weights by the names of the nodes that read them
+    Then Qwen2.5 has 338 placed tensors, Qwen3 310 and Llama 146, each exactly the engine's roles for its config, with the head tied to the embedding
+    And Llama's cache confirms Llama 3 scaling at factor 32, low 1, high 4, original 8192
+    And a missing weight, a duplicate, an operator no role takes, zero points, a block size of 64, a head count the shapes contradict, an unknown family, too few layers, a cache no parameters match and interleaved rotary are each refused, naming what is wrong
+    And GP-10's and GP-11's models, written as a decomposed and a fused export, placed from their graphs alone and run from the tensors the map names, give the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions

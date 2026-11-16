@@ -594,3 +594,103 @@ fn gpu_gp_11() {
     reference_agrees(model, "Llama 3 shape");
     blocks_agree(model, "Llama 3 shape");
 }
+
+/// `GP-12`: Every weight of onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B is given its engine role by the node that reads it, with shapes checked against the config, what cannot be placed is refused by name, and a model placed this way gives the CPU reference's greedy tokens
+#[test]
+fn gpu_gp_12() {
+    let result = node("crates/conformance/tests/gpu/roles.mjs", &[]);
+    // (export, layers, width, heads, kv heads, head size, placed, f16 tensors)
+    for (name, layers, d, heads, kv, hd, placed, f16) in [
+        ("Qwen2.5-1.5B-Instruct", 28, 1536, 12, 2, 128, 338, 142),
+        ("Qwen3-0.6B-ONNX", 28, 1024, 16, 8, 128, 310, 114),
+        ("Llama-3.2-1B-Instruct-ONNX", 16, 2048, 32, 8, 64, 146, 34),
+    ] {
+        let x = &result["exports"][name];
+        assert!(x.is_object(), "{name}: not placed: {result}");
+        let dims = &x["dims"];
+        for (key, want) in [
+            ("n_layers", layers),
+            ("d", d),
+            ("n_heads", heads),
+            ("n_kv_heads", kv),
+            ("hd", hd),
+        ] {
+            assert_eq!(dims[key].as_u64(), Some(want), "{name}: {key}");
+        }
+        // Seven 4-bit matrices a layer, and the rest f16: two norms a layer,
+        // three biases for Qwen2.5 or two head norms for Qwen3, the embedding
+        // and the final norm.
+        assert_eq!(x["placed"].as_u64(), Some(placed), "{name}: tensors placed");
+        assert_eq!(
+            x["formats"]["q4f16"].as_u64(),
+            Some(7 * layers),
+            "{name}: q4f16"
+        );
+        assert_eq!(x["formats"]["f16"].as_u64(), Some(f16), "{name}: f16");
+        assert_eq!(x["head"].as_bool(), Some(false), "{name}: the head is tied");
+        assert_eq!(x["embed"].as_str(), Some("model.embed_tokens.weight"));
+    }
+    // Qwen2.5 names its weights onnx::MatMul_N; the node placed it.
+    assert_eq!(
+        result["exports"]["Qwen2.5-1.5B-Instruct"]["q3"],
+        serde_json::json!(["onnx::MatMul_9444_Q4", "onnx::MatMul_9444_scales"])
+    );
+    assert_eq!(
+        result["exports"]["Llama-3.2-1B-Instruct-ONNX"]["rope"],
+        serde_json::json!({"llama3": {"factor": 32, "low": 1, "high": 4, "orig": 8192}}),
+        "Llama's cache confirms Llama 3 scaling"
+    );
+    for (case, start) in [
+        ("missing", "missing: the graph has no l3.wq"),
+        ("duplicate", "duplicate: l5.w_up"),
+        (
+            "unplaced",
+            "unplaced: MatMulNBits /model/layers.2/mlp/extra_proj",
+        ),
+        (
+            "zeroPoints",
+            "precision: /model/layers.0/attn/k_proj/MatMul_Q4 carries zero points",
+        ),
+        (
+            "block",
+            "precision: /model/layers.1/attn/v_proj/MatMul_Q4 is 4 bits in blocks of 64",
+        ),
+        ("heads", "shape: /model/layers.0/attn/k_proj/MatMul_Q4 rows"),
+        ("family", "family: gemma"),
+        ("layers", "layer: /model/layers.27/"),
+        ("rope", "rope: no rotary parameters agree"),
+        (
+            "interleaved",
+            "rope: /model/layers.0/attn/q_rotary/RotaryEmbedding rotates interleaved",
+        ),
+    ] {
+        let got = result["refusals"][case].as_str().unwrap_or_default();
+        assert!(
+            got.starts_with(start),
+            "{case}: refused with {got:?}, not {start:?}"
+        );
+    }
+
+    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    assert!(
+        result.get("error").is_none(),
+        "the engine did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    for key in ["qwen2", "llama"] {
+        let model = &result["placed"][key];
+        assert!(
+            model.is_object(),
+            "the run has no placed {key} model: {result}"
+        );
+        assert_eq!(
+            model["sameAsModel"].as_bool(),
+            Some(true),
+            "{key}: the map placed other tensors than the model has"
+        );
+        reference_agrees(model, &format!("placed {key}"));
+        blocks_agree(model, &format!("placed {key}"));
+    }
+}
