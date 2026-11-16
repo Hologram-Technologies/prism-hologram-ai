@@ -1668,12 +1668,37 @@ Five, planted one at a time and then restored. Every one was rejected.
 Two of the plants were first written against lines `cargo fmt` had reflowed;
 they applied to nothing, and were planted again against the formatted text.
 
+### Run over a real export
+
+On 2026-11-16 the importer was run over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen3-0.6B-ONNX at `79346d3`, the revision its hub record pins,
+streamed whole from Hugging Face in 1 MiB pieces into a local probe. The probe
+is not part of the gate, which has no network, and is not committed.
+
+The probe's kernel is a stand-in that applies decisions 5, 18, 20 and 23 as
+their specifications state them: a second statement of those decisions, for
+this run only. The kernel itself answers them in the browser.
+
+| | Result |
+| --- | --- |
+| Bytes taken | 569,789,750, the record's size |
+| Whole file (decision 5) | admitted: the importer's SHA-256 of the file equals the record's |
+| Tensors | 508, all inline, 569,507,840 bytes; 508 distinct addresses |
+| Spans (decision 23) | 508 asked, all accepted; independently, every span lies inside the file and none overlaps another |
+| Operators (decision 18) | 18 asked in the fused style, all on the fused list: the same 18 the KN-18 census read |
+| 4-bit weights (decision 20) | 392 asked, codes and scales of 196 MatMulNBits nodes, all the length their shapes give |
+| Refusals | none |
+| Time in the importer | 359 s for the whole file, on a machine shared with other work |
+
+Ten addresses were then checked independently: the smallest tensor, the
+largest (the 311,164,928-byte embedding), and eight at random, each fetched
+again by range read and hashed with Python's own BLAKE3. All ten equal the
+importer's addresses.
+
 ### What is not here yet
 
-The importer has been run only on the model EN-31 builds. Run over a real
-export it would download the whole file, since every byte is hashed: 570 MB
-for Qwen3-0.6B at q4f16. Nothing yet stores the tensors by address, is in the
-wasm module, or is called by the page.
+Nothing yet stores the tensors by address, is in the wasm module, or is
+called by the page.
 
 ## How the engine may fail
 
