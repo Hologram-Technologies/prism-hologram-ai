@@ -1,0 +1,79 @@
+\begin{lexlean}{Proofs.Family}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Family}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: family_listed_decides,
+  parameters: [kind : Nat],
+  statement: (((Kernel.Family::familyListed kind) = false) <-> (((kind = 8176115172474093568) -> (1 = 0)) /\ (((kind = 8176115172490870784) -> (1 = 0)) /\ ((kind = 7812726575987687424) -> (1 = 0))))),
+  proof: linear_arithmetic{definitions: [Kernel.Family::familyListed]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: family_shaped_decides,
+  parameters: [
+    heads : Nat,
+    groups : Nat,
+    headSize : Nat,
+    layers : Nat,
+    width : Nat,
+    vocabulary : Nat
+  ],
+  statement: (((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true) <-> ((1 <= groups) /\ ((groups <= heads) /\ (((prim remainder heads groups 0 : Nat) = 0) /\ ((2 <= headSize) /\ (((prim remainder headSize 2 0 : Nat) = 0) /\ ((1 <= layers) /\ ((1 <= width) /\ (1 <= vocabulary))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Family::familyShaped]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: family_supported_decides,
+  parameters: [
+    kind : Nat,
+    activation : Nat,
+    heads : Nat,
+    groups : Nat,
+    headSize : Nat,
+    layers : Nat,
+    width : Nat,
+    vocabulary : Nat
+  ],
+  statement: (((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 2) <-> (((Kernel.Family::familyListed kind) = true) /\ ((activation = 8316297436683304960) /\ ((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true)))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Family::familyCode,
+      Kernel.Family::familyGated,
+      Kernel.Family::familyListed,
+      Kernel.Family::familyShaped
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: family_unknown_decides,
+  parameters: [
+    kind : Nat,
+    activation : Nat,
+    heads : Nat,
+    groups : Nat,
+    headSize : Nat,
+    layers : Nat,
+    width : Nat,
+    vocabulary : Nat
+  ],
+  statement: (((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 0) <-> ((Kernel.Family::familyListed kind) = false)),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Family::familyCode,
+      Kernel.Family::familyGated,
+      Kernel.Family::familyListed,
+      Kernel.Family::familyShaped
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -1748,3 +1748,637 @@ fn kernel_kn_17() {
     }
     assert_routed(17, "Kernel.Quant::quantAnswer");
 }
+
+/// `KN-18`: An operator is supported exactly when its name is on the closed list of the export style asked about, and no name is supported under an unknown style
+#[test]
+fn kernel_kn_18() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Opnames.lex.tex");
+    let proofs = model("app/src/Proofs/Opnames.lex.tex");
+    assert_pinned(
+        &proofs,
+        "opname_is_decides",
+        "(((Kernel.Opnames::opnameIs wa wb wc wd a b c d) = true) <-> ((wa = a) /\\ ((wb = b) /\\ ((wc = c) /\\ (wd = d)))))",
+        "propext",
+    );
+    let found = declaration(&kernel, "opnameIs");
+    assert!(
+        found.contains("body: ((wa =? a) && ((wb =? b) && ((wc =? c) && (wd =? d))))"),
+        "opnameIs changed:\n{found}"
+    );
+    let found = declaration(&kernel, "opnameDecomposed");
+    assert!(
+        found.contains("body: ((opnameIs wa wb wc wd 4712001061299159040 0 0 0) || ((opnameIs wa wb wc wd 4855288815335505920 0 0 0) || ((opnameIs wa wb wc wd 4859223896071864320 0 0 0) || ((opnameIs wa wb wc wd 4859223965108891252 5721352084397253888 0 0) || ((opnameIs wa wb wc wd 4929601009505796096 0 0 0) || ((opnameIs wa wb wc wd 5003909722269548544 0 0 0) || ((opnameIs wa wb wc wd 5005874549588492288 0 0 0) || ((opnameIs wa wb wc wd 5143520241161207808 0 0 0) || ((opnameIs wa wb wc wd 5148288793276936704 0 0 0) || ((opnameIs wa wb wc wd 5575865689692700672 0 0 0) || ((opnameIs wa wb wc wd 5575865689692720706 7598824915118063616 0 0) || ((opnameIs wa wb wc wd 5581486060451397632 0 0 0) || ((opnameIs wa wb wc wd 5649034557303816192 0 0 0) || ((opnameIs wa wb wc wd 5795982087332823040 0 0 0) || ((opnameIs wa wb wc wd 5936147174206210048 0 0 0) || ((opnameIs wa wb wc wd 5937262139099401573 7020548869117181952 0 0) || ((opnameIs wa wb wc wd 5937278575906415872 0 0 0) || ((opnameIs wa wb wc wd 6008753480639279694 4899916394579099648 0 0) || ((opnameIs wa wb wc wd 6010160838084657152 0 0 0) || ((opnameIs wa wb wc wd 6010448897420911616 0 0 0) || ((opnameIs wa wb wc wd 6011295478249947136 0 0 0) || ((opnameIs wa wb wc wd 6012136677800245248 0 0 0) || ((opnameIs wa wb wc wd 6012712820058095616 0 0 0) || ((opnameIs wa wb wc wd 6085033173542006643 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6085041961071280128 0 0 0) || ((opnameIs wa wb wc wd 6155984671800124794 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6298395620872814592 0 0 0) || false)))))))))))))))))))))))))))"),
+        "opnameDecomposed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "opnameFused");
+    assert!(
+        found.contains("body: ((opnameIs wa wb wc wd 4855288815335505920 0 0 0) || ((opnameIs wa wb wc wd 4859223896071864320 0 0 0) || ((opnameIs wa wb wc wd 4859223965108891252 0 0 0) || ((opnameIs wa wb wc wd 5143520241161207808 0 0 0) || ((opnameIs wa wb wc wd 5148299874224141669 8248696160930590324 7597412042676371456 0) || ((opnameIs wa wb wc wd 5575865689692700672 0 0 0) || ((opnameIs wa wb wc wd 5575865689692720706 7598824915118063616 0 0) || ((opnameIs wa wb wc wd 5581486060451397632 0 0 0) || ((opnameIs wa wb wc wd 5937262139099403125 7854277750134145024 0 0) || ((opnameIs wa wb wc wd 5937278575906415872 0 0 0) || ((opnameIs wa wb wc wd 5940094395406173549 7090183570793064192 0 0) || ((opnameIs wa wb wc wd 6010160838084657152 0 0 0) || ((opnameIs wa wb wc wd 6010448897420911616 0 0 0) || ((opnameIs wa wb wc wd 6010455507325249129 7306048477034017358 8030601350753122913 8388358299191345152) || ((opnameIs wa wb wc wd 6011014058812730736 7811887631509507169 8747523532439842145 7811909587634319214) || ((opnameIs wa wb wc wd 6013820629562687488 0 0 0) || ((opnameIs wa wb wc wd 6085033173542006643 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6155984671800124794 7277816997830721536 0 0) || false))))))))))))))))))"),
+        "opnameFused changed:\n{found}"
+    );
+    let found = declaration(&kernel, "opnameListed");
+    assert!(
+        found.contains("body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else false))"),
+        "opnameListed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "opnameAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode \"supported\" : Bytes) else (prim utf8_encode \"unsupported operator\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "opnameAnswer changed:\n{found}"
+    );
+    // Each listed operator is the four words of its name's bytes: the names are
+    // here, and the numbers in the model must be theirs.
+    let styles: [(&str, &[&str]); 2] = [
+        (
+            "opnameDecomposed",
+            &[
+                "Add",
+                "Cast",
+                "Concat",
+                "ConstantOfShape",
+                "Div",
+                "Equal",
+                "Expand",
+                "Gather",
+                "Greater",
+                "MatMul",
+                "MatMulNBits",
+                "Mul",
+                "Neg",
+                "Pow",
+                "Range",
+                "ReduceMean",
+                "Reshape",
+                "ScatterND",
+                "Shape",
+                "Sigmoid",
+                "Slice",
+                "Softmax",
+                "Sqrt",
+                "Transpose",
+                "Trilu",
+                "Unsqueeze",
+                "Where",
+            ],
+        ),
+        (
+            "opnameFused",
+            &[
+                "Cast",
+                "Concat",
+                "Constant",
+                "Gather",
+                "GroupQueryAttention",
+                "MatMul",
+                "MatMulNBits",
+                "Mul",
+                "ReduceSum",
+                "Reshape",
+                "RotaryEmbedding",
+                "Shape",
+                "Sigmoid",
+                "SimplifiedLayerNormalization",
+                "SkipSimplifiedLayerNormalization",
+                "Sub",
+                "Transpose",
+                "Unsqueeze",
+            ],
+        ),
+    ];
+    for (definition, names) in styles {
+        let listed = declaration(&kernel, definition);
+        for name in names {
+            let mut bytes = [0u8; 32];
+            bytes[..name.len()].copy_from_slice(name.as_bytes());
+            let words: Vec<String> = bytes
+                .chunks(8)
+                .map(|w| u64::from_be_bytes(w.try_into().expect("eight bytes")).to_string())
+                .collect();
+            let wanted = format!("(opnameIs wa wb wc wd {})", words.join(" "));
+            assert!(
+                listed.contains(&wanted),
+                "{name} is not in {definition}:\n{listed}"
+            );
+        }
+        assert_eq!(
+            listed.matches("(opnameIs ").count(),
+            names.len(),
+            "{definition} lists a name the test does not"
+        );
+    }
+    assert_routed(18, "Kernel.Opnames::opnameAnswer");
+}
+/// `KN-19`: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
+#[test]
+fn kernel_kn_19() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Family.lex.tex");
+    let proofs = model("app/src/Proofs/Family.lex.tex");
+    assert_pinned(
+        &proofs,
+        "family_listed_decides",
+        "(((Kernel.Family::familyListed kind) = false) <-> (((kind = 8176115172474093568) -> (1 = 0)) /\\ (((kind = 8176115172490870784) -> (1 = 0)) /\\ ((kind = 7812726575987687424) -> (1 = 0)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "family_shaped_decides",
+        "(((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true) <-> ((1 <= groups) /\\ ((groups <= heads) /\\ (((prim remainder heads groups 0 : Nat) = 0) /\\ ((2 <= headSize) /\\ (((prim remainder headSize 2 0 : Nat) = 0) /\\ ((1 <= layers) /\\ ((1 <= width) /\\ (1 <= vocabulary)))))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "family_supported_decides",
+        "(((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 2) <-> (((Kernel.Family::familyListed kind) = true) /\\ ((activation = 8316297436683304960) /\\ ((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "family_unknown_decides",
+        "(((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 0) <-> ((Kernel.Family::familyListed kind) = false))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "familyListed");
+    assert!(
+        found.contains("body: ((kind =? 8176115172474093568) || ((kind =? 8176115172490870784) || (kind =? 7812726575987687424)))"),
+        "familyListed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "familyGated");
+    assert!(
+        found.contains("body: (activation =? 8316297436683304960)"),
+        "familyGated changed:\n{found}"
+    );
+    let found = declaration(&kernel, "familyShaped");
+    assert!(
+        found.contains("body: ((1 <=? groups) && ((groups <=? heads) && (((prim remainder heads groups 0 : Nat) =? 0) && ((2 <=? headSize) && (((prim remainder headSize 2 0 : Nat) =? 0) && ((1 <=? layers) && ((1 <=? width) && (1 <=? vocabulary))))))))"),
+        "familyShaped changed:\n{found}"
+    );
+    let found = declaration(&kernel, "familyCode");
+    assert!(
+        found.contains("body: (if (familyListed kind) then (if ((familyGated activation) && (familyShaped heads groups headSize layers width vocabulary)) then 2 else 1) else 0)"),
+        "familyCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "familyAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 33) then (familyText (familyCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 2) (Kernel.Wire::fieldAt value 19 2) (Kernel.Wire::fieldAt value 21 2) (Kernel.Wire::fieldAt value 23 2) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "familyAnswer changed:\n{found}"
+    );
+    // The listed types and the activation are the bytes of their names, not numbers chosen here.
+    let word = |name: &str| {
+        let mut bytes = [0u8; 8];
+        bytes[..name.len()].copy_from_slice(name.as_bytes());
+        u64::from_be_bytes(bytes).to_string()
+    };
+    let listed = declaration(&kernel, "familyListed");
+    for name in ["qwen2", "qwen3", "llama"] {
+        assert!(
+            listed.contains(&format!("(kind =? {})", word(name))),
+            "{name} is not listed:\n{listed}"
+        );
+    }
+    assert!(
+        declaration(&kernel, "familyGated").contains(&format!("(activation =? {})", word("silu"))),
+        "the gated activation is not silu"
+    );
+    assert_routed(19, "Kernel.Family::familyAnswer");
+}
+/// `KN-20`: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
+#[test]
+fn kernel_kn_20() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Nbits.lex.tex");
+    let proofs = model("app/src/Proofs/Nbits.lex.tex");
+    assert_pinned(
+        &proofs,
+        "nbits_shaped_decides",
+        "(((Kernel.Nbits::nbitsShaped part rows columns size) = true) <-> ((part <= 2) /\\ ((1 <= rows) /\\ ((rows <= 16777215) /\\ ((1 <= columns) /\\ ((columns <= 16777215) /\\ ((Kernel.Nbits::nbitsBlock size) = true)))))))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_block_bounds",
+        "(((Kernel.Nbits::nbitsBlock size) = true) -> ((16 <= size) /\\ ((size <= 256) /\\ ((prim remainder size 16 0 : Nat) = 0))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_blocks_fewest_16",
+        "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat)) /\\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat) + 1) <= (columns + 16)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_blocks_fewest_32",
+        "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat)) /\\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat) + 1) <= (columns + 32)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_blocks_fewest_64",
+        "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat)) /\\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat) + 1) <= (columns + 64)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_blocks_fewest_128",
+        "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat)) /\\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat) + 1) <= (columns + 128)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "nbits_blocks_fewest_256",
+        "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat)) /\\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat) + 1) <= (columns + 256)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "nbitsBlock");
+    assert!(
+        found.contains("body: ((size =? 16) || ((size =? 32) || ((size =? 64) || ((size =? 128) || (size =? 256)))))"),
+        "nbitsBlock changed:\n{found}"
+    );
+    let found = declaration(&kernel, "nbitsBlocks");
+    assert!(
+        found.contains(
+            "body: (prim quotient (columns + (prim subtract size 1 : Nat)) size 0 : Nat)"
+        ),
+        "nbitsBlocks changed:\n{found}"
+    );
+    let found = declaration(&kernel, "nbitsPerBlock");
+    assert!(
+        found.contains("body: (if (part =? 0) then (prim quotient size 2 0 : Nat) else (if (part =? 1) then 4 else 2))"),
+        "nbitsPerBlock changed:\n{found}"
+    );
+    let found = declaration(&kernel, "nbitsLength");
+    assert!(
+        found.contains("body: (prim multiply (prim multiply rows (nbitsBlocks columns size) : Nat) (nbitsPerBlock part size) : Nat)"),
+        "nbitsLength changed:\n{found}"
+    );
+    let found = declaration(&kernel, "nbitsAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 12) then (if (nbitsShaped (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2)) then (Kernel.Wire::decimal (nbitsLength (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2))) else (prim utf8_encode \"bad shape\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "nbitsAnswer changed:\n{found}"
+    );
+    assert_routed(20, "Kernel.Nbits::nbitsAnswer");
+}
+/// `KN-21`: The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits
+#[test]
+fn kernel_kn_21() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Precision.lex.tex");
+    let proofs = model("app/src/Proofs/Precision.lex.tex");
+    assert_pinned(
+        &proofs,
+        "precision_fits_decides",
+        "(((Kernel.Precision::precisionFits offered size budget) = true) <-> ((offered = 1) /\\ (size <= budget)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "precision_first",
+        "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 0) <-> ((Kernel.Precision::precisionFits lean leanSize budget) = true))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "precision_second",
+        "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 1) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\\ ((Kernel.Precision::precisionFits plain plainSize budget) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "precision_third",
+        "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 2) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\\ (((Kernel.Precision::precisionFits plain plainSize budget) = false) /\\ ((Kernel.Precision::precisionFits wide wideSize budget) = true))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "precision_none",
+        "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 3) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\\ (((Kernel.Precision::precisionFits plain plainSize budget) = false) /\\ ((Kernel.Precision::precisionFits wide wideSize budget) = false))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "precision_budget_monotone",
+        "((budget <= wider) -> ((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize wider) <= (Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "precisionFits");
+    assert!(
+        found.contains("body: ((offered =? 1) && (size <=? budget))"),
+        "precisionFits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "precisionCode");
+    assert!(
+        found.contains("body: (if (precisionFits lean leanSize budget) then 0 else (if (precisionFits plain plainSize budget) then 1 else (if (precisionFits wide wideSize budget) then 2 else 3)))"),
+        "precisionCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "precisionText");
+    assert!(
+        found.contains("body: (if (code =? 0) then (prim utf8_encode \"q4f16\" : Bytes) else (if (code =? 1) then (prim utf8_encode \"q4\" : Bytes) else (if (code =? 2) then (prim utf8_encode \"fp16\" : Bytes) else (prim utf8_encode \"none fits\" : Bytes))))"),
+        "precisionText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "precisionAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 36) && (((Kernel.Wire::fieldAt value 1 1) <=? 1) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1)))) then (precisionText (precisionCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 12 8) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 20 8) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 28 8) (Kernel.Wire::fieldAt value 4 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "precisionAnswer changed:\n{found}"
+    );
+    assert_routed(21, "Kernel.Precision::precisionAnswer");
+}
+/// `KN-22`: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused
+#[test]
+fn kernel_kn_22() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Device.lex.tex");
+    let proofs = model("app/src/Proofs/Device.lex.tex");
+    assert_pinned(
+        &proofs,
+        "device_webgpu_decides",
+        "(((Kernel.Device::deviceCode present limit largest model ceiling) = 2) <-> ((Kernel.Backend::gpuUsable present limit largest) = true))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "device_cpu_decides",
+        "(((Kernel.Device::deviceCode present limit largest model ceiling) = 1) <-> (((Kernel.Backend::gpuUsable present limit largest) = false) /\\ (model <= ceiling)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "device_refused_decides",
+        "(((Kernel.Device::deviceCode present limit largest model ceiling) = 0) <-> (((Kernel.Backend::gpuUsable present limit largest) = false) /\\ ((ceiling + 1) <= model)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "deviceCode");
+    assert!(
+        found.contains("body: (if (Kernel.Backend::gpuUsable present limit largest) then 2 else (if (model <=? ceiling) then 1 else 0))"),
+        "deviceCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "deviceText");
+    assert!(
+        found.contains("body: (if (code =? 2) then (prim utf8_encode \"webgpu\" : Bytes) else (if (code =? 1) then (prim utf8_encode \"cpu\" : Bytes) else (prim utf8_encode \"refused: too large for cpu\" : Bytes)))"),
+        "deviceText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "deviceAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (deviceText (deviceCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "deviceAnswer changed:\n{found}"
+    );
+    assert_routed(22, "Kernel.Device::deviceAnswer");
+}
+/// `KN-23`: A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file
+#[test]
+fn kernel_kn_23() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Chunks.lex.tex");
+    let proofs = model("app/src/Proofs/Chunks.lex.tex");
+    assert_pinned(
+        &proofs,
+        "chunk_declared_decides",
+        "(((Kernel.Chunks::chunkDeclared declared index) = true) <-> ((declared <= 100) /\\ (index <= declared)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "chunk_inside_decides",
+        "(((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) <-> ((previousEnd <= offset) /\\ ((offset + length) <= fileLength)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "chunk_spans_disjoint",
+        "((((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) /\\ ((Kernel.Chunks::chunkInside fileLength nextOffset nextLength (offset + length)) = true)) -> (((offset + length) <= nextOffset) /\\ ((nextOffset + nextLength) <= fileLength)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "chunkDeclared");
+    assert!(
+        found.contains("body: ((declared <=? 100) && (index <=? declared))"),
+        "chunkDeclared changed:\n{found}"
+    );
+    let found = declaration(&kernel, "chunkInside");
+    assert!(
+        found.contains("body: ((previousEnd <=? offset) && ((offset + length) <=? fileLength))"),
+        "chunkInside changed:\n{found}"
+    );
+    let found = declaration(&kernel, "chunkAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 35) then (if (chunkDeclared (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (if (chunkInside (Kernel.Wire::fieldAt value 3 8) (Kernel.Wire::fieldAt value 11 8) (Kernel.Wire::fieldAt value 19 8) (Kernel.Wire::fieldAt value 27 8)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"reject\" : Bytes)) else (prim utf8_encode \"undeclared file\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "chunkAnswer changed:\n{found}"
+    );
+    assert_routed(23, "Kernel.Chunks::chunkAnswer");
+}
+/// `KN-24`: The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused
+#[test]
+fn kernel_kn_24() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Source.lex.tex");
+    let proofs = model("app/src/Proofs/Source.lex.tex");
+    assert_pinned(
+        &proofs,
+        "source_named_decides",
+        "(((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task = 0) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ (part <= declared)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "source_undeclared_decides",
+        "(((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task = 0) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ ((declared + 1) <= part)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "source_task_decides",
+        "(((Kernel.Source::sourceCode task precision declared part) = 0) <-> (1 <= task))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "sourceCode");
+    assert!(
+        found.contains("body: (if (task =? 0) then (if (precision <=? 3) then (if (declared <=? 100) then (if (part <=? declared) then 4 else 3) else 2) else 1) else 0)"),
+        "sourceCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sourceGraph");
+    assert!(
+        found.contains("body: (if (precision =? 0) then (prim utf8_encode \"onnx/model_q4f16.onnx\" : Bytes) else (if (precision =? 1) then (prim utf8_encode \"onnx/model_q4.onnx\" : Bytes) else (if (precision =? 2) then (prim utf8_encode \"onnx/model_fp16.onnx\" : Bytes) else (prim utf8_encode \"onnx/model.onnx\" : Bytes))))"),
+        "sourceGraph changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sourceName");
+    assert!(
+        found.contains("body: (if (part =? 0) then (sourceGraph precision) else (if (part =? 1) then (prim append (sourceGraph precision) (prim utf8_encode \"_data\" : Bytes) : Bytes) else (prim append (prim append (sourceGraph precision) (prim utf8_encode \"_data_\" : Bytes) : Bytes) (Kernel.Wire::decimal (prim subtract part 1 : Nat)) : Bytes)))"),
+        "sourceName changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sourceText");
+    assert!(
+        found.contains("body: (if (code =? 4) then (sourceName precision part) else (if (code =? 3) then (prim utf8_encode \"undeclared file\" : Bytes) else (if (code =? 2) then (prim utf8_encode \"too many files\" : Bytes) else (if (code =? 1) then (prim utf8_encode \"unsupported precision\" : Bytes) else (prim utf8_encode \"unsupported task\" : Bytes)))))"),
+        "sourceText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sourceAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 5) then (sourceText (sourceCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 1)) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 4 1)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "sourceAnswer changed:\n{found}"
+    );
+    assert_routed(24, "Kernel.Source::sourceAnswer");
+}
+/// `KN-25`: Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget
+#[test]
+fn kernel_kn_25() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Stop.lex.tex");
+    let proofs = model("app/src/Proofs/Stop.lex.tex");
+    assert_pinned(
+        &proofs,
+        "stop_differs_decides",
+        "(((Kernel.Stop::stopDiffers token listed) = true) <-> (Differs token listed))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "stop_none_from_decides",
+        "(((Kernel.Stop::stopNoneFrom value position remaining token) = true) <-> (NoneFrom value position remaining token))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "stop_spent_decides",
+        "(((Kernel.Stop::stopSpent generated budget) = true) <-> (budget <= generated))",
+        "propext",
+    );
+    let found = declaration(&kernel, "stopIdAt");
+    assert!(
+        found.contains(
+            "body: (Kernel.Wire::fieldAt value (14 + (prim multiply 4 position : Nat)) 4)"
+        ),
+        "stopIdAt changed:\n{found}"
+    );
+    let found = declaration(&kernel, "stopDiffers");
+    assert!(
+        found.contains("body: ((listed <? token) || (token <? listed))"),
+        "stopDiffers changed:\n{found}"
+    );
+    let found = declaration(&kernel, "stopNoneFrom");
+    assert!(
+        found.contains("body: (match remaining
+    | Nat.zero => true
+    | Nat.succ rest => ((stopDiffers token (stopIdAt value position)) && (stopNoneFrom value (position + 1) rest token)))"),
+        "stopNoneFrom changed:\n{found}"
+    );
+    let found = declaration(&kernel, "stopSpent");
+    assert!(
+        found.contains("body: (budget <=? generated)"),
+        "stopSpent changed:\n{found}"
+    );
+    let found = declaration(&kernel, "stopAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? (14 + (prim multiply 4 (Kernel.Wire::fieldAt value 1 1) : Nat))) && ((Kernel.Wire::fieldAt value 1 1) <=? 16)) then (if (stopNoneFrom value 0 (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) then (if (stopSpent (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 4)) then (prim utf8_encode \"stop: budget\" : Bytes) else (prim utf8_encode \"continue\" : Bytes)) else (prim utf8_encode \"stop: end token\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "stopAnswer changed:\n{found}"
+    );
+    assert_routed(25, "Kernel.Stop::stopAnswer");
+}
+/// `KN-26`: A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short
+#[test]
+fn kernel_kn_26() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Evict.lex.tex");
+    let proofs = model("app/src/Proofs/Evict.lex.tex");
+    assert_pinned(
+        &proofs,
+        "evict_short_decides",
+        "(((Kernel.Evict::evictShort needed free freed) = true) <-> (((free + freed) + 1) <= needed))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "evict_decides",
+        "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 2) <-> ((pinned = 0) /\\ ((1 <= remaining) /\\ (((free + freed) + 1) <= needed))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "evict_does_not_fit_decides",
+        "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 0) <-> ((remaining = 0) /\\ (((free + freed) + 1) <= needed)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "evict_enough_decides",
+        "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 3) <-> (needed <= (free + freed)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "evictShort");
+    assert!(
+        found.contains("body: ((free + freed) <? needed)"),
+        "evictShort changed:\n{found}"
+    );
+    let found = declaration(&kernel, "evictCode");
+    assert!(
+        found.contains("body: (if (evictShort needed free freed) then (if (remaining =? 0) then 0 else (if (pinned =? 0) then 2 else 1)) else 3)"),
+        "evictCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "evictText");
+    assert!(
+        found.contains("body: (if (code =? 3) then (prim utf8_encode \"enough\" : Bytes) else (if (code =? 2) then (prim utf8_encode \"evict\" : Bytes) else (if (code =? 1) then (prim utf8_encode \"keep\" : Bytes) else (prim utf8_encode \"does not fit\" : Bytes))))"),
+        "evictText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "evictAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 30) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (evictText (evictCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 8) (Kernel.Wire::fieldAt value 14 8) (Kernel.Wire::fieldAt value 22 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "evictAnswer changed:\n{found}"
+    );
+    assert_routed(26, "Kernel.Evict::evictAnswer");
+}
+/// `KN-27`: A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt
+#[test]
+fn kernel_kn_27() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Reuse.lex.tex");
+    let proofs = model("app/src/Proofs/Reuse.lex.tex");
+    assert_pinned(
+        &proofs,
+        "reuse_shorter_decides",
+        "(((Kernel.Reuse::reuseShorter heldLength promptLength) = true) <-> ((1 <= heldLength) /\\ ((heldLength + 1) <= promptLength)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "reusable_decides",
+        "(((Kernel.Reuse::reusable asked held heldLength promptLength) = true) <-> (((Kernel.Admission::sameLabel asked held) = true) /\\ ((Kernel.Reuse::reuseShorter heldLength promptLength) = true)))",
+        "propext",
+    );
+    let found = declaration(&kernel, "reuseShorter");
+    assert!(
+        found.contains("body: ((1 <=? heldLength) && (heldLength <? promptLength))"),
+        "reuseShorter changed:\n{found}"
+    );
+    let found = declaration(&kernel, "reusable");
+    assert!(
+        found.contains("body: ((Kernel.Admission::sameLabel asked held) && (reuseShorter heldLength promptLength))"),
+        "reusable changed:\n{found}"
+    );
+    let found = declaration(&kernel, "reuseAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 73) then (if (reusable (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 4) (Kernel.Wire::fieldAt value 69 4)) then (prim utf8_encode \"reuse\" : Bytes) else (prim utf8_encode \"recompute\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "reuseAnswer changed:\n{found}"
+    );
+    assert_routed(27, "Kernel.Reuse::reuseAnswer");
+}
+/// `KN-28`: A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one
+#[test]
+fn kernel_kn_28() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Manifest.lex.tex");
+    let proofs = model("app/src/Proofs/Manifest.lex.tex");
+    assert_pinned(
+        &proofs,
+        "manifest_complete_decides",
+        "(((Kernel.Manifest::manifestComplete listed admitted) = true) <-> ((1 <= listed) /\\ (admitted = listed)))",
+        "propext",
+    );
+    let found = declaration(&kernel, "manifestComplete");
+    assert!(
+        found.contains("body: ((1 <=? listed) && (admitted =? listed))"),
+        "manifestComplete changed:\n{found}"
+    );
+    let found = declaration(&kernel, "manifestAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 81) then (if (Kernel.Admission::sameLabel (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33)) then (if (manifestComplete (Kernel.Wire::fieldAt value 65 8) (Kernel.Wire::fieldAt value 73 8)) then (prim utf8_encode \"ready\" : Bytes) else (prim utf8_encode \"incomplete\" : Bytes)) else (prim utf8_encode \"refused\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "manifestAnswer changed:\n{found}"
+    );
+    assert_routed(28, "Kernel.Manifest::manifestAnswer");
+}

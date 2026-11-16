@@ -42,7 +42,29 @@ The inherited gates and their own planted defects are in
 | `KN-16`: a speculative commit count is accepted exactly when it lies in 1 to k+1, every draft before the last committed position equals its verified pick, and the draft at that position, if any, differs | `agrees_decides`, and `agrees_from_decides` by induction over the drafts, checked by the Lean kernel | proved |
 | `KN-17`: unpacking a place of a packed group gives back the code packed there, for q4, q3f (its ten fields and the two codes in its spare bits), t2 and t2r, and the ternary sign and nonzero planes | `nibble_round_trip`, `triple_round_trip`, `spare_round_trip`, `pair_low_round_trip`, `pair_high_round_trip` and `bit_round_trip`, checked by the Lean kernel | proved |
 | The answer to decision 17 is the code minus the format's offset, written with its sign | `signedText`; no examples yet | tested, not proved |
-| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the eleven `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
+| `KN-18`: a name is a listed operator's name exactly when the four words of its 32 bytes equal that name's | `opname_is_decides`, checked by the Lean kernel, axioms `[propext]` | proved |
+| The decomposed style lists 27 operators and the fused style 18, and a style other than those two is no question | `kernel_kn_18` holds the names and checks that the model's numbers are their bytes and that it lists no other; the lists were read from the graphs of onnx-community/Qwen2.5-1.5B-Instruct (decomposed) and of Llama-3.2-1B-Instruct-ONNX, Qwen3-0.6B-ONNX and SmolLM2-360M-Instruct (fused), each `model_q4f16.onnx`, on 2026-11-16. That a name is supported exactly when it is on its style's list is not a theorem: the proof language has no disjunction, and the forms it has did not carry a statement over 27 alternatives | tested, not proved |
+| `KN-19`: a configuration is supported exactly when its type is listed, its activation is silu and its shape is one the engine runs | `family_supported_decides`, `family_unknown_decides`, `family_listed_decides` and `family_shaped_decides`, checked by the Lean kernel | proved |
+| The listed types are qwen2, qwen3 and llama, and the activation silu | `kernel_kn_19` computes the eight bytes of each name and finds them in the model | tested |
+| A recognised configuration is a model the engine computes correctly | the GP suite's models are Qwen2- and Qwen3-shaped; no Llama-shaped model has been run | not tested |
+| `KN-20`: a MatMulNBits shape is accepted exactly when the part is codes, f32 scales or f16 scales, rows and columns are between one and 16,777,215 (so the length fits the twenty digits an answer has) and the block size is 16, 32, 64, 128 or 256; the blocks of a row are the fewest that cover it | `nbits_shaped_decides`, `nbits_block_bounds`, and `nbits_blocks_fewest_16` to `_256`, one per block size because the proof forms divide by constants only, checked by the Lean kernel | proved |
+| The length is rows times blocks times the bytes of one block | pinned by `kernel_kn_20`; a product of two unknowns is outside the proof forms. It matches the four files read: codes `[N, ceil(K/32), 16]` bytes and f16 scales `N * ceil(K/32)` elements, with no zero points. A file that carries zero points is outside this decision | tested, not proved |
+| `KN-21`: the precision chosen is the first offered one that fits, none exactly when none fits, and a wider budget never moves the choice later | `precision_fits_decides`, `precision_first`, `precision_second`, `precision_third`, `precision_none` and `precision_budget_monotone`, checked by the Lean kernel | proved |
+| The sizes put to decision 21 are what each precision costs on this device | the caller's; a precision whose f16 tensors must be widened costs more than its file | not proved |
+| `KN-22`: WebGPU exactly when `gpuUsable` holds, the CPU exactly when it does not and the model is within the ceiling, refused otherwise | `device_webgpu_decides`, `device_cpu_decides` and `device_refused_decides`, checked by the Lean kernel | proved |
+| The CPU ceiling is a size a CPU path can run usefully | the ceiling is a number the caller states; no CPU path exists yet to measure it against | not proved |
+| `KN-23`: a span is accepted exactly when its file is declared, it starts at or after the previous span's end and it ends within the file; two spans accepted in order do not overlap | `chunk_declared_decides`, `chunk_inside_decides` and `chunk_spans_disjoint`, checked by the Lean kernel | proved |
+| `KN-24`: a file is named exactly when the task is text generation, the precision is listed, at most 100 data files are declared and the part is at most that count | `source_named_decides`, `source_undeclared_decides` and `source_task_decides`, checked by the Lean kernel | proved |
+| The names are the ones transformers.js 4.3.2 reads: `onnx/model`, the precision's suffix, `.onnx`, then `_data` and `_data_1` onward | `sourceGraph` and `sourceName`, pinned by `kernel_kn_24`; text is outside the proof forms | tested, not proved |
+| `KN-25`: no stop id is met exactly when every listed id differs from the token; the budget is spent exactly when the tokens generated reach it | `stop_differs_decides`, `stop_none_from_decides` by induction over the list, and `stop_spent_decides`, checked by the Lean kernel | proved |
+| `KN-26`: evict exactly when the block is not pinned, a candidate remains and space is short; does not fit exactly when none remains and space is short; enough exactly when it is not short | `evict_decides`, `evict_does_not_fit_decides`, `evict_enough_decides` and `evict_short_decides`, checked by the Lean kernel | proved |
+| Candidates are put in the order least recently used first, and the amounts free and freed are true | the caller's; the kernel is asked about one block at a time and keeps no state | not proved |
+| `KN-27`: a prefix is reused exactly when its label equals the one asked for, it holds at least one position and it is shorter than the prompt | `reusable_decides` and `reuse_shorter_decides`, with `sameLabel` as decision 5 proves it, checked by the Lean kernel | proved |
+| The label asked for is derived from the model's address and the prompt's first tokens | the caller's hash, as every label is | not proved |
+| `KN-28`: a manifest is complete exactly when it lists at least one tensor and as many are admitted as it lists | `manifest_complete_decides`, checked by the Lean kernel | proved |
+| The label of the addresses admitted is computed over the tensors actually admitted, in the manifest's order | the caller's; the kernel compares two labels and two counts | not proved |
+| Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
+| The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
 
 Each proof is about the function the guest executes, named by its module. That
@@ -753,6 +775,47 @@ suite reads is not left to guesswork; `app/src/Kernel.lex.tex` was searched one
 example at a time for the ones whose removal keeps every suite green, and the
 removals were chosen from those. Examples removed to fit were second
 instances of a verdict already shown and the one-byte-long malformed lengths.
+
+## KN-18 to KN-28, importing a model from its own files
+
+Milestone 2's decisions: what an ONNX export may contain (18), which model
+families run (19), how long a 4-bit weight's parts are (20), which precision
+and device (21, 22), which bytes of which file may be read (23), what a
+repository's files are called (24), when generation stops (25), what leaves
+the browser's store (26), when a computed prefix may be reused (27) and when a
+model's manifest is satisfied (28). None of them names a hash: a label is 32
+bytes, whichever function made it.
+
+### The pinned tests: `kernel_kn_18` to `kernel_kn_28`
+
+| Planted defect | Result |
+| --- | --- |
+| `Add`'s first word is one too high in the decomposed list | rejected: `kernel_kn_18` panics at `opnameDecomposed changed` |
+| decision 18 is routed to another decision's answer | rejected: `kernel_kn_18` panics at `decision 18 must be routed to Kernel.Opnames::opnameAnswer` |
+| a head size of one is accepted | rejected: `kernel_kn_19` panics at `familyShaped changed` |
+| a block of 4-bit codes is counted at one byte for each weight | rejected: `kernel_kn_20` panics at `nbitsPerBlock changed` |
+| a precision exactly the budget's size does not fit | rejected: `kernel_kn_21` panics at `precisionFits changed` |
+| a model exactly at the CPU ceiling is refused | rejected: `kernel_kn_22` panics at `deviceCode changed` |
+| the last declared data file is undeclared | rejected: `kernel_kn_23` panics at `chunkDeclared changed` |
+| data file names count from the part, not the part less one | rejected: `kernel_kn_24` panics at `sourceName changed` |
+| generation runs one token past the budget | rejected: `kernel_kn_25` panics at `stopSpent changed` |
+| a pinned block is evicted | rejected: `kernel_kn_26` panics at `evictCode changed` |
+| `evict_decides` no longer says the block is not pinned | rejected: `kernel_kn_26` panics at `evict_decides's statement changed` |
+| a prefix as long as the prompt is reused, leaving no position to run | rejected: `kernel_kn_27` panics at `reuseShorter changed` |
+| a model is ready with tensors missing | rejected: `kernel_kn_28` panics at `manifestComplete changed` |
+| none | all 28 `kernel_kn_` tests pass |
+
+### The proof gate: `lexlean verify src/Proofs/*.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a pinned block is evicted | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Evict (error): omega could not prove the goal` |
+| a precision exactly the budget's size does not fit | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Precision (error): omega could not prove the goal` |
+| none | `verified 58 modules`, with every proof module's axiom policy exact |
+
+The other nine modules' proofs were each checked by the Lean kernel as they
+were written; a defect was planted through Lean in two of the eleven, and
+through the pinned test in all of them.
 
 ## The examples in the compiled guest
 

@@ -1,0 +1,31 @@
+\begin{lexlean}{Kernel.Chunks}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: chunkDeclared,
+  parameters: [declared : Nat, index : Nat],
+  result: Bool,
+  body: ((declared <=? 100) && (index <=? declared))
+}
+
+definition{
+  name: chunkInside,
+  parameters: [fileLength : Nat, offset : Nat, length : Nat, previousEnd : Nat],
+  result: Bool,
+  body: ((previousEnd <=? offset) && ((offset + length) <=? fileLength))
+}
+
+definition{
+  name: chunkAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 35) then (if (chunkDeclared (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (if (chunkInside (Kernel.Wire::fieldAt value 3 8) (Kernel.Wire::fieldAt value 11 8) (Kernel.Wire::fieldAt value 19 8) (Kernel.Wire::fieldAt value 27 8)) then (prim utf8_encode "accept" : Bytes) else (prim utf8_encode "reject" : Bytes)) else (prim utf8_encode "undeclared file" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

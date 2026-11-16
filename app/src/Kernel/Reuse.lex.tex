@@ -1,0 +1,37 @@
+\begin{lexlean}{Kernel.Reuse}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: reuseShorter,
+  parameters: [heldLength : Nat, promptLength : Nat],
+  result: Bool,
+  body: ((1 <=? heldLength) && (heldLength <? promptLength))
+}
+
+definition{
+  name: reusable,
+  parameters: [
+    asked : Kernel.Admission::Label,
+    held : Kernel.Admission::Label,
+    heldLength : Nat,
+    promptLength : Nat
+  ],
+  result: Bool,
+  body: ((Kernel.Admission::sameLabel asked held) && (reuseShorter heldLength promptLength))
+}
+
+definition{
+  name: reuseAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 73) then (if (reusable (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 4) (Kernel.Wire::fieldAt value 69 4)) then (prim utf8_encode "reuse" : Bytes) else (prim utf8_encode "recompute" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

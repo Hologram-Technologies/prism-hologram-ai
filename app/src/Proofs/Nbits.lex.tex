@@ -1,0 +1,64 @@
+\begin{lexlean}{Proofs.Nbits}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Nbits}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: nbits_shaped_decides,
+  parameters: [part : Nat, rows : Nat, columns : Nat, size : Nat],
+  statement: (((Kernel.Nbits::nbitsShaped part rows columns size) = true) <-> ((part <= 2) /\ ((1 <= rows) /\ ((rows <= 16777215) /\ ((1 <= columns) /\ ((columns <= 16777215) /\ ((Kernel.Nbits::nbitsBlock size) = true))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlock, Kernel.Nbits::nbitsShaped]},
+  axioms: [propext]
+}
+
+theorem{
+  name: nbits_block_bounds,
+  parameters: [size : Nat],
+  statement: (((Kernel.Nbits::nbitsBlock size) = true) -> ((16 <= size) /\ ((size <= 256) /\ ((prim remainder size 16 0 : Nat) = 0)))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlock]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: nbits_blocks_fewest_16,
+  parameters: [columns : Nat],
+  statement: ((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat)) /\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat) + 1) <= (columns + 16))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlocks]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: nbits_blocks_fewest_32,
+  parameters: [columns : Nat],
+  statement: ((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat)) /\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat) + 1) <= (columns + 32))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlocks]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: nbits_blocks_fewest_64,
+  parameters: [columns : Nat],
+  statement: ((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat)) /\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat) + 1) <= (columns + 64))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlocks]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: nbits_blocks_fewest_128,
+  parameters: [columns : Nat],
+  statement: ((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat)) /\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat) + 1) <= (columns + 128))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlocks]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: nbits_blocks_fewest_256,
+  parameters: [columns : Nat],
+  statement: ((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat)) /\ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat) + 1) <= (columns + 256))),
+  proof: linear_arithmetic{definitions: [Kernel.Nbits::nbitsBlocks]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

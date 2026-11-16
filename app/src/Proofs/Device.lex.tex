@@ -1,0 +1,33 @@
+\begin{lexlean}{Proofs.Device}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Backend}
+\importmodule{Kernel.Device}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: device_webgpu_decides,
+  parameters: [present : Nat, limit : Nat, largest : Nat, model : Nat, ceiling : Nat],
+  statement: (((Kernel.Device::deviceCode present limit largest model ceiling) = 2) <-> ((Kernel.Backend::gpuUsable present limit largest) = true)),
+  proof: linear_arithmetic{definitions: [Kernel.Backend::gpuUsable, Kernel.Device::deviceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: device_cpu_decides,
+  parameters: [present : Nat, limit : Nat, largest : Nat, model : Nat, ceiling : Nat],
+  statement: (((Kernel.Device::deviceCode present limit largest model ceiling) = 1) <-> (((Kernel.Backend::gpuUsable present limit largest) = false) /\ (model <= ceiling))),
+  proof: linear_arithmetic{definitions: [Kernel.Backend::gpuUsable, Kernel.Device::deviceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: device_refused_decides,
+  parameters: [present : Nat, limit : Nat, largest : Nat, model : Nat, ceiling : Nat],
+  statement: (((Kernel.Device::deviceCode present limit largest model ceiling) = 0) <-> (((Kernel.Backend::gpuUsable present limit largest) = false) /\ ((ceiling + 1) <= model))),
+  proof: linear_arithmetic{definitions: [Kernel.Backend::gpuUsable, Kernel.Device::deviceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

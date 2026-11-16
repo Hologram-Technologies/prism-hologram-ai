@@ -993,6 +993,566 @@
         }
       ],
       "tag": 17
+    },
+    {
+      "asks": "Does the engine run this ONNX operator in this export style?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "decomposed",
+              0
+            ],
+            [
+              "fused",
+              1
+            ]
+          ],
+          "name": "Export style",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Name, bytes 1 to 8",
+          "value": 4712001061299159040,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Name, bytes 9 to 16",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 18,
+          "name": "Name, bytes 17 to 24",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 26,
+          "name": "Name, bytes 25 to 32",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 34,
+      "module": "Opnames",
+      "name": "An operator's name",
+      "tag": 18
+    },
+    {
+      "asks": "Is this a model family and shape the engine runs?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Type, as the bytes of its name",
+          "value": 8176115172474093568,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Activation, as the bytes of its name",
+          "value": 8316297436683304960,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Heads",
+          "value": 12,
+          "width": 2
+        },
+        {
+          "at": 19,
+          "name": "Key-value heads",
+          "value": 2,
+          "width": 2
+        },
+        {
+          "at": 21,
+          "name": "Head size",
+          "value": 128,
+          "width": 2
+        },
+        {
+          "at": 23,
+          "name": "Layers",
+          "value": 28,
+          "width": 2
+        },
+        {
+          "at": 25,
+          "name": "Width",
+          "value": 1536,
+          "width": 4
+        },
+        {
+          "at": 29,
+          "name": "Vocabulary",
+          "value": 151936,
+          "width": 4
+        }
+      ],
+      "length": 33,
+      "module": "Family",
+      "name": "A model's family",
+      "tag": 19
+    },
+    {
+      "asks": "How many bytes is this part of a 4-bit ONNX weight?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "codes",
+              0
+            ],
+            [
+              "f32 scales",
+              1
+            ],
+            [
+              "f16 scales",
+              2
+            ]
+          ],
+          "name": "Part",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Rows",
+          "value": 1536,
+          "width": 4
+        },
+        {
+          "at": 6,
+          "name": "Columns",
+          "value": 1536,
+          "width": 4
+        },
+        {
+          "at": 10,
+          "name": "Block size",
+          "value": 32,
+          "width": 2
+        }
+      ],
+      "length": 12,
+      "module": "Nbits",
+      "name": "A MatMulNBits length",
+      "tag": 20
+    },
+    {
+      "asks": "Which offered precision fits the budget?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "q4f16 is offered",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "q4 is offered",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "fp16 is offered",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Budget, bytes",
+          "value": 2147483648,
+          "width": 8
+        },
+        {
+          "at": 12,
+          "name": "q4f16 size, bytes",
+          "value": 1221878940,
+          "width": 8
+        },
+        {
+          "at": 20,
+          "name": "q4 size, bytes",
+          "value": 1787566590,
+          "width": 8
+        },
+        {
+          "at": 28,
+          "name": "fp16 size, bytes",
+          "value": 3100000000,
+          "width": 8
+        }
+      ],
+      "length": 36,
+      "module": "Precision",
+      "name": "The precision",
+      "tag": 21
+    },
+    {
+      "asks": "Does this model run on WebGPU, on the CPU, or not at all?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "A GPU is there",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Largest binding, bytes",
+          "value": 134217728,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Largest buffer, bytes",
+          "value": 268435456,
+          "width": 8
+        },
+        {
+          "at": 18,
+          "name": "Model, bytes",
+          "value": 1221878940,
+          "width": 8
+        },
+        {
+          "at": 26,
+          "name": "CPU ceiling, bytes",
+          "value": 1073741824,
+          "width": 8
+        }
+      ],
+      "length": 34,
+      "module": "Device",
+      "name": "The device",
+      "tag": 22
+    },
+    {
+      "asks": "May this span of this file be read?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Data files declared",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "File, 0 for the graph",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "name": "File length",
+          "value": 1000,
+          "width": 8
+        },
+        {
+          "at": 11,
+          "name": "Offset",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 19,
+          "name": "Length",
+          "value": 900,
+          "width": 8
+        },
+        {
+          "at": 27,
+          "name": "Previous span's end",
+          "value": 100,
+          "width": 8
+        }
+      ],
+      "length": 35,
+      "module": "Chunks",
+      "name": "A span in one of a model's files",
+      "tag": 23
+    },
+    {
+      "asks": "What is this part of the model called in its repository?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "text generation",
+              0
+            ]
+          ],
+          "name": "Task",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "q4f16",
+              0
+            ],
+            [
+              "q4",
+              1
+            ],
+            [
+              "fp16",
+              2
+            ],
+            [
+              "fp32",
+              3
+            ]
+          ],
+          "name": "Precision",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "name": "Data files declared",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Part, 0 for the graph",
+          "value": 1,
+          "width": 1
+        }
+      ],
+      "length": 5,
+      "module": "Source",
+      "name": "A model's file",
+      "tag": 24
+    },
+    {
+      "asks": "Does generation stop at this token?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "How many stop ids follow",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "The token",
+          "value": 151645,
+          "width": 4
+        },
+        {
+          "at": 6,
+          "name": "Tokens generated",
+          "value": 5,
+          "width": 4
+        },
+        {
+          "at": 10,
+          "name": "Budget, tokens",
+          "value": 256,
+          "width": 4
+        }
+      ],
+      "length": {
+        "base": 14,
+        "countAt": 1,
+        "stride": 4
+      },
+      "list": {
+        "countAt": 1,
+        "groups": [
+          {
+            "from": 14,
+            "name": "Stop ids",
+            "per": 1,
+            "plus": 0,
+            "reader": "stopIdAt",
+            "scaled": 0,
+            "value": 1,
+            "values": [
+              151645,
+              151643
+            ],
+            "width": 4
+          }
+        ]
+      },
+      "module": "Stop",
+      "name": "Stopping",
+      "tag": 25
+    },
+    {
+      "asks": "Should this cached block be dropped to make room?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "The block is pinned",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Candidates left, with this one",
+          "value": 3,
+          "width": 4
+        },
+        {
+          "at": 6,
+          "name": "Needed, bytes",
+          "value": 100,
+          "width": 8
+        },
+        {
+          "at": 14,
+          "name": "Free, bytes",
+          "value": 40,
+          "width": 8
+        },
+        {
+          "at": 22,
+          "name": "Freed so far, bytes",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 30,
+      "module": "Evict",
+      "name": "Eviction",
+      "tag": 26
+    },
+    {
+      "asks": "May this computed prefix be reused for this prompt?",
+      "fields": [
+        {
+          "at": 1,
+          "kind": "label",
+          "name": "Label asked for",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 33,
+          "kind": "label",
+          "name": "Label held",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 65,
+          "name": "Positions held",
+          "value": 400,
+          "width": 4
+        },
+        {
+          "at": 69,
+          "name": "Prompt length",
+          "value": 440,
+          "width": 4
+        }
+      ],
+      "length": 73,
+      "module": "Reuse",
+      "name": "Prefix reuse",
+      "tag": 27
+    },
+    {
+      "asks": "Is every tensor this manifest lists held and admitted?",
+      "fields": [
+        {
+          "at": 1,
+          "kind": "label",
+          "name": "Label the manifest gives",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 33,
+          "kind": "label",
+          "name": "Label of the addresses admitted",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 65,
+          "name": "Tensors listed",
+          "value": 339,
+          "width": 8
+        },
+        {
+          "at": 73,
+          "name": "Tensors admitted",
+          "value": 339,
+          "width": 8
+        }
+      ],
+      "length": 81,
+      "module": "Manifest",
+      "name": "A model's manifest",
+      "tag": 28
     }
   ],
   "request": 81

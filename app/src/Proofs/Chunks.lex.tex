@@ -1,0 +1,39 @@
+\begin{lexlean}{Proofs.Chunks}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Chunks}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: chunk_declared_decides,
+  parameters: [declared : Nat, index : Nat],
+  statement: (((Kernel.Chunks::chunkDeclared declared index) = true) <-> ((declared <= 100) /\ (index <= declared))),
+  proof: linear_arithmetic{definitions: [Kernel.Chunks::chunkDeclared]},
+  axioms: [propext]
+}
+
+theorem{
+  name: chunk_inside_decides,
+  parameters: [fileLength : Nat, offset : Nat, length : Nat, previousEnd : Nat],
+  statement: (((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) <-> ((previousEnd <= offset) /\ ((offset + length) <= fileLength))),
+  proof: linear_arithmetic{definitions: [Kernel.Chunks::chunkInside]},
+  axioms: [propext]
+}
+
+theorem{
+  name: chunk_spans_disjoint,
+  parameters: [
+    fileLength : Nat,
+    offset : Nat,
+    length : Nat,
+    previousEnd : Nat,
+    nextOffset : Nat,
+    nextLength : Nat
+  ],
+  statement: ((((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) /\ ((Kernel.Chunks::chunkInside fileLength nextOffset nextLength (offset + length)) = true)) -> (((offset + length) <= nextOffset) /\ ((nextOffset + nextLength) <= fileLength))),
+  proof: linear_arithmetic{definitions: [Kernel.Chunks::chunkInside]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

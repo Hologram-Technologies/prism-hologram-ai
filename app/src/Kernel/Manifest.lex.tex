@@ -1,0 +1,25 @@
+\begin{lexlean}{Kernel.Manifest}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: manifestComplete,
+  parameters: [listed : Nat, admitted : Nat],
+  result: Bool,
+  body: ((1 <=? listed) && (admitted =? listed))
+}
+
+definition{
+  name: manifestAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 81) then (if (Kernel.Admission::sameLabel (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33)) then (if (manifestComplete (Kernel.Wire::fieldAt value 65 8) (Kernel.Wire::fieldAt value 73 8)) then (prim utf8_encode "ready" : Bytes) else (prim utf8_encode "incomplete" : Bytes)) else (prim utf8_encode "refused" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

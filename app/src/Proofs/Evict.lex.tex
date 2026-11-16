@@ -1,0 +1,40 @@
+\begin{lexlean}{Proofs.Evict}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Evict}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: evict_short_decides,
+  parameters: [needed : Nat, free : Nat, freed : Nat],
+  statement: (((Kernel.Evict::evictShort needed free freed) = true) <-> (((free + freed) + 1) <= needed)),
+  proof: linear_arithmetic{definitions: [Kernel.Evict::evictShort]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: evict_decides,
+  parameters: [pinned : Nat, remaining : Nat, needed : Nat, free : Nat, freed : Nat],
+  statement: (((Kernel.Evict::evictCode pinned remaining needed free freed) = 2) <-> ((pinned = 0) /\ ((1 <= remaining) /\ (((free + freed) + 1) <= needed)))),
+  proof: linear_arithmetic{definitions: [Kernel.Evict::evictCode, Kernel.Evict::evictShort]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: evict_does_not_fit_decides,
+  parameters: [pinned : Nat, remaining : Nat, needed : Nat, free : Nat, freed : Nat],
+  statement: (((Kernel.Evict::evictCode pinned remaining needed free freed) = 0) <-> ((remaining = 0) /\ (((free + freed) + 1) <= needed))),
+  proof: linear_arithmetic{definitions: [Kernel.Evict::evictCode, Kernel.Evict::evictShort]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: evict_enough_decides,
+  parameters: [pinned : Nat, remaining : Nat, needed : Nat, free : Nat, freed : Nat],
+  statement: (((Kernel.Evict::evictCode pinned remaining needed free freed) = 3) <-> (needed <= (free + freed))),
+  proof: linear_arithmetic{definitions: [Kernel.Evict::evictCode, Kernel.Evict::evictShort]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

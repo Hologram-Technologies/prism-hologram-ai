@@ -1,0 +1,52 @@
+\begin{lexlean}{Kernel.Nbits}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: nbitsBlock,
+  parameters: [size : Nat],
+  result: Bool,
+  body: ((size =? 16) || ((size =? 32) || ((size =? 64) || ((size =? 128) || (size =? 256)))))
+}
+
+definition{
+  name: nbitsBlocks,
+  parameters: [columns : Nat, size : Nat],
+  result: Nat,
+  body: (prim quotient (columns + (prim subtract size 1 : Nat)) size 0 : Nat)
+}
+
+definition{
+  name: nbitsShaped,
+  parameters: [part : Nat, rows : Nat, columns : Nat, size : Nat],
+  result: Bool,
+  body: ((part <=? 2) && ((1 <=? rows) && ((rows <=? 16777215) && ((1 <=? columns) && ((columns <=? 16777215) && (nbitsBlock size))))))
+}
+
+definition{
+  name: nbitsPerBlock,
+  parameters: [part : Nat, size : Nat],
+  result: Nat,
+  body: (if (part =? 0) then (prim quotient size 2 0 : Nat) else (if (part =? 1) then 4 else 2))
+}
+
+definition{
+  name: nbitsLength,
+  parameters: [part : Nat, rows : Nat, columns : Nat, size : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply rows (nbitsBlocks columns size) : Nat) (nbitsPerBlock part size) : Nat)
+}
+
+definition{
+  name: nbitsAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 12) then (if (nbitsShaped (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2)) then (Kernel.Wire::decimal (nbitsLength (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2))) else (prim utf8_encode "bad shape" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

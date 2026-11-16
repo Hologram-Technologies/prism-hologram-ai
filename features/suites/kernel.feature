@@ -137,3 +137,90 @@ Feature: kernel
     When the Lean kernel checks the round trip theorems for nibbles, pairs, triples and bits during lexlean verify in the gate
     Then unpacking any place of a packed group gives back the code packed at that place, for every code below its base
     And the answer to decision 17 is that code minus the format offset, written with its sign
+
+  @KN-18 @build
+  Scenario: An operator is supported exactly when its name is on the closed list of the export style asked about, and no name is supported under an unknown style
+    Given the operator name model in app/src/Kernel/Opnames.lex.tex and its proofs in app/src/Proofs/Opnames.lex.tex
+    When the Lean kernel checks opname_is_decides during lexlean verify in the gate
+    Then a name is a listed name exactly when the four words of its 32 bytes equal that name's four words
+    And the decomposed style lists the 27 names read from Qwen2.5-1.5B's 4-bit export and the fused style the 18 read from Llama 3.2 1B, Qwen3-0.6B and SmolLM2-360M, each written in the model as the four words of its bytes
+    And the answer to decision 18 is supported or unsupported operator by that same opnameListed, and a style other than 0 or 1 is no question
+
+  @KN-19 @build
+  Scenario: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
+    Given the family model in app/src/Kernel/Family.lex.tex and its proofs in app/src/Proofs/Family.lex.tex
+    When the Lean kernel checks family_listed_decides, family_shaped_decides, family_supported_decides and family_unknown_decides during lexlean verify in the gate
+    Then a type is listed exactly when it is qwen2, qwen3 or llama, read as the eight bytes of its name
+    And a shape is one the engine runs exactly when the key-value heads are at least one and divide the heads, the head size is even and at least two, and layers, width and vocabulary are at least one
+    And the answer to decision 19 is supported exactly when the type is listed, the activation is silu and the shape is one the engine runs
+
+  @KN-20 @build
+  Scenario: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
+    Given the MatMulNBits length model in app/src/Kernel/Nbits.lex.tex and its proofs in app/src/Proofs/Nbits.lex.tex
+    When the Lean kernel checks nbits_shaped_decides, nbits_block_bounds, nbits_blocks_fewest_16, nbits_blocks_fewest_32, nbits_blocks_fewest_64, nbits_blocks_fewest_128 and nbits_blocks_fewest_256 during lexlean verify in the gate
+    Then a shape is accepted exactly when rows and columns are between one and 16,777,215 and the block size is 16, 32, 64, 128 or 256, and the blocks of a row are the fewest that cover its columns
+    And the answer to decision 20 is rows times blocks times the bytes of one block, which are half the block size for the 4-bit codes, 4 for f32 scales and 2 for f16 scales, or bad shape
+
+  @KN-21 @build
+  Scenario: The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits
+    Given the precision model in app/src/Kernel/Precision.lex.tex and its proofs in app/src/Proofs/Precision.lex.tex
+    When the Lean kernel checks precision_fits_decides, precision_first, precision_second, precision_third, precision_none and precision_budget_monotone during lexlean verify in the gate
+    Then a precision fits exactly when it is offered and its size is at most the budget
+    And q4f16 is chosen exactly when it fits, q4 exactly when q4f16 does not and q4 does, fp16 exactly when neither does and fp16 does, and none exactly when none fits
+    And a wider budget never moves the choice to a later precision
+    And the answer to decision 21 is the precision of that same precisionCode
+
+  @KN-22 @build
+  Scenario: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused
+    Given the device model in app/src/Kernel/Device.lex.tex and its proofs in app/src/Proofs/Device.lex.tex
+    When the Lean kernel checks device_webgpu_decides, device_cpu_decides and device_refused_decides during lexlean verify in the gate
+    Then WebGPU is answered exactly when gpuUsable holds
+    And the CPU is answered exactly when gpuUsable does not hold and the model is at most the CPU ceiling
+    And the model is refused exactly when gpuUsable does not hold and the model is above the CPU ceiling
+    And the answer to decision 22 is webgpu, cpu or refused: too large for cpu by that same deviceCode
+
+  @KN-23 @build
+  Scenario: A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file
+    Given the file span model in app/src/Kernel/Chunks.lex.tex and its proofs in app/src/Proofs/Chunks.lex.tex
+    When the Lean kernel checks chunk_declared_decides, chunk_inside_decides and chunk_spans_disjoint during lexlean verify in the gate
+    Then a file is declared exactly when the model declares at most 100 data files and the file's index is at most that count
+    And a span is inside exactly when it starts at or after the previous span's end and ends within the file, and two spans accepted in order do not overlap
+    And the answer to decision 23 is undeclared file, or accept or reject by that same chunkInside
+
+  @KN-24 @build
+  Scenario: The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused
+    Given the source model in app/src/Kernel/Source.lex.tex and its proofs in app/src/Proofs/Source.lex.tex
+    When the Lean kernel checks source_named_decides, source_undeclared_decides and source_task_decides during lexlean verify in the gate
+    Then a file is named exactly when the task is text generation, the precision is one of the four listed, at most 100 data files are declared and the part is at most that count
+    And a part beyond the declared count is answered undeclared file
+    And the answer to decision 24 is the graph file onnx/model, the precision's suffix and .onnx for part 0, that name with _data for part 1, and with _data_ and the part less one after it
+
+  @KN-25 @build
+  Scenario: Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget
+    Given the stop model in app/src/Kernel/Stop.lex.tex and its proofs in app/src/Proofs/Stop.lex.tex
+    When the Lean kernel checks stop_differs_decides, stop_none_from_decides and stop_spent_decides during lexlean verify in the gate
+    Then no stop id is met exactly when every listed id differs from the token, by induction over the list
+    And the budget is spent exactly when the tokens generated are at least the budget
+    And the answer to decision 25 is stop: end token when a listed id is the token, otherwise stop: budget when the budget is spent, otherwise continue
+
+  @KN-26 @build
+  Scenario: A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short
+    Given the eviction model in app/src/Kernel/Evict.lex.tex and its proofs in app/src/Proofs/Evict.lex.tex
+    When the Lean kernel checks evict_short_decides, evict_decides, evict_does_not_fit_decides and evict_enough_decides during lexlean verify in the gate
+    Then evict is answered exactly when the block is not pinned, a candidate remains and the space free and freed is short of what is needed
+    And does not fit is answered exactly when no candidate remains and space is still short, and enough exactly when it is not short
+    And the answer to decision 26 is enough, evict, keep or does not fit by that same evictCode
+
+  @KN-27 @build
+  Scenario: A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt
+    Given the reuse model in app/src/Kernel/Reuse.lex.tex and its proofs in app/src/Proofs/Reuse.lex.tex
+    When the Lean kernel checks reuse_shorter_decides and reusable_decides during lexlean verify in the gate
+    Then a held prefix is reusable exactly when its label equals the label asked for, it holds at least one position and it is shorter than the prompt
+    And the answer to decision 27 is reuse or recompute by that same reusable, over the labels at bytes 1 and 33
+
+  @KN-28 @build
+  Scenario: A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one
+    Given the manifest model in app/src/Kernel/Manifest.lex.tex and its proofs in app/src/Proofs/Manifest.lex.tex
+    When the Lean kernel checks manifest_complete_decides during lexlean verify in the gate
+    Then a manifest is complete exactly when it lists at least one tensor and the tensors admitted are as many as it lists
+    And the answer to decision 28 is refused when the label of the addresses admitted differs from the one the manifest gives, by the sameLabel of decision 5, and otherwise ready or incomplete by that same manifestComplete
