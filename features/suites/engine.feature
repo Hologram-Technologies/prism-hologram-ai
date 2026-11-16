@@ -414,3 +414,27 @@ Feature: engine
     Given the fixture EN-28 needs
     When the suite exercises EN-28
     Then The id a model stops on is the one the model's own file names, not a list written beside it
+
+  @EN-29 @build
+  Scenario: An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data
+    Given an ONNX file shaped as the exports are, the graph before the opsets and nodes before tensors, with a megabyte of weights inside the file, a tensor kept in another file, one written as numbers, a negative attribute and fields no reader needs
+    When it is fed to the streaming reader whole, and in pieces of 1, 2, 3, 7, 61, 64 and 4096 bytes asking each time for the byte the reader names
+    Then every way gives the same opsets, nodes with their inputs, outputs and attributes, and tensors with their names, shapes, types and where their data lies
+    And the megabyte of weights is never fed, and the reader never holds more than the largest node and one piece
+    And a caller that leaves the graph at its first tensor gets the nodes and the opsets
+    And the whole-file reader reads the same operators and tensor count
+    And a file that ends early is truncated wherever it ends, including inside data the reader stepped over
+
+  @FL-41 @build
+  Scenario: A node or an opset record is larger than the reader will hold
+    Given a node, an opset record or a tensor's name one byte longer than the sixteen mebibytes the reader holds
+    When its length is read
+    Then the reader returns OnnxError::RecordTooLarge before any of it is fed
+    And one exactly at the limit is waited for, not refused
+
+  @FL-42 @build
+  Scenario: A tensor kept outside the file names no location, or an offset or a length that is not a number
+    Given a tensor marked as kept outside the file with no location, no entries, an offset that is a word, a negative length, or an offset past sixty-four bits
+    When the reader reaches the end of its record
+    Then it returns OnnxError::ExternalNotFollowed
+    And a tensor that names a location alone is followed, its offset the start of that file

@@ -399,3 +399,9 @@ id = "KN-28"
 level = "build"
 suite = "kernel"
 statement = "A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one"
+
+[[id]]
+id = "EN-29"
+level = "build"
+suite = "engine"
+statement = "An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data"

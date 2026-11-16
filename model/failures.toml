@@ -351,3 +351,19 @@ type = "GgufError"
 variant = "ShapeNotFollowed"
 suite = "engine"
 condition = "A tensor's shape is one this reader cannot measure"
+
+[[failure]]
+id = "FL-41"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "RecordTooLarge"
+suite = "engine"
+condition = "A node or an opset record is larger than the reader will hold"
+
+[[failure]]
+id = "FL-42"
+crate = "onnx-preflight"
+type = "OnnxError"
+variant = "ExternalNotFollowed"
+suite = "engine"
+condition = "A tensor kept outside the file names no location, or an offset or a length that is not a number"

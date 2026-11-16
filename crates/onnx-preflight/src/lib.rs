@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 use hologram_ai_kernel_client::operators;
 
+pub mod stream;
 mod wire;
 
 use wire::{text, Encoding, Reader};
@@ -77,6 +78,10 @@ pub enum OnnxError {
     NoGraph,
     /// `FL-13`
     NoDefaultOpset,
+    /// `FL-41`
+    RecordTooLarge,
+    /// `FL-42`
+    ExternalNotFollowed,
 }
 
 impl Model {

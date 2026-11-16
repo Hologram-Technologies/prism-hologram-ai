@@ -26,7 +26,7 @@ pub(crate) enum Encoding {
 }
 
 impl Encoding {
-    fn of(key: u64) -> Result<Self, OnnxError> {
+    pub(crate) fn of(key: u64) -> Result<Self, OnnxError> {
         match key & 7 {
             0 => Ok(Self::Number),
             1 => Ok(Self::Eight),
@@ -102,6 +102,14 @@ impl<'a> Reader<'a> {
             }
         }
         Ok(())
+    }
+
+    /// The four bytes of a fixed thirty-two-bit field.
+    pub(crate) fn four(&mut self) -> Result<[u8; 4], OnnxError> {
+        let end = self.at + 4;
+        let bytes = self.bytes.get(self.at..end).ok_or(OnnxError::Truncated)?;
+        self.at = end;
+        <[u8; 4]>::try_from(bytes).map_err(|_| OnnxError::Truncated)
     }
 
     fn fixed(&mut self, width: usize) -> Result<(), OnnxError> {

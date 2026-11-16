@@ -5348,3 +5348,352 @@ fn engine_en_28() {
     let json = tokeniser::Tokeniser::read(&tokeniser(&merged, None)).expect("the file is read");
     assert_eq!(json.stops_at(), None);
 }
+
+/// `EN-29`: An ONNX file read as its bytes arrive gives its opsets, its nodes and its tensor table, the same for every way the bytes are split, and never holds a tensor's data
+#[test]
+fn engine_en_29() {
+    use onnx::stream::{Data, Event, Node, Stream, Tensor};
+
+    // A file shaped as the exports are: the graph before the opsets, nodes
+    // before tensors, one tensor's megabyte of data inside the file, one kept
+    // beside it, one written as numbers, and fields no reader here needs.
+    let weights: Vec<u8> = (0..1usize << 20)
+        .map(|i| u8::try_from(i * 31 % 251).expect("below 251"))
+        .collect();
+    let attribute_int = |name: &str, value: u64| {
+        let mut out = proto_field_bytes(1, name.as_bytes());
+        out.extend(proto_field_number(3, value));
+        out.extend(proto_field_number(20, 2));
+        proto_field_bytes(5, &out)
+    };
+    let mut matmul = proto_field_bytes(1, b"hidden");
+    matmul.extend(proto_field_bytes(1, b"w_Q4"));
+    matmul.extend(proto_field_bytes(1, b"w_scales"));
+    matmul.extend(proto_field_bytes(2, b"projected"));
+    matmul.extend(proto_field_bytes(3, b"/layers.0/q_proj"));
+    matmul.extend(proto_field_bytes(4, b"MatMulNBits"));
+    matmul.extend(attribute_int("K", 64));
+    matmul.extend(attribute_int("N", 32));
+    // A negative attribute, as an axis is: ten bytes on the wire.
+    matmul.extend(attribute_int("axis", u64::MAX));
+    matmul.extend(proto_field_bytes(7, b"com.microsoft"));
+    let mut norm = proto_field_bytes(1, b"projected");
+    norm.extend(proto_field_bytes(2, b"normed"));
+    norm.extend(proto_field_bytes(4, b"SimplifiedLayerNormalization"));
+    let mut epsilon = proto_field_bytes(1, b"epsilon");
+    epsilon.extend(proto_number((2 << 3) | 5));
+    epsilon.extend(1e-6f32.to_le_bytes());
+    norm.extend(proto_field_bytes(5, &epsilon));
+
+    let mut inline = proto_field_number(1, 32);
+    inline.extend(proto_field_number(1, 2));
+    inline.extend(proto_field_number(1, 16));
+    inline.extend(proto_field_number(2, 2));
+    inline.extend(proto_field_bytes(8, b"w_Q4"));
+    inline.extend(proto_field_bytes(12, b"documentation"));
+    inline.extend(proto_field_bytes(9, &weights));
+    let external_entry = |key: &str, value: &str| {
+        let mut out = proto_field_bytes(1, key.as_bytes());
+        out.extend(proto_field_bytes(2, value.as_bytes()));
+        proto_field_bytes(13, &out)
+    };
+    // Its shape packed into one field, as a newer writer does.
+    let mut outside = proto_field_bytes(1, &[32, 2]);
+    outside.extend(proto_field_number(2, 10));
+    outside.extend(proto_field_bytes(8, b"w_scales"));
+    outside.extend(external_entry("location", "model.onnx_data"));
+    outside.extend(external_entry("offset", "4096"));
+    outside.extend(external_entry("length", "128"));
+    outside.extend(external_entry("checksum", "not a number"));
+    outside.extend(proto_field_number(14, 1));
+    let mut numbers = proto_field_number(1, 3);
+    numbers.extend(proto_field_number(2, 7));
+    numbers.extend(proto_field_bytes(7, &[1, 2, 3]));
+    numbers.extend(proto_field_bytes(8, b"axes"));
+    let empty = proto_field_bytes(8, b"nothing");
+
+    let mut graph = proto_field_bytes(1, &matmul);
+    graph.extend(proto_field_bytes(1, &norm));
+    graph.extend(proto_field_bytes(2, b"the graph"));
+    for tensor in [&inline, &outside, &numbers, &empty] {
+        graph.extend(proto_field_bytes(5, tensor));
+    }
+    graph.extend(proto_field_bytes(11, b"an input"));
+    graph.extend(proto_number((30 << 3) | 1));
+    graph.extend([0u8; 8]);
+    let file = onnx_file(&[opset("", 14), opset("com.microsoft", 1)], Some(&graph));
+    let data_at = file
+        .windows(64)
+        .position(|window| window == &weights[..64])
+        .expect("the weights are in the file") as u64;
+
+    let expected = vec![
+        Event::Node(Node {
+            op_type: "MatMulNBits".into(),
+            domain: "com.microsoft".into(),
+            inputs: vec!["hidden".into(), "w_Q4".into(), "w_scales".into()],
+            outputs: vec!["projected".into()],
+            ints: vec![("K".into(), 64), ("N".into(), 32), ("axis".into(), -1)],
+            floats: vec![],
+        }),
+        Event::Node(Node {
+            op_type: "SimplifiedLayerNormalization".into(),
+            domain: String::new(),
+            inputs: vec!["projected".into()],
+            outputs: vec!["normed".into()],
+            ints: vec![],
+            floats: vec![("epsilon".into(), 1e-6)],
+        }),
+        Event::Tensor(Tensor {
+            name: "w_Q4".into(),
+            dims: vec![32, 2, 16],
+            data_type: 2,
+            data: Data::Inline {
+                offset: data_at,
+                length: weights.len() as u64,
+            },
+        }),
+        Event::Tensor(Tensor {
+            name: "w_scales".into(),
+            dims: vec![32, 2],
+            data_type: 10,
+            data: Data::External {
+                location: "model.onnx_data".into(),
+                offset: 4096,
+                length: Some(128),
+            },
+        }),
+        Event::Tensor(Tensor {
+            name: "axes".into(),
+            dims: vec![3],
+            data_type: 7,
+            data: Data::Typed,
+        }),
+        Event::Tensor(Tensor {
+            name: "nothing".into(),
+            dims: vec![],
+            data_type: 0,
+            data: Data::None,
+        }),
+        Event::Opset {
+            domain: String::new(),
+            version: 14,
+        },
+        Event::Opset {
+            domain: "com.microsoft".into(),
+            version: 1,
+        },
+    ];
+
+    // The whole file at once.
+    let mut whole = Stream::new();
+    assert_eq!(whole.feed(&file).as_ref(), Ok(&expected));
+    assert_eq!(whole.finish(file.len() as u64), Ok(()));
+    assert_eq!(whole.position(), file.len() as u64);
+
+    // Every way of splitting it, fed only the bytes the reader asks for: the
+    // same events, the megabyte of weights never fed, and never more held than
+    // one record and one piece.
+    for piece in [1usize, 2, 3, 7, 61, 64, 4096] {
+        let mut stream = Stream::new();
+        let mut events = Vec::new();
+        let (mut fed, mut most_held) = (0usize, 0usize);
+        loop {
+            let at = usize::try_from(stream.position()).expect("an offset in the file");
+            if at >= file.len() {
+                break;
+            }
+            let end = (at + piece).min(file.len());
+            events.extend(stream.feed(&file[at..end]).expect("the file reads"));
+            fed += end - at;
+            most_held = most_held.max(stream.held());
+        }
+        assert_eq!(events, expected, "pieces of {piece}");
+        assert_eq!(
+            stream.finish(file.len() as u64),
+            Ok(()),
+            "pieces of {piece}"
+        );
+        assert!(
+            fed <= file.len() - weights.len() + piece,
+            "pieces of {piece}: {fed} bytes were fed of a file whose weights alone are {}",
+            weights.len()
+        );
+        assert!(
+            most_held <= matmul.len() + 16 + piece,
+            "pieces of {piece}: the reader held {most_held} bytes"
+        );
+    }
+
+    // A caller that wants the nodes and the opsets and not the tensors leaves
+    // the graph at its first tensor.
+    let mut stream = Stream::new();
+    let mut events = Vec::new();
+    let mut at = 0usize;
+    while at < file.len() {
+        let end = (at + 32).min(file.len());
+        events.extend(stream.feed(&file[at..end]).expect("the file reads"));
+        if stream.in_graph() && events.len() == 2 {
+            stream.leave_graph();
+        }
+        at = usize::try_from(stream.position()).expect("an offset in the file");
+    }
+    assert_eq!(stream.finish(file.len() as u64), Ok(()));
+    assert_eq!(
+        events,
+        [&expected[..2], &expected[6..]].concat(),
+        "leaving the graph gives the nodes and the opsets"
+    );
+
+    // It reads the same graph the whole-file reader does.
+    let read = onnx::read(&file).expect("the whole-file reader reads it");
+    let nodes: Vec<onnx::Operator> = expected
+        .iter()
+        .filter_map(|event| match event {
+            Event::Node(node) => Some(onnx::Operator {
+                domain: node.domain.clone(),
+                op_type: node.op_type.clone(),
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        (read.opset, read.operators, read.initializers),
+        (14, nodes, 4)
+    );
+
+    // A file that ends early is truncated wherever it ends; one with no graph
+    // or no opset for the ONNX operators says which.
+    for cut in [1usize, 40, file.len() / 2, file.len() - 1] {
+        let mut stream = Stream::new();
+        let mut at = 0usize;
+        while at < cut {
+            let end = (at + 4096).min(cut);
+            stream.feed(&file[at..end]).expect("a prefix reads");
+            at = usize::try_from(stream.position())
+                .expect("an offset")
+                .max(end);
+        }
+        assert_eq!(
+            stream.finish(cut as u64),
+            Err(onnx::OnnxError::Truncated),
+            "cut at {cut}"
+        );
+    }
+    let mut stream = Stream::new();
+    stream
+        .feed(&onnx_file(&[opset("", 14)], None))
+        .expect("it reads");
+    assert_eq!(
+        stream.finish(stream.position()),
+        Err(onnx::OnnxError::NoGraph)
+    );
+    let mut stream = Stream::new();
+    stream
+        .feed(&onnx_file(&[opset("com.microsoft", 1)], Some(&graph)))
+        .expect("it reads");
+    assert_eq!(
+        stream.finish(stream.position()),
+        Err(onnx::OnnxError::NoDefaultOpset)
+    );
+
+    // A field that runs past the record it is in is refused when it is met,
+    // not when the bytes run out.
+    let mut long = proto_number((7 << 3) | 2);
+    long.extend(proto_number(4));
+    long.extend(proto_number((2 << 3) | 2));
+    long.extend(proto_number(64));
+    assert_eq!(Stream::new().feed(&long), Err(onnx::OnnxError::Truncated));
+}
+
+/// `FL-41`: A node or an opset record is larger than the reader will hold
+#[test]
+fn engine_fl_41() {
+    use onnx::stream::{Stream, RECORD_LIMIT};
+    // A node one byte past the limit is refused at its length, before any of
+    // it is fed; one at the limit is waited for.
+    for (field, inside_graph) in [(1u64, true), (8, false)] {
+        for (length, wanted) in [
+            (RECORD_LIMIT + 1, Err(onnx::OnnxError::RecordTooLarge)),
+            (RECORD_LIMIT, Ok(vec![])),
+        ] {
+            let mut record = proto_number((field << 3) | 2);
+            record.extend(proto_number(length));
+            let mut file = Vec::new();
+            if inside_graph {
+                file.extend(proto_number((7 << 3) | 2));
+                file.extend(proto_number(record.len() as u64 + length));
+            }
+            file.extend(&record);
+            assert_eq!(
+                Stream::new().feed(&file),
+                wanted,
+                "field {field}, {length} bytes"
+            );
+        }
+    }
+    // A tensor's name is held whole too.
+    let mut name = proto_number((8 << 3) | 2);
+    name.extend(proto_number(RECORD_LIMIT + 1));
+    let tensor_length = name.len() as u64 + RECORD_LIMIT + 1;
+    let mut tensor = proto_number((5 << 3) | 2);
+    tensor.extend(proto_number(tensor_length));
+    tensor.extend(&name);
+    let mut file = proto_number((7 << 3) | 2);
+    file.extend(proto_number(tensor.len() as u64 + RECORD_LIMIT + 1));
+    file.extend(&tensor);
+    assert_eq!(
+        Stream::new().feed(&file),
+        Err(onnx::OnnxError::RecordTooLarge)
+    );
+}
+
+/// `FL-42`: A tensor kept outside the file names no location, or an offset or a length that is not a number
+#[test]
+fn engine_fl_42() {
+    use onnx::stream::Stream;
+    let entry = |key: &str, value: &str| {
+        let mut out = proto_field_bytes(1, key.as_bytes());
+        out.extend(proto_field_bytes(2, value.as_bytes()));
+        proto_field_bytes(13, &out)
+    };
+    let file = |entries: &[Vec<u8>]| {
+        let mut tensor = proto_field_bytes(8, b"w");
+        for entry in entries {
+            tensor.extend(entry);
+        }
+        tensor.extend(proto_field_number(14, 1));
+        onnx_file(&[opset("", 14)], Some(&proto_field_bytes(5, &tensor)))
+    };
+    for (what, entries) in [
+        (
+            "no location",
+            vec![entry("offset", "0"), entry("length", "8")],
+        ),
+        ("no entries at all", vec![]),
+        (
+            "an offset that is a word",
+            vec![entry("location", "d"), entry("offset", "start")],
+        ),
+        (
+            "a negative length",
+            vec![entry("location", "d"), entry("length", "-1")],
+        ),
+        (
+            "an offset past sixty-four bits",
+            vec![
+                entry("location", "d"),
+                entry("offset", "18446744073709551616"),
+            ],
+        ),
+    ] {
+        assert_eq!(
+            Stream::new().feed(&file(&entries)),
+            Err(onnx::OnnxError::ExternalNotFollowed),
+            "{what}"
+        );
+    }
+    // A location alone is followed: the offset is the file's start and the
+    // length is left to the type and shape.
+    assert!(Stream::new().feed(&file(&[entry("location", "d")])).is_ok());
+}
