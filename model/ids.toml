@@ -471,3 +471,9 @@ id = "EN-31"
 level = "build"
 suite = "engine"
 statement = "An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives"
+
+[[id]]
+id = "EN-32"
+level = "build"
+suite = "engine"
+statement = "A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for"

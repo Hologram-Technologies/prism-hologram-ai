@@ -372,6 +372,8 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "serde_json",
+ "unicode-normalization-alignments",
+ "unicode_categories",
 ]
 
 [[package]]

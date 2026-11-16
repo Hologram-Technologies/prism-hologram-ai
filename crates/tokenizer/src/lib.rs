@@ -23,6 +23,9 @@ use std::collections::BTreeMap;
 
 mod bytes;
 mod gguf;
+mod wordpiece;
+
+pub use wordpiece::WordPiece;
 
 /// Why a tokeniser could not be read, or could not be used.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +71,20 @@ pub enum Unfollowable {
     /// for that name. The name is all the file carries; the pattern it stands
     /// for lives in the reader, so guessing it would be inventing one.
     PreTokeniserNotKnown,
+    /// A WordPiece reader was given a file whose model is not WordPiece.
+    NotWordPiece,
+    /// The normaliser is not BERT's, or BERT's with a setting not a flag: it
+    /// changes the text before it is split, so every id after it could differ.
+    NormaliserNotKnown,
+    /// The template is not one sentence between two special tokens of type 0,
+    /// or does not list the id of each.
+    TemplateNotKnown,
+    /// Truncation other than keeping the start of the sentence, longest
+    /// first, with no stride.
+    TruncationNotKnown,
+    /// An added token that is normalised, strips space around it or matches
+    /// only whole words, which is matching this crate does not do.
+    AddedTokenNotPlain,
 }
 
 /// The pattern a `gpt2` pre-tokeniser splits by, as `llama.cpp` has it. It is
