@@ -1,18 +1,23 @@
-// The WebGPU decode engine for a ternary Qwen3 model (Bonsai's layout). One
+// The WebGPU decode engine for Qwen2 and Qwen3 models with ternary (Bonsai's
+// layout) or q4 weights. One
 // step is one command buffer: every layer's kernels are recorded back to back
 // and the only read back is the chosen token (and the logits when asked for).
 // Decisions about what may be loaded and run are the kernel's; this module only
 // computes.
 
-import { APPEND, ARGMAX, ATTENTION, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
+import { APPEND, ARGMAX, EMBED_TERNARY, HEAD_NORM, KV_WRITE, MATVEC_TERNARY, RMS_NORM, ROPE, SILU_MUL } from "./wgsl.mjs";
 import { plain, yarn } from "./yarn.mjs";
-import { ATTENTION_ROWS, EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
+import { ATTENTION_CHUNK, ATTENTION_COMBINE, ATTENTION_PARTIAL } from "./wgsl-attention.mjs";
+import { EMBED_ROWS, KV_WRITE_ROWS, MATMUL_TERNARY, RMS_NORM_ROWS, ROPE_ROWS } from "./wgsl-batch.mjs";
+import { ADD_BIAS, EMBED_Q4, MATMUL_Q4, MATVEC_Q4 } from "./wgsl-q4.mjs";
 
 const U = typeof GPUBufferUsage === "undefined" ? {} : GPUBufferUsage;
 const f32bits = (value) => new Uint32Array(new Float32Array([value]).buffer)[0];
 
 // Bytes of one ternary block: two bit planes and one f32 scale per 128 weights.
 export const ternaryLength = (n, k) => (n * k) / 4 + ((n * k) / 128) * 4;
+// Bytes of a q4 tensor: a code per weight in four bits, one f32 scale per 32.
+export const q4Length = (n, k) => (n * k) / 2 + ((n * k) / 32) * 4;
 
 export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   const { d, n_heads: heads, n_kv_heads: kvHeads, hd, ff, vocab, n_layers: layers } = dims;
@@ -42,19 +47,20 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     if (!t) throw new Error(`model has no tensor ${name}`);
     return t;
   };
-  const ternary = (name) => {
+  // A weight matrix in one of the formats this engine runs, as the buffers its
+  // kernels bind, in binding order.
+  const matrix = (name) => {
     const t = tensor(name);
-    if (t.fmt !== "q1") throw new Error(`${name} is ${t.fmt}, not the ternary format`);
-    const plane = (t.N * t.K) / 8;
-    const want = ternaryLength(t.N, t.K);
+    const length = { q1: ternaryLength, q4: q4Length }[t.fmt];
+    if (!length) throw new Error(`${name} is ${t.fmt}; this engine runs q1 and q4 matrices`);
+    const want = length(t.N, t.K);
     if (t.bytes.byteLength !== want) throw new Error(`${name} holds ${t.bytes.byteLength} bytes, its format needs ${want}`);
-    return {
-      N: t.N,
-      K: t.K,
-      signs: upload(t.bytes.subarray(0, plane)),
-      nonzeros: upload(t.bytes.subarray(plane, 2 * plane)),
-      scales: upload(t.bytes.subarray(2 * plane)),
-    };
+    if (t.fmt === "q1") {
+      const plane = (t.N * t.K) / 8;
+      return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(t.bytes.subarray(0, plane)), upload(t.bytes.subarray(plane, 2 * plane)), upload(t.bytes.subarray(2 * plane))] };
+    }
+    const codes = (t.N * t.K) / 2;
+    return { fmt: t.fmt, N: t.N, K: t.K, buffers: [upload(t.bytes.subarray(0, codes)), upload(t.bytes.subarray(codes))] };
   };
   const vector = (name) => {
     const t = tensor(name);
@@ -62,22 +68,28 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     return upload(new Float32Array(t.bytes.buffer, t.bytes.byteOffset, t.bytes.byteLength / 4));
   };
 
-  const embed = ternary("embed");
-  const head = tensors.has("lm_head") && tensors.get("lm_head").bytes !== tensor("embed").bytes ? ternary("lm_head") : embed;
+  const embed = matrix("embed");
+  const head = tensors.has("lm_head") && tensors.get("lm_head").bytes !== tensor("embed").bytes ? matrix("lm_head") : embed;
+  // Qwen3 normalises each query and key head; Qwen2 adds a bias to q, k and v.
+  const qkNorm = tensors.has("l0.q_norm");
+  const bias = tensors.has("l0.bq");
   const layer = [];
   for (let l = 0; l < layers; l++) {
     layer.push({
       attnNorm: vector(`l${l}.attn_norm`),
-      wq: ternary(`l${l}.wq`),
-      wk: ternary(`l${l}.wk`),
-      wv: ternary(`l${l}.wv`),
-      qNorm: vector(`l${l}.q_norm`),
-      kNorm: vector(`l${l}.k_norm`),
-      wo: ternary(`l${l}.wo`),
+      wq: matrix(`l${l}.wq`),
+      wk: matrix(`l${l}.wk`),
+      wv: matrix(`l${l}.wv`),
+      qNorm: qkNorm ? vector(`l${l}.q_norm`) : null,
+      kNorm: qkNorm ? vector(`l${l}.k_norm`) : null,
+      bq: bias ? vector(`l${l}.bq`) : null,
+      bk: bias ? vector(`l${l}.bk`) : null,
+      bv: bias ? vector(`l${l}.bv`) : null,
+      wo: matrix(`l${l}.wo`),
       ffnNorm: vector(`l${l}.ffn_norm`),
-      gate: ternary(`l${l}.w_gate`),
-      up: ternary(`l${l}.w_up`),
-      down: ternary(`l${l}.w_down`),
+      gate: matrix(`l${l}.w_gate`),
+      up: matrix(`l${l}.w_up`),
+      down: matrix(`l${l}.w_down`),
       kc: storage(capacity * kvdim * 4),
       vc: storage(capacity * kvdim * 4),
     });
@@ -97,19 +109,28 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     logits: storage(vocab * 4),
     chosen: storage(16),
   };
+  // Attention's partials: [max, sum, value[hd]] per (row, head, chunk); a
+  // prefill block has up to 16 rows, a position run alone uses row 0.
+  const part = storage(16 * heads * Math.ceil(capacity / ATTENTION_CHUNK) * (hd + 2) * 4);
   const readChosen = device.createBuffer({ size: 16, usage: U.MAP_READ | U.COPY_DST });
   const readLogits = device.createBuffer({ size: vocab * 4, usage: U.MAP_READ | U.COPY_DST });
 
   const pipeline = (code) => device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code }), entryPoint: "main" } });
+  const byFormat = (kernels) => {
+    const made = {};
+    return (fmt) => (made[fmt] ??= pipeline(kernels[fmt]));
+  };
+  const matvecPipe = byFormat({ q1: MATVEC_TERNARY, q4: MATVEC_Q4 });
+  const embedPipe = byFormat({ q1: EMBED_TERNARY, q4: EMBED_Q4 });
   const P = {
-    matvec: pipeline(MATVEC_TERNARY),
+    bias: pipeline(ADD_BIAS),
     norm: pipeline(RMS_NORM),
     headNorm: pipeline(HEAD_NORM),
     rope: pipeline(ROPE),
     kv: pipeline(KV_WRITE),
-    attention: pipeline(ATTENTION(capacity)),
+    attnPart: pipeline(ATTENTION_PARTIAL(Math.ceil(capacity / ATTENTION_CHUNK))),
+    attnCombine: pipeline(ATTENTION_COMBINE(Math.ceil(capacity / ATTENTION_CHUNK))),
     silu: pipeline(SILU_MUL),
-    embed: pipeline(EMBED_TERNARY),
     argmax: pipeline(ARGMAX),
   };
   const bind = (p, buffers) =>
@@ -126,6 +147,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     normHead: uniform([hd, f32bits(eps), 0, 0]),
     silu: uniform([ff, 0, 0, 0]),
     argmax: uniform([vocab, 0, 0, 0]),
+    biasQ: uniform([qdim, 1, 0, 0]),
+    biasKV: uniform([kvdim, 1, 0, 0]),
   };
   const matvecUniform = new Map();
   const matvecParams = (K, N, accumulate) => {
@@ -154,20 +177,31 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
       append: uniform([0, 0, 0, 0]),
     };
     const plan = [];
-    const matvec = (key, w, input, output, accumulate = false) =>
-      plan.push([P.matvec, once(key, () => bind(P.matvec, [input, w.signs, w.nonzeros, w.scales, output, matvecParams(w.K, w.N, accumulate)])), ...grid(w.N)]);
-    plan.push([P.embed, bind(P.embed, [embed.signs, embed.nonzeros, embed.scales, B.x, ring, u.embed]), Math.ceil(d / 64), 1]);
+    const matvec = (key, w, input, output, accumulate = false) => {
+      const p = matvecPipe(w.fmt);
+      plan.push([p, once(key, () => bind(p, [input, ...w.buffers, output, matvecParams(w.K, w.N, accumulate)])), ...grid(w.N)]);
+    };
+    const addBias = (key, x, b, params, n) => plan.push([P.bias, once(key, () => bind(P.bias, [x, b, params])), Math.ceil(n / 64), 1]);
+    plan.push([embedPipe(embed.fmt), bind(embedPipe(embed.fmt), [...embed.buffers, B.x, ring, u.embed]), Math.ceil(d / 64), 1]);
     layer.forEach((L, l) => {
       plan.push([P.norm, once(`an${l}`, () => bind(P.norm, [B.x, L.attnNorm, B.h, fixed.normD])), 1, 1]);
       matvec(`q${l}`, L.wq, B.h, B.q);
       matvec(`k${l}`, L.wk, B.h, B.k);
       matvec(`v${l}`, L.wv, B.h, B.v);
-      plan.push([P.headNorm, once(`qn${l}`, () => bind(P.headNorm, [B.q, L.qNorm, fixed.normHead])), heads, 1]);
-      plan.push([P.headNorm, once(`kn${l}`, () => bind(P.headNorm, [B.k, L.kNorm, fixed.normHead])), kvHeads, 1]);
+      if (bias) {
+        addBias(`bq${l}`, B.q, L.bq, fixed.biasQ, qdim);
+        addBias(`bk${l}`, B.k, L.bk, fixed.biasKV, kvdim);
+        addBias(`bv${l}`, B.v, L.bv, fixed.biasKV, kvdim);
+      }
+      if (qkNorm) {
+        plan.push([P.headNorm, once(`qn${l}`, () => bind(P.headNorm, [B.q, L.qNorm, fixed.normHead])), heads, 1]);
+        plan.push([P.headNorm, once(`kn${l}`, () => bind(P.headNorm, [B.k, L.kNorm, fixed.normHead])), kvHeads, 1]);
+      }
       plan.push([P.rope, bind(P.rope, [B.q, freqs, u.ropeQ]), Math.ceil((heads * hd) / 2 / 64), 1]);
       plan.push([P.rope, bind(P.rope, [B.k, freqs, u.ropeK]), Math.ceil((kvHeads * hd) / 2 / 64), 1]);
       plan.push([P.kv, bind(P.kv, [B.k, B.v, L.kc, L.vc, u.kv]), Math.ceil(kvdim / 64), 1]);
-      plan.push([P.attention, bind(P.attention, [B.q, L.kc, L.vc, B.att, u.attention]), heads, 1]);
+      plan.push([P.attnPart, bind(P.attnPart, [B.q, L.kc, L.vc, part, u.attention]), heads, (pos) => Math.ceil((pos + 1) / ATTENTION_CHUNK)]);
+      plan.push([P.attnCombine, bind(P.attnCombine, [part, B.att, u.attention]), heads, 1]);
       matvec(`o${l}`, L.wo, B.att, B.x, true);
       plan.push([P.norm, once(`fn${l}`, () => bind(P.norm, [B.x, L.ffnNorm, B.h, fixed.normD])), 1, 1]);
       matvec(`g${l}`, L.gate, B.h, B.g);
@@ -195,7 +229,7 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     for (const [p, group, x, y] of generates ? [...plan, [pipeAppend, append, 1, 1]] : plan) {
       pass.setPipeline(p);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(x, y);
+      pass.dispatchWorkgroups(typeof x === "function" ? x(pos) : x, typeof y === "function" ? y(pos) : y);
     }
     pass.end();
   };
@@ -209,9 +243,11 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     q: storage(BLOCK * qdim * 4), k: storage(BLOCK * kvdim * 4), v: storage(BLOCK * kvdim * 4),
     att: storage(BLOCK * qdim * 4), g: storage(BLOCK * ff * 4), u: storage(BLOCK * ff * 4),
   };
+  const matmulPipe = byFormat({ q1: MATMUL_TERNARY(BLOCK), q4: MATMUL_Q4(BLOCK) });
+  const embedRowsPipe = byFormat({ q1: EMBED_ROWS, q4: EMBED_Q4 });
   const PP = {
-    matmul: pipeline(MATMUL_TERNARY(BLOCK)), norm: pipeline(RMS_NORM_ROWS), embed: pipeline(EMBED_ROWS),
-    rope: pipeline(ROPE_ROWS), kv: pipeline(KV_WRITE_ROWS), attention: pipeline(ATTENTION_ROWS(capacity)),
+    norm: pipeline(RMS_NORM_ROWS),
+    rope: pipeline(ROPE_ROWS), kv: pipeline(KV_WRITE_ROWS),
   };
   const pu = {
     embed: uniform([d, 0, 0, 0]),
@@ -220,6 +256,8 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     kv: uniform([kvdim, 0, 0, 0]),
     attention: uniform([heads, kvHeads, hd, 1]),
     silu: uniform([0, 0, 0, 0]),
+    biasQ: uniform([qdim, 0, 0, 0]),
+    biasKV: uniform([kvdim, 0, 0, 0]),
   };
   const mmUniforms = new Map();
   const mmParams = (K, N, accumulate) => {
@@ -229,20 +267,31 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
   };
   // [pipeline, bind group, x(count), y(count)]
   const prefillPlan = [];
-  const mm = (w, input, output, accumulate = false) =>
-    prefillPlan.push([PP.matmul, bind(PP.matmul, [input, w.signs, w.nonzeros, w.scales, output, mmParams(w.K, w.N, accumulate)]), () => Math.min(w.N, 65535), () => Math.ceil(w.N / 65535)]);
-  prefillPlan.push([PP.embed, bind(PP.embed, [embed.signs, embed.nonzeros, embed.scales, PB.x, ring, pu.embed]), (c) => Math.ceil((c * d) / 64), () => 1]);
+  const mm = (w, input, output, accumulate = false) => {
+    const p = matmulPipe(w.fmt);
+    prefillPlan.push([p, bind(p, [input, ...w.buffers, output, mmParams(w.K, w.N, accumulate)]), () => Math.min(w.N, 65535), () => Math.ceil(w.N / 65535)]);
+  };
+  const ppBias = (x, b, params, n) => prefillPlan.push([P.bias, bind(P.bias, [x, b, params]), (c) => Math.ceil((c * n) / 64), () => 1]);
+  prefillPlan.push([embedRowsPipe(embed.fmt), bind(embedRowsPipe(embed.fmt), [...embed.buffers, PB.x, ring, pu.embed]), (c) => Math.ceil((c * d) / 64), () => 1]);
   for (const L of layer) {
     prefillPlan.push([PP.norm, bind(PP.norm, [PB.x, L.attnNorm, PB.h, fixed.normD]), (c) => c, () => 1]);
     mm(L.wq, PB.h, PB.q);
     mm(L.wk, PB.h, PB.k);
     mm(L.wv, PB.h, PB.v);
-    prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.q, L.qNorm, fixed.normHead]), (c) => c * heads, () => 1]);
-    prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.k, L.kNorm, fixed.normHead]), (c) => c * kvHeads, () => 1]);
+    if (bias) {
+      ppBias(PB.q, L.bq, pu.biasQ, qdim);
+      ppBias(PB.k, L.bk, pu.biasKV, kvdim);
+      ppBias(PB.v, L.bv, pu.biasKV, kvdim);
+    }
+    if (qkNorm) {
+      prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.q, L.qNorm, fixed.normHead]), (c) => c * heads, () => 1]);
+      prefillPlan.push([P.headNorm, bind(P.headNorm, [PB.k, L.kNorm, fixed.normHead]), (c) => c * kvHeads, () => 1]);
+    }
     prefillPlan.push([PP.rope, bind(PP.rope, [PB.q, freqs, pu.ropeQ]), () => Math.ceil((heads * hd) / 2 / 64), (c) => c]);
     prefillPlan.push([PP.rope, bind(PP.rope, [PB.k, freqs, pu.ropeK]), () => Math.ceil((kvHeads * hd) / 2 / 64), (c) => c]);
     prefillPlan.push([PP.kv, bind(PP.kv, [PB.k, PB.v, L.kc, L.vc, pu.kv]), (c) => Math.ceil((c * kvdim) / 64), () => 1]);
-    prefillPlan.push([PP.attention, bind(PP.attention, [PB.q, L.kc, L.vc, PB.att, pu.attention]), () => heads, (c) => c]);
+    prefillPlan.push([P.attnPart, bind(P.attnPart, [PB.q, L.kc, L.vc, part, pu.attention]), () => heads, (c, first) => Math.ceil((first + c) / ATTENTION_CHUNK), (c) => c]);
+    prefillPlan.push([P.attnCombine, bind(P.attnCombine, [part, PB.att, pu.attention]), () => heads, (c) => c]);
     mm(L.wo, PB.att, PB.x, true);
     prefillPlan.push([PP.norm, bind(PP.norm, [PB.x, L.ffnNorm, PB.h, fixed.normD]), (c) => c, () => 1]);
     mm(L.gate, PB.h, PB.g);
@@ -259,13 +308,15 @@ export async function createEngine({ device, dims, tensors, capacity = 1024 }) {
     device.queue.writeBuffer(pu.kv, 0, new Uint32Array([kvdim, first, count, 0]));
     device.queue.writeBuffer(pu.attention, 0, new Uint32Array([heads, kvHeads, hd, first + 1]));
     device.queue.writeBuffer(pu.silu, 0, new Uint32Array([count * ff, 0, 0, 0]));
+    device.queue.writeBuffer(pu.biasQ, 0, new Uint32Array([qdim, count, 0, 0]));
+    device.queue.writeBuffer(pu.biasKV, 0, new Uint32Array([kvdim, count, 0, 0]));
     for (const { buffer, values } of mmUniforms.values()) device.queue.writeBuffer(buffer, 0, new Uint32Array([...values, count]));
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginComputePass();
-    for (const [p, group, x, y] of prefillPlan) {
+    for (const [p, group, x, y, z] of prefillPlan) {
       pass.setPipeline(p);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(x(count), y(count));
+      pass.dispatchWorkgroups(x(count, first), y(count, first), z ? z(count, first) : 1);
     }
     pass.end();
     device.queue.submit([encoder.finish()]);

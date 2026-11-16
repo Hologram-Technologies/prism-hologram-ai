@@ -8,6 +8,7 @@ Feature: gpu
     When the engine in site/app/engine runs it in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/reference.mjs
     Then at each of sixteen steps the engine picks the reference's token
     And every logit is within 0.002 of the reference's
+    And over a run of 140 positions, more than two of attention's 64-position chunks, the picks agree and every logit is within 0.005
 
   @GP-02 @build
   Scenario: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
@@ -18,7 +19,7 @@ Feature: gpu
 
   @GP-04 @build
   Scenario: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
-    Given the same generated model and two prompts, one of six tokens and one of forty, longer than a submission's thirty-two slots
+    Given the same generated model and two prompts, one of six tokens and one of a hundred, longer than a submission's thirty-two slots and than one 64-position attention chunk
     When one engine runs them one position per submission and another many positions per submission, each pick written to the ring on the GPU and read by the next position
     Then both give the same twelve tokens for each prompt
     And every position ran exactly once
@@ -38,3 +39,11 @@ Feature: gpu
     When the deploy's listing names a different SHA-256 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
     Then the page stops at "kernel is the one this deploy lists" with an error beginning "stale kernel", naming both, before it reads the record or asks the kernel any question
     And with the listing matching, the comparison passes and the load goes on
+
+  @GP-05 @build
+  Scenario: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
+    Given a two-layer q4 Qwen2 model generated from a fixed seed, with q, k and v biases, no per-head norm, plain rotary frequencies and an output head separate from the embedding
+    When the engine runs it in headless Chromium on WebGPU's software renderer, beside the reference that unpacks q4 by KN-17
+    Then at each of sixteen steps the engine picks the reference's token, and every logit is within 0.002 of the reference's
+    And over a run of 140 positions the picks agree and every logit is within 0.005
+    And prompts of six and a hundred tokens run in blocks give the same tokens as one position at a time

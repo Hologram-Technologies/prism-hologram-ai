@@ -62,6 +62,23 @@ Existing decisions Q starts using: KN-01 drives load states, KN-05 admits manife
 
 Tested, not proved: every WGSL kernel, the CPU kernels, prefill and decode, attention, RoPE, normalisation, int4 KV, and the receipt's re-derivation.
 
+## Milestone 1: done when
+
+Set by Ilya on 2026-11-14 to close the milestone. Each line has an owner; the milestone is published when all six are done.
+
+| # | Done when | Owner |
+| --- | --- | --- |
+| 1 | A pull request that leaves the proofs untouched passes the gate: `just app` proves and builds the holo on every run, with no reuse path. | Hologram AI (PR #24) |
+| 2 | The page compares the kernel it verified with the kernel it was built for before asking any question; on a mismatch it stops with "stale kernel", names both, and says to reload. The built-for identity comes from a source the service worker's cache cannot serve stale. | Q engine, with Hologram AI on the source |
+| 3 | README and the page say what is proved, what is tested, what the holo carries, and the command that checks it. | Hologram AI |
+| 4 | Typed text replaces the default prompt rather than joining it, and Enter sends (Shift+Enter adds a line). | Q engine |
+| 5 | Qwen2.5-1.5B-Instruct runs in the browser on this engine (WebGPU for the math, the wasm module for reading, hashing and tokenizing) as its checkpoint below states, aiming at 100 tokens per second and under 300 ms to the first token. | Q engine |
+| 6 | A final run on the published page: first visit, return visit, and a prompt of about 440 tokens. | Coordinator |
+
+Speed is reported, not gated. The 300 ms aim is for a short prompt (about 30 tokens) with the model loaded and nothing cached. The cold 440-token prompt is reported beside it, and is a stretch aim: it is about 1.3 trillion operations, 150 to 300 ms at a good fraction of this GPU's compute. The 100 tokens per second aim is half of Qwen2.5's bandwidth bound on this machine.
+
+Moved to milestone 2: Bonsai's own speed target (below), Qwen3-0.6B, Foundry's checkpoint 2, the proof carried by the package, the 25 examples, and the SDK upgrade.
+
 ## Checkpoint 1: first light
 
 Milestone 1 is reached in checkpoints. The first is the only one on the critical path. It is done when Ilya can do this himself, and each step is also checked by a test, not only by eye.
@@ -131,9 +148,54 @@ Side by side on 2026-11-14, browser pane visible, one load each, the same five p
 | Time to first token | 0.45 to 1.13 s | 11.3 to 12.1 s |
 | Tokens per second | 43.5 to 57.0, median 52.5 | 18.8 to 22.4, median 21.5 |
 
-So parity on this machine means about 52 tokens per second and under a second to the first token, not the 85 to 114 recorded elsewhere. Two gaps explain most of it, ahead of fusion: the prompt is run one position at a time, each a full pass over the weights (batched prefill reads each weight once for a block of positions); and attention walks the whole cache serially per head, so speed halves as the context grows (the original splits attention across the cache). The order is now: batched prefill, then split attention, then two batches in flight, then the remaining dispatch reductions.
+That run streamed the model from Hugging Face during the measurement. Repeated with a local, hash-verified copy of the same file, pane visible, the same prompts:
+
+| | Original Q engine (Foundry's copy) | This engine |
+| --- | --- | --- |
+| Time to first token | 0.30 to 0.47 s, system prompt cached | 12 s; 2.3 to 6.0 s after batched prefill |
+| Tokens per second | median 92.2 | median 31.0 |
+
+These are the numbers parity is measured against. Two gaps explain most of it, ahead of fusion: the prompt is run one position at a time, each a full pass over the weights (batched prefill reads each weight once for a block of positions); and attention walks the whole cache serially per head, so speed halves as the context grows (the original splits attention across the cache). The order is now: batched prefill, then split attention, then two batches in flight, then the remaining dispatch reductions.
 
 A row-and-lane kernel geometry ported from Foundry's engine was measured slower here (37.5 against 43 tokens per second) and was not kept.
+
+Split attention (each 64-position chunk of the cache its own workgroup, then a combine per head) is in, with GP-01 extended to 140 positions against the reference and GP-04 to a 100-token prompt; its speed is not yet measured with the pane visible.
+
+### Target
+
+Moved to milestone 2 on 2026-11-14. Set by Ilya earlier that day, replacing parity as the goal: Bonsai 1.7B ternary at 100 or more tokens per second and under 300 ms to the first token, cold: model loaded, nothing cached, a prompt of about 440 tokens, timed from send to first token. Cached time to first token is reported beside it, never instead of it. Tokens stay identical to the greedy reference at every step. The bounds allow it: about 390 tokens per second from bandwidth, and about 70 ms of weight reads for the prompt in blocks of 16; the remaining gap is this engine's kernels.
+
+## Checkpoint: Qwen2.5-1.5B-Instruct in the browser
+
+Asked by Ilya on 2026-11-14, part of milestone 1, ahead of further Bonsai speed work: the new engine runs Qwen2.5-1.5B-Instruct at 4 bits in the browser, and both engines are measured on it.
+
+Source: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF) at revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, Apache-2.0. Its Q4_0 file (1,066,227,232 bytes) groups 32 weights under one f16 scale; widened to f32 that is q4's 20 bytes per 32, so its Q4_0 tensors are relaid into KN-17's order without requantising; its output head is a separate Q6_K tensor and is requantised to q4. Its Q4_K_M file (1,117,320,736 bytes, the "4-bit, 1.1 GB" line) mixes block formats and would need requantising throughout. Shape: Qwen2, 28 layers, width 1536, 12 heads, 2 key-value heads, head size 128, FFN 8960, vocabulary 151,936, output head separate from the embedding, q/k/v biases, no per-head q/k norm, rotary base 1e6 without YaRN. About 0.96 GB read per token, a bound near 200 tokens per second on this machine.
+
+Done when Ilya can:
+
+| Step | What he does | The test that checks it |
+| --- | --- | --- |
+| 1 | Opens the engine page with the model's address and loads it; every block passes the kernel's admission and length checks. | The journey of checkpoint 1, run on a small generated Qwen2-shaped q4 container: good, flipped byte and wrong root. |
+| 2 | Chats in Qwen2.5's own template and gets greedy answers. | GP tests on a generated Qwen2-shaped q4 model: every logit within tolerance of the CPU reference past 64 positions, and batched equal to one position at a time. On the real model, the first 32 tokens of three prompts equal the CPU reference run over the same weights. |
+| 3 | Sees both engines' speed on the same prompts. | Side by side, pane visible: time to first token cold and tokens per second, the original's number beside this engine's, in this file. |
+
+Gaps, in order, with estimates: q4 matrix, batched-matrix and embedding kernels, and q4 in the CPU reference (a day); q/k/v biases and optional q/k norm (half a day); a converter from the GGUF to the weight container with BLAKE3-named blocks and the tokenizer header (a day); the chat frame chosen per model, not Qwen3's fixed one (half a day); the baseline on the original engine and the side by side (half a day). About three and a half days. Publishing the packed file under HOLOGRAMTECH with a hub record is an outward step that waits for Ilya's yes; until then it is served locally with a local index, as Bonsai's benchmark is.
+
+State on 2026-11-14: the container is packed locally (953,978,079 bytes, every block's BLAKE3 name verified) and both engines run it; this engine's first 64 tokens on a fixed prompt equal the original's text. Step 2 on the generated model is GP-05.
+
+Step 3, measured on 2026-11-16 in the coordinator's session (its pane visible, this machine's RDNA-3 adapter, nothing else on the GPU), both engines on the packed container served locally, greedy, every run cold. Short is one prompt of 41 tokens (Qwen2.5's default system line and "What is the capital of France? Answer in one sentence."), five runs; long is five prompts of 423 to 439 tokens, three runs each, 256 tokens out; medians, the long ones a median of per-prompt medians.
+
+| | This engine | Original |
+| --- | --- | --- |
+| First token, short | 156 ms | 545 ms |
+| First token, long | 1,850 ms | 4,995 ms |
+| Tokens per second, long | 70.7 | 73.6 |
+| Load, served locally | 14.0 s | 14.7 to 15.9 s |
+| On the GPU | 1,177 MB | 1,086 MB |
+
+Both engines produced the same tokens on every prompt: all 256 on each long prompt and all 7 on the short one, the same on every repeat. Against the aims: the short first token is inside 300 ms; 70.7 tokens per second is short of 100; the long first token is short of the stretch aim. This engine's rate fell across repeats of one prompt (88, 74, 72 on the first); the original's opened high after a pause and then held, so carried state between turns is the first thing to rule out.
+
+Order after it, in milestone 2: Bonsai to its target, then Qwen3-0.6B on the same q4 path, then checkpoint 2.
 
 ## Phase 2. Engine core (milestone 1)
 

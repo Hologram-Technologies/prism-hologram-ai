@@ -47,4 +47,9 @@ tie.
 | The page loads without comparing its kernel with the deploy's listing | `just page-journey` | rejected: `stale: expected to stop with "stale kernel" at the deploy comparison, stopped at undefined: undefined (ready: null)` and `good: the kernel was not compared with the deploy's listing (no check)` |
 | the same | `cargo test -p repo-conformance --test gpu gpu_gp_06` | rejected: `load compares the kernel` |
 | The prompt box starts with text in it | `just page-journey` | rejected: `good: the prompt box started with text, so typing would join it: "Tell me"` |
-| none | all five, and the journey | pass |
+| Qwen2's q, k and v biases never added | `cargo test -p repo-conformance --test gpu gpu_gp_05` | rejected: `q4 Qwen2: step 0: a logit differs by 0.70114999954666 from the reference` |
+| The q4 matrix kernel unpacks codes one too high (code - 7) | the same | rejected: `q4 Qwen2: step 0: a logit differs by 1.406732768207285 from the reference` |
+| The batched q4 kernel swaps a word's low and high nibble halves | the same | rejected: `q4 Qwen2: a 6-token prompt: batched tokens differ from one at a time` |
+| Attention's combine reads only the first 64-position chunk | `cargo test -p repo-conformance --test gpu gpu_gp_01` | rejected: `ternary Qwen3: past one attention chunk, a logit differs by 5.581626157661233 from the reference` |
+| the same | `cargo test -p repo-conformance --test gpu gpu_gp_05` | rejected: `q4 Qwen2: past one attention chunk, a logit differs by 0.7724276952619027 from the reference` |
+| none | all six, and the journey | pass |
