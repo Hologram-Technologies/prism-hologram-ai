@@ -765,3 +765,83 @@ fn gpu_gp_14() {
         );
     }
 }
+
+/// `GP-15`: Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed
+#[test]
+fn gpu_gp_15() {
+    let result = node("crates/conformance/tests/gpu/store-run.mjs", &[]);
+    let visit = &result["visit"];
+    let count = |at: &serde_json::Value, key: &str| at[key].as_u64().unwrap_or(u64::MAX);
+    // Model A: 40 blocks, all distinct. B shares all but five.
+    assert_eq!(count(&visit["a"], "blocks"), 40, "A's blocks");
+    assert_eq!(
+        count(&visit["a"], "distinct"),
+        40,
+        "A's blocks are distinct"
+    );
+    assert_eq!(count(&visit["b"], "newBlocks"), 5, "B's new blocks");
+    let shared = count(&visit["b"], "sharedBytes");
+    assert_eq!(
+        count(&visit["afterA"], "stored"),
+        40,
+        "A stores every block"
+    );
+    assert_eq!(
+        count(&visit["afterB"], "stored"),
+        45,
+        "B stores only its five new blocks"
+    );
+    assert_eq!(
+        count(&visit["afterB"], "held"),
+        35,
+        "B holds the 35 it shares"
+    );
+    assert_eq!(
+        count(&visit["afterB"], "heldBytes"),
+        shared,
+        "the bytes not written again are the shared ones"
+    );
+    assert_eq!(
+        count(&visit["afterAgain"], "stored"),
+        45,
+        "A again stores nothing"
+    );
+    assert_eq!(count(visit, "held"), 45, "45 files held");
+
+    let back = &result["back"];
+    assert_eq!(
+        back["offline"].as_bool(),
+        Some(true),
+        "the second visit has no network"
+    );
+    assert_eq!(count(back, "missing"), 0, "every block of A read back");
+    assert_eq!(count(back, "admitted"), 40, "every block admitted again");
+    assert_eq!(count(&back["counts"], "read"), 40, "40 reads");
+    let steps = back["steps"].as_array().expect("the steps");
+    assert_eq!(steps.len(), 16, "sixteen steps");
+    for (i, step) in steps.iter().enumerate() {
+        let worst = step["worst"].as_f64().expect("worst");
+        assert!(
+            worst <= LOGIT_TOLERANCE,
+            "step {i}: a logit differs by {worst}"
+        );
+        let margin = step["margin"].as_f64().expect("margin");
+        assert!(
+            margin > 2.0 * LOGIT_TOLERANCE,
+            "step {i}: a near tie ({margin})"
+        );
+        assert_eq!(step["gpu"], step["reference"], "step {i}: another token");
+    }
+    assert_eq!(
+        back["tampered"].as_bool(),
+        Some(true),
+        "a changed block is not handed back"
+    );
+    assert!(back["afterTamper"].is_null(), "a changed block is removed");
+    assert_eq!(count(&back["counts"], "refused"), 1, "one refusal");
+    let prefix = back["wrongPrefix"].as_str().unwrap_or_default();
+    assert!(
+        prefix.contains("is not a blake3: label"),
+        "a sha256: label: {prefix:?}"
+    );
+}
