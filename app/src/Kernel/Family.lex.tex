@@ -1,0 +1,68 @@
+\begin{lexlean}{Kernel.Family}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: familyListed,
+  parameters: [kind : Nat],
+  result: Bool,
+  body: ((kind =? 8176115172474093568) || ((kind =? 8176115172490870784) || (kind =? 7812726575987687424)))
+}
+
+definition{
+  name: familyGated,
+  parameters: [activation : Nat],
+  result: Bool,
+  body: (activation =? 8316297436683304960)
+}
+
+definition{
+  name: familyShaped,
+  parameters: [
+    heads : Nat,
+    groups : Nat,
+    headSize : Nat,
+    layers : Nat,
+    width : Nat,
+    vocabulary : Nat
+  ],
+  result: Bool,
+  body: ((1 <=? groups) && ((groups <=? heads) && (((prim remainder heads groups 0 : Nat) =? 0) && ((2 <=? headSize) && (((prim remainder headSize 2 0 : Nat) =? 0) && ((1 <=? layers) && ((1 <=? width) && (1 <=? vocabulary))))))))
+}
+
+definition{
+  name: familyCode,
+  parameters: [
+    kind : Nat,
+    activation : Nat,
+    heads : Nat,
+    groups : Nat,
+    headSize : Nat,
+    layers : Nat,
+    width : Nat,
+    vocabulary : Nat
+  ],
+  result: Nat,
+  body: (if (familyListed kind) then (if ((familyGated activation) && (familyShaped heads groups headSize layers width vocabulary)) then 2 else 1) else 0)
+}
+
+definition{
+  name: familyText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 2) then (prim utf8_encode "supported" : Bytes) else (if (code =? 1) then (prim utf8_encode "rejected: unsupported shape" : Bytes) else (prim utf8_encode "rejected: unknown family" : Bytes)))
+}
+
+definition{
+  name: familyAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 33) then (familyText (familyCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 2) (Kernel.Wire::fieldAt value 19 2) (Kernel.Wire::fieldAt value 21 2) (Kernel.Wire::fieldAt value 23 2) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

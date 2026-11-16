@@ -1,0 +1,46 @@
+\begin{lexlean}{Kernel.Precision}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: precisionFits,
+  parameters: [offered : Nat, size : Nat, budget : Nat],
+  result: Bool,
+  body: ((offered =? 1) && (size <=? budget))
+}
+
+definition{
+  name: precisionCode,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat
+  ],
+  result: Nat,
+  body: (if (precisionFits lean leanSize budget) then 0 else (if (precisionFits plain plainSize budget) then 1 else (if (precisionFits wide wideSize budget) then 2 else 3)))
+}
+
+definition{
+  name: precisionText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 0) then (prim utf8_encode "q4f16" : Bytes) else (if (code =? 1) then (prim utf8_encode "q4" : Bytes) else (if (code =? 2) then (prim utf8_encode "fp16" : Bytes) else (prim utf8_encode "none fits" : Bytes))))
+}
+
+definition{
+  name: precisionAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 36) && (((Kernel.Wire::fieldAt value 1 1) <=? 1) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1)))) then (precisionText (precisionCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 12 8) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 20 8) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 28 8) (Kernel.Wire::fieldAt value 4 8))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

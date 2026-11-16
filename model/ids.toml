@@ -333,3 +333,69 @@ id = "GP-07"
 level = "build"
 suite = "gpu"
 statement = "A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page"
+
+[[id]]
+id = "KN-18"
+level = "build"
+suite = "kernel"
+statement = "An operator is supported exactly when its name is on the closed list of the export style asked about, and no name is supported under an unknown style"
+
+[[id]]
+id = "KN-19"
+level = "build"
+suite = "kernel"
+statement = "A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs"
+
+[[id]]
+id = "KN-20"
+level = "build"
+suite = "kernel"
+statement = "A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row"
+
+[[id]]
+id = "KN-21"
+level = "build"
+suite = "kernel"
+statement = "The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits"
+
+[[id]]
+id = "KN-22"
+level = "build"
+suite = "kernel"
+statement = "The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused"
+
+[[id]]
+id = "KN-23"
+level = "build"
+suite = "kernel"
+statement = "A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file"
+
+[[id]]
+id = "KN-24"
+level = "build"
+suite = "kernel"
+statement = "The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused"
+
+[[id]]
+id = "KN-25"
+level = "build"
+suite = "kernel"
+statement = "Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget"
+
+[[id]]
+id = "KN-26"
+level = "build"
+suite = "kernel"
+statement = "A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short"
+
+[[id]]
+id = "KN-27"
+level = "build"
+suite = "kernel"
+statement = "A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt"
+
+[[id]]
+id = "KN-28"
+level = "build"
+suite = "kernel"
+statement = "A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one"

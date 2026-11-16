@@ -1,0 +1,107 @@
+\begin{lexlean}{Proofs.Precision}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Precision}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: precision_fits_decides,
+  parameters: [offered : Nat, size : Nat, budget : Nat],
+  statement: (((Kernel.Precision::precisionFits offered size budget) = true) <-> ((offered = 1) /\ (size <= budget))),
+  proof: linear_arithmetic{definitions: [Kernel.Precision::precisionFits]},
+  axioms: [propext]
+}
+
+theorem{
+  name: precision_first,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat
+  ],
+  statement: (((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 0) <-> ((Kernel.Precision::precisionFits lean leanSize budget) = true)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Precision::precisionCode, Kernel.Precision::precisionFits]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: precision_second,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat
+  ],
+  statement: (((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 1) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\ ((Kernel.Precision::precisionFits plain plainSize budget) = true))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Precision::precisionCode, Kernel.Precision::precisionFits]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: precision_third,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat
+  ],
+  statement: (((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 2) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\ (((Kernel.Precision::precisionFits plain plainSize budget) = false) /\ ((Kernel.Precision::precisionFits wide wideSize budget) = true)))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Precision::precisionCode, Kernel.Precision::precisionFits]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: precision_none,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat
+  ],
+  statement: (((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 3) <-> (((Kernel.Precision::precisionFits lean leanSize budget) = false) /\ (((Kernel.Precision::precisionFits plain plainSize budget) = false) /\ ((Kernel.Precision::precisionFits wide wideSize budget) = false)))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Precision::precisionCode, Kernel.Precision::precisionFits]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: precision_budget_monotone,
+  parameters: [
+    lean : Nat,
+    leanSize : Nat,
+    plain : Nat,
+    plainSize : Nat,
+    wide : Nat,
+    wideSize : Nat,
+    budget : Nat,
+    wider : Nat
+  ],
+  statement: ((budget <= wider) -> ((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize wider) <= (Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Precision::precisionCode, Kernel.Precision::precisionFits]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

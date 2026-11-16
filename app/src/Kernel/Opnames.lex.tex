@@ -1,0 +1,45 @@
+\begin{lexlean}{Kernel.Opnames}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: opnameIs,
+  parameters: [wa : Nat, wb : Nat, wc : Nat, wd : Nat, a : Nat, b : Nat, c : Nat, d : Nat],
+  result: Bool,
+  body: ((wa =? a) && ((wb =? b) && ((wc =? c) && (wd =? d))))
+}
+
+definition{
+  name: opnameDecomposed,
+  parameters: [wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  result: Bool,
+  body: ((opnameIs wa wb wc wd 4712001061299159040 0 0 0) || ((opnameIs wa wb wc wd 4855288815335505920 0 0 0) || ((opnameIs wa wb wc wd 4859223896071864320 0 0 0) || ((opnameIs wa wb wc wd 4859223965108891252 5721352084397253888 0 0) || ((opnameIs wa wb wc wd 4929601009505796096 0 0 0) || ((opnameIs wa wb wc wd 5003909722269548544 0 0 0) || ((opnameIs wa wb wc wd 5005874549588492288 0 0 0) || ((opnameIs wa wb wc wd 5143520241161207808 0 0 0) || ((opnameIs wa wb wc wd 5148288793276936704 0 0 0) || ((opnameIs wa wb wc wd 5575865689692700672 0 0 0) || ((opnameIs wa wb wc wd 5575865689692720706 7598824915118063616 0 0) || ((opnameIs wa wb wc wd 5581486060451397632 0 0 0) || ((opnameIs wa wb wc wd 5649034557303816192 0 0 0) || ((opnameIs wa wb wc wd 5795982087332823040 0 0 0) || ((opnameIs wa wb wc wd 5936147174206210048 0 0 0) || ((opnameIs wa wb wc wd 5937262139099401573 7020548869117181952 0 0) || ((opnameIs wa wb wc wd 5937278575906415872 0 0 0) || ((opnameIs wa wb wc wd 6008753480639279694 4899916394579099648 0 0) || ((opnameIs wa wb wc wd 6010160838084657152 0 0 0) || ((opnameIs wa wb wc wd 6010448897420911616 0 0 0) || ((opnameIs wa wb wc wd 6011295478249947136 0 0 0) || ((opnameIs wa wb wc wd 6012136677800245248 0 0 0) || ((opnameIs wa wb wc wd 6012712820058095616 0 0 0) || ((opnameIs wa wb wc wd 6085033173542006643 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6085041961071280128 0 0 0) || ((opnameIs wa wb wc wd 6155984671800124794 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6298395620872814592 0 0 0) || false)))))))))))))))))))))))))))
+}
+
+definition{
+  name: opnameFused,
+  parameters: [wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  result: Bool,
+  body: ((opnameIs wa wb wc wd 4855288815335505920 0 0 0) || ((opnameIs wa wb wc wd 4859223896071864320 0 0 0) || ((opnameIs wa wb wc wd 4859223965108891252 0 0 0) || ((opnameIs wa wb wc wd 5143520241161207808 0 0 0) || ((opnameIs wa wb wc wd 5148299874224141669 8248696160930590324 7597412042676371456 0) || ((opnameIs wa wb wc wd 5575865689692700672 0 0 0) || ((opnameIs wa wb wc wd 5575865689692720706 7598824915118063616 0 0) || ((opnameIs wa wb wc wd 5581486060451397632 0 0 0) || ((opnameIs wa wb wc wd 5937262139099403125 7854277750134145024 0 0) || ((opnameIs wa wb wc wd 5937278575906415872 0 0 0) || ((opnameIs wa wb wc wd 5940094395406173549 7090183570793064192 0 0) || ((opnameIs wa wb wc wd 6010160838084657152 0 0 0) || ((opnameIs wa wb wc wd 6010448897420911616 0 0 0) || ((opnameIs wa wb wc wd 6010455507325249129 7306048477034017358 8030601350753122913 8388358299191345152) || ((opnameIs wa wb wc wd 6011014058812730736 7811887631509507169 8747523532439842145 7811909587634319214) || ((opnameIs wa wb wc wd 6013820629562687488 0 0 0) || ((opnameIs wa wb wc wd 6085033173542006643 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6155984671800124794 7277816997830721536 0 0) || false))))))))))))))))))
+}
+
+definition{
+  name: opnameListed,
+  parameters: [style : Nat, wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  result: Bool,
+  body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else false))
+}
+
+definition{
+  name: opnameAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode "supported" : Bytes) else (prim utf8_encode "unsupported operator" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

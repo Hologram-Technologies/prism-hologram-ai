@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Seventeen decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) and what a quantisation code stands for (17). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Twenty-eight decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27) and whether a model's manifest is satisfied (28). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -13,10 +13,14 @@
       "admit",
       "commit",
       "compile",
+      "continue",
       "cpu",
       "derived",
       "download",
+      "enough",
+      "evict",
       "first maximum",
+      "fp16",
       "generating",
       "idle",
       "importable",
@@ -25,9 +29,13 @@
       "int8 paged",
       "keep",
       "materialize",
+      "onnx/*",
       "plan",
       "preflight",
+      "q4",
+      "q4f16",
       "ready",
+      "reuse",
       "supported",
       "trim",
       "webgpu"
@@ -44,11 +52,14 @@
       "dropped exceeds total",
       "drops too many",
       "failed",
+      "incomplete",
       "invalid code",
+      "none fits",
       "not first maximum",
       "opset above maximum",
       "opset below minimum",
       "penalise",
+      "recompute",
       "refuse",
       "refused",
       "reject",
@@ -56,8 +67,13 @@
       "stage does not fit",
       "stage too small",
       "stages do not cover",
+      "stop:*",
       "too long",
+      "too many files",
+      "undeclared file",
       "unsupported operator",
+      "unsupported precision",
+      "unsupported task",
       "wrong count"
     ],
     "refusal": "invalid request"
@@ -121,7 +137,44 @@
     {"name": "tier_fits", "module": "Tier", "statement": "(((((Kernel.Tier::tierCode parameters budget) = 2) ↔ (parameters <= budget)) ∧ (((Kernel.Tier::tierCode parameters budget) = 1) → ((Kernel.Tier::halfUp parameters) <= budget))) ∧ (((Kernel.Tier::halfUp parameters) <= budget) → (1 <= (Kernel.Tier::tierCode parameters budget))))"},
     {"name": "tier_monotone", "module": "Tier", "statement": "((budget <= larger) → ((Kernel.Tier::tierCode parameters budget) <= (Kernel.Tier::tierCode parameters larger)))"},
     {"name": "trimmed_decides", "module": "Trim", "statement": "(((Kernel.Trim::trimmed context fixed total dropped last) = true) ↔ (Trimmed context fixed total dropped last))"},
-    {"name": "trim_fits_decides", "module": "Trim", "statement": "(((Kernel.Trim::trimFits context fixed total dropped) = true) ↔ ((fixed + (prim subtract total dropped : Nat)) <= context))"}
+    {"name": "trim_fits_decides", "module": "Trim", "statement": "(((Kernel.Trim::trimFits context fixed total dropped) = true) ↔ ((fixed + (prim subtract total dropped : Nat)) <= context))"},
+    {"name": "chunk_declared_decides", "module": "Chunks", "statement": "(((Kernel.Chunks::chunkDeclared declared index) = true) ↔ ((declared <= 100) ∧ (index <= declared)))"},
+    {"name": "chunk_inside_decides", "module": "Chunks", "statement": "(((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) ↔ ((previousEnd <= offset) ∧ ((offset + length) <= fileLength)))"},
+    {"name": "chunk_spans_disjoint", "module": "Chunks", "statement": "((((Kernel.Chunks::chunkInside fileLength offset length previousEnd) = true) ∧ ((Kernel.Chunks::chunkInside fileLength nextOffset nextLength (offset + length)) = true)) → (((offset + length) <= nextOffset) ∧ ((nextOffset + nextLength) <= fileLength)))"},
+    {"name": "device_webgpu_decides", "module": "Device", "statement": "(((Kernel.Device::deviceCode present limit largest model ceiling) = 2) ↔ ((Kernel.Backend::gpuUsable present limit largest) = true))"},
+    {"name": "device_cpu_decides", "module": "Device", "statement": "(((Kernel.Device::deviceCode present limit largest model ceiling) = 1) ↔ (((Kernel.Backend::gpuUsable present limit largest) = false) ∧ (model <= ceiling)))"},
+    {"name": "device_refused_decides", "module": "Device", "statement": "(((Kernel.Device::deviceCode present limit largest model ceiling) = 0) ↔ (((Kernel.Backend::gpuUsable present limit largest) = false) ∧ ((ceiling + 1) <= model)))"},
+    {"name": "evict_short_decides", "module": "Evict", "statement": "(((Kernel.Evict::evictShort needed free freed) = true) ↔ (((free + freed) + 1) <= needed))"},
+    {"name": "evict_decides", "module": "Evict", "statement": "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 2) ↔ ((pinned = 0) ∧ ((1 <= remaining) ∧ (((free + freed) + 1) <= needed))))"},
+    {"name": "evict_does_not_fit_decides", "module": "Evict", "statement": "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 0) ↔ ((remaining = 0) ∧ (((free + freed) + 1) <= needed)))"},
+    {"name": "evict_enough_decides", "module": "Evict", "statement": "(((Kernel.Evict::evictCode pinned remaining needed free freed) = 3) ↔ (needed <= (free + freed)))"},
+    {"name": "family_listed_decides", "module": "Family", "statement": "(((Kernel.Family::familyListed kind) = false) ↔ (((kind = 8176115172474093568) → (1 = 0)) ∧ (((kind = 8176115172490870784) → (1 = 0)) ∧ ((kind = 7812726575987687424) → (1 = 0)))))"},
+    {"name": "family_shaped_decides", "module": "Family", "statement": "(((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true) ↔ ((1 <= groups) ∧ ((groups <= heads) ∧ (((prim remainder heads groups 0 : Nat) = 0) ∧ ((2 <= headSize) ∧ (((prim remainder headSize 2 0 : Nat) = 0) ∧ ((1 <= layers) ∧ ((1 <= width) ∧ (1 <= vocabulary)))))))))"},
+    {"name": "family_supported_decides", "module": "Family", "statement": "(((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 2) ↔ (((Kernel.Family::familyListed kind) = true) ∧ ((activation = 8316297436683304960) ∧ ((Kernel.Family::familyShaped heads groups headSize layers width vocabulary) = true))))"},
+    {"name": "family_unknown_decides", "module": "Family", "statement": "(((Kernel.Family::familyCode kind activation heads groups headSize layers width vocabulary) = 0) ↔ ((Kernel.Family::familyListed kind) = false))"},
+    {"name": "manifest_complete_decides", "module": "Manifest", "statement": "(((Kernel.Manifest::manifestComplete listed admitted) = true) ↔ ((1 <= listed) ∧ (admitted = listed)))"},
+    {"name": "nbits_shaped_decides", "module": "Nbits", "statement": "(((Kernel.Nbits::nbitsShaped part rows columns size) = true) ↔ ((part <= 2) ∧ ((1 <= rows) ∧ ((rows <= 16777215) ∧ ((1 <= columns) ∧ ((columns <= 16777215) ∧ ((Kernel.Nbits::nbitsBlock size) = true)))))))"},
+    {"name": "nbits_block_bounds", "module": "Nbits", "statement": "(((Kernel.Nbits::nbitsBlock size) = true) → ((16 <= size) ∧ ((size <= 256) ∧ ((prim remainder size 16 0 : Nat) = 0))))"},
+    {"name": "nbits_blocks_fewest_16", "module": "Nbits", "statement": "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat)) ∧ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 16) 16 : Nat) + 1) <= (columns + 16)))"},
+    {"name": "nbits_blocks_fewest_32", "module": "Nbits", "statement": "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat)) ∧ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 32) 32 : Nat) + 1) <= (columns + 32)))"},
+    {"name": "nbits_blocks_fewest_64", "module": "Nbits", "statement": "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat)) ∧ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 64) 64 : Nat) + 1) <= (columns + 64)))"},
+    {"name": "nbits_blocks_fewest_128", "module": "Nbits", "statement": "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat)) ∧ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 128) 128 : Nat) + 1) <= (columns + 128)))"},
+    {"name": "nbits_blocks_fewest_256", "module": "Nbits", "statement": "((columns <= (prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat)) ∧ (((prim multiply (Kernel.Nbits::nbitsBlocks columns 256) 256 : Nat) + 1) <= (columns + 256)))"},
+    {"name": "opname_is_decides", "module": "Opnames", "statement": "(((Kernel.Opnames::opnameIs wa wb wc wd a b c d) = true) ↔ ((wa = a) ∧ ((wb = b) ∧ ((wc = c) ∧ (wd = d)))))"},
+    {"name": "precision_fits_decides", "module": "Precision", "statement": "(((Kernel.Precision::precisionFits offered size budget) = true) ↔ ((offered = 1) ∧ (size <= budget)))"},
+    {"name": "precision_first", "module": "Precision", "statement": "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 0) ↔ ((Kernel.Precision::precisionFits lean leanSize budget) = true))"},
+    {"name": "precision_second", "module": "Precision", "statement": "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 1) ↔ (((Kernel.Precision::precisionFits lean leanSize budget) = false) ∧ ((Kernel.Precision::precisionFits plain plainSize budget) = true)))"},
+    {"name": "precision_third", "module": "Precision", "statement": "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 2) ↔ (((Kernel.Precision::precisionFits lean leanSize budget) = false) ∧ (((Kernel.Precision::precisionFits plain plainSize budget) = false) ∧ ((Kernel.Precision::precisionFits wide wideSize budget) = true))))"},
+    {"name": "precision_none", "module": "Precision", "statement": "(((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget) = 3) ↔ (((Kernel.Precision::precisionFits lean leanSize budget) = false) ∧ (((Kernel.Precision::precisionFits plain plainSize budget) = false) ∧ ((Kernel.Precision::precisionFits wide wideSize budget) = false))))"},
+    {"name": "precision_budget_monotone", "module": "Precision", "statement": "((budget <= wider) → ((Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize wider) <= (Kernel.Precision::precisionCode lean leanSize plain plainSize wide wideSize budget)))"},
+    {"name": "reuse_shorter_decides", "module": "Reuse", "statement": "(((Kernel.Reuse::reuseShorter heldLength promptLength) = true) ↔ ((1 <= heldLength) ∧ ((heldLength + 1) <= promptLength)))"},
+    {"name": "reusable_decides", "module": "Reuse", "statement": "(((Kernel.Reuse::reusable asked held heldLength promptLength) = true) ↔ (((Kernel.Admission::sameLabel asked held) = true) ∧ ((Kernel.Reuse::reuseShorter heldLength promptLength) = true)))"},
+    {"name": "source_named_decides", "module": "Source", "statement": "(((Kernel.Source::sourceCode task precision declared part) = 4) ↔ ((task = 0) ∧ ((precision <= 3) ∧ ((declared <= 100) ∧ (part <= declared)))))"},
+    {"name": "source_undeclared_decides", "module": "Source", "statement": "(((Kernel.Source::sourceCode task precision declared part) = 3) ↔ ((task = 0) ∧ ((precision <= 3) ∧ ((declared <= 100) ∧ ((declared + 1) <= part)))))"},
+    {"name": "source_task_decides", "module": "Source", "statement": "(((Kernel.Source::sourceCode task precision declared part) = 0) ↔ (1 <= task))"},
+    {"name": "stop_differs_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopDiffers token listed) = true) ↔ (Differs token listed))"},
+    {"name": "stop_none_from_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopNoneFrom value position remaining token) = true) ↔ (NoneFrom value position remaining token))"},
+    {"name": "stop_spent_decides", "module": "Stop", "statement": "(((Kernel.Stop::stopSpent generated budget) = true) ↔ (budget <= generated))"}
   ],
   "pinned": [
     {
@@ -177,6 +230,61 @@
     {
       "name": "kernel_kn_10",
       "what": "The three theorems' statements and axioms, the proposition they decide, the request offsets the four numbers are read from, that decision 10 is routed to this answer, and the examples at both edges of the window and for a window that runs backwards. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_18",
+      "what": "The theorem's statement and axioms, the two lists of operator names as the bytes of each name, that the model lists no other, the request offsets, and that decision 18 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_19",
+      "what": "The theorems' statements and axioms, the listed types and the activation as the bytes of their names, the shape conditions, the request offsets, and that decision 19 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_20",
+      "what": "The theorems' statements and axioms, the accepted block sizes, the bytes of one block for each part, the length formula, the request offsets, and that decision 20 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_21",
+      "what": "The theorems' statements and axioms, the order q4f16, q4, fp16, the request offsets, and that decision 21 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_22",
+      "what": "The theorems' statements and axioms, that the verdict is decided by deviceCode over gpuUsable, the request offsets, and that decision 22 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_23",
+      "what": "The theorems' statements and axioms, that a span never runs past its file or before the previous span, the request offsets, and that decision 23 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_24",
+      "what": "The theorems' statements and axioms, the file names for each precision and part, the request offsets, and that decision 24 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_25",
+      "what": "The theorems' statements and axioms, that a stop id is reported before the budget, the request offsets, and that decision 25 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_26",
+      "what": "The theorems' statements and axioms, the four verdicts, the request offsets, and that decision 26 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_27",
+      "what": "The theorems' statements and axioms, the label offsets, the request offsets, and that decision 27 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_28",
+      "what": "The theorem's statement and axioms, that a differing label is refused before completeness is asked, the request offsets, and that decision 28 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

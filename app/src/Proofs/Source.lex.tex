@@ -1,0 +1,32 @@
+\begin{lexlean}{Proofs.Source}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Source}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: source_named_decides,
+  parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task = 0) /\ ((precision <= 3) /\ ((declared <= 100) /\ (part <= declared))))),
+  proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: source_undeclared_decides,
+  parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task = 0) /\ ((precision <= 3) /\ ((declared <= 100) /\ ((declared + 1) <= part))))),
+  proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: source_task_decides,
+  parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 0) <-> (1 <= task)),
+  proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

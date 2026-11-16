@@ -86,6 +86,17 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-15` | `build` | A token is kept unpenalised exactly when no position inside the recent window holds it |
 | `KN-16` | `build` | A speculative commit count is accepted exactly when every draft before the last committed position equals its verified pick and the draft at that position, if any, differs |
 | `KN-17` | `build` | Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level |
+| `KN-18` | `build` | An operator is supported exactly when its name is on the closed list of the export style asked about, and no name is supported under an unknown style |
+| `KN-19` | `build` | A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs |
+| `KN-20` | `build` | A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row |
+| `KN-21` | `build` | The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits |
+| `KN-22` | `build` | The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused |
+| `KN-23` | `build` | A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file |
+| `KN-24` | `build` | The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused |
+| `KN-25` | `build` | Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget |
+| `KN-26` | `build` | A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short |
+| `KN-27` | `build` | A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt |
+| `KN-28` | `build` | A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one |
 
 ## Public failures
 

@@ -1,0 +1,73 @@
+\begin{lexlean}{Proofs.Stop}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Stop}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: Differs,
+  parameters: [token : Nat, listed : Nat],
+  result: Prop,
+  body: ((listed = token) -> (1 = 0))
+}
+
+definition{
+  name: NoneFrom,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, token : Nat],
+  result: Prop,
+  body: (match remaining
+    | Nat.zero => (0 = 0)
+    | Nat.succ rest => ((Differs token (Kernel.Stop::stopIdAt value position)) /\ (NoneFrom value (position + 1) rest token))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+theorem{
+  name: stop_differs_decides,
+  parameters: [token : Nat, listed : Nat],
+  statement: (((Kernel.Stop::stopDiffers token listed) = true) <-> (Differs token listed)),
+  proof: linear_arithmetic{definitions: [Differs, Kernel.Stop::stopDiffers]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: stop_none_from_decides,
+  parameters: [value : Bytes, position : Nat, remaining : Nat, token : Nat],
+  statement: (((Kernel.Stop::stopNoneFrom value position remaining token) = true) <-> (NoneFrom value position remaining token)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [NoneFrom, Kernel.Stop::stopNoneFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            Bool.and_eq_true,
+            NoneFrom,
+            hypothesis,
+            stop_differs_decides,
+            Kernel.Stop::stopNoneFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [position],
+    scrutinee: remaining
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: stop_spent_decides,
+  parameters: [generated : Nat, budget : Nat],
+  statement: (((Kernel.Stop::stopSpent generated budget) = true) <-> (budget <= generated)),
+  proof: linear_arithmetic{definitions: [Kernel.Stop::stopSpent]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -78,7 +78,7 @@ Set by Ilya on 2026-11-14 to close the milestone. Each line has an owner; the mi
 
 Speed is reported, not gated. The 300 ms aim is for a short prompt (about 30 tokens) with the model loaded and nothing cached. The cold 440-token prompt is reported beside it, and is a stretch aim: it is about 1.3 trillion operations, 150 to 300 ms at a good fraction of this GPU's compute. The 100 tokens per second aim is half of Qwen2.5's bandwidth bound on this machine.
 
-Moved to milestone 2: Bonsai's own speed target (below), Qwen3-0.6B, Foundry's checkpoint 2, the proof carried by the package, the 25 examples, and the SDK upgrade.
+Moved to milestone 2: Bonsai's own speed target (below), Qwen3-0.6B, Foundry's checkpoint 2, the proof carried by the package, the 25 examples, and the SDK upgrade. Milestone 2 was reset on 2026-11-16; its section says where each of these now sits.
 
 ## Checkpoint 1: first light
 
@@ -196,7 +196,7 @@ Step 3, measured on 2026-11-16 in the coordinator's session (its pane visible, t
 
 Both engines produced the same tokens on every prompt: all 256 on each long prompt and all 7 on the short one, the same on every repeat. Against the aims: the short first token is inside 300 ms; 70.7 tokens per second is short of 100; the long first token is short of the stretch aim. This engine's rate fell across repeats of one prompt (88, 74, 72 on the first); the original's opened high after a pause and then held, so carried state between turns is the first thing to rule out.
 
-Order after it, in milestone 2: Bonsai to its target, then Qwen3-0.6B on the same q4 path, then checkpoint 2.
+Order after it: milestone 2 below, as reset on 2026-11-16.
 
 ## Phase 2. Engine core (milestone 1)
 
@@ -242,13 +242,102 @@ Baseline first: run Q unchanged on one named desktop and one named phone and rec
 
 Playwright covers the three engines on every push. Each named phone is measured by hand per release and recorded in the ledger.
 
+## Milestone 2: transformers.js equivalence for text models
+
+Set by Ilya on 2026-11-16. The engine page becomes the equivalent of Hugging Face's transformers.js for text models: a user on a desktop or a phone names a supported open text model on the hub, and it is imported, checked and run in the browser. Browser first and serverless: no server of ours is in the path, and no model is repacked before it runs. Text generation first, then embeddings and classification; no vision or audio. ONNX exports first, read from the hub's own files; GGUF and safetensors import follow in milestone 3.
+
+Studied on 2026-11-16: transformers.js 4.3.2, Hologram-Technologies/hologram-ai at `d5337ec`, Hologram-Technologies/hologram at `6888878`.
+
+### How ONNX is run
+
+Decided by Ilya on 2026-11-16: the engine recognises known model families in an ONNX file and runs them on its own kernels. It is not a general ONNX interpreter. transformers.js hands every graph to ONNX Runtime; this engine reads the graph to learn the family, the shape and where each weight lies, and refuses by name a graph it does not recognise. The consequence is stated wherever support is claimed: ONNX's operator set is far larger than what is listed here, and a model outside the list does not run.
+
+| | Supported in this milestone | Refused by name |
+| --- | --- | --- |
+| Chat families | Qwen2 and Qwen2.5, Qwen3, Llama 3.x, SmolLM2: one shape (RMS norm, rotary positions, grouped-query attention, gated SiLU feed-forward, optional q/k/v biases, optional q/k norm, tied or separate head) | Gemma, mixture of experts, hybrid and GPT-2-style models; transformers.js lists 77 causal families |
+| Export styles | Decomposed: Add, Cast, Concat, ConstantOfShape, Div, Equal, Expand, Gather, Greater, MatMul, Mul, Neg, Pow, Range, ReduceMean, Reshape, ScatterND, Shape, Sigmoid, Slice, Softmax, Sqrt, Transpose, Trilu, Unsqueeze, Where. Fused: MatMulNBits, GroupQueryAttention, RotaryEmbedding, SimplifiedLayerNormalization, SkipSimplifiedLayerNormalization | Any operator outside the list of the recognised style |
+| Precisions | q4 and q4f16 (MatMulNBits) first, then fp16 | q8, int8, uint8 (dynamic activation quantisation), bnb4 |
+| Later in the milestone | BERT-style encoders for embeddings and classification; their operator list is fixed when that step starts | |
+
+### Kernel decisions
+
+Each is registered, given a scenario and a failing test, and proved before its implementation (R3). Lean proves the decisions; GPU and CPU arithmetic is tested against the CPU reference; the hash functions, the signature primitive and the browser are trusted. Eleven were written on 2026-11-16 as new decisions beside the existing ones, so a page already deployed keeps the questions it asks; what each proves and what it only pins is in KERNEL-VERIFICATION.md.
+
+| ID | Decision | What it answers |
+| --- | --- | --- |
+| KN-18 | Operator name | Whether an operator, by the bytes of its name, is on the closed list of its export style: 27 names for the decomposed style, 18 for the fused, both read from real exports. KN-10 keeps the opset window; the count it trusts is now the number of names KN-18 refused. |
+| KN-19 | Family | Whether a configuration's type (qwen2, qwen3, llama), activation (silu) and shape are ones the engine runs. |
+| KN-20 | MatMulNBits length | The bytes of a 4-bit weight's codes and of its f32 or f16 scales, from rows, columns and block size. Zero points are outside it; a file that carries them is refused. |
+| KN-21 | Precision | The first of q4f16, q4, fp16 that is offered and fits the budget, or none. |
+| KN-22 | Device | WebGPU, the CPU, or a refusal when there is no usable GPU and the model is above the CPU ceiling. KN-12 stays as it is. |
+| KN-23 | File span | Whether a span lies inside a file the model declares, after the previous span. |
+| KN-24 | Source | The name of each file of a task and precision, as the export convention has it; a part beyond the declared count is refused. |
+| KN-25 | Stop | Stop at any id on the model's own list, or at the budget; the id is reported first. |
+| KN-26 | Evict | Whether a cached block is dropped: only an unpinned one, only while space is short; does not fit when no candidate remains. |
+| KN-27 | Reuse | Whether a computed prefix may be reused: its label equals the one asked for and it is shorter than the prompt. |
+| KN-28 | Manifest | Whether a model is ready: the label of the addresses admitted equals the manifest's, and every listed tensor is admitted. |
+
+Two of the decisions first listed were not written. The journey needs no change: a read from the browser's store is one more source in its download step, and every block read there is admitted as a downloaded one is, so a return visit takes the same proved path. The index root's signature waits on the hub: its signing scheme and key are the hub's to state, and no decision is invented ahead of them.
+
+### Content addressing
+
+Set by Ilya on 2026-11-16: every tensor of every open model has one UOR content address, its unique home. The authority for the address is UOR-Foundation/uor-addr (Ilya, 2026-11-16: the canonical address for every open tensor), and the hash is BLAKE3 (Ilya, the same day, over SHA-256): a tensor's address is the BLAKE3 of its raw data bytes, written as a uor-addr `blake3:` label. That is uor-addr's plain byte address on its BLAKE3 axis, hologram's canonical leaf, the hub's tensor address today, and the digest this repository's containers already name blocks by. It is not the leaf of uor-addr's canonical form for a GGUF or ONNX model: in that form (uor-addr 0.2.0) a tensor's leaf is the SHA-256 of its data region whatever the label hash, and a model's label is taken over a skeleton holding those leaves. So a tensor has two numbers: the BLAKE3 address, its identity for storing once and for agreeing across systems, and the SHA-256 leaf, which ties it to its model's label. Settled by Ilya on 2026-11-16: the hub publishes both, the SHA-256 leaf labelled as uor-addr's, and a model's label is taken on the BLAKE3 axis, so it too reads `blake3:`. Both kinds of label are 71 bytes, so which hash a label is on is read from its prefix and never from its length. The hub's `data/uor` index lands with SHA-256 first and moves to BLAKE3 in a second commit; nothing here is built against it before that second commit. SHA-256 is also the identity of a whole file, which is what Hugging Face publishes. Checking one byte range of a tensor by BLAKE3's tree is not built anywhere yet (the vendored hasher has no subtree access), so a tensor is checked by hashing all of it. A container's block names are BLAKE3 over repacked, compressed bytes, so they name a block of one file and not a weight. The kernel's admission compares 32-byte labels and lengths and is the same for either hash. Three things follow from one address per weight.
+
+- **Self-verifying.** A tensor is checked against its own name, wherever it came from. A model is a manifest: its tensors' addresses in order, with each one's shape and format, and the manifest has an address of its own. Trusting a model is then trusting one address; everything under it is checked in the browser and admitted by the kernel.
+- **Deduplication.** Tensors are stored in the browser's private file system by address. A tensor already held, under any model, precision or repository, is not downloaded again, and every read from storage is admitted as a download is.
+- **Decentralisation.** Because the name checks the bytes, any source may serve a tensor: the model's own repository, a mirror, another static host. A manifest lists where each tensor can be read (file, offset, length); none of the sources is trusted and none is ours.
+
+Hugging Face publishes one SHA-256 per file, so the manifest with per-tensor addresses comes from the hub index: static files (planned as `data/uor/root.json` and shards of rows, each row a model's label and every tensor's name, type, shape and address), computed once when a model is indexed. State of the hub on 2026-11-16: its records for ONNX repositories will give one address per file (Hugging Face's own SHA-256, not witnessed by the hub) and no tensor addresses, because its manifest tool reads safetensors headers only. Until the hub reads ONNX layouts, the browser derives each tensor's address itself as the file streams, checks the whole file against the record's SHA-256, and keeps the manifest it derived. Two consequences, stated and not hidden: a tensor of an ONNX file is checked against an address this browser computed, so what vouches for the bytes is the file's hash and not a published tensor address; and a tensor can be skipped before download only when its address is already known, which for ONNX means a file this browser has imported before. Deduplication across models that have never been imported here waits for published tensor addresses. What sharing buys is load time and storage, not tokens per second: a shared tensor is not fetched or hashed twice, and it runs at the same speed. How much open models share is a measurement, not an assumption: byte-identical tensors are certain for the same model in several repositories, for an adapter over an unchanged base, and for the unquantised tensors of two precisions; a full fine-tune changes nearly every tensor and shares little. The share is measured across the supported families before any claim is made.
+
+Reuse of computed results (prompt prefixes first; lookup tables and anything else after) is kept only where a measurement shows a gain with tokens unchanged. Browsers expose no persistent store for compiled shaders, so naming shaders by address buys deduplication within a session and no more.
+
+### Reuse
+
+| Source | Taken | Left |
+| --- | --- | --- |
+| This repository | `crates/onnx-preflight` (operator and opset reader), `crates/tokenizer`, `crates/model-reader`, `crates/download` | |
+| transformers.js | The call shape (task, model, device, precision), the `onnx/` file naming and precision suffixes, the precision listing; as conventions | ONNX Runtime |
+| hologram-ai | The download design: ranged header reads, per-tensor hashing into browser storage, refetch of an uncached tensor by address | Its runtime (CPU only), its ONNX importer (native only), its dependency on an unpublished fork (R6) |
+| hologram | The ideas of derivation keys for reuse and of lookup tables; the address authority is uor-addr, which hologram also builds on | Its crates (not on crates.io), its store, its WebGPU backend (seven kernels) |
+
+### Done when
+
+| # | Done when |
+| --- | --- |
+| 1 | Every decision above is registered, proved, and covered by a scenario and a negative test. |
+| 2 | The page loads Qwen2.5-1.5B-Instruct from its ONNX repository with no repack, and its tokens equal the CPU reference over the same weights. |
+| 3 | Llama 3.2 1B and Qwen3-0.6B load the same way. |
+| 4 | One call loads and runs: task, model, device, precision. Chat template and stop ids come from the model's own files. |
+| 5 | A return visit loads with the network off; every cached block is admitted again. |
+| 6 | Tensors are stored once by address: a second model or precision stores no tensor already held, and downloads none whose address is known beforehand, from any listed source. The bytes and load time saved are measured, and the share of byte-identical tensors across the supported families is recorded. |
+| 7 | Prefix reuse is measured and token-identical. |
+| 8 | A small model runs with WebGPU off, and one run on a named phone is recorded. |
+| 9 | One embedding model and one classifier equal their references. |
+| 10 | An unsupported operator, family or precision is refused by name (R5). |
+| 11 | On the published page, on this machine and the phone: time to first token, tokens per second, cold load and download size, beside transformers.js on the same model and precision. |
+
+Aims, reported and not gated: under 300 ms to the first token for a short prompt with a warm cache; 100 tokens per second or more on Qwen2.5-1.5B at 4 bits.
+
+### What it displaces
+
+Kept in milestone 2: Qwen3-0.6B (now row 3), the browser-storage cache and the importable module of checkpoint 2 (rows 4 and 5), the 100 tokens per second aim. Moved to milestone 3: GGUF and safetensors import without a repack, Bonsai's own speed target, mixture of experts, diffusion, E8 codebook weights, layer streaming, constrained output and Bonsai 8B. Hologram AI's items (the proof carried by the package, the 25 examples, the SDK upgrade) keep their owner and are not displaced.
+
+### Open, for Ilya
+
+1. A model with no manifest on the hub: refused (proposed), or addressed in the browser on first use and checked against Hugging Face's file hash only. The manifests themselves come from the hub index, whose first phase covers GGUF records and five ONNX ones; the ONNX repositories this milestone names must be among them. uor-addr has realisations for GGUF and ONNX and none yet for safetensors; that gap is the authority's to close (the hub plans an upstream change), and no local address is invented for safetensors meanwhile. Whether the browser re-derives a model's label itself (uor-addr compiled into the engine module, a new dependency) or takes it from the hub's attested row and checks only the tensors is open.
+2. The output head: ONNX 4-bit files keep it at 16 or 32 bits, about 470 MB read per token on Qwen2.5-1.5B by arithmetic, not yet measured. Proposed: the file as it is by default, and a 4-bit head derived in the browser as a measured option under its own address.
+3. The CPU path: GitHub Pages cannot enable threads, so a few tokens per second on a 0.5B model is expected. A size floor, and the named phone and its model.
+4. New dependencies: a Jinja library for chat templates; transformers.js and ONNX Runtime for comparison only.
+5. Download size: Qwen2.5-1.5B's ONNX q4 file is 1.79 GB and q4f16 1.22 GB, against 0.95 GB for the repacked container.
+
 ## Later milestones
 
 | Milestone | Adds |
 | --- | --- |
-| 2 | Mixture of experts (OLMoE), diffusion (Dream), E8 codebook weights, layer streaming and disk-backed models for weights larger than memory |
-| 3 | Agents, tools, MCP, skills, memory, code tools |
-| 4 | Speech (Whisper, Moonshine), LoRA training |
+| 2 | transformers.js equivalence for text models, above |
+| 3 | GGUF and safetensors import without a repack, Bonsai's speed target, mixture of experts (OLMoE), diffusion (Dream), E8 codebook weights, layer streaming and disk-backed models, constrained output, Bonsai 8B |
+| 4 | Agents, tools, MCP, skills, memory, code tools |
+| 5 | Speech (Whisper, Moonshine), LoRA training |
 
 Each milestone gets its kernel decisions first, in the same register-scenario-test order.
 

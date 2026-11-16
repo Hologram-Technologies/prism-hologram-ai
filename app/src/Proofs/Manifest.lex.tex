@@ -1,0 +1,17 @@
+\begin{lexlean}{Proofs.Manifest}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Manifest}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: manifest_complete_decides,
+  parameters: [listed : Nat, admitted : Nat],
+  statement: (((Kernel.Manifest::manifestComplete listed admitted) = true) <-> ((1 <= listed) /\ (admitted = listed))),
+  proof: linear_arithmetic{definitions: [Kernel.Manifest::manifestComplete]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

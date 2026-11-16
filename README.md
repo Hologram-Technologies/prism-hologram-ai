@@ -29,7 +29,7 @@ downloads that file can check, today, is this:
 And what it does **not** carry, which matters just as much: **no signed proof
 statement**. `prism-code check app.holo` reports P0, unverified, because the
 package carries no provenance, proof or replay statement of its own. The
-theorems are proved — `just app` runs `lexlean verify` over all seventeen proof
+theorems are proved — `just app` runs `lexlean verify` over all twenty-eight proof
 modules on every push, and the acceptance job on `main` is green — but that
 proof lives in this repository's CI, not inside the file. A stranger with only
 the file has the build attestation above and the replayed vectors, and must
@@ -46,7 +46,7 @@ routes and every theorem the proofs carry.
 
 ## Status
 
-The kernel is built: seventeen decisions, forty-nine theorems. The engine
+The kernel is built: twenty-eight decisions, eighty-six theorems. The engine
 has seven crates: the
 client that writes the kernel's requests and reads its answers, the reader that
 turns a model's safetensors header and config into the kernel's questions, the

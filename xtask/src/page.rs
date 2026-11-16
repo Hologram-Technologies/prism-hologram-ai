@@ -212,8 +212,10 @@ fn routed(entry: &str) -> Vec<(u8, String)> {
 fn reads(text: &str) -> Vec<Field> {
     let mut out = Vec::new();
     // The widths the wire format has: a flag, a number, and a label, which is
-    // read by a helper of its own rather than by the shared one.
-    for (needle, fixed) in [(READ, 0), ("(labelAt value ", 32)] {
+    // read by a helper of its own rather than by the shared one. Admission
+    // calls that helper by its bare name and other modules by its qualified
+    // one, so the needle is the part both spellings share.
+    for (needle, fixed) in [(READ, 0), ("labelAt value ", 32)] {
         let mut rest = text;
         while let Some(found) = rest.find(needle) {
             rest = &rest[found + needle.len()..];

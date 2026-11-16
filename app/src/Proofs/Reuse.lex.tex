@@ -1,0 +1,30 @@
+\begin{lexlean}{Proofs.Reuse}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Reuse}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: reuse_shorter_decides,
+  parameters: [heldLength : Nat, promptLength : Nat],
+  statement: (((Kernel.Reuse::reuseShorter heldLength promptLength) = true) <-> ((1 <= heldLength) /\ ((heldLength + 1) <= promptLength))),
+  proof: linear_arithmetic{definitions: [Kernel.Reuse::reuseShorter]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: reusable_decides,
+  parameters: [
+    asked : Kernel.Admission::Label,
+    held : Kernel.Admission::Label,
+    heldLength : Nat,
+    promptLength : Nat
+  ],
+  statement: (((Kernel.Reuse::reusable asked held heldLength promptLength) = true) <-> (((Kernel.Admission::sameLabel asked held) = true) /\ ((Kernel.Reuse::reuseShorter heldLength promptLength) = true))),
+  proof: simplify{definitions: [Bool.and_eq_true, Kernel.Reuse::reusable]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}
