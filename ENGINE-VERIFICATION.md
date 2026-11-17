@@ -1902,14 +1902,48 @@ Not in the suite: it reads 0.57 GB from the network.
 
 ## EN-34, exact q4 and ternary products
 
-`hologram-ai-exact` scales the input by one power of two onto `i8`, decodes
-each group of weights to the integers its layout stores, and takes each
-group's sum with `uor-matmul`'s `dot_ref`. Only the recombination, each sum
-times its scale added in `f64` in stored order and rounded once to `f32`, is
-floating point, so the output has the same bits natively and in the page's
-module.
+`hologram-ai-exact` computes a q4 or ternary product in integers from the
+stored bytes to one final rounding. Each `f32` or half scale and each input is
+read from its bits as the exact `mantissa * 2^exponent` it stands for. The input
+is scaled by one power of two onto `i8`, rounded to the nearest, ties to even,
+by integer shifts. Each group's sum is taken by `uor-matmul`'s `dot_ref`. A
+row's group sums times their scales' mantissas are shifted to the row's
+smallest scale exponent and added in `i128`, and that exact value is rounded
+once to the nearest `f32`, ties to even, by building the `f32`'s bits. The
+crate names no `f64`. A row whose scales lie too far apart for `i128` is
+refused (`FL-54`), and a scale that is infinity or NaN is refused (`FL-53`).
 
-### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
+This replaces a first form, measured below, that applied each scale and added
+the groups in `f64`: deterministic under IEEE 754, but floating point. On the
+real Qwen matrix saved by that form's run, the integer form gives the same bits
+for all 1,536 outputs.
+
+### The gate after the change: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+
+Run on 2026-11-17 in WSL with the workspace toolchain. Each defect was planted
+alone, the six tests run, the files restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| a shift rounds a tie away from zero | `engine_en_34`: `900 is not rounded to the nearest code, ties to even` |
+| a float's exponent read one too low | `engine_en_34` (input codes) and `engine_fl_54` (the row's value) |
+| the `f32` rounding truncates | `engine_en_34`: a ternary row one unit below the stated value |
+| the span check dropped | `engine_fl_54`: the crate overflows a shift (`attempt to shift left with overflow`) |
+| an infinite or NaN scale read as a number | `engine_fl_53`, and `engine_fl_50` |
+| the input exponent never steps down | `engine_en_34`: `the step is too small` |
+| an `f64` in the crate | `engine_en_34`: `crates/exact/src/lib.rs names f64` |
+| the module reads half scales as `f32` | `engine_en_34`: the module's bytes differ from the crate's |
+| a term shifted at most 40 places | `engine_fl_54` only: no EN-34 case has a row whose terms lie more than 40 powers of two apart without cancelling |
+| none, before and after | passed |
+
+What each output is checked against: the exact sum worked in the test from
+each scale's `f64` bits, independently of the crate's reading of `f32` and half
+bits, and rounded once by Rust's own `f64`-to-`f32` conversion; the test asserts
+that sum has at most 53 bits, so that conversion is the one rounding. Each q4
+row is also taken with its groups, scales and input columns in reverse order,
+and must give the same bits.
+
+### The first form's gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
 
 Run on 2026-11-17 in the pinned SDK image. Each defect was planted alone, the
 four tests run, the file restored.
@@ -1941,30 +1975,33 @@ that repeat the group sums' own. Both were deleted.
 
 ### Run over two real models
 
-A measurement, not part of the suite, run on 2026-11-17 in the pinned SDK image
-over every matrix of two models, one synthetic input per matrix:
+A measurement, not part of the suite, over every matrix of two models, one
+synthetic input per matrix. Bonsai 1.7B at
+`HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256 `acf0b5ad…`): every
+ternary matrix. Qwen2.5-1.5B-Instruct Q4_0 at
+`Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51` (sha256 `dcd819ff…`): every Q4_0
+matrix, repacked to the engine's q4f16 layout (the same codes and scales, the
+nibbles in another order); the Q6_K output head was not measured. Inputs
+roughly normal, and the same with 0.2% of values at 40 times.
 
-- Bonsai 1.7B at `HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256
-  `acf0b5ad…`): every ternary matrix, unpacked as the loader unpacks them.
-- Qwen2.5-1.5B-Instruct Q4_0 at `Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51`
-  (sha256 `dcd819ff…`): every Q4_0 matrix. Q4_0 holds the engine's q4f16
-  numbers (an f16 scale per 32 weights, each weight its code less eight, no
-  zero point) with the nibbles in another order, so each was repacked to the
-  engine's layout. The output head is Q6_K and was not measured.
+With the integer form, on 2026-11-17, natively in WSL (one thread):
 
-Two inputs were drawn: roughly normal, and the same with 0.2% of values at 40
-times, as activations have.
+| Model | Matrices | Weights | Group sums checked | Wrong | Rows past bound | Relative error (L2), normal / with outliers | Throughput |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% | 466 to 479 M weights/s |
+| Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% | 512 to 519 M weights/s |
 
-| Model | Matrices | Weights | Group sums checked | Wrong | Rows past bound | Relative error (L2), normal / with outliers |
-| --- | --- | --- | --- | --- | --- | --- |
-| Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% |
-| Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% |
+The module the page loads, built from the same source, gave the same bytes as
+native code for Bonsai's 151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix,
+for both inputs. The errors are those of the first form to the digits shown:
+they are the input's rounding onto eight bits, which this change does not touch.
 
-Every output stayed within its stated bound, the worst at 0.18 of it. The
-module the page loads gave the same bytes as native code for Bonsai's
-151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix. The first module run
-over Qwen differed: the module on disk had been built during the planted-defect
-run, with f16 scales read as f32. Rebuilt from the committed source, it agreed.
+The first form's run had reported one Qwen matrix whose module bytes differed
+from native code. The cause was a module built during that form's
+planted-defect run, with half scales read as `f32`: rebuilt from that form's
+committed source (`d08bc2b`, the same tree as `cafac69`), it gave identical
+bytes on the saved Qwen request, checked again here. `engine_en_34` builds the
+module it compares, so the gate cannot run against a stale one.
 
 ### What EN-34 does not establish
 
@@ -1974,3 +2011,9 @@ outlier sets the step for every value, and the error rises to about 9%. A
 finer input scale, per group, is the next measurement, and an engine using
 these products has to be judged on its answers, not on these figures. Softmax, normalisation and rotary encoding remain floating point,
 and nothing on the page calls the module yet.
+
+The input still arrives as `f32` and the output leaves as `f32`, because the
+stages around the product are floating point until they are made integer
+(brief step 4). Between those two, nothing is. The reference the test checks
+the rounding against is Rust's own conversion; that the crate's reading of
+half and `f32` bits matches IEEE 754 is tested on the cases drawn, not proved.

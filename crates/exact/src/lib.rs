@@ -294,7 +294,7 @@ pub fn quantise(input: &[f32]) -> Result<Quantised, ExactError> {
     let read: Vec<Dyadic> = input
         .iter()
         .map(|x| Dyadic::from_f32_bits(x.to_bits()).ok_or(ExactError::InputNotFinite))
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<Dyadic>, ExactError>>()?;
     let zero = Dyadic {
         mantissa: 0,
         exponent: 0,
@@ -475,7 +475,7 @@ fn exact_row(sums: &[i64], scales: &[Dyadic], input_exponent: i32) -> Result<Dya
                 .map(|m| (m, scale.exponent))
                 .ok_or(ExactError::ScaleSpanTooWide)
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<(i128, i32)>, ExactError>>()?;
     let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
         return Ok(Dyadic {
             mantissa: 0,
@@ -513,7 +513,7 @@ fn rows_from(
         .map(|(row, row_sums)| {
             let scales = (0..row_sums.len())
                 .map(|group| scale(row * groups + group))
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<Dyadic>, ExactError>>()?;
             Ok(exact_row(row_sums, &scales, exponent)?.to_f32())
         })
         .collect()
