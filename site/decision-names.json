@@ -1231,6 +1231,16 @@
           "value": 0
         }
       }
+    },
+    "34": {
+      "name": "Block check",
+      "asks": "Is this claimed sum of one 32-wide block exact?",
+      "fields": {
+        "49": {
+          "name": "Claimed sum plus 32768",
+          "value": 32768
+        }
+      }
     }
   }
 }

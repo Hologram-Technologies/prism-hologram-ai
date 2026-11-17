@@ -19,32 +19,32 @@ definition{
 theorem{
   name: agrees_when_both_positive,
   parameters: [code : Nat, byte : Nat],
-  statement: ((8 <= code) -> ((byte < 128) -> ((Kernel.Block::agrees code byte) = true))),
-  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  statement: ((8 <= code) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
 
 theorem{
   name: agrees_when_both_negative,
   parameters: [code : Nat, byte : Nat],
-  statement: ((code < 8) -> ((128 <= byte) -> ((Kernel.Block::agrees code byte) = true))),
-  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  statement: ((code < 8) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
 
 theorem{
   name: differs_when_weight_positive,
   parameters: [code : Nat, byte : Nat],
-  statement: ((8 <= code) -> ((128 <= byte) -> ((Kernel.Block::agrees code byte) = false))),
-  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  statement: ((8 <= code) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
   axioms: [Quot.sound, propext]
 }
 
 theorem{
   name: differs_when_weight_negative,
   parameters: [code : Nat, byte : Nat],
-  statement: ((code < 8) -> ((byte < 128) -> ((Kernel.Block::agrees code byte) = false))),
-  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  statement: ((code < 8) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
   axioms: [Quot.sound, propext]
 }
 

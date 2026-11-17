@@ -37,7 +37,7 @@ definition{
 }
 
 definition{
-  name: agrees,
+  name: signsAgree,
   parameters: [code : Nat, byte : Nat],
   result: Bool,
   body: (((8 <=? code) && (byte <? 128)) || ((code <? 8) && (128 <=? byte)))
@@ -56,7 +56,7 @@ definition{
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((if (agrees (weightCode value rest) (activationByte value rest)) then (term (weightCode value rest) (activationByte value rest)) else 0) + (positiveFrom value rest))),
+    | Nat.succ rest => ((if (signsAgree (weightCode value rest) (activationByte value rest)) then (term (weightCode value rest) (activationByte value rest)) else 0) + (positiveFrom value rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
@@ -67,7 +67,7 @@ definition{
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((if (agrees (weightCode value rest) (activationByte value rest)) then 0 else (term (weightCode value rest) (activationByte value rest))) + (negativeFrom value rest))),
+    | Nat.succ rest => ((if (signsAgree (weightCode value rest) (activationByte value rest)) then 0 else (term (weightCode value rest) (activationByte value rest))) + (negativeFrom value rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
@@ -80,7 +80,7 @@ definition{
 }
 
 definition{
-  name: blockAnswer,
+  name: blockCheckAnswer,
   parameters: [value : Bytes],
   result: Bytes,
   body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) (positiveFrom value 32) (negativeFrom value 32)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),

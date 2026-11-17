@@ -1886,6 +1886,21 @@
       "module": "Share",
       "name": "Shared prefix",
       "tag": 33
+    },
+    {
+      "asks": "Is this claimed sum of one 32-wide block exact?",
+      "fields": [
+        {
+          "at": 49,
+          "name": "Claimed sum plus 32768",
+          "value": 32768,
+          "width": 4
+        }
+      ],
+      "length": 53,
+      "module": "Block",
+      "name": "Block check",
+      "tag": 34
     }
   ],
   "request": 81

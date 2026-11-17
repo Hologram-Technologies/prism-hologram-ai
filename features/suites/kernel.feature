@@ -259,3 +259,10 @@ Feature: kernel
     When the Lean kernel checks shareable_decides during lexlean verify in the gate
     Then a held prefix is shared exactly when decision 27 finds it reusable and it was computed on this device or the run is comparable by decision 30
     And the answer to decision 33 is reuse or recompute by that same shareable, over the labels at bytes 1 and 33
+
+  @KN-34 @build
+  Scenario: One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise
+    Given the block check model in app/src/Kernel/Block.lex.tex and its proofs in app/src/Proofs/Block.lex.tex
+    When the Lean kernel checks accepts_decides, parts_cover_every_product and the four sign theorems during lexlean verify in the gate
+    Then every product of the block falls in exactly one of the positive and negative parts, by the signs of its weight code and its activation
+    And the answer to decision 34 is exact when the claim at byte 49 plus the negative part equals the positive part plus 32768, differs otherwise, and invalid request for any length but 53
