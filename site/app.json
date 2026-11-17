@@ -204,8 +204,8 @@
     {"name": "accepts_decides", "module": "Block", "statement": "(((Kernel.Block::accepts claimed positive negative) = true) ↔ ((claimed + negative) = (positive + 32768)))"},
     {"name": "accepts_one_claim", "module": "Block", "statement": "(((Kernel.Block::accepts one positive negative) = true) → (((Kernel.Block::accepts other positive negative) = true) → (one = other)))"},
     {"name": "parts_cover_every_product", "module": "Block", "statement": "(((Kernel.Block::positiveFrom weights activations base remaining) + (Kernel.Block::negativeFrom weights activations base remaining)) = (totalFrom weights activations base remaining))"},
-    {"name": "address_blake3_decides", "module": "Address", "statement": "(((Kernel.Address::addressBlake3 prefix) = true) ↔ (prefix = 27703713387066170))"},
-    {"name": "address_sha256_refused", "module": "Address", "statement": "((Kernel.Address::addressBlake3 32484388985189946) = false)"},
+    {"name": "address_blake3_decides", "module": "Address", "statement": "(((Kernel.Address::addressBlake3 head middle tail) = true) ↔ ((head = 1651269995) ∧ ((middle = 25907) ∧ (tail = 58))))"},
+    {"name": "address_sha256_refused", "module": "Address", "statement": "((Kernel.Address::addressBlake3 1936220466 13622 58) = false)"},
     {"name": "integer_run_decides", "module": "Integer", "statement": "(((Kernel.Integer::integerRun productsExact restExact) = true) ↔ ((productsExact = 1) ∧ (restExact = 1)))"},
     {"name": "integer_run_is_everywhere", "module": "Integer", "statement": "(((Kernel.Integer::integerRun productsExact restExact) = true) ↔ ((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2))"},
     {"name": "integer_run_refuses_fixed_order_floats", "module": "Integer", "statement": "((Kernel.Integer::integerRun productsExact 0) = false)"}
@@ -353,7 +353,7 @@
     },
     {
       "name": "kernel_kn_35",
-      "what": "The theorems' statements and axioms, that the two numbers are the seven bytes of blake3: and sha256:, the answer's length and offset, and that decision 35 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "what": "The theorems' statements and axioms, that its numbers are blake3: and sha256: read as fields of 4, 2 and 1 bytes, the answer's length and offsets, and that decision 35 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     },
     {

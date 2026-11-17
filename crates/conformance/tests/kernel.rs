@@ -2691,26 +2691,30 @@ fn kernel_kn_35() {
     assert_pinned(
         &proofs,
         "address_blake3_decides",
-        "(((Kernel.Address::addressBlake3 prefix) = true) <-> (prefix = 27703713387066170))",
-        "propext",
+        "(((Kernel.Address::addressBlake3 head middle tail) = true) <-> ((head = 1651269995) /\\ ((middle = 25907) /\\ (tail = 58))))",
+        "Classical.choice, Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "address_sha256_refused",
-        "((Kernel.Address::addressBlake3 32484388985189946) = false)",
+        "((Kernel.Address::addressBlake3 1936220466 13622 58) = false)",
         "Quot.sound, propext",
     );
-    // The two numbers are the seven bytes of "blake3:" and "sha256:".
-    assert_eq!(u64::from_be_bytes(*b"\0blake3:"), 27703713387066170);
-    assert_eq!(u64::from_be_bytes(*b"\0sha256:"), 32484388985189946);
+    // The numbers are "blake3:" and "sha256:" read as fields of 4, 2 and 1
+    // bytes, the widths the wire format has.
+    assert_eq!(u32::from_be_bytes(*b"blak"), 1651269995);
+    assert_eq!(u16::from_be_bytes(*b"e3"), 25907);
+    assert_eq!(u32::from_be_bytes(*b"sha2"), 1936220466);
+    assert_eq!(u16::from_be_bytes(*b"56"), 13622);
+    assert_eq!(b':', 58);
     let found = declaration(&kernel, "addressBlake3");
     assert!(
-        found.contains("body: (prefix =? 27703713387066170)"),
+        found.contains("body: (((head =? 1651269995) && (middle =? 25907)) && (tail =? 58))"),
         "addressBlake3 changed:\n{found}"
     );
     let found = declaration(&kernel, "addressAnswer");
     assert!(
-        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 8) then (if (addressBlake3 (Kernel.Wire::fieldAt value 1 7)) then (prim utf8_encode \"blake3\" : Bytes) else (prim utf8_encode \"not blake3\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 8) then (if (addressBlake3 (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1)) then (prim utf8_encode \"blake3\" : Bytes) else (prim utf8_encode \"not blake3\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "addressAnswer changed:\n{found}"
     );
     assert_routed(35, "Kernel.Address::addressAnswer");

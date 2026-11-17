@@ -918,7 +918,9 @@ run.
 
 Each pins its theorems' statements and axioms, every definition the answer
 reads, the answer's length and offsets, and the route; `kernel_kn_35` also
-checks that its two numbers are the seven bytes of `blake3:` and `sha256:`.
+checks that its numbers are `blake3:` and `sha256:` read as fields of 4, 2
+and 1 bytes: the page's form has fields of 1, 2, 4, 8 and 32 bytes only, and
+a first form reading the seven bytes as one field failed `engine_en_14`.
 Planted on 2026-11-17, each test run alone with `cargo test -p
 repo-conformance --test kernel`:
 
@@ -935,9 +937,9 @@ Run in the SDK image `prismpm.lock` pins
 
 | Planted | Result |
 | --- | --- |
-| `addressBlake3` testing for `sha256:` | rejected: Lean, `HologramAi.Proofs.Address`, omega could not prove the goal |
+| `addressBlake3` testing its first four bytes for `sha2` | rejected: Lean, `HologramAi.Proofs.Address`, omega could not prove the goal |
 | `integerRun` reading decision 30's class with fixed-order reductions and admitting any class, `same hardware` among them (`classCode … 1 <=? 2`) | rejected: Lean, `HologramAi.Proofs.Integer`, omega could not prove the goal |
-| none | `verified 7 modules`, attestation `7e5b340b49216a8f08a3cc92c270dfe57dfea9c958759164e255e958a12ccba1` |
+| none | `verified 7 modules`, attestation `f4c4c772a30775b09600d0de8efe94879b64058348c6acc0f98b188e03157993` |
 
 `lexlean fmt --all --check` (76 modules canonical) and `lexlean lock
 --check` passed. The holo was not built here: on this machine the

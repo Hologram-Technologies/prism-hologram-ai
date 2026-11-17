@@ -1271,8 +1271,16 @@
       "asks": "Is this label a BLAKE3 address?",
       "fields": {
         "1": {
-          "name": "The label's first seven bytes",
-          "value": 27703713387066170
+          "name": "The label's bytes 1 to 4",
+          "value": 1651269995
+        },
+        "5": {
+          "name": "The label's bytes 5 and 6",
+          "value": 25907
+        },
+        "7": {
+          "name": "The label's byte 7",
+          "value": 58
         }
       }
     },
