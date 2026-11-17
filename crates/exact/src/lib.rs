@@ -70,11 +70,11 @@ const TERNARY_TABLE: [Value; 4] = [Value::of(0), Value::of(-1), Value::of(0), Va
 /// Why a product could not be taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExactError {
-    /// `FL-49`: an input is not a finite number.
+    /// `FL-50`: an input is not a finite number.
     InputNotFinite,
-    /// `FL-50`: the row length is not a whole number of scale groups.
+    /// `FL-51`: the row length is not a whole number of scale groups.
     GroupMisaligned,
-    /// `FL-51`: a buffer is not the length the shape implies.
+    /// `FL-52`: a buffer is not the length the shape implies.
     LengthMismatch,
 }
 

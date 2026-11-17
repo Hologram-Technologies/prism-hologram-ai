@@ -1850,7 +1850,7 @@ Decoding WordPiece ids back to text, a pair of sentences, and padding are
 not built: the encoders read one sentence and give a vector or a label. The
 tokeniser is not yet reachable from the wasm module or the page.
 
-## EN-33, exact q4 and ternary products
+## EN-34, exact q4 and ternary products
 
 `hologram-ai-exact` scales the input by one power of two onto `i8`, decodes
 each group of weights to the integers its layout stores, and takes each
@@ -1859,26 +1859,26 @@ times its scale added in `f64` in stored order and rounded once to `f32`, is
 floating point, so the output has the same bits natively and in the page's
 module.
 
-### The gate: `cargo test -p repo-conformance --test engine -- engine_en_33 engine_fl_49 engine_fl_50 engine_fl_51`
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
 
 Run on 2026-11-17 in the pinned SDK image. Each defect was planted alone, the
 four tests run, the file restored.
 
 | Planted defect | Rejected by |
 | --- | --- |
-| q4 nibbles read high first | `engine_en_33`: the group sums differ |
-| q4 code 0 decodes to +8 | `engine_en_33`: the group sums differ |
-| Ternary sign inverted | `engine_en_33`: the group sums differ |
-| Groups added in reverse order | `engine_en_33`: `-20 is not the stated 0` |
-| The total rounded to `f32` before the rescale | `engine_en_33`: `inf is not the stated 2.8e32` |
-| Input ties rounded away from zero | `engine_en_33`: not rounded to the nearest code, ties to even |
-| The exponent never steps down | `engine_en_33`: the step is too small |
-| A non-finite input admitted | `engine_fl_49` |
-| The q4 group check dropped | `engine_fl_50`, and `engine_en_33` through the module |
-| The q4 scale length unchecked | `engine_fl_51` (the crate indexes past its scales) |
-| The ternary group check dropped | `engine_fl_50` |
-| The module reads f16 scales as f32 | `engine_en_33`: the module's bytes differ from the crate's |
-| Subnormal half scales halved | `engine_en_33`: `-0.00134 is not the stated -0.00268` |
+| q4 nibbles read high first | `engine_en_34`: the group sums differ |
+| q4 code 0 decodes to +8 | `engine_en_34`: the group sums differ |
+| Ternary sign inverted | `engine_en_34`: the group sums differ |
+| Groups added in reverse order | `engine_en_34`: `-20 is not the stated 0` |
+| The total rounded to `f32` before the rescale | `engine_en_34`: `inf is not the stated 2.8e32` |
+| Input ties rounded away from zero | `engine_en_34`: not rounded to the nearest code, ties to even |
+| The exponent never steps down | `engine_en_34`: the step is too small |
+| A non-finite input admitted | `engine_fl_50` |
+| The q4 group check dropped | `engine_fl_51`, and `engine_en_34` through the module |
+| The q4 scale length unchecked | `engine_fl_52` (the crate indexes past its scales) |
+| The ternary group check dropped | `engine_fl_51` |
+| The module reads f16 scales as f32 | `engine_en_34`: the module's bytes differ from the crate's |
+| Subnormal half scales halved | `engine_en_34`: `-0.00134 is not the stated -0.00268` |
 | none, before and after | passed |
 
 A first round missed six of these, and the code or cases changed rather than
@@ -1916,7 +1916,7 @@ module the page loads gave the same bytes as native code for Bonsai's
 over Qwen differed: the module on disk had been built during the planted-defect
 run, with f16 scales read as f32. Rebuilt from the committed source, it agreed.
 
-### What EN-33 does not establish
+### What EN-34 does not establish
 
 Exact is not the same as accurate. Rounding the input onto eight bits with one
 power of two for the whole vector costs under 1% on ordinary inputs, but an

@@ -6971,7 +6971,7 @@ fn exact_request(case: &ExactCase) -> Vec<u8> {
     request
 }
 
-/// The cases EN-33 runs: every format, odd row counts, several group counts,
+/// The cases EN-34 runs: every format, odd row counts, several group counts,
 /// and inputs at the edges of what a power-of-two scale has to reach.
 fn exact_cases() -> Vec<ExactCase> {
     let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
@@ -7052,9 +7052,9 @@ fn set_scales(case: &mut ExactCase, scales: &[f32]) {
     case.scales = scales.iter().map(|&s| f64::from(s)).collect();
 }
 
-/// `EN-33`: A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code
+/// `EN-34`: A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code
 #[test]
-fn engine_en_33() {
+fn engine_en_34() {
     let cases = exact_cases();
     assert!(cases.len() >= 50, "only {} cases", cases.len());
     let mut module_cases = Vec::new();
@@ -7242,9 +7242,9 @@ for (const [index, c] of cases.entries()) {
 console.log(`agreed ${agreed}`);
 "#;
 
-/// `FL-49`: An input to an exact product is not a finite number
+/// `FL-50`: An input to an exact product is not a finite number
 #[test]
-fn engine_fl_49() {
+fn engine_fl_50() {
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         let mut input = vec![1.0f32; 32];
         input[7] = bad;
@@ -7265,9 +7265,9 @@ fn engine_fl_49() {
     }
 }
 
-/// `FL-50`: An exact product's row length is not a whole number of scale groups
+/// `FL-51`: An exact product's row length is not a whole number of scale groups
 #[test]
-fn engine_fl_50() {
+fn engine_fl_51() {
     let quantised = exact::quantise(&[1.0; 48]).expect("finite");
     assert_eq!(
         exact::q4_group_sums(&quantised, &[0x88; 24], 1, 48),
@@ -7280,9 +7280,9 @@ fn engine_fl_50() {
     );
 }
 
-/// `FL-51`: A buffer handed to an exact product is not the length its shape implies
+/// `FL-52`: A buffer handed to an exact product is not the length its shape implies
 #[test]
-fn engine_fl_51() {
+fn engine_fl_52() {
     let input = vec![1.0f32; 32];
     let scale = 1f32.to_le_bytes();
     // Codes one byte short.
