@@ -389,6 +389,12 @@ suite = "gpu"
 statement = "A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt"
 
 [[id]]
+id = "GP-17"
+level = "build"
+suite = "gpu"
+statement = "Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

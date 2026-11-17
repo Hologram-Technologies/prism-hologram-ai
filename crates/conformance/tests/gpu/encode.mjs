@@ -77,7 +77,29 @@ try {
       const pick = (p) => p.indexOf(Math.max(...p));
       classes.push({ tokens: tokens.length, logitsWorst: worst(Array.from(g.logits), r.logits), probabilityWorst: worst(g.probabilities, r.probabilities), gpu: pick(g.probabilities), reference: pick(r.probabilities), margin: Math.abs(r.logits[0] - r.logits[1]) });
     }
-    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, embeddings, classes };
+    // GP-17: both encoders written as exports, placed by the role map from
+    // their graphs alone, and run from the tensors it names.
+    const { asEncoderExport } = await import(`${origin}/crates/conformance/tests/gpu/export.mjs`);
+    const { encoderRoles, engineTensors } = await import(`${origin}/site/app/engine/onnx-roles.mjs`);
+    const placed = {};
+    for (const [key, model, family] of [["bert", bert, "bert"], ["distilbert", distil, "distilbert"]]) {
+      const exp = asEncoderExport(model, family);
+      const { dims, weights, labels } = encoderRoles(exp, exp.config);
+      const engine = await createEncoder({ device, dims, tensors: engineTensors(weights, (n) => exp.bytes.get(n)), capacity: 64 });
+      const reference = referenceEncoder(model);
+      const sameAsModel = [...weights.keys()].every((n) => model.tensors.has(n)) && [...model.tensors.keys()].every((n) => weights.has(n));
+      const runs = [];
+      for (const tokens of model.sentences) {
+        if (family === "bert") runs.push({ tokens: tokens.length, worst: worst(await engine.embed(tokens), reference.embed(tokens)) });
+        else {
+          const g = await engine.classify(tokens);
+          const r = reference.classify(tokens);
+          runs.push({ tokens: tokens.length, worst: worst(Array.from(g.logits), r.logits), gpu: g.probabilities.indexOf(Math.max(...g.probabilities)), reference: r.probabilities.indexOf(Math.max(...r.probabilities)) });
+        }
+      }
+      placed[key] = { placed: weights.size, sameAsModel, labels, runs };
+    }
+    return { adapter: adapter.info ? adapter.info.description || adapter.info.vendor : "?", errors, embeddings, classes, placed };
   }, origin);
   console.log(JSON.stringify(result));
 } finally {
