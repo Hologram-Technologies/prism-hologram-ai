@@ -874,11 +874,28 @@ one namespace, which `kernel_kn_34` caught.
 
 ### The proof gate: `lexlean verify src/Proofs/Block.lex.tex`
 
-LEAN_TABLE
+| Planted defect | Result |
+| --- | --- |
+| a positive weight code agrees with a negative activation (`signsAgree`) | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Block (error): omega could not prove the goal` |
+| the negative part also counts agreeing products | rejected: the same, in `parts_cover_every_product` |
+| the claim offset by 32767 | rejected: the same, in `accepts_decides` |
+| a byte taken modulo 255 | not rejected: `verified 4 modules`. No theorem states how bytes become codes; `kernel_kn_34` rejects it |
+| none | `verified 4 modules` |
 
 Run on 2026-11-17 in the SDK image the gate pins
 (`prismpm-sdk-candidate@sha256:cd3b47d7…`). In these runs `lexlean verify`
-exited 1 on each rejection.
+exited 1 on each rejection. Over every proof module, `lexlean verify
+src/Proofs/*.lex.tex` gave `verified 70 modules`.
+
+### The holo: `prismpm --project app verify`
+
+On the machine these changes were made on (12 threads, 13 GB, WSL), this step
+did not finish, for main as well as for this change: the leanchecker replay of
+`HologramAi.Kernel` was stopped at the SDK's 300-second child limit (`LLV7003`,
+exit 143), at main `dc1ba4f` and here, alone on the machine and at
+`LEXLEAN_VERIFY_WIDTH=1`. An earlier form of this change failed sooner, in the
+guest's build, which is how the 64-bit limit above was found. That the guest
+builds and replays with decision 34 is left to the gate on CI.
 
 ## The examples in the compiled guest
 
