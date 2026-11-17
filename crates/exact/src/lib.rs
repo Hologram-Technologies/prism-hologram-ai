@@ -99,7 +99,8 @@ pub enum ExactError {
     ScaleSpanTooWide,
 }
 
-/// A number that is exactly `mantissa * 2^exponent`.
+/// A number that is exactly `mantissa * 2^exponent`. Read from a float, the
+/// mantissa is odd, or zero with exponent 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dyadic {
     /// The integer the power of two multiplies.
@@ -144,6 +145,14 @@ impl Format {
                 fraction | (1 << self.fraction_bits),
                 lowest + biased as i32 - 1,
             )
+        };
+        // Odd, or zero: a row's span is then counted from the bits each
+        // scale really has, not from its stored width.
+        let (magnitude, exponent) = if magnitude == 0 {
+            (0, 0)
+        } else {
+            let zeros = magnitude.trailing_zeros();
+            (magnitude >> zeros, exponent + zeros as i32)
         };
         let magnitude = i128::from(magnitude);
         Some(Dyadic {

@@ -10,13 +10,13 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
+use hologram_ai_exact as exact;
 use hologram_ai_model_reader::{config, gguf as tensors, header, holk, onnx as import, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
 
 use hologram_ai_kernel_client::{
-use hologram_ai_exact as exact;
     admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
     INVALID_REQUEST,
 };
@@ -7296,10 +7296,7 @@ fn exact_reference(sums: &[i64], scales: &[f64], input_exponent: i32) -> f32 {
     let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
         return 0.0;
     };
-    let mut total = terms
-        .iter()
-        .map(|&(m, e)| m << (e - lowest))
-        .sum::<i128>();
+    let mut total = terms.iter().map(|&(m, e)| m << (e - lowest)).sum::<i128>();
     let mut exponent = lowest - input_exponent;
     if total == 0 {
         return 0.0;
@@ -7312,7 +7309,10 @@ fn exact_reference(sums: &[i64], scales: &[f64], input_exponent: i32) -> f32 {
         total.unsigned_abs() < 1u128 << 53,
         "a case's exact row needs more than 53 bits: state it by hand"
     );
-    assert!(exponent.abs() <= 1000, "a case's exponent is outside the reference's range");
+    assert!(
+        exponent.abs() <= 1000,
+        "a case's exponent is outside the reference's range"
+    );
     let value = total as f64 * 2f64.powi(exponent);
     value as f32
 }
@@ -7553,7 +7553,8 @@ import { readFileSync } from "node:fs";
 
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), {});
+// The module asks the kernel through one import; these calls never reach it.
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -7663,18 +7664,37 @@ fn engine_fl_53() {
     let input = vec![1.0f32; 32];
     for bad in [f32::INFINITY, f32::NAN] {
         assert_eq!(
-            exact::q4_matvec(&input, &[0x99; 16], exact::Q4Scales::F32(&bad.to_le_bytes()), 1, 32),
+            exact::q4_matvec(
+                &input,
+                &[0x99; 16],
+                exact::Q4Scales::F32(&bad.to_le_bytes()),
+                1,
+                32
+            ),
             Err(exact::ExactError::ScaleNotFinite)
         );
     }
     for bad in [0x7c00u16, 0xfe00] {
         assert_eq!(
-            exact::q4_matvec(&input, &[0x99; 16], exact::Q4Scales::F16(&bad.to_le_bytes()), 1, 32),
+            exact::q4_matvec(
+                &input,
+                &[0x99; 16],
+                exact::Q4Scales::F16(&bad.to_le_bytes()),
+                1,
+                32
+            ),
             Err(exact::ExactError::ScaleNotFinite)
         );
     }
     assert_eq!(
-        exact::ternary_matvec(&[1.0; 128], &[0xff; 16], &[0xff; 16], &f32::NAN.to_le_bytes(), 1, 128),
+        exact::ternary_matvec(
+            &[1.0; 128],
+            &[0xff; 16],
+            &[0xff; 16],
+            &f32::NAN.to_le_bytes(),
+            1,
+            128
+        ),
         Err(exact::ExactError::ScaleNotFinite)
     );
 }
@@ -7700,4 +7720,3 @@ fn engine_fl_54() {
         .expect("a hundred powers of two fit in i128");
     assert_eq!(rows[0], (32.0f32 * (1.0 + 2f32.powi(100))));
 }
-
