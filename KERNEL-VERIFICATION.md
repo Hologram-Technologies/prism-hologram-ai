@@ -73,7 +73,11 @@ The inherited gates and their own planted defects are in
 | `KN-32`: a probe is an `exact replay` exactly when layer, position and component are each below their counts and the run is comparable, an `approximate replay` exactly when they are and it is not, and `out of range` otherwise | `probe_exact_decides`, `probe_approximate_decides` and `probe_out_of_range_decides`, checked by the Lean kernel | proved |
 | That a value recomputed for an exact replay equals the value that produced the answer | follows from the class only if decision 30's flags are true of the run | not proved |
 | `KN-33`: a prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a comparable run | `shareable_decides`, checked by the Lean kernel | proved |
-| Decisions 29 to 33 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
+| `KN-34`: every product of a 32-wide block lies in exactly one of the positive and negative parts, by the signs of its weight code and activation; a block is `exact` exactly when the claim plus the negative part equals the positive part plus 32768; at most one claim is exact | `parts_cover_every_product` (by induction over the places), the four sign theorems `agrees_when_both_positive`, `agrees_when_both_negative`, `differs_when_weight_positive` and `differs_when_weight_negative`, `weight_size_about_eight`, `activation_size_about_zero`, `accepts_decides` and `accepts_one_claim`, checked by the Lean kernel | proved |
+| The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
+| That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
+| The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
+| Decisions 29 to 34 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
@@ -831,6 +835,67 @@ bytes, whichever function made it.
 The other nine modules' proofs were each checked by the Lean kernel as they
 were written; a defect was planted through Lean in two of the eleven, and
 through the pinned test in all of them.
+
+## KN-34, block check
+
+Decision 34 recomputes one 32-wide group sum of signed 4-bit weight codes times
+int8 activations, the unit the engine's q4 product sums exactly, and compares
+it with a claimed sum. The request is 53 bytes: the tag, sixteen bytes of codes,
+thirty-two activations and the claim at byte 49, offset by 32768 so it is never
+negative. The sum lies between -32512 and 32768, so the claim fits four bytes.
+The kernel reads the codes and activations as six 8-byte fields, so the page's
+form names every byte of the request (`EN-14`), and takes each code and
+activation from those fields by `byteFromEnd`. Each activation word is summed
+on its own, with its weight word and the place its codes start at, because the
+compiled guest holds a natural number in 64 bits: a first form that joined two
+activation words into one 128-bit number verified in Lean and then failed the
+guest's build with `literal out of range for u64`. The sum is split into a positive
+and a negative part so the kernel works in natural numbers only.
+
+The answer is `exact`, `differs` or `invalid request`. Its name in the guest is
+`blockCheckAnswer` and its sign rule is `signsAgree`: `blockAnswer` and `agrees`
+are decision 13's and decision 16's, and the guest holds every module's names in
+one namespace, which `kernel_kn_34` caught.
+
+### The pinned test: `kernel_kn_34`
+
+| Planted defect | Result |
+| --- | --- |
+| the claim read from byte 48 | rejected: `blockCheckAnswer changed` |
+| weight codes read high half first | rejected: `weightCode changed` |
+| the claim offset by 32767 | rejected: `accepts changed` |
+| the positive part of the last eight activations sums seven products | rejected: `blockCheckAnswer changed` |
+| a byte taken modulo 255 | rejected: `byteFromEnd changed` |
+| a 52-byte request answered | rejected: `blockCheckAnswer changed` |
+| `accepts_decides` weakened from `<->` to `->` | rejected: `accepts_decides's statement changed` |
+| decision 34 routed to decision 33's answer | rejected: `decision 34 must be routed to Kernel.Block::blockCheckAnswer` |
+| `accepts_decides` declares `Classical.choice` | rejected: `accepts_decides must rest on [propext]` |
+| none, before and after | passed |
+
+### The proof gate: `lexlean verify src/Proofs/Block.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a positive weight code agrees with a negative activation (`signsAgree`) | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Block (error): omega could not prove the goal` |
+| the negative part also counts agreeing products | rejected: the same, in `parts_cover_every_product` |
+| the claim offset by 32767 | rejected: the same, in `accepts_decides` |
+| a byte taken modulo 255 | not rejected: `verified 4 modules`. No theorem states how bytes become codes; `kernel_kn_34` rejects it |
+| none | `verified 4 modules` |
+
+Run on 2026-11-17 in the SDK image the gate pins
+(`prismpm-sdk-candidate@sha256:cd3b47d7…`). In these runs `lexlean verify`
+exited 1 on each rejection. Over every proof module, `lexlean verify
+src/Proofs/*.lex.tex` gave `verified 70 modules`.
+
+### The holo: `prismpm --project app verify`
+
+On the machine these changes were made on (12 threads, 13 GB, WSL), this step
+did not finish, for main as well as for this change: the leanchecker replay of
+`HologramAi.Kernel` was stopped at the SDK's 300-second child limit (`LLV7003`,
+exit 143), at main `dc1ba4f` and here, alone on the machine and at
+`LEXLEAN_VERIFY_WIDTH=1`. An earlier form of this change failed sooner, in the
+guest's build, which is how the 64-bit limit above was found. That the guest
+builds and replays with decision 34 is left to the gate on CI.
 
 ## The examples in the compiled guest
 

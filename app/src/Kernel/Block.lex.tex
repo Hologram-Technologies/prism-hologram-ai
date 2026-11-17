@@ -1,0 +1,89 @@
+\begin{lexlean}{Kernel.Block}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: byteFromEnd,
+  parameters: [word : Nat, index : Nat],
+  result: Nat,
+  body: (match index
+    | Nat.zero => (prim remainder word 256 0 : Nat)
+    | Nat.succ rest => (byteFromEnd (prim quotient word 256 0 : Nat) rest)),
+  recursive_argument: index
+}
+
+definition{
+  name: weightCode,
+  parameters: [weights : Nat, index : Nat],
+  result: Nat,
+  body: (if ((prim remainder index 2 0 : Nat) =? 1) then (prim remainder (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat) else (prim quotient (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat))
+}
+
+definition{
+  name: weightSize,
+  parameters: [code : Nat],
+  result: Nat,
+  body: (if (8 <=? code) then (prim subtract code 8 : Nat) else (prim subtract 8 code : Nat))
+}
+
+definition{
+  name: activationSize,
+  parameters: [byte : Nat],
+  result: Nat,
+  body: (if (byte <? 128) then byte else (prim subtract 256 byte : Nat))
+}
+
+definition{
+  name: signsAgree,
+  parameters: [code : Nat, byte : Nat],
+  result: Bool,
+  body: (((8 <=? code) && (byte <? 128)) || ((code <? 8) && (128 <=? byte)))
+}
+
+definition{
+  name: term,
+  parameters: [code : Nat, byte : Nat],
+  result: Nat,
+  body: (prim multiply (weightSize code) (activationSize byte) : Nat)
+}
+
+definition{
+  name: positiveFrom,
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((if (signsAgree (weightCode weights (base + rest)) (byteFromEnd activations rest)) then (term (weightCode weights (base + rest)) (byteFromEnd activations rest)) else 0) + (positiveFrom weights activations base rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: negativeFrom,
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((if (signsAgree (weightCode weights (base + rest)) (byteFromEnd activations rest)) then 0 else (term (weightCode weights (base + rest)) (byteFromEnd activations rest))) + (negativeFrom weights activations base rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: accepts,
+  parameters: [claimed : Nat, positive : Nat, negative : Nat],
+  result: Bool,
+  body: ((claimed + negative) =? (positive + 32768))
+}
+
+definition{
+  name: blockCheckAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) ((((positiveFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 25 8) 0 8) + (positiveFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 17 8) 8 8)) + (positiveFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 41 8) 0 8)) + (positiveFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 33 8) 8 8)) ((((negativeFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 25 8) 0 8) + (negativeFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 17 8) 8 8)) + (negativeFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 41 8) 0 8)) + (negativeFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 33 8) 8 8))) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
