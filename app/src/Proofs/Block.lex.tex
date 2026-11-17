@@ -1,0 +1,96 @@
+\begin{lexlean}{Proofs.Block}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Block}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: SameSign,
+  parameters: [code : Nat, byte : Nat],
+  result: Prop,
+  body: (((8 <= code) /\ (byte < 128)) \/ ((code < 8) /\ (128 <= byte)))
+}
+
+definition{
+  name: totalFrom,
+  parameters: [value : Bytes, place : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode value place) (Kernel.Block::activationByte value place)) + (totalFrom value (place + 1) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+theorem{
+  name: agrees_decides,
+  parameters: [code : Nat, byte : Nat],
+  statement: (((Kernel.Block::agrees code byte) = true) <-> (SameSign code byte)),
+  proof: linear_arithmetic{definitions: [Kernel.Block::agrees, SameSign]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: weight_size_about_eight,
+  parameters: [code : Nat],
+  statement: (((8 <= code) -> (((Kernel.Block::weightSize code) + 8) = code)) /\ ((code < 8) -> (((Kernel.Block::weightSize code) + code) = 8))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::weightSize]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: activation_size_about_zero,
+  parameters: [byte : Nat],
+  statement: (((byte < 128) -> ((Kernel.Block::activationSize byte) = byte)) /\ (((128 <= byte) /\ (byte <= 256)) -> (((Kernel.Block::activationSize byte) + byte) = 256))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::activationSize]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: accepts_decides,
+  parameters: [claimed : Nat, positive : Nat, negative : Nat],
+  statement: (((Kernel.Block::accepts claimed positive negative) = true) <-> ((claimed + negative) = (positive + 32768))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: accepts_one_claim,
+  parameters: [first : Nat, second : Nat, positive : Nat, negative : Nat],
+  statement: (((Kernel.Block::accepts first positive negative) = true) -> (((Kernel.Block::accepts second positive negative) = true) -> (first = second))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: parts_cover_every_product,
+  parameters: [value : Bytes, place : Nat, remaining : Nat],
+  statement: (((Kernel.Block::positiveFrom value place remaining) + (Kernel.Block::negativeFrom value place remaining)) = (totalFrom value place remaining)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Kernel.Block::positiveFrom, Kernel.Block::negativeFrom, totalFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            Kernel.Block::positiveFrom,
+            Kernel.Block::negativeFrom,
+            totalFrom,
+            hypothesis
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [place],
+    scrutinee: remaining
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
