@@ -45,19 +45,40 @@ async function whole(stream) {
 }
 
 export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, onProgress = () => {} }) {
-  const entry = (p) => {
+  // A file the record names, with a SHA-256 when one is needed: the kernel
+  // admits a model file against it.
+  const entry = (p, needsSha256 = true) => {
     const file = record.files.find((f) => f.path === p);
-    if (!file || !file.sha256) throw new Error(`the record names no SHA-256 for ${p}`);
+    if (!file || (needsSha256 && !file.sha256)) throw new Error(`the record names no SHA-256 for ${p}`);
     return file;
   };
-  // A small file of the repository, checked against the record before use.
+  // A small file of the repository, checked against the record before use:
+  // by its SHA-256 where the record gives one (a file Git LFS stores), and
+  // otherwise by its Git blob SHA-1, which is how Git names a file it holds
+  // itself. SHA-1 is the weaker of the two, and the check says which it was.
   const small = async (p, optional = false) => {
     if (optional && !record.files.some((f) => f.path === p)) return null;
-    const file = entry(p);
+    const file = entry(p, false);
     const bytes = await whole(await open(p));
-    const digest = await sha256(bytes);
-    const ok = digest === file.sha256 && bytes.length === file.size;
-    checks.add("file", `${p} is the record's`, ok ? "pass" : "fail", `${bytes.length} bytes, sha256 ${digest}`);
+    let ok;
+    let detail;
+    if (file.sha256) {
+      const digest = await sha256(bytes);
+      ok = digest === file.sha256;
+      detail = `sha256 ${digest}`;
+    } else if (file.gitSha1) {
+      const head = new TextEncoder().encode(`blob ${bytes.length}\0`);
+      const blob = new Uint8Array(head.length + bytes.length);
+      blob.set(head);
+      blob.set(bytes, head.length);
+      const digest = hex(new Uint8Array(await crypto.subtle.digest("SHA-1", blob)));
+      ok = digest === file.gitSha1;
+      detail = `git blob sha1 ${digest} (the record gives no SHA-256)`;
+    } else {
+      throw new Error(`the record names no hash for ${p}`);
+    }
+    ok = ok && bytes.length === file.size;
+    checks.add("file", `${p} is the record's`, ok ? "pass" : "fail", `${bytes.length} bytes, ${detail}`);
     if (!ok) throw new Error(`${p} is not the file the record names`);
     return bytes;
   };

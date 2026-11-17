@@ -1084,6 +1084,7 @@ fn gpu_gp_19() {
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
         "is not the file the record names",
+        "crypto.subtle.digest(\"SHA-1\", blob)",
     ] {
         assert!(
             loader.contains(wanted),
@@ -1098,6 +1099,8 @@ fn gpu_gp_19() {
         "onnx ${name}: ran on ${run.device}, expected ${device}",
         "onnx flip: expected the kernel to refuse the graph file",
         "onnx tokenizer: expected to stop at tokenizer.json",
+        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
+        "onnx gitwrong: expected to stop at generation_config.json",
     ] {
         assert!(
             journey.contains(wanted),

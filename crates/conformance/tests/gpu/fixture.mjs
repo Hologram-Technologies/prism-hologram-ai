@@ -161,13 +161,17 @@ export function buildOnnxFixture() {
 
 // The hub's record for the ONNX fixture, with a whole-file SHA-256 for each
 // file (the graph's may be given wrong), and the index root that names it.
-export function onnxHubFiles(fixture, { resolve, sha256 = {} }) {
+const gitBlob = (bytes) => createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex");
+
+export function onnxHubFiles(fixture, { resolve, sha256 = {}, gitOnly = [], gitSha1 = {} }) {
   const record = Buffer.from(JSON.stringify({
     format: "hologram.hub.release/v4",
     repo: fixture.repo,
     revision: fixture.revision,
     origin: { kind: "fixture", resolve },
-    files: [...fixture.files].map(([path, bytes]) => ({ path, size: bytes.length, gitSha1: "0".repeat(40), sha256: sha256[path] ?? fixture.sha(bytes) })),
+    files: [...fixture.files].map(([path, bytes]) => gitOnly.includes(path)
+      ? { path, size: bytes.length, gitSha1: gitSha1[path] ?? gitBlob(bytes) }
+      : { path, size: bytes.length, gitSha1: "0".repeat(40), sha256: sha256[path] ?? fixture.sha(bytes) }),
     sources: [],
     witnesses: [],
   }));

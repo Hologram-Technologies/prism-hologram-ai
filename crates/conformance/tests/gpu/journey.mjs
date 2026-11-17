@@ -51,6 +51,10 @@ const onnxVariants = {
   cpu: { files: onnx.files, sha256: {}, noGpu: true },
   flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), sha256: { [onnx.path]: onnx.sha(onnx.files.get(onnx.path)) } },
   tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
+  // As the live hub's records are: the files Git holds itself named by their
+  // Git blob SHA-1 alone; and one of those naming another blob.
+  gitblob: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json"] },
+  gitwrong: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json"], gitSha1: { "generation_config.json": "a".repeat(40) } },
 };
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
@@ -78,7 +82,7 @@ const server = http.createServer(async (request, response) => {
   const onnxRoute = path.match(/^\/onnx\/(\w+)\/(.*)$/);
   if (onnxRoute && onnxVariants[onnxRoute[1]]) {
     const v = onnxVariants[onnxRoute[1]];
-    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, sha256: v.sha256 });
+    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, sha256: v.sha256, gitOnly: v.gitOnly, gitSha1: v.gitSha1 });
     const rest = onnxRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
     if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
@@ -290,7 +294,7 @@ if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expect
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
 // GP-19: the ONNX export.
-for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"]]) {
+for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"]]) {
   const run = results.onnx[name];
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
@@ -314,6 +318,11 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"]]) {
   const run2 = results.onnx.tokenizer;
   const stop = stoppedAt(run2);
   if (run2.phase !== "failed" || stop?.subject !== "tokenizer.json is the record's") fail(`onnx tokenizer: expected to stop at tokenizer.json, stopped at ${stop?.subject} (${run2.phase}: ${run2.error})`);
+  const blob = results.onnx.gitblob.checks.find((c) => c.subject === "config.json is the record's");
+  if (!/^\d+ bytes, git blob sha1 [0-9a-f]{40} \(the record gives no SHA-256\)$/.test(blob?.detail ?? "")) fail(`onnx gitblob: config.json was not checked by its Git blob SHA-1: ${blob?.detail}`);
+  const run3 = results.onnx.gitwrong;
+  const stop3 = stoppedAt(run3);
+  if (run3.phase !== "failed" || stop3?.subject !== "generation_config.json is the record's") fail(`onnx gitwrong: expected to stop at generation_config.json, stopped at ${stop3?.subject} (${run3.phase}: ${run3.error})`);
 }
 
 if (failures.length) {

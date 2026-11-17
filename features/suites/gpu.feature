@@ -150,3 +150,4 @@ Feature: gpu
     Then the page checks each small file against the record, imports the graph through the module asking the kernel, places every weight, reads the stop id from generation_config.json, reaches ready on WebGPU and on the CPU, and answers with the reference's first sixteen tokens
     And a graph with one byte flipped is refused by the kernel at the whole file, before any weight is placed
     And a record naming another SHA-256 for tokenizer.json stops the page at that file
+    And a record that names config.json and generation_config.json by their Git blob SHA-1 alone, as the live hub's do, loads, each checked by that hash, and one naming another blob stops the page at that file
