@@ -176,3 +176,10 @@ Feature: gpu
     When `just page-journey` opens the engine page with ?onnx= naming it, with WebGPU and with navigator.gpu taken away, and once more asking for ?precision=q4
     Then each load asks the kernel for the precision and is answered q4f16, asks it for the graph's file and reads the file it names, and asks it for the device and runs on the one it names: WebGPU, then the CPU
     And the load asking for q4 stops at the precision, the kernel answering none fits, with no file read
+
+  @GP-23 @build
+  Scenario: The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt
+    Given GP-19's Qwen3-shaped ONNX export, whose chat template opens every turn with the same system line
+    When `just page-journey` loads it on WebGPU and on the CPU and sends a first turn, then a second whose text opens with another letter
+    Then the first turn computes the whole prompt and asks nothing about reuse
+    And the second asks the kernel with the label of its own opening ids, which the journey derives again from those ids, is answered reuse, computes only the positions after the head, and gives the reference's tokens for the whole prompt

@@ -12,6 +12,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles } from "./fixture.mjs";
 import { referenceModel } from "./reference.mjs";
+import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
 
 const site = process.argv[2];
 const playwright = process.env.PRISM_PLAYWRIGHT ?? "/opt/prismpm/oracles/node_modules/playwright/index.mjs";
@@ -43,6 +44,16 @@ const variants = {
 // GP-19: an ONNX export read from its own files. A byte of the graph flipped
 // inside layer 1's query weight, so the file is not the one the record names;
 // and a record naming another SHA-256 for tokenizer.json.
+// GP-23: a second turn, with other text, after the first.
+async function secondTurn(page) {
+  await page.evaluate(() => { window.__qengine.stats = null; });
+  // Its first letter is not the first turn's, so no id past the head is shared.
+  await page.fill("#prompt", "yes");
+  await page.press("#prompt", "Enter");
+  await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
+  return page.evaluate(() => window.__qengine.output);
+}
+
 const onnx = buildOnnxFixture();
 const flippedGraph = Buffer.from(onnx.files.get(onnx.path));
 flippedGraph[Math.floor(flippedGraph.length * 0.6)] ^= 0x01;
@@ -166,6 +177,7 @@ try {
       await page.press("#prompt", "Enter");
       await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
       output = await page.evaluate(() => window.__qengine.output);
+      output.second = await secondTurn(page);
     }
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
     results.onnx[name] = { ...state, output, errors };
@@ -193,6 +205,7 @@ try {
         await page.press("#prompt", "Enter");
         await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
         output = await page.evaluate(() => window.__qengine.output);
+        output.second = await secondTurn(page);
       }
       const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
       const held = await page.evaluate(async () => {
@@ -296,6 +309,15 @@ for (const run of Object.values(results.onnx)) {
     run.expected.push(last.token);
     last = reference.step(last.token);
   }
+  // The second turn against a reference given its whole prompt.
+  if (!run.output.second) continue;
+  const again = referenceModel(onnx.model);
+  for (const id of run.output.second.promptIds) last = again.step(id);
+  run.expectedSecond = [];
+  while (run.expectedSecond.length < 16) {
+    run.expectedSecond.push(last.token);
+    last = again.step(last.token);
+  }
 }
 console.log(JSON.stringify(results));
 
@@ -371,6 +393,22 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
     if (got.length < 16 || got.some((t, i) => t !== run.expected[i])) fail(`onnx ${name}: the page's tokens ${got} are not the reference's ${run.expected}`);
   }
   if (run.errors.length) fail(`onnx ${name}: page errors: ${run.errors.join(" | ")}`);
+  // GP-23: the second turn reuses the head the kernel admits, and only that.
+  const first = run.output, second = run.output?.second;
+  if (first?.reuse) fail(`onnx ${name}: the first turn asked to reuse a prefix, with nothing computed before it`);
+  if (!second?.reuse) fail(`onnx ${name}: the second turn did not ask the kernel to reuse the head`);
+  else {
+    const { length, asked, held, verdict } = second.reuse;
+    const ids = Buffer.alloc(4 * length);
+    second.promptIds.slice(0, length).forEach((id, i) => ids.writeUInt32LE(id, 4 * i));
+    if (asked !== blake3Hex(ids)) fail(`onnx ${name}: the label asked is not the BLAKE3 of the prompt's first ${length} ids`);
+    if (verdict !== "reuse" || held !== asked || !(length > 0 && length < second.promptIds.length)) fail(`onnx ${name}: the second turn was not answered reuse of a head shorter than its prompt: ${verdict}, ${length} of ${second.promptIds.length}`);
+    if (second.computed !== second.promptIds.length - length) fail(`onnx ${name}: the second turn computed ${second.computed} prompt positions, not the ${second.promptIds.length - length} after the head`);
+    const reused = run.checks.filter((c) => c.step === "reuse");
+    if (reused.length !== 1 || reused[0].verdict !== "pass" || reused[0].detail !== 'kernel answered "reuse"') fail(`onnx ${name}: expected one passing reuse check, saw ${JSON.stringify(reused)}`);
+    const got = second.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== run.expectedSecond[i])) fail(`onnx ${name}: the second turn's tokens ${got} are not the reference's ${run.expectedSecond}`);
+  }
 }
 {
   const run = results.onnx.flip;
