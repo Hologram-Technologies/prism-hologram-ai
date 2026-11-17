@@ -380,6 +380,7 @@ dependencies = [
 name = "hologram-ai-wasm"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "hologram-ai-download",
  "hologram-ai-model-reader",
  "hologram-ai-tokenizer",
