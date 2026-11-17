@@ -501,3 +501,32 @@ Feature: engine
     Then every text gives the authority's ids, the unknown token among them more than 100 times
     And a model other than WordPiece, a normaliser other than BERT's or with a setting not a flag, a pre-tokeniser other than BERT's, a template other than one sentence between two special tokens of type 0, truncation from the left or with a stride, an added token normalised or stripping space, an unknown token not in the vocabulary, and a file that is not a JSON object are each refused by what they ask for
     And the byte-pair reader still refuses a WordPiece file, as EN-16 states
+
+  @EN-33 @build
+  Scenario: A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code
+    Given q4 matrices with f32 and with f16 scales and ternary matrices, of one to seven rows and one to eight scale groups, with weights decoded independently from each layout's definition
+    And inputs that are ordinary, one spike among small values, near 1e-30, near 1e30, and all zero
+    When each is taken by hologram-ai-exact natively and by the exact_q4, exact_q4f16 and exact_ternary calls of the module the page loads
+    Then every input code lies within 127 and within half a step of its input, at the largest step the limit allows
+    And every group sum equals the same sum of the codes times the weights written out in i64
+    And every output's bits are those of the group sums times their scales added in f64 in group order, scaled back and rounded once to f32
+    And every output lies within the inputs' half steps through their weights and scales of the float product
+    And the module answers every case with the crate's bytes, and refuses a misaligned row as GroupMisaligned
+
+  @FL-49 @build
+  Scenario: An input to an exact product is not a finite number
+    Given an input of 32 values with one NaN, infinity or negative infinity among them
+    When it is quantised, or a q4 product of it is asked for
+    Then each returns ExactError::InputNotFinite
+
+  @FL-50 @build
+  Scenario: An exact product's row length is not a whole number of scale groups
+    Given a q4 row of 48 weights and a ternary row of 64
+    When their group sums are asked for
+    Then each returns ExactError::GroupMisaligned
+
+  @FL-51 @build
+  Scenario: A buffer handed to an exact product is not the length its shape implies
+    Given q4 codes one byte short, a missing scale, an input one value short, a ternary plane one byte short, and requests to the module too short for their counts or with counts that overflow
+    When each product is asked for
+    Then each returns ExactError::LengthMismatch

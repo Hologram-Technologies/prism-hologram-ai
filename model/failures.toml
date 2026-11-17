@@ -415,3 +415,27 @@ type = "ImportError"
 variant = "DataMissing"
 suite = "engine"
 condition = "A tensor's data lies in a file the import is not given, or past the end of the one it is"
+
+[[failure]]
+id = "FL-49"
+crate = "exact"
+type = "ExactError"
+variant = "InputNotFinite"
+suite = "engine"
+condition = "An input to an exact product is not a finite number"
+
+[[failure]]
+id = "FL-50"
+crate = "exact"
+type = "ExactError"
+variant = "GroupMisaligned"
+suite = "engine"
+condition = "An exact product's row length is not a whole number of scale groups"
+
+[[failure]]
+id = "FL-51"
+crate = "exact"
+type = "ExactError"
+variant = "LengthMismatch"
+suite = "engine"
+condition = "A buffer handed to an exact product is not the length its shape implies"

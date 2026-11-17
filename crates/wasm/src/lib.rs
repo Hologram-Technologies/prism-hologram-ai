@@ -48,6 +48,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
+use hologram_ai_exact::{request_product, Layout};
 use hologram_ai_model_reader::holk::Container;
 use hologram_ai_tokenizer::Tokeniser;
 
@@ -269,6 +270,33 @@ pub extern "C" fn download_block() -> u32 {
         state.arriving = Some(Arriving::new());
         Ok(Vec::new())
     })
+}
+
+/// A q4 matrix with `f32` scales times a vector, every group sum exact.
+///
+/// The buffer is the row count and the column count, four bytes each, least
+/// significant first; the input, one little-endian `f32` per column; then the
+/// tensor's bytes as the engine stores them: the codes, then the scales. The
+/// answer is one little-endian `f32` per row, the same bits on every machine.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn exact_q4(at: u32, len: u32) -> u32 {
+    exact_product(at, len, Layout::Q4F32)
+}
+
+/// As [`exact_q4`], with the scales stored as IEEE halves.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn exact_q4f16(at: u32, len: u32) -> u32 {
+    exact_product(at, len, Layout::Q4F16)
+}
+
+/// As [`exact_q4`], for a ternary tensor: its sign plane, its nonzero plane,
+/// then its `f32` scales.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn exact_ternary(at: u32, len: u32) -> u32 {
+    exact_product(at, len, Layout::Ternary)
 }
 
 /// Take the next bytes of the download as they arrive, into both hashes.
@@ -500,6 +528,23 @@ fn read_tokeniser(at: u32, len: u32, gguf: bool) -> u32 {
             Ok(tokeniser) => {
                 state.tokeniser = Some(tokeniser);
                 state.result.clear();
+                OK
+            }
+            Err(why) => failed(state, &format!("{why:?}")),
+        }
+    })
+}
+
+/// Take an exact product and keep its answer.
+fn exact_product(at: u32, len: u32, layout: Layout) -> u32 {
+    STATE.with_borrow_mut(|state| {
+        let bytes = match taken(state, at, len) {
+            Ok(bytes) => bytes,
+            Err(why) => return failed(state, &format!("{why:?}")),
+        };
+        match request_product(&bytes, layout) {
+            Ok(rows) => {
+                state.result = rows.iter().flat_map(|row| row.to_le_bytes()).collect();
                 OK
             }
             Err(why) => failed(state, &format!("{why:?}")),

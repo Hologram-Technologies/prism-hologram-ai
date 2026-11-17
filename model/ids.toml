@@ -513,3 +513,9 @@ id = "EN-32"
 level = "build"
 suite = "engine"
 statement = "A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for"
+
+[[id]]
+id = "EN-33"
+level = "build"
+suite = "engine"
+statement = "A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code"

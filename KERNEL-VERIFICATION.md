@@ -825,7 +825,7 @@ bytes, whichever function made it.
 | a pinned block is evicted | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Evict (error): omega could not prove the goal` |
 | a precision exactly the budget's size does not fit | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Precision (error): omega could not prove the goal` |
 | none | `verified 58 modules`, with every proof module's axiom policy exact |
-| an exact sum is accepted with one bit more than the accumulator holds (decision 29) | Lean rejects it: `error[LLV7002]: Lean rejected HologramAi.Proofs.Exact (error): omega could not prove the goal`. **`lexlean verify` still exits 0**, so the recipe's `set -e` does not stop on it; found on 2026-11-16 with the pinned SDK image |
+| an exact sum is accepted with one bit more than the accumulator holds (decision 29) | Lean rejects it: `error[LLV7002]: Lean rejected HologramAi.Proofs.Exact (error): omega could not prove the goal`. **`lexlean verify` still exits 0**, so the recipe's `set -e` does not stop on that step; the gate still stops, because `prismpm verify` must then print an attestation for `test -s` to pass. Reported as UOR-Foundation/lexlean#562 and UOR-Foundation/prismpm#714 |
 | none, with decisions 29 to 33 | `verified 68 modules`, zero errors |
 
 The other nine modules' proofs were each checked by the Lean kernel as they
