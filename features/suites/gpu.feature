@@ -134,3 +134,11 @@ Feature: gpu
     Then all-MiniLM-L6-v2 has 101 tensors placed, 36 of them q4f16, and DistilBERT 104 with its classifier head and its labels NEGATIVE and POSITIVE
     And an activation other than exact GELU, an unknown family, a missing bias, a head Gemm not transposed, a config with three labels, an operator no role takes and a feed-forward width the shapes contradict are each refused, naming what is wrong
     And GP-13's and GP-14's encoders, written as these exports name their nodes and placed from their graphs alone, give the reference's embedding within 1e-4 and its labels
+
+  @GP-18 @build
+  Scenario: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
+    Given GP-05's q4 model, GP-10's Qwen2.5-shaped and GP-11's Llama-shaped models, and the same with Qwen3's shape: no biases and a norm on each query and key head
+    When site/app/engine/cpu.mjs runs each in headless Chromium launched with its GPU disabled, where no WebGPU adapter is offered, beside the double-precision reference
+    Then at each of sixteen steps the engine picks the reference's token and every logit is within 1e-5, and over 140 positions every logit is within 1e-5
+    And a 40-token prompt run with run() picks the same 12 tokens as stepping it one position at a time
+    And a prefix kept, overwritten by 50 other tokens and restored continues with the tokens of running the whole prompt

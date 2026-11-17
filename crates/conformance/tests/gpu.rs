@@ -979,3 +979,78 @@ fn gpu_gp_17() {
         }
     }
 }
+
+/// The largest difference allowed between the CPU engine's logits and the
+/// reference's. Both sum in double precision; the engine keeps activations as
+/// single precision between steps, as the GPU does. Measured at most 7.3e-7.
+const CPU_TOLERANCE: f64 = 1e-5;
+
+/// `GP-18`: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
+#[test]
+fn gpu_gp_18() {
+    let result = node("crates/conformance/tests/gpu/cpu-run.mjs", &[]);
+    // An adapter offered is a failure, not a skip: the claim is about the
+    // engine with WebGPU off.
+    assert!(
+        result.get("error").is_none(),
+        "the CPU engine did not run: {}",
+        result["error"]
+    );
+    assert!(
+        matches!(
+            result["webgpu"].as_str(),
+            Some("no adapter" | "no navigator.gpu")
+        ),
+        "WebGPU was not off: {}",
+        result["webgpu"]
+    );
+    for key in ["q4", "qwen25", "llama", "qwen3"] {
+        let model = &result[key];
+        assert!(model.is_object(), "no {key} run: {result}");
+        let steps = model["steps"].as_array().expect("the steps");
+        assert_eq!(
+            steps.len(),
+            16,
+            "{key}: six prompt tokens and ten generated"
+        );
+        for (i, step) in steps.iter().enumerate() {
+            let worst = step["worst"].as_f64().expect("worst");
+            assert!(
+                worst <= CPU_TOLERANCE,
+                "{key}: step {i}: a logit differs by {worst}"
+            );
+            let margin = step["margin"].as_f64().expect("margin");
+            assert!(
+                margin > 2.0 * CPU_TOLERANCE,
+                "{key}: step {i}: a near tie ({margin})"
+            );
+            assert_eq!(
+                step["gpu"], step["reference"],
+                "{key}: step {i}: another token"
+            );
+        }
+        assert_eq!(
+            model["longPositions"].as_u64(),
+            Some(140),
+            "{key}: 140 positions"
+        );
+        let long = model["longWorst"].as_f64().expect("longWorst");
+        assert!(
+            long <= CPU_TOLERANCE,
+            "{key}: over 140 positions a logit differs by {long}"
+        );
+        assert_eq!(
+            model["together"].as_array().map(Vec::len),
+            Some(12),
+            "{key}: twelve tokens"
+        );
+        assert_eq!(
+            model["together"], model["stepwise"],
+            "{key}: run() picked other tokens"
+        );
+        assert_eq!(
+            model["resumed"], model["straight"],
+            "{key}: the restored prefix continued differently"
+        );
+    }
+}
