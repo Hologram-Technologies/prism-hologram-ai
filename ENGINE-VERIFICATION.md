@@ -1849,3 +1849,65 @@ suite builds its own.
 Decoding WordPiece ids back to text, a pair of sentences, and padding are
 not built: the encoders read one sentence and give a vector or a label. The
 tokeniser is not yet reachable from the wasm module or the page.
+
+## EN-33, exact q4 and ternary products
+
+`hologram-ai-exact` scales the input by one power of two onto `i8`, decodes
+each group of weights to the integers its layout stores, and takes each
+group's sum with `uor-matmul`'s `dot_ref`. Only the recombination, each sum
+times its scale added in `f64` in stored order and rounded once to `f32`, is
+floating point, so the output has the same bits natively and in the page's
+module.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_33 engine_fl_49 engine_fl_50 engine_fl_51`
+
+Run on 2026-11-17 in the pinned SDK image. Each defect was planted alone, the
+four tests run, the file restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| q4 nibbles read high first | `engine_en_33`: the group sums differ |
+| q4 code 0 decodes to +8 | `engine_en_33`: the group sums differ |
+| Ternary sign inverted | `engine_en_33`: the group sums differ |
+| Groups added in reverse order | `engine_en_33`: `-20 is not the stated 0` |
+| The total rounded to `f32` before the rescale | `engine_en_33`: `inf is not the stated 2.8e32` |
+| Input ties rounded away from zero | `engine_en_33`: not rounded to the nearest code, ties to even |
+| The exponent never steps down | `engine_en_33`: the step is too small |
+| A non-finite input admitted | `engine_fl_49` |
+| The q4 group check dropped | `engine_fl_50`, and `engine_en_33` through the module |
+| The q4 scale length unchecked | `engine_fl_51` (the crate indexes past its scales) |
+| The ternary group check dropped | `engine_fl_50` |
+| The module reads f16 scales as f32 | `engine_en_33`: the module's bytes differ from the crate's |
+| Subnormal half scales halved | `engine_en_33`: `-0.00134 is not the stated -0.00268` |
+| none, before and after | passed |
+
+A first round missed six of these, and the code or cases changed rather than
+the record. Four needed cases the generator never drew: inputs exactly
+halfway between codes, subnormal half scales, groups whose order decides the
+answer, and a total beyond `f32` that the rescale brings back. Two were code
+no input can reach: a loop that raised the exponent (the float's own exponent
+already puts the largest input in [64, 128)) and request-level group checks
+that repeat the group sums' own. Both were deleted.
+
+### Run over a real model
+
+A measurement, not part of the suite. Bonsai 1.7B at
+`HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256 `acf0b5ad…`), every
+ternary matrix, one synthetic input each (roughly normal, 0.2% of values at
+40 times):
+
+| Matrices | Weights | Group sums checked | Wrong | Rows past bound | Worst error, of bound | Relative error (L2) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.092 | 9.9% |
+
+Native throughput was 513 M weights a second on 12 threads' machine (one
+thread used). The module gave identical bytes for the 151,669 by 2,048 head,
+in 1.46 s.
+
+### What EN-33 does not establish
+
+The 9.9% error is the input's rounding onto eight bits with one scale for the
+whole vector: an outlier sets the step, and ordinary values round to a few
+codes. Exact is not accurate; a finer input scale per group is the next
+measurement. Softmax, normalisation and rotary encoding remain floating point,
+and nothing on the page calls the module yet.
