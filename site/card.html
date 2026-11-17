@@ -1936,6 +1936,42 @@
       "asks": "Is this claimed sum of one 32-wide block exact?",
       "fields": [
         {
+          "at": 1,
+          "name": "Weight codes 1 to 16, two to a byte, low half first",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Weight codes 17 to 32",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Activations 1 to 8, one signed byte each",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Activations 9 to 16",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "Activations 17 to 24",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 41,
+          "name": "Activations 25 to 32",
+          "value": 0,
+          "width": 8
+        },
+        {
           "at": 49,
           "name": "Claimed sum plus 32768",
           "value": 32768,

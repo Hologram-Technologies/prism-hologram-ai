@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-three decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32) and whether a prefix computed elsewhere may be reused (33). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-four decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33) and whether one block's claimed sum of products is exact (34). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -19,6 +19,7 @@
       "download",
       "enough",
       "evict",
+      "exact",
       "first maximum",
       "fp16",
       "generating",
@@ -48,6 +49,7 @@
       "cannot run",
       "context exceeded",
       "context full",
+      "differs",
       "does not fit",
       "dropped exceeds total",
       "drops too many",
@@ -188,7 +190,16 @@
     {"name": "probe_exact_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 2) ↔ (((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ (((component + 1) <= components) ∧ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)))))"},
     {"name": "probe_approximate_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 1) ↔ (((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ (((component + 1) <= components) ∧ ((Kernel.Determinism::comparable classOfRun sameAdapter) = false)))))"},
     {"name": "probe_out_of_range_decides", "module": "Probe", "statement": "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 0) ↔ ((((layer + 1) <= layers) ∧ (((position + 1) <= positions) ∧ ((component + 1) <= components))) → (1 = 0)))"},
-    {"name": "shareable_decides", "module": "Share", "statement": "(((Kernel.Share::shareable asked held heldLength promptLength origin classOfRun sameAdapter) = true) ↔ (((Kernel.Reuse::reusable asked held heldLength promptLength) = true) ∧ (((origin = 0) → (1 = 0)) → ((Kernel.Determinism::comparable classOfRun sameAdapter) = true))))"}
+    {"name": "shareable_decides", "module": "Share", "statement": "(((Kernel.Share::shareable asked held heldLength promptLength origin classOfRun sameAdapter) = true) ↔ (((Kernel.Reuse::reusable asked held heldLength promptLength) = true) ∧ (((origin = 0) → (1 = 0)) → ((Kernel.Determinism::comparable classOfRun sameAdapter) = true))))"},
+    {"name": "agrees_when_both_positive", "module": "Block", "statement": "((8 <= code) → ((byte < 128) → ((Kernel.Block::signsAgree code byte) = true)))"},
+    {"name": "agrees_when_both_negative", "module": "Block", "statement": "((code < 8) → ((128 <= byte) → ((Kernel.Block::signsAgree code byte) = true)))"},
+    {"name": "differs_when_weight_positive", "module": "Block", "statement": "((8 <= code) → ((128 <= byte) → ((Kernel.Block::signsAgree code byte) = false)))"},
+    {"name": "differs_when_weight_negative", "module": "Block", "statement": "((code < 8) → ((byte < 128) → ((Kernel.Block::signsAgree code byte) = false)))"},
+    {"name": "weight_size_about_eight", "module": "Block", "statement": "(((8 <= code) → (((Kernel.Block::weightSize code) + 8) = code)) ∧ ((code < 8) → (((Kernel.Block::weightSize code) + code) = 8)))"},
+    {"name": "activation_size_about_zero", "module": "Block", "statement": "(((byte < 128) → ((Kernel.Block::activationSize byte) = byte)) ∧ (((128 <= byte) ∧ (byte <= 256)) → (((Kernel.Block::activationSize byte) + byte) = 256)))"},
+    {"name": "accepts_decides", "module": "Block", "statement": "(((Kernel.Block::accepts claimed positive negative) = true) ↔ ((claimed + negative) = (positive + 32768)))"},
+    {"name": "accepts_one_claim", "module": "Block", "statement": "(((Kernel.Block::accepts one positive negative) = true) → (((Kernel.Block::accepts other positive negative) = true) → (one = other)))"},
+    {"name": "parts_cover_every_product", "module": "Block", "statement": "(((Kernel.Block::positiveFrom weights activations remaining) + (Kernel.Block::negativeFrom weights activations remaining)) = (totalFrom weights activations remaining))"}
   ],
   "pinned": [
     {
@@ -324,6 +335,11 @@
     {
       "name": "kernel_kn_33",
       "what": "The theorem's statement and axioms, decision 27's offsets and the three after them, and that decision 33 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_34",
+      "what": "The theorems' statements and axioms, the block's offsets and every definition the answer reads, and that decision 34 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

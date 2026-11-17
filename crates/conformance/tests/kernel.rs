@@ -2625,18 +2625,18 @@ fn kernel_kn_34() {
     assert_pinned(
         &proofs,
         "parts_cover_every_product",
-        "(((Kernel.Block::positiveFrom value remaining) + (Kernel.Block::negativeFrom value remaining)) = (totalFrom value remaining))",
+        "(((Kernel.Block::positiveFrom weights activations remaining) + (Kernel.Block::negativeFrom weights activations remaining)) = (totalFrom weights activations remaining))",
         "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "byteFromEnd");
+    assert!(
+        found.contains("body: (match index\n    | Nat.zero => (prim remainder word 256 0 : Nat)\n    | Nat.succ rest => (byteFromEnd (prim quotient word 256 0 : Nat) rest))"),
+        "byteFromEnd changed:\n{found}"
     );
     let found = declaration(&kernel, "weightCode");
     assert!(
-        found.contains("body: (prim remainder (prim quotient (Kernel.Wire::fieldAt value (1 + (prim quotient place 2 0 : Nat)) 1) (if ((prim remainder place 2 0 : Nat) =? 0) then 1 else 16) 0 : Nat) 16 0 : Nat)"),
+        found.contains("body: (if ((prim remainder index 2 0 : Nat) =? 1) then (prim remainder (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat) else (prim quotient (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat))"),
         "weightCode changed:\n{found}"
-    );
-    let found = declaration(&kernel, "activationByte");
-    assert!(
-        found.contains("body: (Kernel.Wire::fieldAt value (17 + place) 1)"),
-        "activationByte changed:\n{found}"
     );
     let found = declaration(&kernel, "weightSize");
     assert!(
@@ -2661,13 +2661,18 @@ fn kernel_kn_34() {
     );
     let found = declaration(&kernel, "positiveFrom");
     assert!(
-        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode value rest) (activationByte value rest)) then (term (weightCode value rest) (activationByte value rest)) else 0) + (positiveFrom value rest)))"),
+        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode weights rest) (byteFromEnd activations rest)) then (term (weightCode weights rest) (byteFromEnd activations rest)) else 0) + (positiveFrom weights activations rest)))"),
         "positiveFrom changed:\n{found}"
     );
     let found = declaration(&kernel, "negativeFrom");
     assert!(
-        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode value rest) (activationByte value rest)) then 0 else (term (weightCode value rest) (activationByte value rest))) + (negativeFrom value rest)))"),
+        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode weights rest) (byteFromEnd activations rest)) then 0 else (term (weightCode weights rest) (byteFromEnd activations rest))) + (negativeFrom weights activations rest)))"),
         "negativeFrom changed:\n{found}"
+    );
+    let found = declaration(&kernel, "halfActivations");
+    assert!(
+        found.contains("body: ((prim multiply high 18446744073709551616 : Nat) + low)"),
+        "halfActivations changed:\n{found}"
     );
     let found = declaration(&kernel, "accepts");
     assert!(
@@ -2676,7 +2681,7 @@ fn kernel_kn_34() {
     );
     let found = declaration(&kernel, "blockCheckAnswer");
     assert!(
-        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) (positiveFrom value 32) (negativeFrom value 32)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) ((positiveFrom (Kernel.Wire::fieldAt value 1 8) (halfActivations (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8)) 16) + (positiveFrom (Kernel.Wire::fieldAt value 9 8) (halfActivations (Kernel.Wire::fieldAt value 33 8) (Kernel.Wire::fieldAt value 41 8)) 16)) ((negativeFrom (Kernel.Wire::fieldAt value 1 8) (halfActivations (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8)) 16) + (negativeFrom (Kernel.Wire::fieldAt value 9 8) (halfActivations (Kernel.Wire::fieldAt value 33 8) (Kernel.Wire::fieldAt value 41 8)) 16))) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "blockCheckAnswer changed:\n{found}"
     );
     assert_routed(34, "Kernel.Block::blockCheckAnswer");
