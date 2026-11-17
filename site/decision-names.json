@@ -1265,6 +1265,50 @@
           "value": 32768
         }
       }
+    },
+    "35": {
+      "name": "Address axis",
+      "asks": "Is this label a BLAKE3 address?",
+      "fields": {
+        "1": {
+          "name": "The label's first seven bytes",
+          "value": 27703713387066170
+        }
+      }
+    },
+    "36": {
+      "name": "Integer run",
+      "asks": "May this run start, with no floating point in it?",
+      "fields": {
+        "1": {
+          "name": "Products exact",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Other stages exact",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        }
+      }
     }
   }
 }

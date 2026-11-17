@@ -1937,6 +1937,62 @@
       "module": "Block",
       "name": "Block check",
       "tag": 34
+    },
+    {
+      "asks": "Is this label a BLAKE3 address?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The label's first seven bytes",
+          "value": 27703713387066170,
+          "width": 7
+        }
+      ],
+      "length": 8,
+      "module": "Address",
+      "name": "Address axis",
+      "tag": 35
+    },
+    {
+      "asks": "May this run start, with no floating point in it?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Products exact",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Other stages exact",
+          "value": 1,
+          "width": 1
+        }
+      ],
+      "length": 3,
+      "module": "Integer",
+      "name": "Integer run",
+      "tag": 36
     }
   ],
   "request": 81

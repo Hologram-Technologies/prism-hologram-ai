@@ -121,6 +121,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-32` | `build` | A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range |
 | `KN-33` | `build` | A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable |
 | `KN-34` | `build` | One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise |
+| `KN-35` | `build` | A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3 |
+| `KN-36` | `build` | A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions |
 
 ## Public failures
 
