@@ -6,6 +6,7 @@
 // Nothing is repacked. The decisions are the kernel's; this module moves
 // bytes and keeps the checks a reader sees.
 
+import { compileTemplate } from "./jinja.mjs";
 import { confirmRope, engineTensors, ropeCandidates, roles } from "./onnx-roles.mjs";
 
 const text = new TextDecoder();
@@ -85,6 +86,19 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   const config = JSON.parse(text.decode(await small("config.json")));
   const generation = await small("generation_config.json", true);
   m.callWith("tokeniser_read", await small("tokenizer.json"));
+  // The chat template is the model's own, from tokenizer_config.json, with the
+  // special tokens it names; a list of templates gives the one named default.
+  const tokenizerConfig = await small("tokenizer_config.json", true);
+  let chat = null;
+  if (tokenizerConfig) {
+    const tc = JSON.parse(text.decode(tokenizerConfig));
+    const source = Array.isArray(tc.chat_template) ? tc.chat_template.find((t) => t.name === "default")?.template : tc.chat_template;
+    if (typeof source === "string") {
+      const specials = Object.fromEntries(["bos_token", "eos_token", "pad_token", "unk_token"].filter((k) => typeof tc[k] === "string").map((k) => [k, tc[k]]));
+      chat = { render: compileTemplate(source), specials };
+    }
+  }
+  checks.add("template", "the chat template is the model's own", chat ? "pass" : "not checked", chat ? `from tokenizer_config.json, ${Object.keys(chat.specials).join(", ") || "no special tokens"}` : "the model's files carry none");
 
   // Every question the importer asks goes to the kernel, counted.
   let asked = 0;
@@ -169,5 +183,5 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   const named = (generation ? JSON.parse(text.decode(generation)).eos_token_id : null) ?? config.eos_token_id;
   const stops = new Set([named].flat().filter((id) => Number.isInteger(id)));
   checks.add("stop", "the ids the model stops on", stops.size ? "pass" : "not checked", stops.size ? [...stops].join(", ") : "the model's files name none");
-  return { engine, dims: { ...dims, ...rope }, stops, table, asked };
+  return { engine, dims: { ...dims, ...rope }, stops, table, asked, chat };
 }

@@ -1108,3 +1108,57 @@ fn gpu_gp_19() {
         );
     }
 }
+
+/// `GP-20`: The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name
+#[test]
+fn gpu_gp_20() {
+    let result = node("crates/conformance/tests/gpu/templates.mjs", &[]);
+    for model in [
+        "Qwen2.5-1.5B-Instruct",
+        "Qwen3-0.6B-ONNX",
+        "Llama-3.2-1B-Instruct-ONNX",
+        // Written to reach what the exports' templates do not: tags with no
+        // dash under lstrip_blocks and trim_blocks, a tag opting out with a
+        // plus, a trailing newline, nested loops.
+        "synthetic whitespace",
+    ] {
+        let r = &result["results"][model];
+        assert_eq!(
+            r["cases"].as_u64(),
+            Some(20),
+            "{model}: twenty conversations"
+        );
+        let differing = r["differing"].as_array().expect("the differing cases");
+        assert!(
+            differing.is_empty(),
+            "{model}: rendered other text than jinja2: {differing:?}"
+        );
+    }
+    for (case, start) in [
+        ("macro", "template: {% macro %} is not one"),
+        ("include", "template: {% include %} is not one"),
+        ("filter", "template: the filter upper is not one"),
+        ("method", "template: the string method title is not one"),
+        ("test", "template: the test odd is not one"),
+        ("unclosed", "template: a template that ends before"),
+        ("raise", "no tools here"),
+    ] {
+        let got = result["refusals"][case].as_str().unwrap_or_default();
+        assert!(got.starts_with(start), "{case}: {got:?}, not {start:?}");
+    }
+    // The page frames an ONNX export's turn with the model's own template.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let loader = read("site/app/engine/onnx-load.mjs");
+    assert!(
+        loader.contains("await small(\"tokenizer_config.json\", true)"),
+        "the template is not read from the model's files"
+    );
+    assert!(
+        loader.contains("render: compileTemplate(source)"),
+        "the template is not compiled"
+    );
+    let page = read("site/app/app.mjs");
+    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
+}
