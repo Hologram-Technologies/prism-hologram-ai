@@ -57,8 +57,8 @@ theorem{
 
 theorem{
   name: accepts_one_claim,
-  parameters: [first : Nat, second : Nat, positive : Nat, negative : Nat],
-  statement: (((Kernel.Block::accepts first positive negative) = true) -> (((Kernel.Block::accepts second positive negative) = true) -> (first = second))),
+  parameters: [one : Nat, other : Nat, positive : Nat, negative : Nat],
+  statement: (((Kernel.Block::accepts one positive negative) = true) -> (((Kernel.Block::accepts other positive negative) = true) -> (one = other))),
   proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
