@@ -183,3 +183,11 @@ Feature: gpu
     When `just page-journey` loads it on WebGPU and on the CPU and sends a first turn, then a second whose text opens with another letter
     Then the first turn computes the whole prompt and asks nothing about reuse
     And the second asks the kernel with the label of its own opening ids, which the journey derives again from those ids, is answered reuse, computes only the positions after the head, and gives the reference's tokens for the whole prompt
+
+  @GP-24 @build
+  Scenario: When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download
+    Given a browser profile holding one 300,000-byte file kept for another model, named by its BLAKE3, and a browser reporting no free storage
+    When `just page-journey` opens the engine page with ?onnx= naming GP-19's export
+    Then the kernel answers evict for the other model's file and enough after it, and the first file downloaded is kept
+    And for every later file the kernel answers keep for the pinned file and does not fit, and the file is not kept
+    And the page answers with the reference's tokens
