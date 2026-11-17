@@ -70,17 +70,17 @@ theorem{
   proof: induction{
     branches: [
       {
-        proof: simplify{definitions: [Kernel.Block::positiveFrom, Kernel.Block::negativeFrom, totalFrom]},
+        proof: simplify{definitions: [Kernel.Block::negativeFrom, Kernel.Block::positiveFrom, totalFrom]},
         binders: [],
         constructor: zero
       },
       {
         proof: simplify{
           definitions: [
-            Kernel.Block::positiveFrom,
             Kernel.Block::negativeFrom,
-            totalFrom,
-            hypothesis
+            Kernel.Block::positiveFrom,
+            hypothesis,
+            totalFrom
           ]
         },
         binders: [rest, hypothesis],
