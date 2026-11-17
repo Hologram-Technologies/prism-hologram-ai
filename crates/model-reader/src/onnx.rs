@@ -390,6 +390,14 @@ pub struct Imported {
 }
 
 impl Imported {
+    /// The graph's nodes in file order: each one's name, operator, the
+    /// values it reads and its attributes. What a weight is to a model is
+    /// read from the node that reads it.
+    #[must_use]
+    pub fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
     /// The data files the graph's tensors lie in, by name, in the order the
     /// graph first names them.
     #[must_use]

@@ -501,3 +501,18 @@ Feature: engine
     Then every text gives the authority's ids, the unknown token among them more than 100 times
     And a model other than WordPiece, a normaliser other than BERT's or with a setting not a flag, a pre-tokeniser other than BERT's, a template other than one sentence between two special tokens of type 0, truncation from the left or with a stride, an added token normalised or stripping space, an unknown token not in the vocabulary, and a file that is not a JSON object are each refused by what they ask for
     And the byte-pair reader still refuses a WordPiece file, as EN-16 states
+
+  @EN-33 @build
+  Scenario: An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes
+    Given EN-31's model, a 4-bit projection and a multiply named as an export names them, its codes and scales in the graph and two tensors in a data file beside it, and a kernel that answers as the kernel does
+    When the page's module imports it through onnx_start, onnx_take, onnx_graph_finish, onnx_data_start, onnx_data_take, onnx_data_finish and onnx_finish, in pieces of 7 bytes, 4096 and the whole graph, asking the kernel through its one import
+    Then every call says yes, the graph names its data file, and the kernel is asked exactly the questions, in the order, that the importer asks natively
+    And the model comes back as JSON with its nodes in file order, each with its name, its operator, its inputs that are tensors of the model (others null) and its attributes
+    And every tensor's type and shape, and its file, offset and length, where exactly its bytes lie, named by the BLAKE3 of those bytes
+
+  @FL-49 @build
+  Scenario: The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure
+    Given EN-31's model and a kernel that answers every span "outside the file"
+    When the page's module imports it
+    Then onnx_take says no at the first inline tensor and leaves Import(SpanRefused(TensorAt(0), ...)), the importer's own failure, where the page reads answers
+    And onnx_finish with nothing imported says no with NothingRead

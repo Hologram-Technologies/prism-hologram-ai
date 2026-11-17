@@ -26,6 +26,7 @@ pub const RECORD_LIMIT: u64 = 16 << 20;
 /// `StringStringEntryProto`, from `onnx.proto`.
 mod number {
     pub(super) const NODE_INPUT: u64 = 1;
+    pub(super) const NODE_NAME: u64 = 3;
     pub(super) const NODE_OUTPUT: u64 = 2;
     pub(super) const NODE_ATTRIBUTE: u64 = 5;
     pub(super) const ATTRIBUTE_NAME: u64 = 1;
@@ -47,6 +48,10 @@ mod number {
 /// One node of the graph.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
+    /// The node's own name, such as `/model/layers.0/attn/q_proj/MatMul_Q4`.
+    /// An export names a weight by the node that reads it far more plainly
+    /// than by the weight's own name, which may be `onnx::MatMul_9333`.
+    pub name: String,
     /// Its operator's name, such as `MatMul`.
     pub op_type: String,
     /// The domain the operator belongs to; empty for the ONNX operators.
@@ -552,6 +557,7 @@ fn entry(record: &[u8]) -> Result<(String, String), OnnxError> {
 
 fn node(record: &[u8]) -> Result<Node, OnnxError> {
     let mut out = Node {
+        name: String::new(),
         op_type: String::new(),
         domain: String::new(),
         inputs: Vec::new(),
@@ -562,6 +568,7 @@ fn node(record: &[u8]) -> Result<Node, OnnxError> {
     let mut reader = Reader::new(record);
     while reader.more() {
         match reader.field()? {
+            (number::NODE_NAME, Encoding::Bytes) => out.name = text(reader.delimited()?)?,
             (number::NODE_INPUT, Encoding::Bytes) => out.inputs.push(text(reader.delimited()?)?),
             (number::NODE_OUTPUT, Encoding::Bytes) => out.outputs.push(text(reader.delimited()?)?),
             (field::NODE_OP_TYPE, Encoding::Bytes) => out.op_type = text(reader.delimited()?)?,

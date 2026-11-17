@@ -56,6 +56,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-30` | `build` | Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict |
 | `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives |
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
+| `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
 
 ## gpu
 
@@ -173,6 +174,7 @@ not that the test provokes the failure.
 | `FL-46` | `model-reader` | `ImportError::OperatorRefused` | The kernel refuses an operator the graph names |
 | `FL-47` | `model-reader` | `ImportError::WeightRefused` | A 4-bit weight's codes or scales are not the length the kernel gives for its shape |
 | `FL-48` | `model-reader` | `ImportError::DataMissing` | A tensor's data lies in a file the import is not given, or past the end of the one it is |
+| `FL-49` | `wasm` | `CallError::Import` | The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure |
 
 ## Cited authorities
 

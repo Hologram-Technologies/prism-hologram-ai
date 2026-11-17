@@ -383,6 +383,7 @@ dependencies = [
  "hologram-ai-download",
  "hologram-ai-model-reader",
  "hologram-ai-tokenizer",
+ "serde_json",
 ]
 
 [[package]]
