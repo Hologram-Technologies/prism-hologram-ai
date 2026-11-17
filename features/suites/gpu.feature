@@ -142,3 +142,11 @@ Feature: gpu
     Then at each of sixteen steps the engine picks the reference's token and every logit is within 1e-5, and over 140 positions every logit is within 1e-5
     And a 40-token prompt run with run() picks the same 12 tokens as stepping it one position at a time
     And a prefix kept, overwritten by 50 other tokens and restored continues with the tokens of running the whole prompt
+
+  @GP-19 @build
+  Scenario: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
+    Given a Qwen3-shaped model written as onnx-community's fused q4f16 export writes one, with its config.json, generation_config.json and a byte-level tokenizer.json, and a hub record and index root naming each file by its SHA-256
+    When `just page-journey` opens the engine page with ?onnx= naming it, as `vv` does after `app` and `engine`, once with WebGPU and once with navigator.gpu taken away
+    Then the page checks each small file against the record, imports the graph through the module asking the kernel, places every weight, reads the stop id from generation_config.json, reaches ready on WebGPU and on the CPU, and answers with the reference's first sixteen tokens
+    And a graph with one byte flipped is refused by the kernel at the whole file, before any weight is placed
+    And a record naming another SHA-256 for tokenizer.json stops the page at that file

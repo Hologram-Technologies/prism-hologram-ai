@@ -10,7 +10,7 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { buildFixture, hubFiles } from "./fixture.mjs";
+import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles } from "./fixture.mjs";
 import { referenceModel } from "./reference.mjs";
 
 const site = process.argv[2];
@@ -40,6 +40,19 @@ const variants = {
   stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true },
 };
 
+// GP-19: an ONNX export read from its own files. A byte of the graph flipped
+// inside layer 1's query weight, so the file is not the one the record names;
+// and a record naming another SHA-256 for tokenizer.json.
+const onnx = buildOnnxFixture();
+const flippedGraph = Buffer.from(onnx.files.get(onnx.path));
+flippedGraph[Math.floor(flippedGraph.length * 0.6)] ^= 0x01;
+const onnxVariants = {
+  good: { files: onnx.files, sha256: {} },
+  cpu: { files: onnx.files, sha256: {}, noGpu: true },
+  flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), sha256: { [onnx.path]: onnx.sha(onnx.files.get(onnx.path)) } },
+  tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
+};
+
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
 const server = http.createServer(async (request, response) => {
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
@@ -59,6 +72,18 @@ const server = http.createServer(async (request, response) => {
       response.setHeader("content-range", `bytes ${start}-${end}/${v.container.length}`);
       return response.end(v.container.subarray(start, end + 1));
     }
+    response.statusCode = 404;
+    return response.end();
+  }
+  const onnxRoute = path.match(/^\/onnx\/(\w+)\/(.*)$/);
+  if (onnxRoute && onnxVariants[onnxRoute[1]]) {
+    const v = onnxVariants[onnxRoute[1]];
+    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, sha256: v.sha256 });
+    const rest = onnxRoute[2];
+    if (rest === "index/root.json") return response.end(hub.root);
+    if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
+    const served = rest.startsWith("files/") ? v.files.get(rest.slice(6)) : null;
+    if (served) return response.end(served);
     response.statusCode = 404;
     return response.end();
   }
@@ -112,6 +137,29 @@ try {
     }
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks }));
     results[name] = { ...state, output, promptStart, errors, victim: victim.name };
+    await page.close();
+  }
+
+  // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
+  // the CPU; and refused where its files are not the record's.
+  results.onnx = {};
+  for (const name of Object.keys(onnxVariants)) {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    if (onnxVariants[name].noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined }));
+    await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/${name}/index`);
+    await page.click("#load");
+    await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+    let output = null;
+    if ((await page.evaluate(() => window.__qengine.phase)) === "ready") {
+      await page.fill("#prompt", "hi");
+      await page.press("#prompt", "Enter");
+      await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
+      output = await page.evaluate(() => window.__qengine.output);
+    }
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
+    results.onnx[name] = { ...state, output, errors };
     await page.close();
   }
 
@@ -177,6 +225,18 @@ if (good.output) {
   }
   good.expected = expected;
 }
+// The ONNX answers against the reference over the same prompt ids.
+for (const run of Object.values(results.onnx)) {
+  if (!run.output) continue;
+  const reference = referenceModel(onnx.model);
+  let last;
+  for (const id of run.output.promptIds) last = reference.step(id);
+  run.expected = [];
+  while (run.expected.length < 16) {
+    run.expected.push(last.token);
+    last = reference.step(last.token);
+  }
+}
 console.log(JSON.stringify(results));
 
 // The verdicts. Each says where the page must have stopped, not only that it
@@ -229,8 +289,35 @@ if (again.imported) fail("again: the engine was imported with a stale file still
 if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expected no further reload`);
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
+// GP-19: the ONNX export.
+for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"]]) {
+  const run = results.onnx[name];
+  if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
+  if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
+  if (run.device !== device) fail(`onnx ${name}: ran on ${run.device}, expected ${device}`);
+  for (const step of ["record", "file", "import", "roles", "stop"]) {
+    if (!run.checks.some((c) => c.step === step && c.verdict === "pass")) fail(`onnx ${name}: no passing ${step} check`);
+  }
+  const imported = run.checks.find((c) => c.step === "import");
+  if (!/^\d+ tensors named by their BLAKE3, [1-9]\d* questions to the kernel/.test(imported?.detail ?? "")) fail(`onnx ${name}: the import did not ask the kernel: ${imported?.detail}`);
+  if (!run.output) fail(`onnx ${name}: no answer`);
+  else {
+    const got = run.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== run.expected[i])) fail(`onnx ${name}: the page's tokens ${got} are not the reference's ${run.expected}`);
+  }
+  if (run.errors.length) fail(`onnx ${name}: page errors: ${run.errors.join(" | ")}`);
+}
+{
+  const run = results.onnx.flip;
+  if (run.phase !== "failed" || !/FileRefused/.test(run.error ?? "")) fail(`onnx flip: expected the kernel to refuse the graph file, saw ${run.phase}: ${run.error}`);
+  if (run.checks.some((c) => c.step === "import" || c.step === "roles")) fail("onnx flip: the load went on past the import");
+  const run2 = results.onnx.tokenizer;
+  const stop = stoppedAt(run2);
+  if (run2.phase !== "failed" || stop?.subject !== "tokenizer.json is the record's") fail(`onnx tokenizer: expected to stop at tokenizer.json, stopped at ${stop?.subject} (${run2.phase}: ${run2.error})`);
+}
+
 if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);
 }
-console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering or a stale kernel is, and replaces an earlier deploy's files");
+console.error("journey: the page loads through the kernel, answers as the reference does, and stops where tampering or a stale kernel is, and replaces an earlier deploy's files; and reads an ONNX export from its own files on WebGPU and on the CPU, refusing one whose files are not the record's");

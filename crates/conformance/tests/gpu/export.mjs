@@ -39,6 +39,10 @@ export function asExport(model, style, family) {
       nbits(`${at}${attn}/${p}_proj/MatMul_Q4`, `l${l}.w${p}`, named);
       if (tensors.has(`l${l}.b${p}`)) vector(`${at}${attn}/${p}_proj/Add`, "Add", `l${l}.b${p}`, `model.layers.${l}.self_attn.${p}_proj.bias`);
     }
+    // Qwen3's export: a norm on each query and key head, before the rotation.
+    for (const p of ["q", "k"]) {
+      if (tensors.has(`l${l}.${p}_norm`)) vector(`${at}attn/${p}_norm/SimplifiedLayerNormalization`, "SimplifiedLayerNormalization", `l${l}.${p}_norm`, `model.layers.${l}.attn.${p}_norm.weight`);
+    }
     if (style === "fused") nodes.push(["GroupQueryAttention", `${at}attn/GroupQueryAttention`, [null, null, null], { num_heads: dims.n_heads, kv_num_heads: dims.n_kv_heads, do_rotary: 1, rotary_interleaved: 0 }]);
     nbits(`${at}${attn}/o_proj/MatMul_Q4`, `l${l}.wo`, style === "decomposed" ? `onnx::MatMul_${counter++}` : `model.layers.${l}.attn.o_proj.MatMul.weight`);
     if (style === "decomposed") vector(`${at}post_attention_layernorm/Mul_1`, "Mul", `l${l}.ffn_norm`, `model.layers.${l}.post_attention_layernorm.weight`);

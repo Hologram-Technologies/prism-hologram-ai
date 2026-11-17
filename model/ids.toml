@@ -401,6 +401,12 @@ suite = "gpu"
 statement = "With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix"
 
 [[id]]
+id = "GP-19"
+level = "build"
+suite = "gpu"
+statement = "The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
