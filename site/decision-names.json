@@ -1317,6 +1317,90 @@
           "value": 1
         }
       }
+    },
+    "37": {
+      "name": "Stored bits as integers",
+      "asks": "What integers do these stored bits hold?",
+      "fields": {
+        "1": {
+          "name": "Format",
+          "choice": [
+            [
+              "q4 byte",
+              0
+            ],
+            [
+              "IEEE half",
+              1
+            ],
+            [
+              "bfloat16",
+              2
+            ],
+            [
+              "binary32",
+              3
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Stored bits",
+          "value": 15360
+        }
+      }
+    },
+    "38": {
+      "name": "Declared narrowing",
+      "asks": "May this step narrow a value, with this width and bound?",
+      "fields": {
+        "1": {
+          "name": "Step",
+          "choice": [
+            [
+              "exp",
+              0
+            ],
+            [
+              "reciprocal square root",
+              1
+            ],
+            [
+              "sine and cosine",
+              2
+            ],
+            [
+              "SiLU",
+              3
+            ],
+            [
+              "GELU",
+              4
+            ],
+            [
+              "requantise",
+              5
+            ]
+          ],
+          "value": 0
+        },
+        "2": {
+          "name": "Input bits",
+          "value": 8
+        },
+        "3": {
+          "name": "Output bits",
+          "value": 16
+        },
+        "4": {
+          "name": "Declared bound, in output units",
+          "value": 1
+        },
+        "8": {
+          "name": "Certified error, in output units",
+          "value": 1
+        }
+      }
     }
   }
 }

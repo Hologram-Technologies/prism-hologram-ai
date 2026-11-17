@@ -39,6 +39,8 @@
     <option value="33">34. Block check</option>
     <option value="34">35. Address axis</option>
     <option value="35">36. Integer run</option>
+    <option value="36">37. Stored bits as integers</option>
+    <option value="37">38. Declared narrowing</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2052,6 +2054,110 @@
       "module": "Integer",
       "name": "Integer run",
       "tag": 36
+    },
+    {
+      "asks": "What integers do these stored bits hold?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4 byte",
+              0
+            ],
+            [
+              "IEEE half",
+              1
+            ],
+            [
+              "bfloat16",
+              2
+            ],
+            [
+              "binary32",
+              3
+            ]
+          ],
+          "name": "Format",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Stored bits",
+          "value": 15360,
+          "width": 4
+        }
+      ],
+      "length": 6,
+      "module": "Codec",
+      "name": "Stored bits as integers",
+      "tag": 37
+    },
+    {
+      "asks": "May this step narrow a value, with this width and bound?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "exp",
+              0
+            ],
+            [
+              "reciprocal square root",
+              1
+            ],
+            [
+              "sine and cosine",
+              2
+            ],
+            [
+              "SiLU",
+              3
+            ],
+            [
+              "GELU",
+              4
+            ],
+            [
+              "requantise",
+              5
+            ]
+          ],
+          "name": "Step",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Input bits",
+          "value": 8,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "name": "Output bits",
+          "value": 16,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Declared bound, in output units",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 8,
+          "name": "Certified error, in output units",
+          "value": 1,
+          "width": 4
+        }
+      ],
+      "length": 12,
+      "module": "Narrow",
+      "name": "Declared narrowing",
+      "tag": 38
     }
   ],
   "request": 81

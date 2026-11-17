@@ -2756,3 +2756,118 @@ fn kernel_kn_36() {
     );
     assert_routed(36, "Kernel.Integer::integerAnswer");
 }
+/// `KN-37`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+#[test]
+fn kernel_kn_37() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Codec.lex.tex");
+    let proofs = model("app/src/Proofs/Codec.lex.tex");
+    assert_pinned(
+        &proofs,
+        "codec_round_trip",
+        "((format <= 3) -> ((stored < (Kernel.Codec::codecWidth format)) -> ((Kernel.Codec::codecEncode format (Kernel.Codec::codecHigh format stored) (Kernel.Codec::codecMiddle format stored) (Kernel.Codec::codecLow format stored)) = stored)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_fields_fit",
+        "(((Kernel.Codec::codecLow format stored) < (Kernel.Codec::codecLowSize format)) /\\ ((Kernel.Codec::codecMiddle format stored) < (Kernel.Codec::codecMiddleSize format)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_q4",
+        "((low < 16) -> ((middle < 16) -> (((Kernel.Codec::codecLow 0 (Kernel.Codec::codecEncode 0 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 0 (Kernel.Codec::codecEncode 0 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 0 (Kernel.Codec::codecEncode 0 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_half",
+        "((low < 1024) -> ((middle < 32) -> (((Kernel.Codec::codecLow 1 (Kernel.Codec::codecEncode 1 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 1 (Kernel.Codec::codecEncode 1 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 1 (Kernel.Codec::codecEncode 1 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_bfloat16",
+        "((low < 128) -> ((middle < 256) -> (((Kernel.Codec::codecLow 2 (Kernel.Codec::codecEncode 2 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 2 (Kernel.Codec::codecEncode 2 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 2 (Kernel.Codec::codecEncode 2 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_binary32",
+        "((low < 8388608) -> ((middle < 256) -> (((Kernel.Codec::codecLow 3 (Kernel.Codec::codecEncode 3 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 3 (Kernel.Codec::codecEncode 3 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 3 (Kernel.Codec::codecEncode 3 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "codecWidth");
+    assert!(
+        found.contains(
+            "body: (if (format =? 0) then 256 else (if (format =? 3) then 4294967296 else 65536))"
+        ),
+        "codecWidth changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecLowSize");
+    assert!(
+        found.contains("body: (if (format =? 0) then 16 else (if (format =? 1) then 1024 else (if (format =? 2) then 128 else 8388608)))"),
+        "codecLowSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecMiddleSize");
+    assert!(
+        found.contains("body: (if (format =? 0) then 16 else (if (format =? 1) then 32 else 256))"),
+        "codecMiddleSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecLow");
+    assert!(
+        found.contains("body: (prim remainder stored (codecLowSize format) 0 : Nat)"),
+        "codecLow changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecMiddle");
+    assert!(
+        found.contains("body: (prim remainder (prim quotient stored (codecLowSize format) 0 : Nat) (codecMiddleSize format) 0 : Nat)"),
+        "codecMiddle changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecHigh");
+    assert!(
+        found.contains("body: (prim quotient stored (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) 0 : Nat)"),
+        "codecHigh changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecEncode");
+    assert!(
+        found.contains("body: (((prim multiply high (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) : Nat) + (prim multiply middle (codecLowSize format) : Nat)) + low)"),
+        "codecEncode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecText");
+    assert!(
+        found.contains("body: (if (format =? 0) then (prim append (prim append (Kernel.Wire::decimal (codecLow format stored)) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) else (prim append (prim append (prim append (prim append (Kernel.Wire::decimal (codecHigh format stored)) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecLow format stored)) : Bytes))"),
+        "codecText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "codecAnswer changed:\n{found}"
+    );
+    assert_routed(37, "Kernel.Codec::codecAnswer");
+}
+/// `KN-38`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
+#[test]
+fn kernel_kn_38() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Narrow.lex.tex");
+    let proofs = model("app/src/Proofs/Narrow.lex.tex");
+    assert_pinned(
+        &proofs,
+        "narrow_accepted_decides",
+        "(((Kernel.Narrow::narrowAccepted step inputBits outputBits bound certified) = true) <-> ((step <= 5) /\\ ((1 <= inputBits) /\\ ((inputBits <= 16) /\\ ((1 <= outputBits) /\\ ((outputBits <= 32) /\\ (certified <= bound)))))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "narrowAccepted");
+    assert!(
+        found.contains("body: ((((step <=? 5) && ((1 <=? inputBits) && (inputBits <=? 16))) && ((1 <=? outputBits) && (outputBits <=? 32))) && (certified <=? bound))"),
+        "narrowAccepted changed:\n{found}"
+    );
+    let found = declaration(&kernel, "narrowAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"refuse\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "narrowAnswer changed:\n{found}"
+    );
+    assert_routed(38, "Kernel.Narrow::narrowAnswer");
+}

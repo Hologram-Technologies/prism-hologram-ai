@@ -533,6 +533,18 @@ suite = "kernel"
 statement = "A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions"
 
 [[id]]
+id = "KN-37"
+level = "build"
+suite = "kernel"
+statement = "A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged"
+
+[[id]]
+id = "KN-38"
+level = "build"
+suite = "kernel"
+statement = "A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"
