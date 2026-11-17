@@ -9,7 +9,7 @@ definition{
   name: SameSign,
   parameters: [code : Nat, byte : Nat],
   result: Prop,
-  body: (((8 <= code) /\ (byte < 128)) \/ ((code < 8) /\ (128 <= byte)))
+  body: (((8 <= code) /\ (byte < 128)) ∨ ((code < 8) /\ (128 <= byte)))
 }
 
 definition{
