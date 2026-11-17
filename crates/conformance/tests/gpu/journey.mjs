@@ -53,6 +53,9 @@ const onnxVariants = {
   tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
   // As the live hub's records are: the files Git holds itself named by their
   // Git blob SHA-1 alone; and one of those naming another blob.
+  // GP-21: visits in one browser profile; with offline set, the origin
+  // serves the record but none of the files.
+  kept: { files: onnx.files, sha256: {}, offline: false },
   gitblob: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"] },
   gitwrong: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"], gitSha1: { "generation_config.json": "a".repeat(40) } },
 };
@@ -86,7 +89,7 @@ const server = http.createServer(async (request, response) => {
     const rest = onnxRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
     if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
-    const served = rest.startsWith("files/") ? v.files.get(rest.slice(6)) : null;
+    const served = rest.startsWith("files/") && !v.offline ? v.files.get(rest.slice(6)) : null;
     if (served) return response.end(served);
     response.statusCode = 404;
     return response.end();
@@ -147,7 +150,7 @@ try {
   // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
   // the CPU; and refused where its files are not the record's.
   results.onnx = {};
-  for (const name of Object.keys(onnxVariants)) {
+  for (const name of Object.keys(onnxVariants).filter((n) => n !== "kept")) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
@@ -165,6 +168,54 @@ try {
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
     results.onnx[name] = { ...state, output, errors };
     await page.close();
+  }
+
+  // GP-21: four visits in one profile. The first downloads and keeps the
+  // files; the second, with the origin serving none, reads them all from the
+  // browser; the third meets a kept graph with one byte flipped, which the
+  // kernel refuses, and the page forgets the files it read; the fourth, the
+  // origin back, downloads them again and answers.
+  {
+    const context = await browser.newContext();
+    const visit = async (offline) => {
+      onnxVariants.kept.offline = offline;
+      const page = await context.newPage();
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e.message)));
+      await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/kept/index`);
+      await page.click("#load");
+      await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+      let output = null;
+      if ((await page.evaluate(() => window.__qengine.phase)) === "ready") {
+        await page.fill("#prompt", "hi");
+        await page.press("#prompt", "Enter");
+        await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
+        output = await page.evaluate(() => window.__qengine.output);
+      }
+      const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
+      const held = await page.evaluate(async () => {
+        const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
+        const out = [];
+        for await (const [n, h] of dir.entries()) if (h.kind === "file") out.push([n, (await h.getFile()).size]);
+        return out;
+      });
+      await page.close();
+      return { ...state, output, errors, held };
+    };
+    results.onnx["kept first"] = await visit(false);
+    results.onnx["kept offline"] = await visit(true);
+    const tamper = await context.newPage();
+    await tamper.goto(`${origin}/app/`);
+    await tamper.evaluate(async ({ name, bytes }) => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
+      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await w.write(new Uint8Array(bytes));
+      await w.close();
+    }, { name: onnx.sha(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
+    await tamper.close();
+    results.onnx["kept tampered"] = await visit(true);
+    results.onnx["kept again"] = await visit(false);
+    await context.close();
   }
 
   // A cache left by an earlier deploy (GP-07): one file that is not this
@@ -294,7 +345,7 @@ if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expect
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
 // GP-19: the ONNX export.
-for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"]]) {
+for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"]]) {
   const run = results.onnx[name];
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
@@ -323,6 +374,24 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   const run3 = results.onnx.gitwrong;
   const stop3 = stoppedAt(run3);
   if (run3.phase !== "failed" || stop3?.subject !== "generation_config.json is the record's") fail(`onnx gitwrong: expected to stop at generation_config.json, stopped at ${stop3?.subject} (${run3.phase}: ${run3.error})`);
+}
+
+// GP-21: the files kept in the browser, read back checked as a download is.
+{
+  const count = onnx.files.size;
+  const kept = (name) => results.onnx[name].checks.find((c) => c.step === "kept");
+  const said = (name) => /^(\d+) read here \([\d.]+ MB\), (\d+) downloaded and kept/.exec(kept(name)?.detail ?? "");
+  const first = said("kept first");
+  if (!first || first[1] !== "0" || first[2] !== String(count)) fail(`kept first: expected 0 read here and ${count} downloaded, saw ${kept("kept first")?.detail}`);
+  const keptFirst = results.onnx["kept first"].held.filter(([, size]) => size > 0).length;
+  if (keptFirst !== count) fail(`kept first: expected ${count} files kept, saw ${keptFirst}`);
+  const offline = said("kept offline");
+  if (!offline || offline[1] !== String(count) || offline[2] !== "0") fail(`kept offline: expected ${count} read here and none downloaded, saw ${kept("kept offline")?.detail}`);
+  const run = results.onnx["kept tampered"];
+  if (run.phase !== "failed" || !/FileRefused/.test(run.error ?? "")) fail(`kept tampered: expected the kernel to refuse the kept graph, saw ${run.phase}: ${run.error}`);
+  if (run.held.some(([, size]) => size > 0)) fail(`kept tampered: the files this load read were not forgotten: ${JSON.stringify(run.held)}`);
+  const again = said("kept again");
+  if (!again || again[1] !== "0" || again[2] !== String(count)) fail(`kept again: expected every file downloaded again, saw ${kept("kept again")?.detail}`);
 }
 
 if (failures.length) {
