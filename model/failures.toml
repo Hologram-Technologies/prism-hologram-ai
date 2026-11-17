@@ -415,3 +415,11 @@ type = "ImportError"
 variant = "DataMissing"
 suite = "engine"
 condition = "A tensor's data lies in a file the import is not given, or past the end of the one it is"
+
+[[failure]]
+id = "FL-49"
+crate = "wasm"
+type = "CallError"
+variant = "Import"
+suite = "engine"
+condition = "The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure"

@@ -33,9 +33,11 @@
 //! A buffer is a `Vec<u8>` this module keeps, and the page is told where it
 //! lives; nothing reconstructs a `Vec` from a pointer, and nothing reads memory
 //! the module did not allocate — a call that names a buffer this module does
-//! not hold is refused rather than followed. Exporting a symbol is the one
-//! unsafe thing here, because a module that exports nothing cannot be called,
-//! and each export says so. There is no `unsafe` block, function or trait
+//! not hold is refused rather than followed. Exporting a symbol is unsafe,
+//! because a module that exports nothing cannot be called, and each export
+//! says so. There is one `unsafe` block: the call to the kernel the page runs,
+//! `kernel.ask`, which is handed two buffers the calling function holds and
+//! names no other memory. There is no `unsafe` function or trait
 //! implementation in this crate.
 
 #![deny(unsafe_code)]
@@ -47,8 +49,10 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
+use hologram_ai_download::{Arriving, Label, Root, Whole, LABEL_BYTES};
 use hologram_ai_model_reader::holk::Container;
+use hologram_ai_model_reader::onnx::{DataFile, File, Graph, ImportError, Imported, ReadFile};
+use hologram_ai_model_reader::Kernel;
 use hologram_ai_tokenizer::Tokeniser;
 
 /// The call was answered; the result buffer holds the answer.
@@ -75,6 +79,8 @@ pub enum CallError {
     NothingRead,
     /// `FL-29`: a label handed in is not thirty-two bytes.
     WrongSize,
+    /// `FL-49`: the ONNX importer refused, named as `ImportError` names it.
+    Import(ImportError),
 }
 
 /// What the module holds between calls.
@@ -545,6 +551,308 @@ fn answer(call: impl FnOnce(&mut State) -> Result<Vec<u8>, CallError>) -> u32 {
 fn failed(state: &mut State, why: &str) -> u32 {
     state.result = why.as_bytes().to_vec();
     NO
+}
+
+// ─── An ONNX export, imported in the page ──────────────────────────────────
+//
+// The importer of `hologram-ai-model-reader` puts every span, operator and
+// 4-bit weight of a model to the kernel as the bytes arrive. In the page the
+// kernel is the holo's guest, verified before it is compiled, and it answers
+// synchronously; this module asks it through one import the page provides,
+// `kernel.ask`, and is handed the answer in a buffer of its own. Nothing here
+// decides what the kernel would answer.
+
+/// The most bytes a kernel answer is read as. The kernel answers in words and
+/// numbers, a few dozen bytes; a longer answer is cut and then is not the one
+/// the importer accepts, so it refuses.
+const ANSWER_BYTES: usize = 256;
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "kernel")]
+extern "C" {
+    /// The page's kernel: the request at `request`, `length` bytes; the answer
+    /// written at `answer`, at most `capacity` bytes; the answer's length.
+    #[link_name = "ask"]
+    fn page_ask(request: u32, length: u32, answer: u32, capacity: u32) -> u32;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    /// Outside a browser there is no page; a test installs the kernel the
+    /// importer asks.
+    static NATIVE_KERNEL: RefCell<Option<Box<dyn Kernel>>> = RefCell::new(None);
+}
+
+/// Install the kernel the importer asks, outside a browser. In the page it is
+/// the holo's guest, reached through the `kernel.ask` import.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn install_kernel(kernel: Box<dyn Kernel>) {
+    NATIVE_KERNEL.with_borrow_mut(|installed| *installed = Some(kernel));
+}
+
+/// The kernel the page runs.
+struct PageKernel;
+
+impl Kernel for PageKernel {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        let mut answer = vec![0u8; ANSWER_BYTES];
+        #[cfg(target_arch = "wasm32")]
+        let length = {
+            #[allow(
+                unsafe_code,
+                reason = "the one way a module reaches the kernel the page runs"
+            )]
+            // SAFETY: the import is called with the address and length of
+            // `request` and of `answer`, two buffers this function holds for
+            // the whole call; the page writes at most `capacity` bytes into
+            // `answer` and reads nothing else. Nothing is reconstructed from a
+            // pointer, and no other memory is named.
+            let length = unsafe {
+                page_ask(
+                    address(request),
+                    request.len() as u32,
+                    address(&answer),
+                    ANSWER_BYTES as u32,
+                )
+            };
+            length as usize
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let length = NATIVE_KERNEL.with_borrow_mut(|installed| match installed {
+            Some(kernel) => {
+                let said = kernel.ask(request);
+                let n = said.len().min(ANSWER_BYTES);
+                answer[..n].copy_from_slice(&said[..n]);
+                said.len()
+            }
+            None => 0,
+        });
+        answer.truncate(length.min(ANSWER_BYTES));
+        answer
+    }
+}
+
+/// An ONNX import in progress.
+#[derive(Default)]
+struct OnnxImport {
+    graph: Option<Graph>,
+    imported: Option<Imported>,
+    data: Option<DataFile>,
+    read: Vec<ReadFile>,
+}
+
+thread_local! {
+    static ONNX: RefCell<OnnxImport> = RefCell::new(OnnxImport::default());
+}
+
+/// A model file as the record gives it: its name, its SHA-256, its length and
+/// its place. A data file is named as the graph names it, since the importer
+/// finds each tensor's file by that name.
+fn onnx_file(
+    state: &State,
+    name: String,
+    root: (u32, u32),
+    index: u8,
+    declared: u8,
+    length: u64,
+) -> Result<File, CallError> {
+    let bytes = taken(state, root.0, root.1)?;
+    let root: [u8; 32] = bytes.try_into().map_err(|_| CallError::WrongSize)?;
+    Ok(File {
+        name,
+        index,
+        declared,
+        length,
+        root: Root(root),
+    })
+}
+
+/// Start importing a graph file of `length` bytes whose SHA-256 is the 32
+/// bytes at `at`, with `declared` data files beside it.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_start(at: u32, len: u32, length: u64, declared: u32) -> u32 {
+    answer(|state| {
+        let declared = u8::try_from(declared).map_err(|_| CallError::WrongSize)?;
+        let file = onnx_file(state, "graph".into(), (at, len), 0, declared, length)?;
+        ONNX.with_borrow_mut(|onnx| {
+            *onnx = OnnxImport {
+                graph: Some(Graph::new(file)),
+                ..OnnxImport::default()
+            };
+        });
+        Ok(Vec::new())
+    })
+}
+
+/// The next bytes of the graph file, in order.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_take(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let chunk = taken(state, at, len)?;
+        ONNX.with_borrow_mut(|onnx| {
+            let graph = onnx.graph.as_mut().ok_or(CallError::NothingRead)?;
+            graph
+                .take(&chunk, &mut PageKernel)
+                .map_err(CallError::Import)
+        })?;
+        Ok(Vec::new())
+    })
+}
+
+/// The graph file has ended: the data files its tensors lie in, by name, one
+/// to a line, which the page reads next in that order.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_graph_finish() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow_mut(|onnx| {
+            let graph = onnx.graph.take().ok_or(CallError::NothingRead)?;
+            let imported = graph.finish(&mut PageKernel).map_err(CallError::Import)?;
+            let files = imported.data_files().join("\n").into_bytes();
+            onnx.imported = Some(imported);
+            Ok(files)
+        })
+    })
+}
+
+/// Start the data file at `index` (from 1), `length` bytes, SHA-256 at `at`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_data_start(at: u32, len: u32, index: u32, length: u64) -> u32 {
+    answer(|state| {
+        let index = u8::try_from(index).map_err(|_| CallError::WrongSize)?;
+        ONNX.with_borrow_mut(|onnx| {
+            let imported = onnx.imported.as_ref().ok_or(CallError::NothingRead)?;
+            let files = imported.data_files();
+            let declared = u8::try_from(files.len()).map_err(|_| CallError::WrongSize)?;
+            // The data files are read in the order the graph names them, from 1.
+            let name = usize::from(index)
+                .checked_sub(1)
+                .and_then(|at| files.get(at))
+                .cloned()
+                .ok_or(CallError::NothingRead)?;
+            let file = onnx_file(state, name, (at, len), index, declared, length)?;
+            onnx.data = Some(
+                imported
+                    .data(file, &mut PageKernel)
+                    .map_err(CallError::Import)?,
+            );
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The next bytes of the data file being read.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_data_take(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let chunk = taken(state, at, len)?;
+        ONNX.with_borrow_mut(|onnx| {
+            onnx.data
+                .as_mut()
+                .ok_or(CallError::NothingRead)?
+                .take(&chunk);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The data file being read has ended.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_data_finish() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow_mut(|onnx| {
+            let data = onnx.data.take().ok_or(CallError::NothingRead)?;
+            let read = data.finish(&mut PageKernel).map_err(CallError::Import)?;
+            onnx.read.push(read);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The element type's name, as the role map reads it.
+fn element(data_type: u64) -> String {
+    match data_type {
+        1 => "f32".into(),
+        2 => "u8".into(),
+        3 => "i8".into(),
+        6 => "i32".into(),
+        7 => "i64".into(),
+        10 => "f16".into(),
+        16 => "bf16".into(),
+        other => format!("t{other}"),
+    }
+}
+
+/// Every file has ended: the model, as JSON the page's role map reads. Its
+/// nodes in file order, each an operator, a name, the inputs that are tensors
+/// of the model (others null) and the whole-number and real attributes; and
+/// every tensor's type and shape, and where its bytes lie: the file, the
+/// offset, the length and the address the importer gave them.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_finish() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow_mut(|onnx| {
+            let imported = onnx.imported.take().ok_or(CallError::NothingRead)?;
+            let nodes = imported.nodes().to_vec();
+            let read = std::mem::take(&mut onnx.read);
+            let model = imported
+                .finish(read, &mut PageKernel)
+                .map_err(CallError::Import)?;
+            let held: BTreeMap<&str, &hologram_ai_model_reader::onnx::Tensor> =
+                model.tensors.iter().map(|t| (t.name.as_str(), t)).collect();
+            let mut tensors = serde_json::Map::new();
+            let mut places = serde_json::Map::new();
+            for t in &model.tensors {
+                tensors.insert(
+                    t.name.clone(),
+                    serde_json::json!([element(t.data_type), t.dims]),
+                );
+                let hex: String = t.address.0.iter().map(|b| format!("{b:02x}")).collect();
+                places.insert(
+                    t.name.clone(),
+                    serde_json::json!([t.file, t.offset, t.length, format!("blake3:{hex}")]),
+                );
+            }
+            let nodes: Vec<serde_json::Value> = nodes
+                .iter()
+                .map(|node| {
+                    let inputs: Vec<serde_json::Value> = node
+                        .inputs
+                        .iter()
+                        .map(|input| {
+                            if held.contains_key(input.as_str()) {
+                                serde_json::json!(input)
+                            } else {
+                                serde_json::Value::Null
+                            }
+                        })
+                        .collect();
+                    let mut attributes = serde_json::Map::new();
+                    for (name, value) in &node.ints {
+                        attributes.insert(name.clone(), serde_json::json!(value));
+                    }
+                    for (name, value) in &node.floats {
+                        attributes.insert(name.clone(), serde_json::json!(value));
+                    }
+                    serde_json::json!([node.op_type, node.name, inputs, attributes])
+                })
+                .collect();
+            let out = serde_json::json!({
+                "nodes": nodes,
+                "tensors": tensors,
+                "places": places,
+                "operators": model.operators,
+                "fused": model.fused,
+            });
+            serde_json::to_vec(&out).map_err(|_| CallError::NotText)
+        })
+    })
 }
 
 #[cfg(test)]

@@ -4306,7 +4306,8 @@ import { readFileSync } from "node:fs";
 
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), {});
+// The module asks the kernel through one import; these calls never reach it.
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -5429,6 +5430,7 @@ fn engine_en_29() {
 
     let expected = vec![
         Event::Node(Node {
+            name: "/layers.0/q_proj".into(),
             op_type: "MatMulNBits".into(),
             domain: "com.microsoft".into(),
             inputs: vec!["hidden".into(), "w_Q4".into(), "w_scales".into()],
@@ -5437,6 +5439,7 @@ fn engine_en_29() {
             floats: vec![],
         }),
         Event::Node(Node {
+            name: String::new(),
             op_type: "SimplifiedLayerNormalization".into(),
             domain: String::new(),
             inputs: vec!["projected".into()],
@@ -6057,6 +6060,10 @@ fn import_model() -> (Vec<u8>, Vec<u8>, BTreeMap<&'static str, Vec<u8>>) {
     matmul.extend(proto_field_bytes(1, b"w_Q4"));
     matmul.extend(proto_field_bytes(1, b"w_scales"));
     matmul.extend(proto_field_bytes(2, b"y"));
+    matmul.extend(proto_field_bytes(
+        3,
+        b"/model/layers.0/attn/q_proj/MatMul_Q4",
+    ));
     matmul.extend(proto_field_bytes(4, b"MatMulNBits"));
     matmul.extend(attribute("K", 64));
     matmul.extend(attribute("N", 32));
@@ -6066,6 +6073,7 @@ fn import_model() -> (Vec<u8>, Vec<u8>, BTreeMap<&'static str, Vec<u8>>) {
     let mut mul = proto_field_bytes(1, b"y");
     mul.extend(proto_field_bytes(1, b"w_ext"));
     mul.extend(proto_field_bytes(2, b"z"));
+    mul.extend(proto_field_bytes(3, b"/model/layers.0/mlp/Mul"));
     mul.extend(proto_field_bytes(4, b"Mul"));
     let inline = |name: &str, dims: &[u64], kind: u64| {
         let mut out = Vec::new();
@@ -6802,4 +6810,199 @@ fn engine_en_32() {
             .expect_err("refused"),
         U(Why::NotBytePair)
     );
+}
+
+/// A kernel the test keeps a hand on while the page's module asks it.
+struct Shared(std::rc::Rc<std::cell::RefCell<Scripted>>);
+
+impl Kernel for Shared {
+    fn ask(&mut self, request: &[u8]) -> Vec<u8> {
+        self.0.borrow_mut().ask(request)
+    }
+}
+
+/// One call of the page's module: its name, its status and what it left.
+type ModuleCall = (String, u32, Vec<u8>);
+
+/// Import `graph` and `beside` through the page's module, in pieces of
+/// `piece` bytes, asking `kernel`: each call's status and what it left.
+fn import_through_module(
+    graph: &[u8],
+    beside: &[u8],
+    piece: usize,
+    kernel: Scripted,
+) -> (Vec<ModuleCall>, Vec<Vec<u8>>) {
+    let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
+    wasm::install_kernel(Box::new(Shared(kept.clone())));
+    let mut calls = Vec::new();
+    let mut record = |name: &str, status: u32| {
+        calls.push((name.to_string(), status, wasm::last_answer()));
+        status == 0
+    };
+    let root = import_record("model.onnx", 0, graph).root.0;
+    let at = wasm::given(&root);
+    let mut going = record(
+        "onnx_start",
+        wasm::onnx_start(at, 32, graph.len() as u64, 1),
+    );
+    wasm::release(at);
+    for chunk in graph.chunks(piece) {
+        if !going {
+            break;
+        }
+        let at = wasm::given(chunk);
+        going = record("onnx_take", wasm::onnx_take(at, chunk.len() as u32));
+        wasm::release(at);
+    }
+    if going && record("onnx_graph_finish", wasm::onnx_graph_finish()) {
+        let root = import_record("model.onnx_data", 1, beside).root.0;
+        let at = wasm::given(&root);
+        going = record(
+            "onnx_data_start",
+            wasm::onnx_data_start(at, 32, 1, beside.len() as u64),
+        );
+        wasm::release(at);
+        for chunk in beside.chunks(piece) {
+            if !going {
+                break;
+            }
+            let at = wasm::given(chunk);
+            going = record(
+                "onnx_data_take",
+                wasm::onnx_data_take(at, chunk.len() as u32),
+            );
+            wasm::release(at);
+        }
+        if going && record("onnx_data_finish", wasm::onnx_data_finish()) {
+            record("onnx_finish", wasm::onnx_finish());
+        }
+    }
+    let asked = kept.borrow().asked.clone();
+    (calls, asked)
+}
+
+/// `EN-33`: An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes
+#[test]
+fn engine_en_33() {
+    let (graph, beside, data) = import_model();
+    // The importer asked natively, as EN-31 has it.
+    let mut native = accepting();
+    import_in_pieces(&graph, &beside, 4096, &mut native).expect("it imports natively");
+    for piece in [7usize, 4096, graph.len()] {
+        let (calls, asked) = import_through_module(&graph, &beside, piece, accepting());
+        for (name, status, said) in &calls {
+            assert_eq!(
+                *status,
+                0,
+                "{name} in pieces of {piece}: {}",
+                String::from_utf8_lossy(said)
+            );
+        }
+        assert_eq!(
+            asked, native.asked,
+            "pieces of {piece}: the module asked other questions or in another order"
+        );
+        let names: Vec<&str> = calls.iter().map(|c| c.0.as_str()).collect();
+        assert!(
+            names.ends_with(&["onnx_data_finish", "onnx_finish"]),
+            "pieces of {piece}: {names:?}"
+        );
+        // The data files the graph names, one to a line.
+        let files = &calls
+            .iter()
+            .find(|c| c.0 == "onnx_graph_finish")
+            .expect("the graph finished")
+            .2;
+        assert_eq!(files.as_slice(), b"model.onnx_data");
+
+        let table: serde_json::Value =
+            serde_json::from_slice(&calls.last().expect("a call").2).expect("the model is JSON");
+        // Nodes in file order, with their names; an input that is not a
+        // tensor of the model is null, so the role map sees weights only.
+        assert_eq!(
+            table["nodes"],
+            serde_json::json!([
+                ["MatMulNBits", "/model/layers.0/attn/q_proj/MatMul_Q4", [null, "w_Q4", "w_scales"], {"K": 64, "N": 32, "bits": 4, "block_size": 32}],
+                ["Mul", "/model/layers.0/mlp/Mul", [null, "w_ext"], {}]
+            ]),
+            "pieces of {piece}"
+        );
+        assert_eq!(
+            table["tensors"]["w_Q4"],
+            serde_json::json!(["u8", [32, 2, 16]])
+        );
+        assert_eq!(
+            table["tensors"]["w_scales"],
+            serde_json::json!(["f16", [64]])
+        );
+        assert_eq!(table["tensors"]["w_ext"], serde_json::json!(["f16", [128]]));
+        // Where each tensor's bytes lie and their address: the file, the
+        // offset, the length, and the BLAKE3 of exactly those bytes.
+        for (name, file) in [("w_Q4", 0), ("w_scales", 0), ("w_ext", 1), ("w_ext2", 1)] {
+            let place = &table["places"][name];
+            let bytes = &data[name];
+            let hex: String = blake3_of(bytes)
+                .0
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            assert_eq!(place[0].as_u64(), Some(file), "{name}: file");
+            assert_eq!(
+                place[2].as_u64(),
+                Some(bytes.len() as u64),
+                "{name}: length"
+            );
+            assert_eq!(
+                place[3].as_str(),
+                Some(format!("blake3:{hex}").as_str()),
+                "{name}: address"
+            );
+            let offset = usize::try_from(place[1].as_u64().expect("an offset")).expect("small");
+            let source = if file == 0 { &graph } else { &beside };
+            assert_eq!(
+                &source[offset..offset + bytes.len()],
+                bytes.as_slice(),
+                "{name}: the place holds its bytes"
+            );
+        }
+        assert_eq!(
+            table["operators"],
+            serde_json::json!(["MatMulNBits", "Mul"])
+        );
+        assert_eq!(table["fused"], serde_json::json!(true));
+    }
+}
+
+/// `FL-49`: The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure
+#[test]
+fn engine_fl_49() {
+    use hologram_ai_kernel_client::chunk;
+    let (graph, beside, _) = import_model();
+    // A kernel that refuses every span: the first inline tensor stops the
+    // import, and the page reads why.
+    let mut refusing = accepting();
+    let accept_all = std::mem::replace(&mut refusing.answer, Box::new(|_| Vec::new()));
+    let mut accept_all = accept_all;
+    refusing.answer = Box::new(move |request| {
+        if request[0] == 23 {
+            b"outside the file".to_vec()
+        } else {
+            accept_all(request)
+        }
+    });
+    let (calls, _) = import_through_module(&graph, &beside, 4096, refusing);
+    let (name, status, said) = calls.last().expect("a call");
+    assert_eq!((name.as_str(), *status), ("onnx_take", 1), "{calls:?}");
+    let error = wasm::CallError::Import(import::ImportError::SpanRefused(
+        import::TensorAt(0),
+        chunk::answer(b"outside the file"),
+    ));
+    assert_eq!(
+        said,
+        &named(error),
+        "the page reads the importer's own failure"
+    );
+    // And with nothing imported there is nothing to finish.
+    assert_eq!(wasm::onnx_finish(), 1);
+    assert_eq!(wasm::last_answer(), named(wasm::CallError::NothingRead));
 }
