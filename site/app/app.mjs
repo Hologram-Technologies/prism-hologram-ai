@@ -2,12 +2,9 @@
 // prompt by greedy decoding. Everything shown is also on window.__qengine, so a
 // test reads the verdicts and timings rather than the screen.
 
-import { createCpuEngine } from "./engine/cpu.mjs";
 import { createEngine } from "./engine/gpu.mjs";
 import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
-import { strftime } from "./engine/jinja.mjs";
-import { fetched, loadOnnx } from "./engine/onnx-load.mjs";
-import { keepFiles } from "./engine/files.mjs";
+import { CAPACITY, be, join, pipeline, turner } from "./engine/pipeline.mjs";
 
 // The model to run: Bonsai unless the address names another, so a link can say
 // "run this model" (?repo=owner/name&path=file&index=hub index base), or an
@@ -22,15 +19,6 @@ const MODEL = {
   onnx: asked.get("onnx"),
   precision: asked.get("precision"),
 };
-// The precisions this engine runs, in the kernel's code for decision 24. A
-// link may name one; otherwise each is offered and the kernel chooses.
-const PRECISIONS = { q4f16: 0, q4: 1 };
-// What the kernel's choice of precision and device is weighed against. No
-// browser reports how much memory a GPU has, so its budget is a stated 4 GiB;
-// the CPU engine, single-threaded on a static host, takes models up to 1 GiB.
-const GPU_BUDGET = 4 * 2 ** 30;
-const CPU_CEILING = 2 ** 30;
-const CAPACITY = 2048;
 
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
@@ -52,18 +40,6 @@ const checks = checklist((item) => {
 state.checks = checks.items;
 
 const status = (message) => { $("status").textContent = message; };
-const be = (value, width) => {
-  const out = new Uint8Array(width);
-  let v = BigInt(value);
-  for (let i = width - 1; i >= 0; i--) { out[i] = Number(v & 0xffn); v >>= 8n; }
-  return out;
-};
-const join = (...parts) => {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) { out.set(p, at); at += p.length; }
-  return out;
-};
 
 let session = null;
 
@@ -165,7 +141,7 @@ async function load() {
         return createEngine({ device, dims, tensors, capacity: CAPACITY });
       },
     });
-    session = { engine, module, kernel, ask };
+    session = { generate: turner({ engine, module, ask }) };
     state.phase = "ready";
     state.loadSeconds = (performance.now() - started) / 1000;
     status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU`);
@@ -178,112 +154,30 @@ async function load() {
   }
 }
 
-// An ONNX export from its own files. The module's importer asks the kernel
-// about every span, operator, file and 4-bit weight as the bytes arrive; it
-// asks synchronously, so the kernel is the same verified guest run with
-// runGuest, compiled from the archive loadArchive verified.
+// An ONNX export from its own files, by the one call any page can make
+// (site/app/engine/pipeline.mjs). The page hands it the kernel it verified
+// against its deploy, and shows what the call reports.
 async function loadOnnxModel({ kernel, ask, device, started }) {
-  const { compileGuest, resolveArchive, runGuest } = await import("../vendor/prism-code/src/index.mjs");
-  const guest = await compileGuest(resolveArchive(kernel.archive).guest.content);
-  const answer = (request) => runGuest(guest, request, kernel.limits);
-
-  status("Reading the model's record…");
-  const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.onnx, checks });
-  // What each precision's graph is called is the kernel's decision 24, and
-  // which precision is read its decision 21, weighed on what the record offers.
-  const named = MODEL.precision ? [MODEL.precision] : Object.keys(PRECISIONS);
-  if (named.some((n) => !(n in PRECISIONS))) throw new Error(`precision ${MODEL.precision}: this page reads q4f16 and q4 exports`);
-  const sizes = {};
-  for (const name of named) {
-    const graphPath = await ask("source", `the ${name} graph's file`, new Uint8Array([24, 0, PRECISIONS[name], 0, 0]), (a) => a.startsWith("onnx/"));
-    const parts = record.files.filter((f) => f.path === graphPath || f.path.startsWith(`${graphPath}_data`));
-    if (parts.some((f) => f.path === graphPath)) sizes[name] = { path: graphPath, bytes: parts.reduce((n, f) => n + f.size, 0), data: parts.length - 1 };
-  }
-  const offer = (name) => join(new Uint8Array([sizes[name] ? 1 : 0]));
-  const amount = (name) => be(sizes[name]?.bytes ?? 0, 8);
-  const chosen = await ask("precision", "precision to read", join(new Uint8Array([21]), offer("q4f16"), offer("q4"), new Uint8Array([0]), be(device ? GPU_BUDGET : CPU_CEILING, 8), amount("q4f16"), amount("q4"), be(0, 8)), (a) => a in sizes);
-  const path = sizes[chosen].path;
-  state.precision = chosen;
-  // Each data file the record lists beside the graph is one the kernel names.
-  const folder = path.slice(0, path.lastIndexOf("/") + 1);
-  for (let part = 1; part <= sizes[chosen].data; part++) {
-    await ask("source", `the ${chosen} data file ${part}`, new Uint8Array([24, 0, PRECISIONS[chosen], sizes[chosen].data, part]), (a) => record.files.some((f) => f.path === a && a.startsWith(folder)));
-  }
-  const base = record.origin?.resolve;
-  if (!base) throw new Error("the record names no origin");
-  const graph = record.files.find((f) => f.path === path);
-  if (!graph) throw new Error(`the record names no ${path}`);
-
-  const module = await openModule("./engine/engine.wasm");
-  // The files kept from an earlier visit are read from this browser and
-  // checked exactly as a download is; where the browser keeps none, every
-  // file comes from the origin.
-  let files = null;
-  try {
-    files = await keepFiles({ record, open: fetched(base), module, kernel: async (request) => new TextDecoder().decode(await kernel.dispatch(request)) });
-  } catch (e) {
-    checks.add("kept", "model files kept in this browser", "not checked", `none kept: ${e.message}`);
-  }
-  status("Downloading and checking every tensor…");
   $("progress").hidden = false;
-  let on = null;
-  const loading = loadOnnx({
-    record,
-    path,
-    open: files ? files.open : fetched(base),
-    module,
-    kernel: answer,
+  const generate = await pipeline("text-generation", MODEL.onnx, {
+    dtype: MODEL.precision ?? "auto",
+    index: MODEL.indexBase,
+    kernel,
+    ask,
+    gpu: device,
     checks,
-    onProgress: (file, done) => { if (file === 0) $("progress").value = done / graph.size; },
-    build: async (dims, tensors) => {
-      // The device is the kernel's decision 22, on the largest buffer the GPU
-      // engine would bind: a dense embedding or head is tiled by rows, so one
-      // row; a 4-bit weight binds its codes and its scales apart.
-      const bound = (t) => (t.fmt === "f32" || t.fmt === "f16") && t.K ? t.K * (t.fmt === "f32" ? 4 : 2)
-        : t.parts ? Math.max(...t.parts.map((b) => b.byteLength))
-        : t.fmt?.startsWith("q4") ? (t.N * t.K) / 2 : t.bytes.byteLength;
-      const largest = Math.max(...[...tensors.values()].map(bound));
-      const limit = device ? Math.min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize) : 0;
-      on = await ask("device", "device to run on", join(new Uint8Array([22, device ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => a === "webgpu" || a === "cpu");
-      status(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return on === "webgpu" ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
-    },
+    onStatus: status,
+    onProgress: (fraction) => { $("progress").value = fraction; },
   });
-  // A failed load forgets every file it read or kept here, since one of them
-  // may be the file that was not the record's; the next load downloads them.
-  const { engine, stops, chat } = await loading.catch(async (e) => {
-    if (files) await files.forget();
-    throw e;
-  });
-  if (files) {
-    await files.settled();
-    const c = files.counts;
-    const mb = (n) => (n / 1048576).toFixed(1);
-    checks.add("kept", "model files read from this browser are the record's, checked as a download is", "pass", `${c.read} read here (${mb(c.readBytes)} MB), ${c.fetched} downloaded and kept (${mb(c.fetchedBytes)} MB), ${c.notKept} not kept for want of room, ${c.dropped} dropped for room (${c.droppedBytes} bytes), each named by its BLAKE3: ${files.kept.map((k) => `${k.path} ${k.address}`).join(", ")}`);
-  }
-  session = { engine, module, kernel, ask, stops, chat };
+  session = { generate };
   state.phase = "ready";
-  state.device = on;
+  state.device = generate.device;
+  state.precision = generate.dtype;
   state.loadSeconds = (performance.now() - started) / 1000;
-  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${on === "webgpu" ? `${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
+  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${(generate.engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
   $("send").disabled = false;
 }
 
-// The chat frame by what the vocabulary knows. Qwen3 reads <think> as one token,
-// so it gets an empty thinking block and answers directly; Qwen2.5 does not, and
-// gets the system line its own template writes when none is given.
-const frame = (prompt) => encode("<think>").length === 1
-  ? `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
-  : `<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
-
-function encode(text) {
-  const bytes = session.module.callWith("tokeniser_encode", new TextEncoder().encode(text));
-  return Array.from(new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4));
-}
-function decode(ids) {
-  const bytes = new Uint8Array(new Uint32Array(ids).buffer);
-  return new TextDecoder().decode(session.module.callWith("tokeniser_decode", bytes));
-}
 
 async function send(event) {
   event.preventDefault();
@@ -300,78 +194,14 @@ async function send(event) {
   $("send").disabled = false;
 }
 
-// How many ids two prompts open with in common.
-const opening = (a, b) => {
-  let n = 0;
-  while (n < a.length && n < b.length && a[n] === b[n]) n++;
-  return n;
-};
-// The BLAKE3 of token ids, four bytes each, little-endian, by the module.
-const label = (ids) => {
-  const m = session.module;
-  const bytes = new Uint8Array(4 * ids.length);
-  const view = new DataView(bytes.buffer);
-  ids.forEach((id, i) => view.setUint32(4 * i, id, true));
-  const id = new DataView(m.call("hash_start").slice().buffer).getUint32(0, true);
-  m.callWith("hash_take", bytes, id);
-  return m.call("hash_finish", id).slice();
-};
-const hexOf = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-
 async function answer() {
-  const { engine, ask } = session;
   // An empty box asks the example its placeholder shows.
   const text = $("prompt").value.trim() || $("prompt").placeholder;
-  // An ONNX export's turn is written by its own chat template (Qwen3's with
-  // thinking off, as the page answers directly); a weight container's by the
-  // frame above.
-  const framing = (content) => session.chat
-    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
-    : frame(content);
-  const prompt = encode(framing(text));
-  // The model stops on the id its own file names (EN-28); a file naming none
-  // runs to the turn's budget.
-  // An ONNX export names them in its generation_config.json, read at load.
-  const said = session.stops ? null : session.module.call("tokeniser_stops_at");
-  const stops = session.stops ?? new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
-  engine.reset();
-  const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(256, 8)), (a) => /^\d+$/.test(a)));
-  const t0 = performance.now();
-  let firstAt = t0;
-  // The frame's head, the ids every turn opens with, is computed once and kept
-  // under the BLAKE3 of those ids. A later turn asks the kernel (decision 27)
-  // whether the held label is the label of its own opening ids, so a turn whose
-  // text merges into the head, or a template whose head changed (a date), is
-  // computed from the start.
-  session.head ??= opening(encode(framing("a")), encode(framing("b")));
-  let from = 0;
-  let reuse = null;
-  if (session.held) {
-    const { length, label: held } = session.held;
-    const asked = label(prompt.slice(0, length));
-    const verdict = await ask("reuse", "computed prefix to reuse", join(new Uint8Array([27]), asked, held, be(length, 4), be(prompt.length, 4)), (a) => a === "reuse" || a === "recompute");
-    reuse = { length, asked: hexOf(asked), held: hexOf(held), verdict };
-    if (verdict === "reuse") {
-      engine.restoreState(session.held.state);
-      from = length;
-    }
-  }
-  const out = await engine.run(prompt.slice(from), budget, {
-    stops,
-    onFirst: () => { firstAt = performance.now(); },
-    onToken: (ids) => { $("answer").textContent = decode(ids); },
-  });
-  const end = performance.now();
-  if (!session.held && session.head > 0 && session.head < prompt.length) {
-    session.held = { length: session.head, label: label(prompt.slice(0, session.head)), state: engine.saveState(session.head) };
-  }
-  state.output = { prompt: text, promptIds: prompt, promptTokens: prompt.length, tokens: out, text: decode(out), reuse, computed: prompt.length - from };
-  state.stats = {
-    timeToFirstToken: (firstAt - t0) / 1000,
-    tokensPerSecond: out.length > 1 ? (out.length - 1) / ((end - firstAt) / 1000) : 0,
-    generated: out.length,
-  };
-  $("stats").textContent = `${out.length} tokens · first token ${state.stats.timeToFirstToken.toFixed(2)} s · ${state.stats.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${from ? ` · ${from} of ${prompt.length} prompt positions reused` : ""}`;
+  const out = await session.generate(text, { max_new_tokens: 256, onToken: (shown) => { $("answer").textContent = shown; } });
+  state.output = { prompt: out.prompt, promptIds: out.promptIds, promptTokens: out.promptTokens, tokens: out.tokens, text: out.text, reuse: out.reuse, computed: out.computed };
+  state.stats = { timeToFirstToken: out.timeToFirstToken, tokensPerSecond: out.tokensPerSecond, generated: out.tokens.length };
+  const reused = out.promptTokens - out.computed;
+  $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
 }
 
 $("load").addEventListener("click", load);
