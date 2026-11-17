@@ -419,6 +419,12 @@ suite = "gpu"
 statement = "The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again"
 
 [[id]]
+id = "GP-22"
+level = "build"
+suite = "gpu"
+statement = "The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
