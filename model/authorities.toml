@@ -68,5 +68,5 @@ name = "uor-matmul, the UOR Foundation's exact matrix arithmetic"
 citation = """UOR-Foundation/uor-matmul, the crates uor-matmul, uor-matmul-core and uor-matmul-codec 0.1.0 as published on crates.io (2026-08-14), Apache-2.0. Its `dot_ref` sums products of `i8` values in an `i128` accumulator, wide enough for every length a machine can address, and its `Grid` codec decodes a code through a table."""
 checksum = "sha256:a8df8cee8a547a9eb4790b64d438e7eaf1743a37b17d619f0e98318dd30aa6ae"
 checksum_reason = """The crates.io checksum of the uor-matmul 0.1.0 package, which Cargo.lock pins with the checksums of the crates it brings in."""
-statement = """The sum of products of two sequences of i8 values is returned exactly, and a Grid code decodes to its table's entry. EN-33 checks the first against the same sum written out in i64 over weights decoded independently; it does not establish the library's other claims."""
-realized_by = ["EN-33"]
+statement = """The sum of products of two sequences of i8 values is returned exactly, and a Grid code decodes to its table's entry. EN-34 checks the first against the same sum written out in i64 over weights decoded independently; it does not establish the library's other claims."""
+realized_by = ["EN-34"]

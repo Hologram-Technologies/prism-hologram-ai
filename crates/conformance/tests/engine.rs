@@ -7255,7 +7255,115 @@ fn set_scales(case: &mut ExactCase, scales: &[f32]) {
     case.scales = scales.iter().map(|&s| f64::from(s)).collect();
 }
 
-/// `EN-34`: A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code
+/// A finite f64 as `(mantissa, exponent)` with the mantissa odd or zero, read
+/// from its bits.
+fn f64_parts(value: f64) -> (i128, i32) {
+    let bits = value.to_bits();
+    let fraction = (bits & ((1u64 << 52) - 1)) as i128;
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let (mut mantissa, mut exponent) = if biased == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1i128 << 52), biased - 1075)
+    };
+    if mantissa == 0 {
+        return (0, 0);
+    }
+    while mantissa & 1 == 0 {
+        mantissa >>= 1;
+        exponent += 1;
+    }
+    if bits >> 63 == 1 {
+        mantissa = -mantissa;
+    }
+    (mantissa, exponent)
+}
+
+/// The row a case states: the exact sum of `sums` times `scales`, times
+/// `2^-input_exponent`, rounded once to f32. The exact sum is an integer
+/// times a power of two; when it has at most 53 bits the f64 holding it is
+/// exact, and Rust's f64-to-f32 conversion rounds once, ties to even.
+fn exact_reference(sums: &[i64], scales: &[f64], input_exponent: i32) -> f32 {
+    let terms: Vec<(i128, i32)> = sums
+        .iter()
+        .zip(scales)
+        .map(|(&sum, &scale)| {
+            let (mantissa, exponent) = f64_parts(scale);
+            (i128::from(sum) * mantissa, exponent)
+        })
+        .filter(|&(m, _)| m != 0)
+        .collect();
+    let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
+        return 0.0;
+    };
+    let mut total = terms
+        .iter()
+        .map(|&(m, e)| m << (e - lowest))
+        .sum::<i128>();
+    let mut exponent = lowest - input_exponent;
+    if total == 0 {
+        return 0.0;
+    }
+    while total & 1 == 0 {
+        total >>= 1;
+        exponent += 1;
+    }
+    assert!(
+        total.unsigned_abs() < 1u128 << 53,
+        "a case's exact row needs more than 53 bits: state it by hand"
+    );
+    assert!(exponent.abs() <= 1000, "a case's exponent is outside the reference's range");
+    let value = total as f64 * 2f64.powi(exponent);
+    value as f32
+}
+
+/// A q4 case with each row's groups in reverse order: codes, scales and the
+/// input's columns moved together, so every product is the same.
+fn reversed_groups(case: &ExactCase) -> ExactCase {
+    let groups = case.columns / case.group;
+    let bytes_per_scale = if case.format == "q4f16" { 2 } else { 4 };
+    let codes_len = case.rows * case.columns / 2;
+    let (codes, scale_bytes) = case.tensor.split_at(codes_len);
+    let mut tensor = vec![0u8; codes_len];
+    let mut scales_out = Vec::with_capacity(scale_bytes.len());
+    let mut weights = vec![0i8; case.weights.len()];
+    let mut scales = Vec::with_capacity(case.scales.len());
+    let mut input = vec![0f32; case.columns];
+    for group in 0..groups {
+        let from = groups - 1 - group;
+        for i in 0..case.group {
+            input[group * case.group + i] = case.input[from * case.group + i];
+        }
+    }
+    for row in 0..case.rows {
+        for group in 0..groups {
+            let from = groups - 1 - group;
+            for i in 0..case.group {
+                let to_g = row * case.columns + group * case.group + i;
+                let from_g = row * case.columns + from * case.group + i;
+                let code = (codes[from_g / 2] >> (4 * (from_g % 2))) & 0x0f;
+                tensor[to_g / 2] |= code << (4 * (to_g % 2));
+                weights[to_g] = case.weights[from_g];
+            }
+            let s = (row * groups + from) * bytes_per_scale;
+            scales_out.extend_from_slice(&scale_bytes[s..s + bytes_per_scale]);
+            scales.push(case.scales[row * groups + from]);
+        }
+    }
+    tensor.extend_from_slice(&scales_out);
+    ExactCase {
+        format: case.format,
+        rows: case.rows,
+        columns: case.columns,
+        input,
+        tensor,
+        weights,
+        scales,
+        group: case.group,
+    }
+}
+
+/// `EN-34`: A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code
 #[test]
 fn engine_en_34() {
     let cases = exact_cases();
@@ -7335,15 +7443,15 @@ fn engine_en_34() {
             case.format
         );
 
-        // Each output: the sums times their scales, added in f64 in group order,
-        // scaled back once and rounded once to f32. Bit for bit.
+        // Each output: the exact sum of the group sums times their scales,
+        // worked here from each scale's f64 bits, rounded once to f32.
         let rows = exact_rows(case).expect("the case is well formed");
         for row in 0..case.rows {
-            let mut total = 0f64;
-            for group in 0..groups {
-                total += sums[row * groups + group] as f64 * case.scales[row * groups + group];
-            }
-            let stated = (total * unit) as f32;
+            let stated = exact_reference(
+                &sums[row * groups..(row + 1) * groups],
+                &case.scales[row * groups..(row + 1) * groups],
+                quantised.exponent(),
+            );
             assert_eq!(
                 rows[row].to_bits(),
                 stated.to_bits(),
@@ -7373,6 +7481,18 @@ fn engine_en_34() {
             );
         }
 
+        if case.format != "ternary" && groups > 1 {
+            let reversed = exact_rows(&reversed_groups(case)).expect("the case is well formed");
+            for row in 0..case.rows {
+                assert_eq!(
+                    reversed[row].to_bits(),
+                    rows[row].to_bits(),
+                    "case {index} ({}), row {row}: the groups' order changed the answer",
+                    case.format
+                );
+            }
+        }
+
         let answer: Vec<u8> = rows.iter().flat_map(|r| r.to_le_bytes()).collect();
         module_cases.push(serde_json::json!({
             "call": format!("exact_{}", case.format),
@@ -7381,6 +7501,15 @@ fn engine_en_34() {
             "said": 0,
         }));
     }
+    // No floating-point type is computed with: the crate reads and writes
+    // f32 bits and does everything between in integers.
+    let source = std::fs::read_to_string(root().join("crates/exact/src/lib.rs"))
+        .expect("the crate's source");
+    assert!(
+        !source.contains("f64"),
+        "crates/exact/src/lib.rs names f64: the products must be integer from the stored bytes to the one rounding"
+    );
+
     // A misshapen request is refused by the module as the crate refuses it.
     let mut misaligned = exact_request(&cases[0]);
     misaligned[4] = 33;
@@ -7394,9 +7523,9 @@ fn engine_en_34() {
     // The same bytes from the module the page loads.
     let module = built_module();
     let target = target_dir();
-    let listed = target.join("en-33-cases.json");
+    let listed = target.join("en-34-cases.json");
     std::fs::write(&listed, serde_json::to_string(&module_cases).expect("JSON")).expect("written");
-    let script = target.join("en-33-browser.mjs");
+    let script = target.join("en-34-browser.mjs");
     std::fs::write(&script, EXACT_BROWSER_CHECK).expect("the script is written");
     let ran = std::process::Command::new("node")
         .arg(&script)
@@ -7527,3 +7656,48 @@ fn engine_fl_52() {
         Err(exact::ExactError::LengthMismatch)
     );
 }
+
+/// `FL-53`: A scale stored with an exact product's weights is not a finite number
+#[test]
+fn engine_fl_53() {
+    let input = vec![1.0f32; 32];
+    for bad in [f32::INFINITY, f32::NAN] {
+        assert_eq!(
+            exact::q4_matvec(&input, &[0x99; 16], exact::Q4Scales::F32(&bad.to_le_bytes()), 1, 32),
+            Err(exact::ExactError::ScaleNotFinite)
+        );
+    }
+    for bad in [0x7c00u16, 0xfe00] {
+        assert_eq!(
+            exact::q4_matvec(&input, &[0x99; 16], exact::Q4Scales::F16(&bad.to_le_bytes()), 1, 32),
+            Err(exact::ExactError::ScaleNotFinite)
+        );
+    }
+    assert_eq!(
+        exact::ternary_matvec(&[1.0; 128], &[0xff; 16], &[0xff; 16], &f32::NAN.to_le_bytes(), 1, 128),
+        Err(exact::ExactError::ScaleNotFinite)
+    );
+}
+
+/// `FL-54`: A row's scales lie too many powers of two apart for its sum to be held exactly in i128
+#[test]
+fn engine_fl_54() {
+    let input = vec![1.0f32; 64];
+    let scales = |a: f32, b: f32| {
+        let mut bytes = a.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&b.to_le_bytes());
+        bytes
+    };
+    // Every weight 1 (code 9), so both groups' sums are 32 * 127.
+    let wide = scales(f32::from_bits(1), 2f32.powi(127));
+    assert_eq!(
+        exact::q4_matvec(&input, &[0x99; 32], exact::Q4Scales::F32(&wide), 1, 64),
+        Err(exact::ExactError::ScaleSpanTooWide)
+    );
+    // A hundred powers of two apart is held, and is the exact answer.
+    let apart = scales(1.0, 2f32.powi(100));
+    let rows = exact::q4_matvec(&input, &[0x99; 32], exact::Q4Scales::F32(&apart), 1, 64)
+        .expect("a hundred powers of two fit in i128");
+    assert_eq!(rows[0], (32.0f32 * (1.0 + 2f32.powi(100))));
+}
+

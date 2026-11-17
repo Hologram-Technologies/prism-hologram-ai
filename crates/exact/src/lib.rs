@@ -1,19 +1,31 @@
-//! Matrix-vector products whose every group sum is exact.
+//! Matrix-vector products computed in integers from the stored bytes to one
+//! final rounding.
 //!
 //! A floating-point product of the same weights and the same input differs
 //! between machines: the order of a sum and the width of each step are the
 //! hardware's. That is why a re-run on another device proves nothing about an
-//! answer. Here the input is scaled by a power of two onto eight-bit integers,
-//! each group of weights is decoded to the integers its format stores, and the
-//! group's sum of products is taken by `uor-matmul`, whose accumulator is wide
-//! enough that it cannot overflow. That sum has one value on every machine.
+//! answer. Here no floating-point operation is used at all:
 //!
-//! What is left in floating point is applying each group's scale and adding
-//! the groups, which is done in `f64`, one group after another, in the stored
-//! order, with no fused operations. IEEE 754 fixes the result of each such
-//! step, so the output has the same bits wherever it is computed: natively,
-//! and in the WebAssembly module the page loads. Rounding the input onto eight
-//! bits is the one approximation, and its bound is stated on [`quantise`].
+//! 1. Every stored number is read as the exact integer pair it stands for:
+//!    an IEEE `f32` or half is `mantissa * 2^exponent` with both integers, read
+//!    from its bits ([`Dyadic`]). Nothing is rounded on reading.
+//! 2. The input is scaled by one power of two onto the integers -127 to 127,
+//!    each rounded to the nearest, ties to even, by integer shifts
+//!    ([`quantise`]). This is the one approximation, and its bound is stated
+//!    there.
+//! 3. Each group's sum of products is taken by `uor-matmul`, an `i32` at most
+//!    `32 * 8 * 127` (q4) or `128 * 127` (ternary) in magnitude.
+//! 4. A row's groups are combined exactly: each sum times its scale's
+//!    mantissa, shifted to the row's smallest scale exponent, added in `i128`.
+//!    The row's value is that integer times one power of two. A row whose
+//!    scales are too far apart for `i128` to hold the sum is refused
+//!    ([`ExactError::ScaleSpanTooWide`]), never approximated.
+//! 5. That value is rounded once to the nearest `f32`, ties to even, by
+//!    building the `f32`'s bits from integers ([`Dyadic::to_f32`]).
+//!
+//! Every step is integer arithmetic with one stated result, so the output has
+//! the same bits on every machine: natively and in the WebAssembly module the
+//! page loads.
 //!
 //! The weight layouts are the engine's own, read with no repack:
 //!
@@ -43,6 +55,10 @@ pub const Q4_GROUP: usize = 32;
 
 /// Weights in one ternary scale group.
 pub const TERNARY_GROUP: usize = 128;
+
+/// The bits a row's exact sum may use, its sign aside: `i128` less one, so
+/// that adding one more term to a sum within the bound cannot overflow.
+const ROW_BITS: u32 = 126;
 
 /// The four-bit codes 0 to 15 stand for -8 to 7.
 const Q4_TABLE: [Value; 16] = [
@@ -76,6 +92,141 @@ pub enum ExactError {
     GroupMisaligned,
     /// `FL-52`: a buffer is not the length the shape implies.
     LengthMismatch,
+    /// `FL-53`: a stored scale is not a finite number.
+    ScaleNotFinite,
+    /// `FL-54`: a row's scales lie too many powers of two apart for its sum to
+    /// be held exactly in `i128`.
+    ScaleSpanTooWide,
+}
+
+/// A number that is exactly `mantissa * 2^exponent`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dyadic {
+    /// The integer the power of two multiplies.
+    pub mantissa: i128,
+    /// The power of two.
+    pub exponent: i32,
+}
+
+/// A float's sign, significand and exponent, as `width` describes it.
+struct Format {
+    fraction_bits: u32,
+    exponent_bits: u32,
+    bias: i32,
+}
+
+const BINARY32: Format = Format {
+    fraction_bits: 23,
+    exponent_bits: 8,
+    bias: 127,
+};
+
+const BINARY16: Format = Format {
+    fraction_bits: 10,
+    exponent_bits: 5,
+    bias: 15,
+};
+
+impl Format {
+    /// The exact number `bits` stands for, or `None` for an infinity or NaN.
+    fn read(&self, bits: u32) -> Option<Dyadic> {
+        let fraction = bits & ((1 << self.fraction_bits) - 1);
+        let biased = (bits >> self.fraction_bits) & ((1 << self.exponent_bits) - 1);
+        let negative = (bits >> (self.fraction_bits + self.exponent_bits)) & 1 == 1;
+        let lowest = 1 - self.bias - self.fraction_bits as i32;
+        let (magnitude, exponent) = if biased == (1 << self.exponent_bits) - 1 {
+            return None;
+        } else if biased == 0 {
+            // Subnormal: the fraction counts units of the smallest step.
+            (fraction, lowest)
+        } else {
+            (
+                fraction | (1 << self.fraction_bits),
+                lowest + biased as i32 - 1,
+            )
+        };
+        let magnitude = i128::from(magnitude);
+        Some(Dyadic {
+            mantissa: if negative { -magnitude } else { magnitude },
+            exponent,
+        })
+    }
+}
+
+/// `magnitude / 2^shift`, rounded to the nearest integer, ties to even.
+fn shift_right_even(magnitude: u128, shift: u32) -> u128 {
+    if shift == 0 {
+        return magnitude;
+    }
+    if shift > 128 {
+        return 0;
+    }
+    let kept = if shift == 128 { 0 } else { magnitude >> shift };
+    let dropped = magnitude - if shift == 128 { 0 } else { kept << shift };
+    let half = 1u128 << (shift - 1);
+    if dropped > half || (dropped == half && kept & 1 == 1) {
+        kept + 1
+    } else {
+        kept
+    }
+}
+
+/// How many bits `magnitude` needs.
+fn bits_of(magnitude: u128) -> u32 {
+    128 - magnitude.leading_zeros()
+}
+
+impl Dyadic {
+    /// Reads a little-endian IEEE `f32`.
+    #[must_use]
+    pub fn from_f32_bits(bits: u32) -> Option<Self> {
+        BINARY32.read(bits)
+    }
+
+    /// Reads an IEEE half.
+    #[must_use]
+    pub fn from_f16_bits(bits: u16) -> Option<Self> {
+        BINARY16.read(u32::from(bits))
+    }
+
+    /// The nearest `f32`, ties to even, with infinity past the largest.
+    ///
+    /// The bits are put together from integers: the exponent field, then the
+    /// significand rounded once. A result of zero is `+0.0`.
+    #[must_use]
+    pub fn to_f32(self) -> f32 {
+        let sign = if self.mantissa < 0 { 1u32 << 31 } else { 0 };
+        let magnitude = self.mantissa.unsigned_abs();
+        if magnitude == 0 {
+            return 0.0;
+        }
+        let width = bits_of(magnitude) as i32;
+        // The value lies in [2^top, 2^(top + 1)).
+        let top = self.exponent + width - 1;
+        const INFINITY: u32 = 0x7f80_0000;
+        if top > 127 {
+            return f32::from_bits(sign | INFINITY);
+        }
+        // The power of two the last significand bit stands for: 2^(top - 23)
+        // for a normal result, 2^-149 below the normal range.
+        let unit = (top - 23).max(-149);
+        let significand = if unit >= self.exponent {
+            shift_right_even(magnitude, (unit - self.exponent) as u32)
+        } else {
+            // Exact: the value has fewer bits than a significand holds.
+            magnitude << (self.exponent - unit) as u32
+        };
+        // A subnormal's bits are its significand (field 0). A normal
+        // significand carries its leading 2^23, which adds one to the field,
+        // and one that rounded up to 2^24 carries once more: both are this
+        // addition, and a carry past the largest field is infinity.
+        let field = (unit + 149) as u32;
+        let bits = (field << 23) + significand as u32;
+        if bits >= INFINITY {
+            return f32::from_bits(sign | INFINITY);
+        }
+        f32::from_bits(sign | bits)
+    }
 }
 
 /// An input vector on eight-bit integers: `codes[i] * 2^-exponent` stands for
@@ -101,25 +252,26 @@ impl Quantised {
     }
 }
 
-/// `2^power` as an `f64`, built from its bits, so it is exactly that power
-/// wherever it is computed. The powers asked for here lie in the normal range.
-fn power_of_two(power: i32) -> f64 {
-    let biased = (power.clamp(-1022, 1023) + 1023) as u64;
-    f64::from_bits(biased << 52)
-}
-
-/// The largest exponent `e` with `largest * 2^e <= 127`, for `largest > 0`.
-fn exponent_for(largest: f64) -> i32 {
-    // The float's own exponent puts `largest * 2^e` in [64, 128), so `e + 1`
-    // is always past 127 and only a value in (127, 128) needs one step down.
-    let bits = largest.to_bits();
-    let own = ((bits >> 52) & 0x7ff) as i32 - 1023;
-    let e = 6 - own;
-    if largest * power_of_two(e) > f64::from(INPUT_LIMIT) {
-        e - 1
-    } else {
-        e
+/// Whether `a` is larger in magnitude than `b`. Both are read from an `f32`,
+/// so each mantissa is below `2^24`.
+fn larger(a: Dyadic, b: Dyadic) -> bool {
+    let (ma, mb) = (a.mantissa.unsigned_abs(), b.mantissa.unsigned_abs());
+    if mb == 0 {
+        return ma != 0;
     }
+    if ma == 0 {
+        return false;
+    }
+    let (ta, tb) = (
+        a.exponent + bits_of(ma) as i32,
+        b.exponent + bits_of(mb) as i32,
+    );
+    if ta != tb {
+        return ta > tb;
+    }
+    // Same leading power: their exponents differ by fewer than 24.
+    let low = a.exponent.min(b.exponent);
+    (ma << (a.exponent - low) as u32) > (mb << (b.exponent - low) as u32)
 }
 
 /// Scales `input` by one power of two onto the integers -127 to 127, each
@@ -130,26 +282,53 @@ fn exponent_for(largest: f64) -> i32 {
 /// input divided by 127 (and by 254 when the largest input sets the power
 /// exactly). An input of all zeros is all zero codes at exponent 0.
 pub fn quantise(input: &[f32]) -> Result<Quantised, ExactError> {
-    let mut largest = 0.0_f64;
-    for &x in input {
-        if !x.is_finite() {
-            return Err(ExactError::InputNotFinite);
-        }
-        largest = largest.max(f64::from(x).abs());
-    }
-    if largest == 0.0 {
+    let read: Vec<Dyadic> = input
+        .iter()
+        .map(|x| Dyadic::from_f32_bits(x.to_bits()).ok_or(ExactError::InputNotFinite))
+        .collect::<Result<_, _>>()?;
+    let zero = Dyadic {
+        mantissa: 0,
+        exponent: 0,
+    };
+    let largest = read
+        .iter()
+        .fold(zero, |m, &x| if larger(x, m) { x } else { m });
+    let top = largest.mantissa.unsigned_abs();
+    if top == 0 {
         return Ok(Quantised {
             codes: vec![0; input.len()],
             exponent: 0,
         });
     }
-    let exponent = exponent_for(largest);
-    let scale = power_of_two(exponent);
-    let codes = input
+    // The largest `k` with `top * 2^k <= 127`: `top * 2^k` in [64, 128) at
+    // `k = 7 - bits`, one step down if that is past 127.
+    let mut k = 7 - bits_of(top) as i32;
+    let past = if k >= 0 {
+        top << k as u32 > 127
+    } else {
+        top > 127u128 << (-k) as u32
+    };
+    if past {
+        k -= 1;
+    }
+    let exponent = k - largest.exponent;
+    let codes = read
         .iter()
-        .map(|&x| {
-            let scaled = (f64::from(x) * scale).round_ties_even();
-            scaled.clamp(-f64::from(INPUT_LIMIT), f64::from(INPUT_LIMIT)) as i8
+        .map(|x| {
+            let magnitude = x.mantissa.unsigned_abs();
+            let shift = x.exponent + exponent;
+            let code = if shift >= 0 {
+                magnitude << shift as u32
+            } else {
+                shift_right_even(magnitude, (-shift) as u32)
+            };
+            // Within 127 by the choice of exponent; the bound is restated.
+            let code = code.min(INPUT_LIMIT as u128) as i8;
+            if x.mantissa < 0 {
+                -code
+            } else {
+                code
+            }
         })
         .collect();
     Ok(Quantised { codes, exponent })
@@ -160,22 +339,8 @@ pub fn quantise(input: &[f32]) -> Result<Quantised, ExactError> {
 pub enum Q4Scales<'a> {
     /// One little-endian `f32` per group.
     F32(&'a [u8]),
-    /// One little-endian IEEE half per group, widened exactly.
+    /// One little-endian IEEE half per group.
     F16(&'a [u8]),
-}
-
-/// An IEEE half as the `f32` it stands for; every half is one exactly.
-fn half(bits: u16) -> f32 {
-    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
-    let exponent = i32::from((bits >> 10) & 0x1f);
-    let fraction = f32::from(bits & 0x3ff);
-    let magnitude = match exponent {
-        0 => fraction * (power_of_two(-24) as f32),
-        31 if fraction == 0.0 => f32::INFINITY,
-        31 => f32::NAN,
-        _ => (1.0 + fraction / 1024.0) * (power_of_two(exponent - 15) as f32),
-    };
-    sign * magnitude
 }
 
 impl Q4Scales<'_> {
@@ -192,18 +357,20 @@ impl Q4Scales<'_> {
         }
     }
 
-    fn at(self, group: usize) -> f64 {
-        match self {
+    /// Group `group`'s scale, exactly. The caller has checked the length.
+    fn at(self, group: usize) -> Result<Dyadic, ExactError> {
+        let read = match self {
             Self::F32(bytes) => {
                 let at = group * 4;
                 let word = [bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]];
-                f64::from(f32::from_le_bytes(word))
+                Dyadic::from_f32_bits(u32::from_le_bytes(word))
             }
             Self::F16(bytes) => {
                 let at = group * 2;
-                f64::from(half(u16::from_le_bytes([bytes[at], bytes[at + 1]])))
+                Dyadic::from_f16_bits(u16::from_le_bytes([bytes[at], bytes[at + 1]]))
             }
-        }
+        };
+        read.ok_or(ExactError::ScaleNotFinite)
     }
 }
 
@@ -278,19 +445,67 @@ pub fn ternary_group_sums(
     Ok(sums)
 }
 
-/// Each row's output from its exact group sums: each sum times its group's
-/// scale, added in `f64` group after group, then scaled back by the input's
-/// power of two and rounded once to `f32`.
-fn rows_from(sums: &[i64], scale: impl Fn(usize) -> f64, groups: usize, exponent: i32) -> Vec<f32> {
-    let back = power_of_two(-exponent);
+/// One row's exact value from its group sums and its groups' scales: the sum
+/// of each group sum times its scale, times `2^-input_exponent`.
+///
+/// Each product is shifted to the row's smallest scale exponent and added in
+/// `i128`. Before any addition the row is checked to fit: every product needs
+/// at most its own bits plus its shift, and the sum of `n` of them at most
+/// `ceil(log2 n)` bits more.
+fn exact_row(sums: &[i64], scales: &[Dyadic], input_exponent: i32) -> Result<Dyadic, ExactError> {
+    if sums.len() != scales.len() {
+        return Err(ExactError::LengthMismatch);
+    }
+    let terms: Vec<(i128, i32)> = sums
+        .iter()
+        .zip(scales)
+        .filter(|(&sum, scale)| sum != 0 && scale.mantissa != 0)
+        .map(|(&sum, scale)| {
+            i128::from(sum)
+                .checked_mul(scale.mantissa)
+                .map(|m| (m, scale.exponent))
+                .ok_or(ExactError::ScaleSpanTooWide)
+        })
+        .collect::<Result<_, _>>()?;
+    let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
+        return Ok(Dyadic {
+            mantissa: 0,
+            exponent: 0,
+        });
+    };
+    let widest = terms
+        .iter()
+        .map(|&(m, e)| bits_of(m.unsigned_abs()) as i64 + i64::from(e - lowest))
+        .max()
+        .unwrap_or(0);
+    let carry = i64::from(bits_of(terms.len() as u128));
+    if widest + carry > i64::from(ROW_BITS) {
+        return Err(ExactError::ScaleSpanTooWide);
+    }
+    let total = terms
+        .iter()
+        .map(|&(m, e)| m << (e - lowest) as u32)
+        .sum::<i128>();
+    Ok(Dyadic {
+        mantissa: total,
+        exponent: lowest - input_exponent,
+    })
+}
+
+/// Each row's output from its exact group sums, rounded once to `f32`.
+fn rows_from(
+    sums: &[i64],
+    scale: impl Fn(usize) -> Result<Dyadic, ExactError>,
+    groups: usize,
+    exponent: i32,
+) -> Result<Vec<f32>, ExactError> {
     sums.chunks(groups.max(1))
         .enumerate()
         .map(|(row, row_sums)| {
-            let mut total = 0.0_f64;
-            for (group, &sum) in row_sums.iter().enumerate() {
-                total += sum as f64 * scale(row * groups + group);
-            }
-            (total * back) as f32
+            let scales = (0..row_sums.len())
+                .map(|group| scale(row * groups + group))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(exact_row(row_sums, &scales, exponent)?.to_f32())
         })
         .collect()
 }
@@ -309,12 +524,7 @@ pub fn q4_matvec(
     if scales.len() != rows * groups * scales.bytes_per_scale() {
         return Err(ExactError::LengthMismatch);
     }
-    Ok(rows_from(
-        &sums,
-        |g| scales.at(g),
-        groups,
-        quantised.exponent,
-    ))
+    rows_from(&sums, |g| scales.at(g), groups, quantised.exponent)
 }
 
 /// A ternary matrix of `rows` by `columns`, in its three planes, times
@@ -333,12 +543,12 @@ pub fn ternary_matvec(
     if scales.len() != rows * groups * 4 {
         return Err(ExactError::LengthMismatch);
     }
-    Ok(rows_from(
+    rows_from(
         &sums,
         |g| Q4Scales::F32(scales).at(g),
         groups,
         quantised.exponent,
-    ))
+    )
 }
 
 /// Which stored layout a request's tensor is in.
