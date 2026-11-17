@@ -80,6 +80,11 @@ The inherited gates and their own planted defects are in
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
 | Decisions 29 to 34 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
+| `KN-37`: a stored q4 byte, half, bfloat16 or binary32 is read into integer fields that encode back to exactly the stored bits; every field lies within its width; fields within their widths read back unchanged | `codec_round_trip`, `codec_fields_fit` and `codec_reads_back_q4`, `_half`, `_bfloat16`, `_binary32`, checked by the Lean kernel | proved |
+| The fields of a half, bfloat16 or binary32 stand for the IEEE 754 value `(-1)^sign * fraction-with-leading-bit * 2^(exponent - bias)` | the reading in `crates/exact` (`Dyadic`), tested against Rust's own conversions in `EN-34` on the cases drawn | tested, not proved |
+| `KN-38`: a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits (a table of at most 65,536 entries), its output 1 to 32 bits, and its certified error within its declared bound | `narrow_accepted_decides`, checked by the Lean kernel | proved |
+| The certified error of a narrowing's table is its true worst error | the table generator's, to be checked when each table is built; no table exists yet | not proved |
+| Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
@@ -948,6 +953,56 @@ limit, as recorded for KN-34, so that the guest builds and replays with
 decisions 35 and 36 is left to the gate on CI. `site/og.png` was not redrawn
 here (the pinned Pillow wheel does not match this machine's Python); the
 deploy draws it.
+
+## KN-37 and KN-38, lossless reading and declared narrowing
+
+The requirement: no floating point from the stored bytes to the token ids, and
+lossless where lossless exists. Lossless is held to three parts:
+
+- (a) Reading a stored weight or scale loses nothing: its integer fields encode
+  back to exactly the stored bits. `KN-37` proves this over natural numbers for
+  q4 bytes, IEEE halves, bfloat16 and binary32. It is also where a format with
+  no exact codec will be refused by name as codecs are added.
+- (b) Every matrix sum is exact and cannot overflow: `KN-29` (widths) and
+  `KN-34` (one block re-checked).
+- (c) A step that narrows a value is named, integer and bounded, and is never
+  called lossless. Exp in softmax, square root in normalisation, sine and cosine
+  in rotary encoding, SiLU, GELU and requantising activations have no exact
+  result in finite integers, and float engines round them too. `KN-38` admits
+  such a step only with a finite table domain, a declared output width, and a
+  certified error within its declared bound. Each step's bound, and each
+  model's quality against its float reference, are to be reported per model;
+  none is yet, because no table exists.
+
+Whether a run is integer at all is `KN-36`, and whether a label is a BLAKE3
+address is `KN-35`, recorded above.
+
+### The pinned tests: `kernel_kn_37` and `kernel_kn_38`
+
+| Planted defect | Result |
+| --- | --- |
+| a narrowing accepted when its error exceeds its bound | rejected: `narrowAccepted changed` |
+| a 17-bit table domain accepted | rejected: `narrowAccepted changed` |
+| a half's exponent field taken as 31 wide | rejected: `codecMiddleSize changed` |
+| a binary32 fraction taken as 22 bits | rejected: `codecLowSize changed` |
+| decision 38 routed to decision 37's answer | rejected: `decision 38 must be routed to Kernel.Narrow::narrowAnswer` |
+| a value one wider than its format answered | rejected: `codecAnswer changed` |
+| `narrow_accepted_decides` declares fewer axioms | rejected: `narrow_accepted_decides must rest on [Classical.choice, Quot.sound, propext]` |
+| none, before and after | passed |
+
+### The proof gate: `lexlean verify src/Proofs/Narrow.lex.tex src/Proofs/Codec.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a narrowing accepted when its error exceeds its bound | rejected: `Lean rejected HologramAi.Proofs.Narrow (error): omega could not prove the goal` |
+| a 17-bit table domain accepted | rejected: the same |
+| a half's exponent field taken as 31 wide | rejected: `Lean rejected HologramAi.Proofs.Codec` |
+| a binary32 fraction taken as 22 bits | rejected: the same |
+| a value one wider than its format answered | not rejected: `verified 6 modules`. No theorem states which requests are valid; `kernel_kn_37` rejects it |
+| none | `verified 6 modules` |
+
+Run on 2026-11-17 in the pinned SDK image; `lexlean verify` exited 1 on each
+rejection.
 
 ## The examples in the compiled guest
 
