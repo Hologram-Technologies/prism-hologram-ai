@@ -185,7 +185,6 @@ not that the test provokes the failure.
 | `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
 | `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
 | `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale stored with an exact product's weights is not a finite number |
-| `FL-54` | `exact` | `ExactError::ScaleSpanTooWide` | A row's scales lie too many powers of two apart for its sum to be held exactly in i128 |
 
 ## Cited authorities
 

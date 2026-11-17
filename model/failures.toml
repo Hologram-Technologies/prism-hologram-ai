@@ -455,11 +455,3 @@ type = "ExactError"
 variant = "ScaleNotFinite"
 suite = "engine"
 condition = "A scale stored with an exact product's weights is not a finite number"
-
-[[failure]]
-id = "FL-54"
-crate = "exact"
-type = "ExactError"
-variant = "ScaleSpanTooWide"
-suite = "engine"
-condition = "A row's scales lie too many powers of two apart for its sum to be held exactly in i128"

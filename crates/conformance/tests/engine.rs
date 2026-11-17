@@ -7134,15 +7134,21 @@ fn ternary_case(draw: &mut Draw, rows: usize, columns: usize, input: Vec<f32>) -
     }
 }
 
+/// Binary32 values as the bit patterns the exact crate takes.
+fn bits(values: &[f32]) -> Vec<u32> {
+    values.iter().map(|x| x.to_bits()).collect()
+}
+
 /// The crate's answer for a case, through its public functions.
 fn exact_rows(case: &ExactCase) -> Result<Vec<f32>, exact::ExactError> {
     let (rows, columns) = (case.rows, case.columns);
+    let input = bits(&case.input);
     let count = rows * columns;
     match case.format {
         "ternary" => {
             let plane = count / 8;
             exact::ternary_matvec(
-                &case.input,
+                &input,
                 &case.tensor[..plane],
                 &case.tensor[plane..2 * plane],
                 &case.tensor[2 * plane..],
@@ -7157,9 +7163,10 @@ fn exact_rows(case: &ExactCase) -> Result<Vec<f32>, exact::ExactError> {
             } else {
                 exact::Q4Scales::F32(scales)
             };
-            exact::q4_matvec(&case.input, codes, scales, rows, columns)
+            exact::q4_matvec(&input, codes, scales, rows, columns)
         }
     }
+    .map(|rows| rows.into_iter().map(f32::from_bits).collect())
 }
 
 /// What the module is handed for a case: rows, columns, input, tensor.
@@ -7370,7 +7377,7 @@ fn engine_en_34() {
     assert!(cases.len() >= 50, "only {} cases", cases.len());
     let mut module_cases = Vec::new();
     for (index, case) in cases.iter().enumerate() {
-        let quantised = exact::quantise(&case.input).expect("a finite input quantises");
+        let quantised = exact::quantise(&bits(&case.input)).expect("a finite input quantises");
         let codes = quantised.codes();
         let unit = 2f64.powi(-quantised.exponent());
 
@@ -7501,14 +7508,16 @@ fn engine_en_34() {
             "said": 0,
         }));
     }
-    // No floating-point type is computed with: the crate reads and writes
-    // f32 bits and does everything between in integers.
+    // No floating-point type at all: the crate takes and returns binary32
+    // bit patterns and does everything between in integers.
     let source = std::fs::read_to_string(root().join("crates/exact/src/lib.rs"))
         .expect("the crate's source");
-    assert!(
-        !source.contains("f64"),
-        "crates/exact/src/lib.rs names f64: the products must be integer from the stored bytes to the one rounding"
-    );
+    for line in source.lines().filter(|l| !l.trim_start().starts_with("//")) {
+        assert!(
+            !line.contains("f32") && !line.contains("f64"),
+            "crates/exact/src/lib.rs names a float type outside a comment: {line}"
+        );
+    }
 
     // A misshapen request is refused by the module as the crate refuses it.
     let mut misaligned = exact_request(&cases[0]);
@@ -7582,12 +7591,12 @@ fn engine_fl_50() {
         let mut input = vec![1.0f32; 32];
         input[7] = bad;
         assert_eq!(
-            exact::quantise(&input),
+            exact::quantise(&bits(&input)),
             Err(exact::ExactError::InputNotFinite)
         );
         assert_eq!(
             exact::q4_matvec(
-                &input,
+                &bits(&input),
                 &[0x88; 16],
                 exact::Q4Scales::F32(&1f32.to_le_bytes()),
                 1,
@@ -7601,12 +7610,12 @@ fn engine_fl_50() {
 /// `FL-51`: An exact product's row length is not a whole number of scale groups
 #[test]
 fn engine_fl_51() {
-    let quantised = exact::quantise(&[1.0; 48]).expect("finite");
+    let quantised = exact::quantise(&bits(&[1.0; 48])).expect("finite");
     assert_eq!(
         exact::q4_group_sums(&quantised, &[0x88; 24], 1, 48),
         Err(exact::ExactError::GroupMisaligned)
     );
-    let quantised = exact::quantise(&[1.0; 64]).expect("finite");
+    let quantised = exact::quantise(&bits(&[1.0; 64])).expect("finite");
     assert_eq!(
         exact::ternary_group_sums(&quantised, &[0; 8], &[0; 8], 1, 64),
         Err(exact::ExactError::GroupMisaligned)
@@ -7620,18 +7629,30 @@ fn engine_fl_52() {
     let scale = 1f32.to_le_bytes();
     // Codes one byte short.
     assert_eq!(
-        exact::q4_matvec(&input, &[0x88; 15], exact::Q4Scales::F32(&scale), 1, 32),
+        exact::q4_matvec(
+            &bits(&input),
+            &[0x88; 15],
+            exact::Q4Scales::F32(&scale),
+            1,
+            32
+        ),
         Err(exact::ExactError::LengthMismatch)
     );
     // A scale missing.
     assert_eq!(
-        exact::q4_matvec(&input, &[0x88; 32], exact::Q4Scales::F32(&scale), 2, 32),
+        exact::q4_matvec(
+            &bits(&input),
+            &[0x88; 32],
+            exact::Q4Scales::F32(&scale),
+            2,
+            32
+        ),
         Err(exact::ExactError::LengthMismatch)
     );
     // An input of the wrong length.
     assert_eq!(
         exact::q4_matvec(
-            &input[..31],
+            &bits(&input[..31]),
             &[0x88; 16],
             exact::Q4Scales::F32(&scale),
             1,
@@ -7641,7 +7662,7 @@ fn engine_fl_52() {
     );
     // A ternary plane short.
     assert_eq!(
-        exact::ternary_matvec(&[1.0; 128], &[0; 16], &[0; 15], &scale, 1, 128),
+        exact::ternary_matvec(&bits(&[1.0; 128]), &[0; 16], &[0; 15], &scale, 1, 128),
         Err(exact::ExactError::LengthMismatch)
     );
     // A request to the module shorter than its own row and column counts, and
@@ -7665,7 +7686,7 @@ fn engine_fl_53() {
     for bad in [f32::INFINITY, f32::NAN] {
         assert_eq!(
             exact::q4_matvec(
-                &input,
+                &bits(&input),
                 &[0x99; 16],
                 exact::Q4Scales::F32(&bad.to_le_bytes()),
                 1,
@@ -7677,7 +7698,7 @@ fn engine_fl_53() {
     for bad in [0x7c00u16, 0xfe00] {
         assert_eq!(
             exact::q4_matvec(
-                &input,
+                &bits(&input),
                 &[0x99; 16],
                 exact::Q4Scales::F16(&bad.to_le_bytes()),
                 1,
@@ -7688,7 +7709,7 @@ fn engine_fl_53() {
     }
     assert_eq!(
         exact::ternary_matvec(
-            &[1.0; 128],
+            &bits(&[1.0; 128]),
             &[0xff; 16],
             &[0xff; 16],
             &f32::NAN.to_le_bytes(),
@@ -7697,26 +7718,4 @@ fn engine_fl_53() {
         ),
         Err(exact::ExactError::ScaleNotFinite)
     );
-}
-
-/// `FL-54`: A row's scales lie too many powers of two apart for its sum to be held exactly in i128
-#[test]
-fn engine_fl_54() {
-    let input = vec![1.0f32; 64];
-    let scales = |a: f32, b: f32| {
-        let mut bytes = a.to_le_bytes().to_vec();
-        bytes.extend_from_slice(&b.to_le_bytes());
-        bytes
-    };
-    // Every weight 1 (code 9), so both groups' sums are 32 * 127.
-    let wide = scales(f32::from_bits(1), 2f32.powi(127));
-    assert_eq!(
-        exact::q4_matvec(&input, &[0x99; 32], exact::Q4Scales::F32(&wide), 1, 64),
-        Err(exact::ExactError::ScaleSpanTooWide)
-    );
-    // A hundred powers of two apart is held, and is the exact answer.
-    let apart = scales(1.0, 2f32.powi(100));
-    let rows = exact::q4_matvec(&input, &[0x99; 32], exact::Q4Scales::F32(&apart), 1, 64)
-        .expect("a hundred powers of two fit in i128");
-    assert_eq!(rows[0], (32.0f32 * (1.0 + 2f32.powi(100))));
 }

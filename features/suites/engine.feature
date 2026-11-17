@@ -554,10 +554,3 @@ Feature: engine
     Given a q4 matrix whose f32 scale is infinity or NaN, one whose half scale is infinity or NaN, and a ternary matrix whose scale is NaN
     When each product is asked for
     Then each returns ExactError::ScaleNotFinite
-
-  @FL-54 @build
-  Scenario: A row's scales lie too many powers of two apart for its sum to be held exactly in i128
-    Given a q4 row of two groups whose f32 scales are 2^-149 and 2^127
-    When its product is asked for
-    Then it returns ExactError::ScaleSpanTooWide
-    And a row whose scales are 1 and 2^100 apart is computed
