@@ -324,6 +324,10 @@ fn gpu_gp_06() {
             .unwrap_or_else(|| panic!("app.mjs no longer has: {needle}"))
     };
     assert!(page.contains("fetch(\"../precache.json\", { cache: \"no-store\" })"));
+    assert!(
+        page.contains("const held = blake3Hex(holo);") && page.contains("return entry.blake3;"),
+        "the kernel is no longer compared with the listing by BLAKE3"
+    );
     let load = at("async function load()");
     let compare = load
         + page[load..]
@@ -359,7 +363,7 @@ fn gpu_gp_06() {
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
         "stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true }",
-        "f.sha256 = \"0\".repeat(64)",
+        "f.blake3 = \"0\".repeat(64)",
         "staleStop?.subject !== \"kernel is the one this deploy lists\"",
         "!/^stale kernel/.test(stale.error ?? \"\")",
         "the page went on past the kernel",
@@ -410,7 +414,19 @@ fn gpu_gp_07() {
         !page.contains("src=\"./app.mjs\""),
         "the engine must not be loaded by a script tag, which runs whatever the cache holds"
     );
+    // Cached files and the listing are compared by BLAKE3, the one address
+    // Hologram AI names its own files by.
+    assert!(
+        !page.contains("SHA-256"),
+        "site/app/index.html compares cached files by SHA-256"
+    );
+    let listing = read("bootstrap/precache.mjs");
+    assert!(
+        listing.contains("blake3: blake3Hex(bytes),") && !listing.contains("createHash"),
+        "bootstrap/precache.mjs no longer lists each file by its BLAKE3 alone"
+    );
     for wanted in [
+        "const held = blake3Hex(new Uint8Array(await (await cache.match(request)).arrayBuffer()));",
         "if (held !== want) {",
         "await cache.delete(request);",
         "location.reload();",

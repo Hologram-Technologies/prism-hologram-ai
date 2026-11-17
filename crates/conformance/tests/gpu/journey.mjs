@@ -130,7 +130,7 @@ try {
     if (variants[name].staleKernel) {
       await page.route("**/precache.json", async (route) => {
         const listing = await (await route.fetch()).json();
-        for (const f of listing.files) if (f.path === "./app.holo") f.sha256 = "0".repeat(64);
+        for (const f of listing.files) if (f.path === "./app.holo") f.blake3 = "0".repeat(64);
         await route.fulfill({ contentType: "application/json", body: JSON.stringify(listing) });
       });
     }

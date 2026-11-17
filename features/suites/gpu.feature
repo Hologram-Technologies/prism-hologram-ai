@@ -36,7 +36,7 @@ Feature: gpu
   @GP-06 @build
   Scenario: The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists
     Given the assembled site, with the precache.json the deploy writes, and the journey's container
-    When the deploy's listing names a different SHA-256 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
+    When the deploy's listing names a different BLAKE3 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
     Then the page stops at "kernel is the one this deploy lists" with an error beginning "stale kernel", naming both, before it reads the record or asks the kernel any question
     And with the listing matching, the comparison passes and the load goes on
 
@@ -52,7 +52,7 @@ Feature: gpu
   Scenario: A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page
     Given the assembled site, with the precache.json the deploy writes, and a cache named as the service worker names its own that holds one file of an earlier deploy and one of this deploy
     When the engine page is opened, which the worker always fetches from the network
-    Then before importing the engine the page compares every cached file the listing names with the SHA-256 listed, removes the one that differs, keeps the one that matches, and reloads once
+    Then before importing the engine the page compares every cached file the listing names with the BLAKE3 listed, removes the one that differs, keeps the one that matches, and reloads once
     And after the reload it says files from an earlier deploy were replaced and imports the engine
     And when a reload has already been spent and a cached file still differs, it stops with "Stopped: stale page", disables Load and does not import the engine
 

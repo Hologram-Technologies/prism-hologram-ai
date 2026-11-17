@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: 'sha256-SVozqTflJGa4xzTTQ7+REOt5cGHA1ro2m8+xf2JVr6o=' 'sha256-eB4dqW4fpDA14g0DazTG/mz/R91qyw1mBIPlbsrk4Qg='; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://hologram-technologies.github.io https://gethologram.ai; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: 'sha256-SVozqTflJGa4xzTTQ7+REOt5cGHA1ro2m8+xf2JVr6o=' 'sha256-xSV08IYugDxbuCKSQbaE8FucBapyZCriHCQs3mHW/iw='; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://hologram-technologies.github.io https://gethologram.ai; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; object-src 'none'">
 <title>Hologram AI — engine</title>
 <link rel="stylesheet" href="./app.css">
 </head>
@@ -39,6 +39,7 @@
 </main>
 <script type="importmap">{"imports":{"node:crypto":"../vendor/node-crypto-shim.mjs"}}</script>
 <script type="module">
+import { blake3Hex } from "../vendor/prism-code/src/blake3.mjs";
 // A cache from an earlier deploy can outlive it (UOR-Foundation/template#83),
 // and the worker then serves that deploy's engine to this one's page. This page
 // is the one file always fetched fresh, so the comparison is here, before the
@@ -55,15 +56,14 @@ try {
 }
 if (listing && globalThis.caches) {
   const root = new URL("../", location.href);
-  const listed = new Map(listing.files.map((f) => [new URL(f.path, root).href, f.sha256]));
+  const listed = new Map(listing.files.map((f) => [new URL(f.path, root).href, f.blake3]));
   for (const name of await caches.keys()) {
     if (!name.startsWith("prism-")) continue;
     const cache = await caches.open(name);
     for (const request of await cache.keys()) {
       const want = listed.get(request.url.split(/[?#]/)[0]);
       if (!want) continue;
-      const digest = await crypto.subtle.digest("SHA-256", await (await cache.match(request)).arrayBuffer());
-      const held = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+      const held = blake3Hex(new Uint8Array(await (await cache.match(request)).arrayBuffer()));
       if (held !== want) {
         stale.push(request.url);
         await cache.delete(request);
