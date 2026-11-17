@@ -1054,3 +1054,57 @@ fn gpu_gp_18() {
         );
     }
 }
+
+/// `GP-19`: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
+#[test]
+fn gpu_gp_19() {
+    // The journey runs the ONNX cases in a browser (`just page-journey`, as
+    // in GP-03 and GP-07); this test reads that it does, and that the page
+    // takes the path it checks.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "onnx: asked.get(\"onnx\")",
+        "await loadOnnxModel({ kernel, ask, device, started });",
+        "compileGuest(resolveArchive(kernel.archive).guest.content)",
+        "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
+        "const stops = session.stops ??",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let loader = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "m.callWith(\"onnx_start\"",
+        "m.callWith(\"onnx_take\", chunk)",
+        "m.call(\"onnx_finish\")",
+        "roles(table, config)",
+        "is not the file the record names",
+        "crypto.subtle.digest(\"SHA-1\", blob)",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "buildOnnxFixture()",
+        "Object.defineProperty(Navigator.prototype, \"gpu\"",
+        "onnx ${name}: the page's tokens",
+        "onnx ${name}: ran on ${run.device}, expected ${device}",
+        "onnx flip: expected the kernel to refuse the graph file",
+        "onnx tokenizer: expected to stop at tokenizer.json",
+        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
+        "onnx gitwrong: expected to stop at generation_config.json",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}

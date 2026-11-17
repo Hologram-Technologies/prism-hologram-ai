@@ -10,7 +10,8 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
-import { tinyModel } from "./reference.mjs";
+import { referenceModel, tinyModel, tinyQwen2 } from "./reference.mjs";
+import { onnxFile } from "./onnx-write.mjs";
 
 const text = new TextEncoder();
 const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
@@ -101,6 +102,76 @@ export function hubFiles(fixture, { resolve, sha256 = fixture.sha256 }) {
     revision: fixture.revision,
     origin: { kind: "fixture", resolve },
     files: [{ path: fixture.path, size: fixture.container.length, gitSha1: "0".repeat(40), sha256 }],
+    sources: [],
+    witnesses: [],
+  }));
+  const root = Buffer.from(JSON.stringify({
+    format: "hologram.hub.index/v2",
+    records: [{ repo: fixture.repo, revision: fixture.revision, sha256: createHash("sha256").update(record).digest("hex") }],
+  }));
+  return { record, root };
+}
+
+
+// The prompt the page frames "hi" in for a model whose vocabulary has no
+// <think> token, as site/app/app.mjs writes it.
+export const ONNX_PROMPT = "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n";
+
+// GP-19's fixture: GP-18's Qwen3-shaped model written as onnx-community's
+// fused q4f16 export writes one, its config.json, generation_config.json and a
+// byte-level tokenizer.json, and the hub record that names all four by their
+// SHA-256. The model stops on an id the reference never picks in its first
+// twenty steps after the prompt, so the page's first sixteen are comparable.
+export function buildOnnxFixture() {
+  // Seed 16: its first sixteen picks after the prompt are six different ids,
+  // the best two logits never closer than 0.0235.
+  const model = tinyQwen2(16, "onnx", "f16", "dense", { vectors: "f16", qkNorm: true });
+  const { bytes: graph, config } = onnxFile(model, "qwen3");
+  const alphabet = byteAlphabet();
+  const vocab = {};
+  alphabet.forEach((c, id) => { vocab[c] = id; });
+  for (let i = 0; Object.keys(vocab).length < model.dims.vocab; i++) vocab[alphabet[65 + (i % 26)] + alphabet[97 + Math.floor(i / 26)]] = 256 + i;
+  const tokenizer = Buffer.from(JSON.stringify({
+    version: "1.0",
+    added_tokens: [],
+    normalizer: null,
+    pre_tokenizer: { type: "ByteLevel", add_prefix_space: false, trim_offsets: true, use_regex: true },
+    model: { type: "BPE", vocab, merges: [] },
+  }));
+  const prompt = Array.from(Buffer.from(ONNX_PROMPT, "utf8"));
+  const reference = referenceModel(model);
+  let next;
+  for (const id of prompt) next = reference.step(id).token;
+  const picked = [];
+  for (let i = 0; i < 20; i++) {
+    picked.push(next);
+    next = reference.step(next).token;
+  }
+  let eos = model.dims.vocab - 1;
+  while (picked.includes(eos)) eos--;
+  const files = new Map([
+    ["config.json", Buffer.from(JSON.stringify({ ...config, eos_token_id: eos }))],
+    ["generation_config.json", Buffer.from(JSON.stringify({ eos_token_id: [eos] }))],
+    ["tokenizer.json", tokenizer],
+    ["onnx/model_q4f16.onnx", Buffer.from(graph)],
+  ]);
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  return { model, files, sha, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40) };
+}
+
+// The hub's record for the ONNX fixture, with a whole-file SHA-256 for each
+// file (the graph's may be given wrong), and the index root that names it.
+const gitBlob = (bytes) => createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex");
+
+export function onnxHubFiles(fixture, { resolve, sha256 = {}, gitOnly = [], gitSha1 = {} }) {
+  const record = Buffer.from(JSON.stringify({
+    format: "hologram.hub.release/v4",
+    repo: fixture.repo,
+    revision: fixture.revision,
+    origin: { kind: "fixture", resolve },
+    files: [...fixture.files].map(([path, bytes]) => gitOnly.includes(path)
+      ? { path, size: bytes.length, gitSha1: gitSha1[path] ?? gitBlob(bytes) }
+      : { path, size: bytes.length, gitSha1: "0".repeat(40), sha256: sha256[path] ?? fixture.sha(bytes) }),
     sources: [],
     witnesses: [],
   }));
