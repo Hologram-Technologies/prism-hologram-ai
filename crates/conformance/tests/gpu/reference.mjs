@@ -86,7 +86,8 @@ export function packMatMulNBits(codes, scales, n, k, scaleType) {
 // tied to it with no tensor of its own, as in onnx-community's exports.
 // shape.vectors "f16" holds the norm weights and biases in f16, as a q4f16
 // export does; shape.llama3 gives Llama's shape instead: no biases, and Llama
-// 3's rotary scaling with the parameters given.
+// 3's rotary scaling with the parameters given; shape.qkNorm gives Qwen3's:
+// no biases, and a norm on each query and key head.
 export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding = "q4", shape = {}) {
   const random = generator(seed);
   const dims = { d: 128, n_heads: 4, n_kv_heads: 2, hd: 32, ff: 256, vocab: 320, n_layers: 2, rope_base: 10000, eps: 1e-6 };
@@ -128,7 +129,10 @@ export function tinyQwen2(seed = 1, layout = "q4", scaleType = "f32", embedding 
     matrix(`l${l}.wq`, h * hd, d);
     matrix(`l${l}.wk`, kv * hd, d);
     matrix(`l${l}.wv`, kv * hd, d);
-    if (!shape.llama3) {
+    if (shape.qkNorm) {
+      vector(`l${l}.q_norm`, hd, 0.8, 0.4);
+      vector(`l${l}.k_norm`, hd, 0.8, 0.4);
+    } else if (!shape.llama3) {
       vector(`l${l}.bq`, h * hd, -0.3, 0.6);
       vector(`l${l}.bk`, kv * hd, -0.3, 0.6);
       vector(`l${l}.bv`, kv * hd, -0.3, 0.6);

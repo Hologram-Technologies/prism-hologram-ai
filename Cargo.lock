@@ -411,6 +411,7 @@ dependencies = [
  "hologram-ai-exact",
  "hologram-ai-model-reader",
  "hologram-ai-tokenizer",
+ "serde_json",
 ]
 
 [[package]]

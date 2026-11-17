@@ -2,23 +2,33 @@
 // prompt by greedy decoding. Everything shown is also on window.__qengine, so a
 // test reads the verdicts and timings rather than the screen.
 
+import { createCpuEngine } from "./engine/cpu.mjs";
 import { createEngine } from "./engine/gpu.mjs";
 import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
+import { strftime } from "./engine/jinja.mjs";
+import { fetched, loadOnnx } from "./engine/onnx-load.mjs";
 
 // The model to run: Bonsai unless the address names another, so a link can say
-// "run this model" (?repo=owner/name&path=file&index=hub index base).
+// "run this model" (?repo=owner/name&path=file&index=hub index base), or an
+// ONNX export on the hub, read from its own files with no repack
+// (?onnx=owner/name&precision=q4f16).
 const asked = new URLSearchParams(location.search);
 const MODEL = {
   repo: asked.get("repo") ?? "HOLOGRAMTECH/q-ternary-bonsai-1.7b",
   path: asked.get("path") ?? "q-ternary-bonsai-1.7b.v1.holo",
   indexBase: asked.get("index") ?? "https://hologram-technologies.github.io/hub/data/index",
   fallback: asked.get("repo") ? null : "https://huggingface.co/HOLOGRAMTECH/q-ternary-bonsai-1.7b/resolve/c6d6a12384ecc52ae7e006bef263bfedf5e7496c/",
+  onnx: asked.get("onnx"),
+  precision: asked.get("precision") ?? "q4f16",
 };
+// The file of each precision, as onnx-community names them.
+const ONNX_FILES = { q4f16: "onnx/model_q4f16.onnx", q4: "onnx/model_q4.onnx" };
 const CAPACITY = 2048;
 
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
 if (asked.get("repo")) $("model-name").textContent = `${MODEL.repo}, file ${MODEL.path}, from the index at ${MODEL.indexBase}.`;
+if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
 const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
 window.__qengine = state;
 
@@ -107,6 +117,11 @@ async function load() {
       ? await adapter.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: limit, maxBufferSize: adapter.limits.maxBufferSize } })
       : null;
 
+    if (MODEL.onnx) {
+      await loadOnnxModel({ kernel, ask, device, started });
+      return;
+    }
+
     status("Reading the model's record…");
     const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.repo, checks });
     const file = record.files.find((f) => f.path === MODEL.path);
@@ -156,6 +171,52 @@ async function load() {
   }
 }
 
+// An ONNX export from its own files. The module's importer asks the kernel
+// about every span, operator, file and 4-bit weight as the bytes arrive; it
+// asks synchronously, so the kernel is the same verified guest run with
+// runGuest, compiled from the archive loadArchive verified.
+async function loadOnnxModel({ kernel, ask, device, started }) {
+  const { compileGuest, resolveArchive, runGuest } = await import("../vendor/prism-code/src/index.mjs");
+  const guest = await compileGuest(resolveArchive(kernel.archive).guest.content);
+  const answer = (request) => runGuest(guest, request, kernel.limits);
+
+  status("Reading the model's record…");
+  const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.onnx, checks });
+  const path = ONNX_FILES[MODEL.precision];
+  if (!path) throw new Error(`precision ${MODEL.precision}: this page reads q4f16 and q4 exports`);
+  // Which file a precision is, is the kernel's decision 24; the page names it
+  // by the export's convention until it asks.
+  checks.add("source", `the ${MODEL.precision} file`, "not checked", `${path}, by the export's naming; decision 24 is not asked here yet`);
+  const base = record.origin?.resolve;
+  if (!base) throw new Error("the record names no origin");
+  const graph = record.files.find((f) => f.path === path);
+  if (!graph) throw new Error(`the record names no ${path}`);
+  if (!device) checks.add("device", "the CPU path, with no WebGPU adapter", "not checked", "the kernel's device decision (22) is not asked here yet");
+
+  const module = await openModule("./engine/engine.wasm");
+  status("Downloading and checking every tensor…");
+  $("progress").hidden = false;
+  const { engine, stops, chat } = await loadOnnx({
+    record,
+    path,
+    open: fetched(base),
+    module,
+    kernel: answer,
+    checks,
+    onProgress: (file, done) => { if (file === 0) $("progress").value = done / graph.size; },
+    build: async (dims, tensors) => {
+      status(device ? "Uploading to the GPU…" : "Preparing the CPU engine…");
+      return device ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
+    },
+  });
+  session = { engine, module, kernel, ask, stops, chat };
+  state.phase = "ready";
+  state.device = device ? "webgpu" : "cpu";
+  state.loadSeconds = (performance.now() - started) / 1000;
+  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${device ? `${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
+  $("send").disabled = false;
+}
+
 // The chat frame by what the vocabulary knows. Qwen3 reads <think> as one token,
 // so it gets an empty thinking block and answers directly; Qwen2.5 does not, and
 // gets the system line its own template writes when none is given.
@@ -191,11 +252,18 @@ async function answer() {
   const { engine, ask } = session;
   // An empty box asks the example its placeholder shows.
   const text = $("prompt").value.trim() || $("prompt").placeholder;
-  const prompt = encode(frame(text));
+  // An ONNX export's turn is written by its own chat template (Qwen3's with
+  // thinking off, as the page answers directly); a weight container's by the
+  // frame above.
+  const framed = session.chat
+    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content: text }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
+    : frame(text);
+  const prompt = encode(framed);
   // The model stops on the id its own file names (EN-28); a file naming none
   // runs to the turn's budget.
-  const said = session.module.call("tokeniser_stops_at");
-  const stops = new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
+  // An ONNX export names them in its generation_config.json, read at load.
+  const said = session.stops ? null : session.module.call("tokeniser_stops_at");
+  const stops = session.stops ?? new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
   engine.reset();
   const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(256, 8)), (a) => /^\d+$/.test(a)));
   const t0 = performance.now();

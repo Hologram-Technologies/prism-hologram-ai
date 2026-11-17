@@ -134,3 +134,29 @@ Feature: gpu
     Then all-MiniLM-L6-v2 has 101 tensors placed, 36 of them q4f16, and DistilBERT 104 with its classifier head and its labels NEGATIVE and POSITIVE
     And an activation other than exact GELU, an unknown family, a missing bias, a head Gemm not transposed, a config with three labels, an operator no role takes and a feed-forward width the shapes contradict are each refused, naming what is wrong
     And GP-13's and GP-14's encoders, written as these exports name their nodes and placed from their graphs alone, give the reference's embedding within 1e-4 and its labels
+
+  @GP-18 @build
+  Scenario: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
+    Given GP-05's q4 model, GP-10's Qwen2.5-shaped and GP-11's Llama-shaped models, and the same with Qwen3's shape: no biases and a norm on each query and key head
+    When site/app/engine/cpu.mjs runs each in headless Chromium launched with its GPU disabled, where no WebGPU adapter is offered, beside the double-precision reference
+    Then at each of sixteen steps the engine picks the reference's token and every logit is within 1e-5, and over 140 positions every logit is within 1e-5
+    And a 40-token prompt run with run() picks the same 12 tokens as stepping it one position at a time
+    And a prefix kept, overwritten by 50 other tokens and restored continues with the tokens of running the whole prompt
+
+  @GP-19 @build
+  Scenario: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
+    Given a Qwen3-shaped model written as onnx-community's fused q4f16 export writes one, with its config.json, generation_config.json and a byte-level tokenizer.json, and a hub record and index root naming each file by its SHA-256
+    When `just page-journey` opens the engine page with ?onnx= naming it, as `vv` does after `app` and `engine`, once with WebGPU and once with navigator.gpu taken away
+    Then the page checks each small file against the record, imports the graph through the module asking the kernel, places every weight, reads the stop id from generation_config.json, reaches ready on WebGPU and on the CPU, and answers with the reference's first sixteen tokens
+    And a graph with one byte flipped is refused by the kernel at the whole file, before any weight is placed
+    And a record naming another SHA-256 for tokenizer.json stops the page at that file
+    And a record that names config.json and generation_config.json by their Git blob SHA-1 alone, as the live hub's do, loads, each checked by that hash, and one naming another blob stops the page at that file
+
+  @GP-20 @build
+  Scenario: The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name
+    Given the three exports' chat templates at their hub revisions and twenty conversations each, recorded in crates/conformance/tests/gpu/templates with what Python's jinja2 3.1.6 rendered for them in transformers' sandboxed environment (trim_blocks, lstrip_blocks, its tojson, raise_exception, strftime_now at a fixed date): one turn, a system turn, several turns, Unicode, Qwen3's thinking and thinking off, tool definitions, tool calls and results, a system turn after the first, a given date, tools outside the first user turn, and tools with no user turn
+    And a fourth template written to reach what theirs do not, tags with no dash under lstrip_blocks and trim_blocks, a tag opting out with a plus, a trailing newline and nested loops, rendered the same way
+    When site/app/engine/jinja.mjs compiles each template and renders each conversation
+    Then every text is the one jinja2 rendered, byte for byte, and Llama's template raises its own error where jinja2 raised it
+    And a macro, an include, the filter upper, the string method title, the test odd and an unclosed if are each refused, naming what is outside
+    And the engine page frames an ONNX export's turn with the model's own template, read from tokenizer_config.json and checked against the record

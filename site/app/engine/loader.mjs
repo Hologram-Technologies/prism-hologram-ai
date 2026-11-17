@@ -9,8 +9,25 @@ const text = new TextDecoder();
 // The wasm module's calls, with bytes in and out through its linear memory.
 // Every call answers 0 for yes; a no leaves the failure's name as the result.
 export async function openModule(url) {
-  const { instance } = await WebAssembly.instantiate(await (await fetch(url)).arrayBuffer(), {});
-  const x = instance.exports;
+  // The module reaches the kernel through one import, `kernel.ask`: the
+  // request at `at`, `len` bytes, and the answer written at `out`, at most
+  // `cap` bytes; it answers the answer's whole length, so a longer one is cut
+  // and refused. Until setKernel names the kernel, every question is answered
+  // with nothing, which the importer refuses.
+  let kernel = null;
+  let x = null;
+  const imports = {
+    kernel: {
+      ask: (at, len, out, cap) => {
+        if (!kernel) return 0;
+        const answer = kernel(new Uint8Array(x.memory.buffer).slice(at, at + len));
+        new Uint8Array(x.memory.buffer).set(answer.subarray(0, Math.min(answer.length, cap)), out);
+        return answer.length;
+      },
+    },
+  };
+  const { instance } = await WebAssembly.instantiate(await (await fetch(url)).arrayBuffer(), imports);
+  x = instance.exports;
   const result = () => new Uint8Array(x.memory.buffer).slice(x.result_at(), x.result_at() + x.result_len());
   const check = (name, status) => {
     if (status !== 0) throw new Error(`${name}: ${text.decode(result())}`);
@@ -27,7 +44,12 @@ export async function openModule(url) {
   };
   const call = (name, ...args) => check(name, x[name](...args));
   const callWith = (name, bytes, ...rest) => withBytes(bytes, (at, len) => check(name, x[name](at, len, ...rest)));
-  return { x, call, callWith };
+  // `ask(request) -> answer`, both bytes, answered synchronously: the holo's
+  // guest run on the request, as `runGuest` runs it.
+  const setKernel = (ask) => {
+    kernel = ask;
+  };
+  return { x, call, callWith, setKernel };
 }
 
 const u64 = (bytes, at) => Number(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(at, true));

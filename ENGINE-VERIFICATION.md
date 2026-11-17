@@ -84,6 +84,8 @@ runtime's crates are not published there.
 | `EN-22`: a vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a `tokenizer.json` | `engine_en_22`, with the authority checking the JSON side | tested |
 | `FL-24`, `FL-25`: the GGUF reader fails only as `model/failures.toml` lists | `engine_fl_24` and `engine_fl_25` | tested |
 | `EN-32`: a WordPiece `tokenizer.json` in BERT's shape gives the ids HuggingFace's own `tokenizers` gives, and a WordPiece file asking for another step is refused by the step | `engine_en_32`, over 2,135 texts and five files, the unknown token reached 13,820 times; eleven refusals | tested against the authority |
+| `EN-33`: an ONNX export is imported through the page's module, every question put to the kernel the page runs through one import exactly as the importer asks natively, and the model handed back as the nodes, tensors and places the role map reads | `engine_en_33`, EN-31's model in pieces of 7, 4096 and the whole graph; and once, locally, Qwen3-0.6B's real q4f16 export through the release module and the published kernel | tested; real export measured |
+| `FL-49`: the importer's refusal reaches the page as the importer's own failure | `engine_fl_49` | tested |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
@@ -1849,6 +1851,54 @@ suite builds its own.
 Decoding WordPiece ids back to text, a pair of sentences, and padding are
 not built: the encoders read one sentence and give a vector or a label. The
 tokeniser is not yet reachable from the wasm module or the page.
+
+## EN-33, the ONNX import in the page's module
+
+The importer of EN-31 asks the kernel synchronously. In the page the kernel is
+the holo's guest, verified before it is compiled, and `runGuest` answers
+synchronously too; so the module asks it through one import, `kernel.ask`,
+and the importer runs in the page unchanged. The import is handed the
+request and a buffer of 256 bytes the calling function holds; the page writes
+the answer there. That call is the crate's one `unsafe` block, with its
+safety stated beside it. `openModule` in `site/app/engine/loader.mjs`
+supplies the import and `setKernel` names the kernel; until it is named,
+every question is answered with nothing, which the importer refuses.
+
+The stream reader now keeps each node's name (field 3 of NodeProto), and the
+importer hands out its nodes: an export names a weight far more plainly by
+the node that reads it (`/model/layers.0/attn/q_proj/MatMul_Q4`) than by its
+own name (`onnx::MatMul_9333`). The module's `onnx_finish` answers the JSON
+the role map of GP-12 reads, with an input that is not a tensor of the model
+written as null, and each tensor's file, offset, length and BLAKE3 address.
+
+The module grows from 1,636,248 to 1,788,247 bytes (505,740 to 561,390
+gzipped), 85 per cent of the 2 MiB a page may ask for, chiefly `serde_json`,
+already locked.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_33 engine_fl_49`
+
+Run on 2026-11-17 in WSL with the locked toolchain.
+
+| Planted defect | Diagnostic |
+| --- | --- |
+| The kernel's answer dropped before the importer reads it | `onnx_finish in pieces of 7: Import(...)` (a call said no) |
+| Every input named, weights or not | the nodes differ from the ones expected |
+| Every address written from the first tensor's | `w_scales: address` |
+| A data file named by its index, not as the graph names it (a mistake made while writing this) | `onnx_finish in pieces of 7: Import(DataMissing(TensorAt(2)))` |
+| none, before and after | passed |
+
+The scaffold left both tests red first, as R3 requires.
+
+### A real export, once, by hand
+
+On 2026-11-17, `onnx-community/Qwen3-0.6B-ONNX` at 79346d3, `onnx/model_q4f16.onnx`
+(569,789,750 bytes), streamed from its origin through the release module in
+Node, the module asking the published kernel (`app.holo` from the deployed
+site, verified, its guest run with `runGuest`): 919 questions, every answer
+accepted; 508 tensors named; 611 nodes. The role map placed 310 tensors from
+the importer's own table, every one the same as from the graph recorded for
+GP-12 by a separate reader. 373 s on a shared machine, most of it download.
+Not in the suite: it reads 0.57 GB from the network.
 
 ## EN-34, exact q4 and ternary products
 

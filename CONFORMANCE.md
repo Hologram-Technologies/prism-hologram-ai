@@ -56,6 +56,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-30` | `build` | Each request the engine writes for decisions 18 to 28 puts every field at the offset and width the kernel reads it from, and every answer the kernel can give reads as a verdict |
 | `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives |
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
+| `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
 | `EN-34` | `build` | A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code |
 
 ## gpu
@@ -79,6 +80,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-15` | `build` | Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed |
 | `GP-16` | `build` | A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt |
 | `GP-17` | `build` | Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels |
+| `GP-18` | `build` | With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix |
+| `GP-19` | `build` | The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's |
+| `GP-20` | `build` | The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name |
 
 ## kernel
 
@@ -174,6 +178,7 @@ not that the test provokes the failure.
 | `FL-46` | `model-reader` | `ImportError::OperatorRefused` | The kernel refuses an operator the graph names |
 | `FL-47` | `model-reader` | `ImportError::WeightRefused` | A 4-bit weight's codes or scales are not the length the kernel gives for its shape |
 | `FL-48` | `model-reader` | `ImportError::DataMissing` | A tensor's data lies in a file the import is not given, or past the end of the one it is |
+| `FL-49` | `wasm` | `CallError::Import` | The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure |
 | `FL-50` | `exact` | `ExactError::InputNotFinite` | An input to an exact product is not a finite number |
 | `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
 | `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |

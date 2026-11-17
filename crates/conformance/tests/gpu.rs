@@ -979,3 +979,186 @@ fn gpu_gp_17() {
         }
     }
 }
+
+/// The largest difference allowed between the CPU engine's logits and the
+/// reference's. Both sum in double precision; the engine keeps activations as
+/// single precision between steps, as the GPU does. Measured at most 7.3e-7.
+const CPU_TOLERANCE: f64 = 1e-5;
+
+/// `GP-18`: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
+#[test]
+fn gpu_gp_18() {
+    let result = node("crates/conformance/tests/gpu/cpu-run.mjs", &[]);
+    // An adapter offered is a failure, not a skip: the claim is about the
+    // engine with WebGPU off.
+    assert!(
+        result.get("error").is_none(),
+        "the CPU engine did not run: {}",
+        result["error"]
+    );
+    assert!(
+        matches!(
+            result["webgpu"].as_str(),
+            Some("no adapter" | "no navigator.gpu")
+        ),
+        "WebGPU was not off: {}",
+        result["webgpu"]
+    );
+    for key in ["q4", "qwen25", "llama", "qwen3"] {
+        let model = &result[key];
+        assert!(model.is_object(), "no {key} run: {result}");
+        let steps = model["steps"].as_array().expect("the steps");
+        assert_eq!(
+            steps.len(),
+            16,
+            "{key}: six prompt tokens and ten generated"
+        );
+        for (i, step) in steps.iter().enumerate() {
+            let worst = step["worst"].as_f64().expect("worst");
+            assert!(
+                worst <= CPU_TOLERANCE,
+                "{key}: step {i}: a logit differs by {worst}"
+            );
+            let margin = step["margin"].as_f64().expect("margin");
+            assert!(
+                margin > 2.0 * CPU_TOLERANCE,
+                "{key}: step {i}: a near tie ({margin})"
+            );
+            assert_eq!(
+                step["gpu"], step["reference"],
+                "{key}: step {i}: another token"
+            );
+        }
+        assert_eq!(
+            model["longPositions"].as_u64(),
+            Some(140),
+            "{key}: 140 positions"
+        );
+        let long = model["longWorst"].as_f64().expect("longWorst");
+        assert!(
+            long <= CPU_TOLERANCE,
+            "{key}: over 140 positions a logit differs by {long}"
+        );
+        assert_eq!(
+            model["together"].as_array().map(Vec::len),
+            Some(12),
+            "{key}: twelve tokens"
+        );
+        assert_eq!(
+            model["together"], model["stepwise"],
+            "{key}: run() picked other tokens"
+        );
+        assert_eq!(
+            model["resumed"], model["straight"],
+            "{key}: the restored prefix continued differently"
+        );
+    }
+}
+
+/// `GP-19`: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
+#[test]
+fn gpu_gp_19() {
+    // The journey runs the ONNX cases in a browser (`just page-journey`, as
+    // in GP-03 and GP-07); this test reads that it does, and that the page
+    // takes the path it checks.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "onnx: asked.get(\"onnx\")",
+        "await loadOnnxModel({ kernel, ask, device, started });",
+        "compileGuest(resolveArchive(kernel.archive).guest.content)",
+        "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
+        "const stops = session.stops ??",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let loader = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "m.callWith(\"onnx_start\"",
+        "m.callWith(\"onnx_take\", chunk)",
+        "m.call(\"onnx_finish\")",
+        "roles(table, config)",
+        "is not the file the record names",
+        "crypto.subtle.digest(\"SHA-1\", blob)",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "buildOnnxFixture()",
+        "Object.defineProperty(Navigator.prototype, \"gpu\"",
+        "onnx ${name}: the page's tokens",
+        "onnx ${name}: ran on ${run.device}, expected ${device}",
+        "onnx flip: expected the kernel to refuse the graph file",
+        "onnx tokenizer: expected to stop at tokenizer.json",
+        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
+        "onnx gitwrong: expected to stop at generation_config.json",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-20`: The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name
+#[test]
+fn gpu_gp_20() {
+    let result = node("crates/conformance/tests/gpu/templates.mjs", &[]);
+    for model in [
+        "Qwen2.5-1.5B-Instruct",
+        "Qwen3-0.6B-ONNX",
+        "Llama-3.2-1B-Instruct-ONNX",
+        // Written to reach what the exports' templates do not: tags with no
+        // dash under lstrip_blocks and trim_blocks, a tag opting out with a
+        // plus, a trailing newline, nested loops.
+        "synthetic whitespace",
+    ] {
+        let r = &result["results"][model];
+        assert_eq!(
+            r["cases"].as_u64(),
+            Some(20),
+            "{model}: twenty conversations"
+        );
+        let differing = r["differing"].as_array().expect("the differing cases");
+        assert!(
+            differing.is_empty(),
+            "{model}: rendered other text than jinja2: {differing:?}"
+        );
+    }
+    for (case, start) in [
+        ("macro", "template: {% macro %} is not one"),
+        ("include", "template: {% include %} is not one"),
+        ("filter", "template: the filter upper is not one"),
+        ("method", "template: the string method title is not one"),
+        ("test", "template: the test odd is not one"),
+        ("unclosed", "template: a template that ends before"),
+        ("raise", "no tools here"),
+    ] {
+        let got = result["refusals"][case].as_str().unwrap_or_default();
+        assert!(got.starts_with(start), "{case}: {got:?}, not {start:?}");
+    }
+    // The page frames an ONNX export's turn with the model's own template.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let loader = read("site/app/engine/onnx-load.mjs");
+    assert!(
+        loader.contains("await small(\"tokenizer_config.json\", true)"),
+        "the template is not read from the model's files"
+    );
+    assert!(
+        loader.contains("render: compileTemplate(source)"),
+        "the template is not compiled"
+    );
+    let page = read("site/app/app.mjs");
+    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
+}
