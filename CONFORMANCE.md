@@ -82,7 +82,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-18` | `build` | With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix |
 | `GP-19` | `build` | The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's |
 | `GP-20` | `build` | The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name |
-| `GP-21` | `build` | The engine page keeps an ONNX export's files in the browser under the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each checked against the record and imported through the kernel exactly as a download is; a kept file that is not the record's is refused, and the load forgets every file it read, so the next visit downloads them again |
+| `GP-21` | `build` | The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again |
 
 ## kernel
 
@@ -157,7 +157,7 @@ not that the test provokes the failure.
 | `FL-25` | `tokenizer` | `TokeniserError::Truncated` | A field of the header runs past the end of what was given |
 | `FL-26` | `wasm` | `CallError::NoBuffer` | The page names a buffer this module did not allocate |
 | `FL-27` | `wasm` | `CallError::NotText` | The bytes handed in where text was asked for are not UTF-8 |
-| `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser or a download is used before one has been started |
+| `FL-28` | `wasm` | `CallError::NothingRead` | A tokeniser, a download or a file's hash is used before one has been started |
 | `FL-29` | `wasm` | `CallError::WrongSize` | A label handed in is not thirty-two bytes |
 | `FL-30` | `download` | `DownloadError::RootNotHex` | The root a container names is not sixty-four lower-case hexadecimal digits |
 | `FL-31` | `model-reader` | `HolkError::NotHolk` | A container does not begin with the magic this reader follows |

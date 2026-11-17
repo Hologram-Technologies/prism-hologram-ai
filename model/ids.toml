@@ -416,7 +416,7 @@ statement = "The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B
 id = "GP-21"
 level = "build"
 suite = "gpu"
-statement = "The engine page keeps an ONNX export's files in the browser under the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each checked against the record and imported through the kernel exactly as a download is; a kept file that is not the record's is refused, and the load forgets every file it read, so the next visit downloads them again"
+statement = "The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again"
 
 [[id]]
 id = "KN-18"

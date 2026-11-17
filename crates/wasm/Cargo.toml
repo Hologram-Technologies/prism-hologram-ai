@@ -19,6 +19,7 @@ categories.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+blake3 = { workspace = true }
 hologram-ai-download = { workspace = true }
 hologram-ai-model-reader = { workspace = true }
 hologram-ai-tokenizer = { workspace = true }

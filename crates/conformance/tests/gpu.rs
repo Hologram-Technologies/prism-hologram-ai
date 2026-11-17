@@ -1163,7 +1163,7 @@ fn gpu_gp_20() {
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
-/// `GP-21`: The engine page keeps an ONNX export's files in the browser under the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each checked against the record and imported through the kernel exactly as a download is; a kept file that is not the record's is refused, and the load forgets every file it read, so the next visit downloads them again
+/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
 #[test]
 fn gpu_gp_21() {
     // The journey runs the four visits in a browser (`just page-journey`, as
@@ -1174,10 +1174,11 @@ fn gpu_gp_21() {
     };
     let kept = read("site/app/engine/files.mjs");
     for wanted in [
-        "SHA256.test(file.sha256 ?? \"\")",
-        "return kept.size === file.size ? kept : null;",
-        "writing.push(keep.pipeTo(writable));",
-        "await dir.removeEntry(n);",
+        "m.callWith(\"hash_take\", chunk, id);",
+        "if (digest() !== local.named) controller.error(",
+        "return bytes.size === file.size ? { named, bytes } : null;",
+        "else await handle.move(named);",
+        "else await dir.removeEntry(t.dir);",
     ] {
         assert!(
             kept.contains(wanted),
@@ -1186,7 +1187,7 @@ fn gpu_gp_21() {
     }
     let page = read("site/app/app.mjs");
     for wanted in [
-        "files = await keepFiles({ record, open: fetched(base) });",
+        "files = await keepFiles({ record, open: fetched(base), module });",
         "open: files ? files.open : fetched(base),",
         "if (files) await files.forget();",
     ] {
@@ -1199,7 +1200,8 @@ fn gpu_gp_21() {
     for wanted in [
         "kept first: expected 0 read here and",
         "kept offline: expected",
-        "kept tampered: expected the kernel to refuse the kept graph",
+        "kept tampered: expected the kept graph refused as not its BLAKE3",
+        "kept first: expected every kept file named by its BLAKE3",
         "kept tampered: the files this load read were not forgotten",
         "kept again: expected every file downloaded again",
     ] {

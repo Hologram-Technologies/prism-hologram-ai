@@ -206,12 +206,15 @@ try {
     results.onnx["kept offline"] = await visit(true);
     const tamper = await context.newPage();
     await tamper.goto(`${origin}/app/`);
-    await tamper.evaluate(async ({ name, bytes }) => {
-      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
-      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+    await tamper.evaluate(async ({ sha256, bytes }) => {
+      const root = await navigator.storage.getDirectory();
+      const names = await root.getDirectoryHandle("hologram-files-names");
+      const name = (await (await (await names.getFileHandle(`sha256-${sha256}`)).getFile()).text()).trim();
+      const dir = await root.getDirectoryHandle("hologram-files");
+      const w = await (await dir.getFileHandle(name)).createWritable();
       await w.write(new Uint8Array(bytes));
       await w.close();
-    }, { name: onnx.sha(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
+    }, { sha256: onnx.sha(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
     await tamper.close();
     results.onnx["kept tampered"] = await visit(true);
     results.onnx["kept again"] = await visit(false);
@@ -385,10 +388,12 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   if (!first || first[1] !== "0" || first[2] !== String(count)) fail(`kept first: expected 0 read here and ${count} downloaded, saw ${kept("kept first")?.detail}`);
   const keptFirst = results.onnx["kept first"].held.filter(([, size]) => size > 0).length;
   if (keptFirst !== count) fail(`kept first: expected ${count} files kept, saw ${keptFirst}`);
+  const named = /each named by its BLAKE3: (.*)$/.exec(kept("kept first")?.detail ?? "")?.[1]?.split(", ") ?? [];
+  if (named.length !== count || named.some((n) => !/ blake3:[0-9a-f]{64}$/.test(n))) fail(`kept first: expected every kept file named by its BLAKE3, saw ${named.join(" | ")}`);
   const offline = said("kept offline");
   if (!offline || offline[1] !== String(count) || offline[2] !== "0") fail(`kept offline: expected ${count} read here and none downloaded, saw ${kept("kept offline")?.detail}`);
   const run = results.onnx["kept tampered"];
-  if (run.phase !== "failed" || !/FileRefused/.test(run.error ?? "")) fail(`kept tampered: expected the kernel to refuse the kept graph, saw ${run.phase}: ${run.error}`);
+  if (run.phase !== "failed" || !/the file kept as blake3:[0-9a-f]{64} is blake3:[0-9a-f]{64}/.test(run.error ?? "")) fail(`kept tampered: expected the kept graph refused as not its BLAKE3, saw ${run.phase}: ${run.error}`);
   if (run.held.some(([, size]) => size > 0)) fail(`kept tampered: the files this load read were not forgotten: ${JSON.stringify(run.held)}`);
   const again = said("kept again");
   if (!again || again[1] !== "0" || again[2] !== String(count)) fail(`kept again: expected every file downloaded again, saw ${kept("kept again")?.detail}`);

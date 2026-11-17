@@ -200,7 +200,7 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   // file comes from the origin.
   let files = null;
   try {
-    files = await keepFiles({ record, open: fetched(base) });
+    files = await keepFiles({ record, open: fetched(base), module });
   } catch (e) {
     checks.add("kept", "model files kept in this browser", "not checked", `none kept: ${e.message}`);
   }
@@ -229,7 +229,7 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
     await files.settled();
     const c = files.counts;
     const mb = (n) => (n / 1048576).toFixed(1);
-    checks.add("kept", "model files read from this browser are the record's, checked as a download is", "pass", `${c.read} read here (${mb(c.readBytes)} MB), ${c.fetched} downloaded and kept (${mb(c.fetchedBytes)} MB)`);
+    checks.add("kept", "model files read from this browser are the record's, checked as a download is", "pass", `${c.read} read here (${mb(c.readBytes)} MB), ${c.fetched} downloaded and kept (${mb(c.fetchedBytes)} MB), each named by its BLAKE3: ${files.kept.map((k) => `${k.path} ${k.address}`).join(", ")}`);
   }
   session = { engine, module, kernel, ask, stops, chat };
   state.phase = "ready";
