@@ -1903,45 +1903,60 @@ Not in the suite: it reads 0.57 GB from the network.
 ## EN-34, exact q4 and ternary products
 
 `hologram-ai-exact` computes a q4 or ternary product in integers from the
-stored bytes to one final rounding. Each `f32` or half scale and each input is
-read from its bits as the exact `mantissa * 2^exponent` it stands for. The input
-is scaled by one power of two onto `i8`, rounded to the nearest, ties to even,
-by integer shifts. Each group's sum is taken by `uor-matmul`'s `dot_ref`. A
-row's group sums times their scales' mantissas are shifted to the row's
-smallest scale exponent and added in `i128`, and that exact value is rounded
-once to the nearest `f32`, ties to even, by building the `f32`'s bits. The
-crate names no `f64`. A row whose scales lie too far apart for `i128` is
-refused (`FL-54`), and a scale that is infinity or NaN is refused (`FL-53`).
+stored bytes to one final rounding, and has no floating-point type: it takes
+the input as binary32 bit patterns and returns binary32 bit patterns. Each
+binary32 or half scale and each input is read from its bits as the exact
+`mantissa * 2^exponent` it stands for. The input is scaled by one power of two
+onto `i8`, rounded to the nearest, ties to even, by integer shifts. Each
+group's sum is taken by `uor-matmul`'s `dot_ref`. A row's group sums times
+their scales' mantissas are placed, at their exponents less the input's, in
+`uor-matmul`'s complete register (`Complete<12, -320>`), which holds every bit
+of every row any finite inputs and scales can give. That exact value is
+rounded once to the nearest binary32, ties to even, from the register's leading
+bits and its sticky bit. A scale that is infinity or NaN is refused (`FL-53`).
 
-This replaces a first form, measured below, that applied each scale and added
-the groups in `f64`: deterministic under IEEE 754, but floating point. On the
-real Qwen matrix saved by that form's run, the integer form gives the same bits
-for all 1,536 outputs.
+Two earlier forms are measured below: one that added the groups in `f64`, and
+one that added them in `i128` and refused a row whose scales were too far apart
+(a failure that the complete register removes). On both real models and both
+inputs, all three give the same output bytes.
 
-### The gate after the change: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+### What runs on uor-matmul, and what is ours
+
+| Piece | Where | Why |
+| --- | --- | --- |
+| A group's sum of products, exactly | `uor-matmul` `dot_ref` | its accumulator cannot overflow |
+| q4 and ternary codes to integers | `uor-matmul` `Grid` | the table codec |
+| A row's exact sum over its groups | `uor-matmul` `Complete` (`add_scaled`) | a fixed-point register over the whole exponent range, with no rounding |
+| Reading a binary32 or half from its bits | ours (`Dyadic`, `Format::read`) | `uor-matmul` 0.1.0 reads floats only through `FloatElement::decode(self)`, for `f32` and `f64` values, so using it would put a float-typed value in the crate; it has no half or bfloat16. To be proposed upstream as a reader over bit patterns |
+| Rounding the register to binary32 bits | ours (`round_to_binary32`), over `Complete`'s `magnitude_high_bit`, `magnitude_bit` and `magnitude_any_below` | `uor-matmul`'s own `EncodeFrom<Complete>` returns an `f32` value. To be proposed upstream as an encoder to bit patterns |
+| Scaling the input onto `i8` | ours (`quantise`) | an activation scheme, not arithmetic `uor-matmul` names; brief step 3 chooses it |
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53`
 
 Run on 2026-11-17 in WSL with the workspace toolchain. Each defect was planted
-alone, the six tests run, the files restored.
+alone, the five tests run, the files restored.
 
 | Planted defect | Rejected by |
 | --- | --- |
-| a shift rounds a tie away from zero | `engine_en_34`: `900 is not rounded to the nearest code, ties to even` |
-| a float's exponent read one too low | `engine_en_34` (input codes) and `engine_fl_54` (the row's value) |
-| the `f32` rounding truncates | `engine_en_34`: a ternary row one unit below the stated value |
-| the span check dropped | `engine_fl_54`: the crate overflows a shift (`attempt to shift left with overflow`) |
+| an input tie rounded away from zero | `engine_en_34`: `900 is not rounded to the nearest code, ties to even` |
+| the binary32 rounding ignores the sticky bit and evenness | `engine_en_34`: `-880.87787 is not the stated -880.8778` |
+| the binary32 rounding truncates | `engine_en_34`: a ternary row one unit below the stated value |
+| a float's exponent read one too low | `engine_en_34`: input codes not the nearest |
+| the register's floor at 2^-60, dropping lower bits | `engine_en_34`: `0 is not the stated -0.000000000000000000000000000008365156` |
+| the input's power applied the wrong way | `engine_en_34`: `-125719 is not the stated -122.77246` |
 | an infinite or NaN scale read as a number | `engine_fl_53`, and `engine_fl_50` |
 | the input exponent never steps down | `engine_en_34`: `the step is too small` |
-| an `f64` in the crate | `engine_en_34`: `crates/exact/src/lib.rs names f64` |
-| the module reads half scales as `f32` | `engine_en_34`: the module's bytes differ from the crate's |
-| a term shifted at most 40 places | `engine_fl_54` only: no EN-34 case has a row whose terms lie more than 40 powers of two apart without cancelling |
+| an `f32` constant in the crate | `engine_en_34`: `names a float type outside a comment` |
+| the module reads half scales as binary32 | `engine_en_34`: the module's bytes differ from the crate's |
 | none, before and after | passed |
 
 What each output is checked against: the exact sum worked in the test from
-each scale's `f64` bits, independently of the crate's reading of `f32` and half
-bits, and rounded once by Rust's own `f64`-to-`f32` conversion; the test asserts
-that sum has at most 53 bits, so that conversion is the one rounding. Each q4
-row is also taken with its groups, scales and input columns in reverse order,
-and must give the same bits.
+each scale's `f64` bits, independently of the crate's reading of binary32 and
+half bits, and rounded once by Rust's own `f64`-to-`f32` conversion; the test
+asserts that sum has at most 53 bits, so that conversion is the one rounding.
+Each q4 row is also taken with its groups, scales and input columns in reverse
+order, and must give the same bits. The crate's source may not name `f32` or
+`f64` outside a comment.
 
 ### The first form's gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
 
@@ -1991,6 +2006,14 @@ With the integer form, on 2026-11-17, natively in WSL (one thread):
 | Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% | 466 to 479 M weights/s |
 | Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% | 512 to 519 M weights/s |
 
+With the complete register, on 2026-11-17, natively in WSL (one thread), the
+same counts and the same errors, and the same output bytes as the `i128` form
+for both models and both inputs. Throughput: 412 M weights/s (Bonsai) and 313 M
+weights/s (Qwen) on the ordinary input; on the first pass, with outliers, 211
+and 189, likely sharing the machine. The register costs about a third of the
+throughput against the `i128` form; a narrower register sized to the scales a
+tensor actually has is the obvious next measurement.
+
 The module the page loads, built from the same source, gave the same bytes as
 native code for Bonsai's 151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix,
 for both inputs. The errors are those of the first form to the digits shown:
@@ -2012,8 +2035,8 @@ finer input scale, per group, is the next measurement, and an engine using
 these products has to be judged on its answers, not on these figures. Softmax, normalisation and rotary encoding remain floating point,
 and nothing on the page calls the module yet.
 
-The input still arrives as `f32` and the output leaves as `f32`, because the
-stages around the product are floating point until they are made integer
-(brief step 4). Between those two, nothing is. The reference the test checks
+The input still arrives as binary32 bit patterns and leaves as binary32 bit
+patterns, because the stages around the product are floating point until they
+are made integer (brief step 4). The crate holds no float value. The reference the test checks
 the rounding against is Rust's own conversion; that the crate's reading of
 half and `f32` bits matches IEEE 754 is tested on the cases drawn, not proved.
