@@ -151,3 +151,12 @@ Feature: gpu
     And a graph with one byte flipped is refused by the kernel at the whole file, before any weight is placed
     And a record naming another SHA-256 for tokenizer.json stops the page at that file
     And a record that names config.json and generation_config.json by their Git blob SHA-1 alone, as the live hub's do, loads, each checked by that hash, and one naming another blob stops the page at that file
+
+  @GP-20 @build
+  Scenario: The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name
+    Given the three exports' chat templates at their hub revisions and twenty conversations each, recorded in crates/conformance/tests/gpu/templates with what Python's jinja2 3.1.6 rendered for them in transformers' sandboxed environment (trim_blocks, lstrip_blocks, its tojson, raise_exception, strftime_now at a fixed date): one turn, a system turn, several turns, Unicode, Qwen3's thinking and thinking off, tool definitions, tool calls and results, a system turn after the first, a given date, tools outside the first user turn, and tools with no user turn
+    And a fourth template written to reach what theirs do not, tags with no dash under lstrip_blocks and trim_blocks, a tag opting out with a plus, a trailing newline and nested loops, rendered the same way
+    When site/app/engine/jinja.mjs compiles each template and renders each conversation
+    Then every text is the one jinja2 rendered, byte for byte, and Llama's template raises its own error where jinja2 raised it
+    And a macro, an include, the filter upper, the string method title, the test odd and an unclosed if are each refused, naming what is outside
+    And the engine page frames an ONNX export's turn with the model's own template, read from tokenizer_config.json and checked against the record

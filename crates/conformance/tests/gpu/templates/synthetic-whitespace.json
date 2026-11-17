@@ -1,0 +1,472 @@
+{
+ "model": "synthetic whitespace",
+ "date": "17 Nov 2026",
+ "template": "{# A template written to reach what the exports' templates do not: tags with no\n   dash, indented under lstrip_blocks, newlines after them under trim_blocks,\n   a tag that opts out with a plus, and nested loops. #}\n{% set ns = namespace(count=0) %}\n<conversation>\n  {% for message in messages %}\n    {% set ns.count = ns.count + 1 %}\n    <turn n=\"{{ loop.index }}\" of=\"{{ loop.length }}\" role=\"{{ message.role }}\">\n      {% if message.content %}\n        {{ message.content | trim }}\n      {% endif %}\n      {% for c in message.role %}{{ c }}{% if not loop.last %}.{% endif %}{% endfor %}\n\n    </turn>\n  {% endfor %}\n    {%+ if add_generation_prompt %}<turn role=\"assistant\">{% endif %}\n</conversation>\n{{ ns.count }}\n",
+ "cases": [
+  {
+   "name": "user",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "user (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    </conversation>\n1"
+  },
+  {
+   "name": "system",
+   "context": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "Be brief.  "
+     },
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"2\" role=\"system\">\n        Be brief.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"2\" of=\"2\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n2"
+  },
+  {
+   "name": "system (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "Be brief.  "
+     },
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"2\" role=\"system\">\n        Be brief.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"2\" of=\"2\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    </conversation>\n2"
+  },
+  {
+   "name": "turns",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     },
+     {
+      "role": "assistant",
+      "content": "Paris."
+     },
+     {
+      "role": "user",
+      "content": "And Spain?"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"3\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"3\" role=\"assistant\">\n        Paris.\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"3\" role=\"user\">\n        And Spain?\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n3"
+  },
+  {
+   "name": "turns (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     },
+     {
+      "role": "assistant",
+      "content": "Paris."
+     },
+     {
+      "role": "user",
+      "content": "And Spain?"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"3\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"3\" role=\"assistant\">\n        Paris.\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"3\" role=\"user\">\n        And Spain?\nu.s.e.r\n    </turn>\n    </conversation>\n3"
+  },
+  {
+   "name": "unicode",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "Café, 中国, 🙂 — \"quotes\" and\nnew lines\t tabs"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        Café, 中国, 🙂 — \"quotes\" and\nnew lines\t tabs\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "unicode (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "Café, 中国, 🙂 — \"quotes\" and\nnew lines\t tabs"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        Café, 中国, 🙂 — \"quotes\" and\nnew lines\t tabs\nu.s.e.r\n    </turn>\n    </conversation>\n1"
+  },
+  {
+   "name": "thinking",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "2+2?"
+     },
+     {
+      "role": "assistant",
+      "content": "<think>\nadd them\n</think>\n\n4"
+     },
+     {
+      "role": "user",
+      "content": "3+3?"
+     },
+     {
+      "role": "assistant",
+      "content": "<think>\nagain\n</think>\n\n6"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"4\" role=\"user\">\n        2+2?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"4\" role=\"assistant\">\n        <think>\nadd them\n</think>\n\n4\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"4\" role=\"user\">\n        3+3?\nu.s.e.r\n    </turn>\n    <turn n=\"4\" of=\"4\" role=\"assistant\">\n        <think>\nagain\n</think>\n\n6\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn role=\"assistant\"></conversation>\n4"
+  },
+  {
+   "name": "thinking (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "2+2?"
+     },
+     {
+      "role": "assistant",
+      "content": "<think>\nadd them\n</think>\n\n4"
+     },
+     {
+      "role": "user",
+      "content": "3+3?"
+     },
+     {
+      "role": "assistant",
+      "content": "<think>\nagain\n</think>\n\n6"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"4\" role=\"user\">\n        2+2?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"4\" role=\"assistant\">\n        <think>\nadd them\n</think>\n\n4\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"4\" role=\"user\">\n        3+3?\nu.s.e.r\n    </turn>\n    <turn n=\"4\" of=\"4\" role=\"assistant\">\n        <think>\nagain\n</think>\n\n6\na.s.s.i.s.t.a.n.t\n    </turn>\n    </conversation>\n4"
+  },
+  {
+   "name": "tools",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "Weather in Paris?"
+     },
+     {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "type": "function",
+        "function": {
+         "name": "get_weather",
+         "arguments": {
+          "city": "Paris"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"temp\": 18}"
+     },
+     {
+      "role": "tool",
+      "content": "{\"sky\": \"clear\"}"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"4\" role=\"user\">\n        Weather in Paris?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"4\" role=\"assistant\">\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"4\" role=\"tool\">\n        {\"temp\": 18}\nt.o.o.l\n    </turn>\n    <turn n=\"4\" of=\"4\" role=\"tool\">\n        {\"sky\": \"clear\"}\nt.o.o.l\n    </turn>\n    <turn role=\"assistant\"></conversation>\n4"
+  },
+  {
+   "name": "tools (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "Weather in Paris?"
+     },
+     {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "type": "function",
+        "function": {
+         "name": "get_weather",
+         "arguments": {
+          "city": "Paris"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"temp\": 18}"
+     },
+     {
+      "role": "tool",
+      "content": "{\"sky\": \"clear\"}"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"4\" role=\"user\">\n        Weather in Paris?\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"4\" role=\"assistant\">\na.s.s.i.s.t.a.n.t\n    </turn>\n    <turn n=\"3\" of=\"4\" role=\"tool\">\n        {\"temp\": 18}\nt.o.o.l\n    </turn>\n    <turn n=\"4\" of=\"4\" role=\"tool\">\n        {\"sky\": \"clear\"}\nt.o.o.l\n    </turn>\n    </conversation>\n4"
+  },
+  {
+   "name": "system_later",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     },
+     {
+      "role": "system",
+      "content": "Speak French."
+     },
+     {
+      "role": "user",
+      "content": "again"
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"3\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"3\" role=\"system\">\n        Speak French.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"3\" of=\"3\" role=\"user\">\n        again\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n3"
+  },
+  {
+   "name": "system_later (no generation prompt)",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     },
+     {
+      "role": "system",
+      "content": "Speak French."
+     },
+     {
+      "role": "user",
+      "content": "again"
+     }
+    ],
+    "add_generation_prompt": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"3\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn n=\"2\" of=\"3\" role=\"system\">\n        Speak French.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"3\" of=\"3\" role=\"user\">\n        again\nu.s.e.r\n    </turn>\n    </conversation>\n3"
+  },
+  {
+   "name": "tools defined",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "description": "The weather in a city, now.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "city": {
+          "type": "string",
+          "description": "The city's name"
+         }
+        },
+        "required": [
+         "city"
+        ]
+       }
+      }
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "tools defined with a system turn",
+   "context": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "Be brief.  "
+     },
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "description": "The weather in a city, now.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "city": {
+          "type": "string",
+          "description": "The city's name"
+         }
+        },
+        "required": [
+         "city"
+        ]
+       }
+      }
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"2\" role=\"system\">\n        Be brief.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"2\" of=\"2\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n2"
+  },
+  {
+   "name": "thinking off",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "add_generation_prompt": true,
+    "enable_thinking": false
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "a date given",
+   "context": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "add_generation_prompt": true,
+    "date_string": "01 Jan 2025"
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"user\">\n        hi\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "tools with no user turn",
+   "context": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "Be brief."
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "description": "The weather in a city, now.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "city": {
+          "type": "string",
+          "description": "The city's name"
+         }
+        },
+        "required": [
+         "city"
+        ]
+       }
+      }
+     }
+    ],
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"1\" role=\"system\">\n        Be brief.\ns.y.s.t.e.m\n    </turn>\n    <turn role=\"assistant\"></conversation>\n1"
+  },
+  {
+   "name": "tools outside the first user turn",
+   "context": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "Be brief.  "
+     },
+     {
+      "role": "user",
+      "content": "What is the capital of France?"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "description": "The weather in a city, now.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "city": {
+          "type": "string",
+          "description": "The city's name"
+         }
+        },
+        "required": [
+         "city"
+        ]
+       }
+      }
+     }
+    ],
+    "tools_in_user_message": false,
+    "add_generation_prompt": true
+   },
+   "text": "<conversation>\n    <turn n=\"1\" of=\"2\" role=\"system\">\n        Be brief.\ns.y.s.t.e.m\n    </turn>\n    <turn n=\"2\" of=\"2\" role=\"user\">\n        What is the capital of France?\nu.s.e.r\n    </turn>\n    <turn role=\"assistant\"></conversation>\n2"
+  }
+ ]
+}

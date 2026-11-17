@@ -1,0 +1,18 @@
+{# A template written to reach what the exports' templates do not: tags with no
+   dash, indented under lstrip_blocks, newlines after them under trim_blocks,
+   a tag that opts out with a plus, and nested loops. #}
+{% set ns = namespace(count=0) %}
+<conversation>
+  {% for message in messages %}
+    {% set ns.count = ns.count + 1 %}
+    <turn n="{{ loop.index }}" of="{{ loop.length }}" role="{{ message.role }}">
+      {% if message.content %}
+        {{ message.content | trim }}
+      {% endif %}
+      {% for c in message.role %}{{ c }}{% if not loop.last %}.{% endif %}{% endfor %}
+
+    </turn>
+  {% endfor %}
+    {%+ if add_generation_prompt %}<turn role="assistant">{% endif %}
+</conversation>
+{{ ns.count }}

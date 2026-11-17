@@ -8,6 +8,7 @@
 // output head names exactly the embedding's bytes, as Bonsai's does.
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
 import { referenceModel, tinyModel, tinyQwen2 } from "./reference.mjs";
@@ -117,6 +118,8 @@ export function hubFiles(fixture, { resolve, sha256 = fixture.sha256 }) {
 // <think> token, as site/app/app.mjs writes it.
 export const ONNX_PROMPT = "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n";
 
+const qwen25Template = () => JSON.parse(readFileSync(new URL("./templates/Qwen2.5-1.5B-Instruct.json", import.meta.url), "utf8")).template;
+
 // GP-19's fixture: GP-18's Qwen3-shaped model written as onnx-community's
 // fused q4f16 export writes one, its config.json, generation_config.json and a
 // byte-level tokenizer.json, and the hub record that names all four by their
@@ -153,6 +156,9 @@ export function buildOnnxFixture() {
     ["config.json", Buffer.from(JSON.stringify({ ...config, eos_token_id: eos }))],
     ["generation_config.json", Buffer.from(JSON.stringify({ eos_token_id: [eos] }))],
     ["tokenizer.json", tokenizer],
+    // Qwen2.5's own chat template, as recorded for GP-20; it frames "hi" as
+    // ONNX_PROMPT, with the system line it writes when none is given.
+    ["tokenizer_config.json", Buffer.from(JSON.stringify({ chat_template: qwen25Template(), eos_token: "<|im_end|>", pad_token: "<|endoftext|>" }))],
     ["onnx/model_q4f16.onnx", Buffer.from(graph)],
   ]);
   const sha = (b) => createHash("sha256").update(b).digest("hex");

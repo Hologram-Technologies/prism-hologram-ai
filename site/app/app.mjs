@@ -5,6 +5,7 @@
 import { createCpuEngine } from "./engine/cpu.mjs";
 import { createEngine } from "./engine/gpu.mjs";
 import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
+import { strftime } from "./engine/jinja.mjs";
 import { fetched, loadOnnx } from "./engine/onnx-load.mjs";
 
 // The model to run: Bonsai unless the address names another, so a link can say
@@ -195,7 +196,7 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   const module = await openModule("./engine/engine.wasm");
   status("Downloading and checking every tensor…");
   $("progress").hidden = false;
-  const { engine, stops } = await loadOnnx({
+  const { engine, stops, chat } = await loadOnnx({
     record,
     path,
     open: fetched(base),
@@ -208,7 +209,7 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
       return device ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
     },
   });
-  session = { engine, module, kernel, ask, stops };
+  session = { engine, module, kernel, ask, stops, chat };
   state.phase = "ready";
   state.device = device ? "webgpu" : "cpu";
   state.loadSeconds = (performance.now() - started) / 1000;
@@ -251,7 +252,13 @@ async function answer() {
   const { engine, ask } = session;
   // An empty box asks the example its placeholder shows.
   const text = $("prompt").value.trim() || $("prompt").placeholder;
-  const prompt = encode(frame(text));
+  // An ONNX export's turn is written by its own chat template (Qwen3's with
+  // thinking off, as the page answers directly); a weight container's by the
+  // frame above.
+  const framed = session.chat
+    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content: text }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
+    : frame(text);
+  const prompt = encode(framed);
   // The model stops on the id its own file names (EN-28); a file naming none
   // runs to the turn's budget.
   // An ONNX export names them in its generation_config.json, read at load.

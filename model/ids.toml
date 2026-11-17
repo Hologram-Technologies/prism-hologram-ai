@@ -407,6 +407,12 @@ suite = "gpu"
 statement = "The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's"
 
 [[id]]
+id = "GP-20"
+level = "build"
+suite = "gpu"
+statement = "The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

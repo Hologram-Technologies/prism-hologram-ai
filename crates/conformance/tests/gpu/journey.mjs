@@ -53,8 +53,8 @@ const onnxVariants = {
   tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
   // As the live hub's records are: the files Git holds itself named by their
   // Git blob SHA-1 alone; and one of those naming another blob.
-  gitblob: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json"] },
-  gitwrong: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json"], gitSha1: { "generation_config.json": "a".repeat(40) } },
+  gitblob: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"] },
+  gitwrong: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"], gitSha1: { "generation_config.json": "a".repeat(40) } },
 };
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
@@ -299,7 +299,7 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
   if (run.device !== device) fail(`onnx ${name}: ran on ${run.device}, expected ${device}`);
-  for (const step of ["record", "file", "import", "roles", "stop"]) {
+  for (const step of ["record", "file", "template", "import", "roles", "stop"]) {
     if (!run.checks.some((c) => c.step === step && c.verdict === "pass")) fail(`onnx ${name}: no passing ${step} check`);
   }
   const imported = run.checks.find((c) => c.step === "import");
