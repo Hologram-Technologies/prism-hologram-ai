@@ -199,7 +199,7 @@
     {"name": "activation_size_about_zero", "module": "Block", "statement": "(((byte < 128) → ((Kernel.Block::activationSize byte) = byte)) ∧ (((128 <= byte) ∧ (byte <= 256)) → (((Kernel.Block::activationSize byte) + byte) = 256)))"},
     {"name": "accepts_decides", "module": "Block", "statement": "(((Kernel.Block::accepts claimed positive negative) = true) ↔ ((claimed + negative) = (positive + 32768)))"},
     {"name": "accepts_one_claim", "module": "Block", "statement": "(((Kernel.Block::accepts one positive negative) = true) → (((Kernel.Block::accepts other positive negative) = true) → (one = other)))"},
-    {"name": "parts_cover_every_product", "module": "Block", "statement": "(((Kernel.Block::positiveFrom weights activations remaining) + (Kernel.Block::negativeFrom weights activations remaining)) = (totalFrom weights activations remaining))"}
+    {"name": "parts_cover_every_product", "module": "Block", "statement": "(((Kernel.Block::positiveFrom weights activations base remaining) + (Kernel.Block::negativeFrom weights activations base remaining)) = (totalFrom weights activations base remaining))"}
   ],
   "pinned": [
     {

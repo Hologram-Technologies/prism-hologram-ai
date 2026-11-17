@@ -7,11 +7,11 @@
 \begin{semanticmodule}
 definition{
   name: totalFrom,
-  parameters: [weights : Nat, activations : Nat, remaining : Nat],
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode weights rest) (Kernel.Block::byteFromEnd activations rest)) + (totalFrom weights activations rest))),
+    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode weights (base + rest)) (Kernel.Block::byteFromEnd activations rest)) + (totalFrom weights activations base rest))),
   recursive_argument: remaining
 }
 
@@ -81,8 +81,8 @@ theorem{
 
 theorem{
   name: parts_cover_every_product,
-  parameters: [weights : Nat, activations : Nat, remaining : Nat],
-  statement: (((Kernel.Block::positiveFrom weights activations remaining) + (Kernel.Block::negativeFrom weights activations remaining)) = (totalFrom weights activations remaining)),
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
+  statement: (((Kernel.Block::positiveFrom weights activations base remaining) + (Kernel.Block::negativeFrom weights activations base remaining)) = (totalFrom weights activations base remaining)),
   proof: induction{
     branches: [
       {
