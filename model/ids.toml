@@ -395,6 +395,12 @@ suite = "gpu"
 statement = "Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels"
 
 [[id]]
+id = "GP-18"
+level = "build"
+suite = "gpu"
+statement = "With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
