@@ -10,14 +10,16 @@ definition{
   name: weightCode,
   parameters: [value : Bytes, place : Nat],
   result: Nat,
-  body: (prim remainder (prim quotient (Kernel.Wire::fieldAt value (1 + (prim quotient place 2 0 : Nat)) 1) (if ((prim remainder place 2 0 : Nat) =? 0) then 1 else 16) 0 : Nat) 16 0 : Nat)
+  body: (prim remainder (prim quotient (Kernel.Wire::fieldAt value (1 + (prim quotient place 2 0 : Nat)) 1) (if ((prim remainder place 2 0 : Nat) =? 0) then 1 else 16) 0 : Nat) 16 0 : Nat),
+  axioms: [Quot.sound, propext]
 }
 
 definition{
   name: activationByte,
   parameters: [value : Bytes, place : Nat],
   result: Nat,
-  body: (Kernel.Wire::fieldAt value (17 + place) 1)
+  body: (Kernel.Wire::fieldAt value (17 + place) 1),
+  axioms: [Quot.sound, propext]
 }
 
 definition{
@@ -38,7 +40,7 @@ definition{
   name: agrees,
   parameters: [code : Nat, byte : Nat],
   result: Bool,
-  body: (if (8 <=? code) then (byte <? 128) else (128 <=? byte))
+  body: (((8 <=? code) && (byte <? 128)) || ((code <? 8) && (128 <=? byte)))
 }
 
 definition{
@@ -50,22 +52,22 @@ definition{
 
 definition{
   name: positiveFrom,
-  parameters: [value : Bytes, place : Nat, remaining : Nat],
+  parameters: [value : Bytes, remaining : Nat],
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((if (agrees (weightCode value place) (activationByte value place)) then (term (weightCode value place) (activationByte value place)) else 0) + (positiveFrom value (place + 1) rest))),
+    | Nat.succ rest => ((if (agrees (weightCode value rest) (activationByte value rest)) then (term (weightCode value rest) (activationByte value rest)) else 0) + (positiveFrom value rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
 
 definition{
   name: negativeFrom,
-  parameters: [value : Bytes, place : Nat, remaining : Nat],
+  parameters: [value : Bytes, remaining : Nat],
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((if (agrees (weightCode value place) (activationByte value place)) then 0 else (term (weightCode value place) (activationByte value place))) + (negativeFrom value (place + 1) rest))),
+    | Nat.succ rest => ((if (agrees (weightCode value rest) (activationByte value rest)) then 0 else (term (weightCode value rest) (activationByte value rest))) + (negativeFrom value rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
@@ -81,7 +83,7 @@ definition{
   name: blockAnswer,
   parameters: [value : Bytes],
   result: Bytes,
-  body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) (positiveFrom value 0 32) (negativeFrom value 0 32)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) (positiveFrom value 32) (negativeFrom value 32)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
   axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}

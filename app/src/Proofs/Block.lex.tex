@@ -6,29 +6,46 @@
 \title{Bounded byte buffer}
 \begin{semanticmodule}
 definition{
-  name: SameSign,
-  parameters: [code : Nat, byte : Nat],
-  result: Prop,
-  body: (((8 <= code) -> (byte < 128)) /\ ((code < 8) -> (128 <= byte)))
-}
-
-definition{
   name: totalFrom,
-  parameters: [value : Bytes, place : Nat, remaining : Nat],
+  parameters: [value : Bytes, remaining : Nat],
   result: Nat,
   body: (match remaining
     | Nat.zero => 0
-    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode value place) (Kernel.Block::activationByte value place)) + (totalFrom value (place + 1) rest))),
+    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode value rest) (Kernel.Block::activationByte value rest)) + (totalFrom value rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
 
 theorem{
-  name: agrees_decides,
+  name: agrees_when_both_positive,
   parameters: [code : Nat, byte : Nat],
-  statement: (((Kernel.Block::agrees code byte) = true) <-> (SameSign code byte)),
-  proof: linear_arithmetic{definitions: [Kernel.Block::agrees, SameSign]},
+  statement: ((8 <= code) -> ((byte < 128) -> ((Kernel.Block::agrees code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
   axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: agrees_when_both_negative,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((code < 8) -> ((128 <= byte) -> ((Kernel.Block::agrees code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: differs_when_weight_positive,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((8 <= code) -> ((128 <= byte) -> ((Kernel.Block::agrees code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: differs_when_weight_negative,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((code < 8) -> ((byte < 128) -> ((Kernel.Block::agrees code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::agrees]},
+  axioms: [Quot.sound, propext]
 }
 
 theorem{
@@ -52,7 +69,7 @@ theorem{
   parameters: [claimed : Nat, positive : Nat, negative : Nat],
   statement: (((Kernel.Block::accepts claimed positive negative) = true) <-> ((claimed + negative) = (positive + 32768))),
   proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
-  axioms: [Classical.choice, Quot.sound, propext]
+  axioms: [propext]
 }
 
 theorem{
@@ -60,37 +77,34 @@ theorem{
   parameters: [one : Nat, other : Nat, positive : Nat, negative : Nat],
   statement: (((Kernel.Block::accepts one positive negative) = true) -> (((Kernel.Block::accepts other positive negative) = true) -> (one = other))),
   proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
-  axioms: [Classical.choice, Quot.sound, propext]
+  axioms: [Quot.sound, propext]
 }
 
 theorem{
   name: parts_cover_every_product,
-  parameters: [value : Bytes, place : Nat, remaining : Nat],
-  statement: (((Kernel.Block::positiveFrom value place remaining) + (Kernel.Block::negativeFrom value place remaining)) = (totalFrom value place remaining)),
+  parameters: [value : Bytes, remaining : Nat],
+  statement: (((Kernel.Block::positiveFrom value remaining) + (Kernel.Block::negativeFrom value remaining)) = (totalFrom value remaining)),
   proof: induction{
     branches: [
       {
-        proof: simplify{definitions: [Kernel.Block::negativeFrom, Kernel.Block::positiveFrom, totalFrom]},
+        proof: simplify{
+          definitions: [totalFrom, Kernel.Block::negativeFrom, Kernel.Block::positiveFrom]
+        },
         binders: [],
         constructor: zero
       },
       {
-        proof: simplify{
-          definitions: [
-            Kernel.Block::negativeFrom,
-            Kernel.Block::positiveFrom,
-            hypothesis,
-            totalFrom
-          ]
+        proof: linear_arithmetic{
+          definitions: [Kernel.Block::negativeFrom, Kernel.Block::positiveFrom, totalFrom]
         },
         binders: [rest, hypothesis],
         constructor: succ
       }
     ],
-    generalizing: [place],
+    generalizing: [],
     scrutinee: remaining
   },
-  axioms: [Classical.choice, Quot.sound, propext]
+  axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}
 \end{lexlean}
