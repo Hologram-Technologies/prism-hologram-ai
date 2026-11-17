@@ -191,3 +191,11 @@ Feature: gpu
     Then the kernel answers evict for the other model's file and enough after it, and the first file downloaded is kept
     And for every later file the kernel answers keep for the pinned file and does not fit, and the file is not kept
     And the page answers with the reference's tokens
+
+  @GP-25 @build
+  Scenario: One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24
+    Given GP-19's Qwen3-shaped ONNX export and its hub record
+    When `just page-journey` imports site/app/engine/pipeline.mjs on a page and calls pipeline("text-generation", the export, { index }) with no page code in between, then calls the function it answers with "hi"
+    Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
+    And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
+    And the engine page's own visits load and answer through the same call
