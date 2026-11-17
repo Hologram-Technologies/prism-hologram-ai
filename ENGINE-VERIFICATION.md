@@ -1889,25 +1889,38 @@ no input can reach: a loop that raised the exponent (the float's own exponent
 already puts the largest input in [64, 128)) and request-level group checks
 that repeat the group sums' own. Both were deleted.
 
-### Run over a real model
+### Run over two real models
 
-A measurement, not part of the suite. Bonsai 1.7B at
-`HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256 `acf0b5ad…`), every
-ternary matrix, one synthetic input each (roughly normal, 0.2% of values at
-40 times):
+A measurement, not part of the suite, run on 2026-11-17 in the pinned SDK image
+over every matrix of two models, one synthetic input per matrix:
 
-| Matrices | Weights | Group sums checked | Wrong | Rows past bound | Worst error, of bound | Relative error (L2) |
+- Bonsai 1.7B at `HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256
+  `acf0b5ad…`): every ternary matrix, unpacked as the loader unpacks them.
+- Qwen2.5-1.5B-Instruct Q4_0 at `Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51`
+  (sha256 `dcd819ff…`): every Q4_0 matrix. Q4_0 holds the engine's q4f16
+  numbers (an f16 scale per 32 weights, each weight its code less eight, no
+  zero point) with the nibbles in another order, so each was repacked to the
+  engine's layout. The output head is Q6_K and was not measured.
+
+Two inputs were drawn: roughly normal, and the same with 0.2% of values at 40
+times, as activations have.
+
+| Model | Matrices | Weights | Group sums checked | Wrong | Rows past bound | Relative error (L2), normal / with outliers |
 | --- | --- | --- | --- | --- | --- | --- |
-| 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.092 | 9.9% |
+| Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% |
+| Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% |
 
-Native throughput was 513 M weights a second on 12 threads' machine (one
-thread used). The module gave identical bytes for the 151,669 by 2,048 head,
-in 1.46 s.
+Every output stayed within its stated bound, the worst at 0.18 of it. The
+module the page loads gave the same bytes as native code for Bonsai's
+151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix. The first module run
+over Qwen differed: the module on disk had been built during the planted-defect
+run, with f16 scales read as f32. Rebuilt from the committed source, it agreed.
 
 ### What EN-33 does not establish
 
-The 9.9% error is the input's rounding onto eight bits with one scale for the
-whole vector: an outlier sets the step, and ordinary values round to a few
-codes. Exact is not accurate; a finer input scale per group is the next
-measurement. Softmax, normalisation and rotary encoding remain floating point,
+Exact is not the same as accurate. Rounding the input onto eight bits with one
+power of two for the whole vector costs under 1% on ordinary inputs, but an
+outlier sets the step for every value, and the error rises to about 9%. A
+finer input scale, per group, is the next measurement, and an engine using
+these products has to be judged on its answers, not on these figures. Softmax, normalisation and rotary encoding remain floating point,
 and nothing on the page calls the module yet.
