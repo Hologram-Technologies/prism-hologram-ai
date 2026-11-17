@@ -63,6 +63,17 @@ The inherited gates and their own planted defects are in
 | The label asked for is derived from the model's address and the prompt's first tokens | the caller's hash, as every label is | not proved |
 | `KN-28`: a manifest is complete exactly when it lists at least one tensor and as many are admitted as it lists | `manifest_complete_decides`, checked by the Lean kernel | proved |
 | The label of the addresses admitted is computed over the tensors actually admitted, in the manifest's order | the caller's; the kernel compares two labels and two counts | not proved |
+| `KN-29`: a sum is accepted as exact exactly when the activation and weight bits are at least one and activation, weight and group bits together are no wider than the accumulator; a wider accumulator or a shorter group never loses it | `exact_fits_decides`, `exact_fits_wider` and `exact_fits_shorter`, checked by the Lean kernel | proved |
+| That `a + w + g <= b` bits hold a signed sum of `2^g` products of `a`-bit and `w`-bit signed numbers without overflow | argued: each product's magnitude is at most `2^(a+w-2)`, the sum's at most `2^(a+w+g-2)`, below a `b`-bit signed maximum of `2^(b-1) - 1` | not proved |
+| The bit widths the engine gives decision 29 are the widths of the numbers it actually sums | the caller's | not proved |
+| `KN-30`: a run is `everywhere` exactly when its products and its other stages are exact, `same hardware` exactly when it is not and its float reductions keep a fixed order, `none` otherwise; a run is comparable exactly when it is `everywhere`, or `same hardware` on the same adapter | `class_everywhere_decides`, `class_same_hardware_decides`, `class_none_decides` and `comparable_decides`, checked by the Lean kernel | proved |
+| The three flags given to decision 30 describe the kernels the engine actually ran | the caller's; to be tested by the differential tests in [docs/VERIFIABLE_INFERENCE_PLAN.md](docs/VERIFIABLE_INFERENCE_PLAN.md) | not proved |
+| `KN-31`: a receipt is `confirmed` exactly when its model is ready, the run is comparable and the output replays to the label claimed; `mismatch` exactly when only the output differs; `not comparable` otherwise | `receipt_confirmed_decides`, `receipt_mismatch_decides` and `receipt_not_comparable_decides`, with `sameLabel` as decision 5 and `comparable` as decision 30 prove them, checked by the Lean kernel | proved |
+| The model-ready flag given to decision 31 is decision 28's answer for the receipt's own model root, and the replay ran on the receipt's input | the caller's | not proved |
+| `KN-32`: a probe is an `exact replay` exactly when layer, position and component are each below their counts and the run is comparable, an `approximate replay` exactly when they are and it is not, and `out of range` otherwise | `probe_exact_decides`, `probe_approximate_decides` and `probe_out_of_range_decides`, checked by the Lean kernel | proved |
+| That a value recomputed for an exact replay equals the value that produced the answer | follows from the class only if decision 30's flags are true of the run | not proved |
+| `KN-33`: a prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a comparable run | `shareable_decides`, checked by the Lean kernel | proved |
+| Decisions 29 to 33 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
@@ -803,7 +814,9 @@ bytes, whichever function made it.
 | `evict_decides` no longer says the block is not pinned | rejected: `kernel_kn_26` panics at `evict_decides's statement changed` |
 | a prefix as long as the prompt is reused, leaving no position to run | rejected: `kernel_kn_27` panics at `reuseShorter changed` |
 | a model is ready with tensors missing | rejected: `kernel_kn_28` panics at `manifestComplete changed` |
-| none | all 28 `kernel_kn_` tests pass |
+| a confirmed receipt and a mismatch swap verdicts | rejected: `kernel_kn_31` panics at `receiptCode changed` |
+| a prefix computed on another device is shared whatever the run's class | rejected: `kernel_kn_33` panics at `shareable changed` |
+| none | all 33 `kernel_kn_` tests pass |
 
 ### The proof gate: `lexlean verify src/Proofs/*.lex.tex`
 
@@ -812,6 +825,8 @@ bytes, whichever function made it.
 | a pinned block is evicted | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Evict (error): omega could not prove the goal` |
 | a precision exactly the budget's size does not fit | rejected: `error[LLV7002]: Lean rejected HologramAi.Proofs.Precision (error): omega could not prove the goal` |
 | none | `verified 58 modules`, with every proof module's axiom policy exact |
+| an exact sum is accepted with one bit more than the accumulator holds (decision 29) | Lean rejects it: `error[LLV7002]: Lean rejected HologramAi.Proofs.Exact (error): omega could not prove the goal`. **`lexlean verify` still exits 0**, so the recipe's `set -e` does not stop on it; found on 2026-11-16 with the pinned SDK image |
+| none, with decisions 29 to 33 | `verified 68 modules`, zero errors |
 
 The other nine modules' proofs were each checked by the Lean kernel as they
 were written; a defect was planted through Lean in two of the eleven, and

@@ -1,0 +1,40 @@
+\begin{lexlean}{Proofs.Determinism}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Determinism}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: class_everywhere_decides,
+  parameters: [productsExact : Nat, restExact : Nat, fixedOrder : Nat],
+  statement: (((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2) <-> ((productsExact = 1) /\ (restExact = 1))),
+  proof: linear_arithmetic{definitions: [Kernel.Determinism::classCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: class_same_hardware_decides,
+  parameters: [productsExact : Nat, restExact : Nat, fixedOrder : Nat],
+  statement: (((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 1) <-> ((((productsExact = 1) /\ (restExact = 1)) -> (1 = 0)) /\ (fixedOrder = 1))),
+  proof: linear_arithmetic{definitions: [Kernel.Determinism::classCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: class_none_decides,
+  parameters: [productsExact : Nat, restExact : Nat, fixedOrder : Nat],
+  statement: (((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 0) <-> ((((productsExact = 1) /\ (restExact = 1)) -> (1 = 0)) /\ ((fixedOrder = 1) -> (1 = 0)))),
+  proof: linear_arithmetic{definitions: [Kernel.Determinism::classCode]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: comparable_decides,
+  parameters: [classOfRun : Nat, sameAdapter : Nat],
+  statement: (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) <-> (((classOfRun = 2) -> (1 = 0)) -> ((classOfRun = 1) /\ (sameAdapter = 1)))),
+  proof: linear_arithmetic{definitions: [Kernel.Determinism::comparable]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

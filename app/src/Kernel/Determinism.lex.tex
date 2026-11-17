@@ -1,0 +1,38 @@
+\begin{lexlean}{Kernel.Determinism}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: classCode,
+  parameters: [productsExact : Nat, restExact : Nat, fixedOrder : Nat],
+  result: Nat,
+  body: (if ((productsExact =? 1) && (restExact =? 1)) then 2 else (if (fixedOrder =? 1) then 1 else 0))
+}
+
+definition{
+  name: comparable,
+  parameters: [classOfRun : Nat, sameAdapter : Nat],
+  result: Bool,
+  body: ((classOfRun =? 2) || ((classOfRun =? 1) && (sameAdapter =? 1)))
+}
+
+definition{
+  name: classText,
+  parameters: [code : Nat],
+  result: Bytes,
+  body: (if (code =? 2) then (prim utf8_encode "everywhere" : Bytes) else (if (code =? 1) then (prim utf8_encode "same hardware" : Bytes) else (prim utf8_encode "none" : Bytes)))
+}
+
+definition{
+  name: classAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? 4) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1))) then (classText (classCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

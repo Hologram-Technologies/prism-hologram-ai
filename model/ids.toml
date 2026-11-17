@@ -461,6 +461,36 @@ suite = "kernel"
 statement = "A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one"
 
 [[id]]
+id = "KN-29"
+level = "build"
+suite = "kernel"
+statement = "An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it"
+
+[[id]]
+id = "KN-30"
+level = "build"
+suite = "kernel"
+statement = "A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all"
+
+[[id]]
+id = "KN-31"
+level = "build"
+suite = "kernel"
+statement = "A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable"
+
+[[id]]
+id = "KN-32"
+level = "build"
+suite = "kernel"
+statement = "A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range"
+
+[[id]]
+id = "KN-33"
+level = "build"
+suite = "kernel"
+statement = "A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"

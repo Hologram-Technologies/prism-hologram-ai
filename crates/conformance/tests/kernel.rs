@@ -2382,3 +2382,189 @@ fn kernel_kn_28() {
     );
     assert_routed(28, "Kernel.Manifest::manifestAnswer");
 }
+/// `KN-29`: An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it
+#[test]
+fn kernel_kn_29() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Exact.lex.tex");
+    let proofs = model("app/src/Proofs/Exact.lex.tex");
+    assert_pinned(
+        &proofs,
+        "exact_fits_decides",
+        "(((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) <-> ((1 <= activationBits) /\\ ((1 <= weightBits) /\\ (((activationBits + weightBits) + groupBits) <= accumulatorBits))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "exact_fits_wider",
+        "((accumulatorBits <= wider) -> (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) -> ((Kernel.Exact::exactFits activationBits weightBits groupBits wider) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "exact_fits_shorter",
+        "((shorter <= groupBits) -> (((Kernel.Exact::exactFits activationBits weightBits groupBits accumulatorBits) = true) -> ((Kernel.Exact::exactFits activationBits weightBits shorter accumulatorBits) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "exactFits");
+    assert!(
+        found.contains("body: (((1 <=? activationBits) && (1 <=? weightBits)) && (((activationBits + weightBits) + groupBits) <=? accumulatorBits))"),
+        "exactFits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "exactAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 5) then (if (exactFits (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 1)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"may overflow\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "exactAnswer changed:\n{found}"
+    );
+    assert_routed(29, "Kernel.Exact::exactAnswer");
+}
+/// `KN-30`: A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all
+#[test]
+fn kernel_kn_30() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Determinism.lex.tex");
+    let proofs = model("app/src/Proofs/Determinism.lex.tex");
+    assert_pinned(
+        &proofs,
+        "class_everywhere_decides",
+        "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2) <-> ((productsExact = 1) /\\ (restExact = 1)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "class_same_hardware_decides",
+        "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 1) <-> ((((productsExact = 1) /\\ (restExact = 1)) -> (1 = 0)) /\\ (fixedOrder = 1)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "class_none_decides",
+        "(((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 0) <-> ((((productsExact = 1) /\\ (restExact = 1)) -> (1 = 0)) /\\ ((fixedOrder = 1) -> (1 = 0))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "comparable_decides",
+        "(((Kernel.Determinism::comparable classOfRun sameAdapter) = true) <-> (((classOfRun = 2) -> (1 = 0)) -> ((classOfRun = 1) /\\ (sameAdapter = 1))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "classCode");
+    assert!(
+        found.contains("body: (if ((productsExact =? 1) && (restExact =? 1)) then 2 else (if (fixedOrder =? 1) then 1 else 0))"),
+        "classCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "comparable");
+    assert!(
+        found.contains("body: ((classOfRun =? 2) || ((classOfRun =? 1) && (sameAdapter =? 1)))"),
+        "comparable changed:\n{found}"
+    );
+    let found = declaration(&kernel, "classAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 4) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1))) then (classText (classCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "classAnswer changed:\n{found}"
+    );
+    assert_routed(30, "Kernel.Determinism::classAnswer");
+}
+/// `KN-31`: A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable
+#[test]
+fn kernel_kn_31() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Receipt.lex.tex");
+    let proofs = model("app/src/Proofs/Receipt.lex.tex");
+    assert_pinned(
+        &proofs,
+        "receipt_confirmed_decides",
+        "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 2) <-> ((modelReady = 1) /\\ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) /\\ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = true))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "receipt_mismatch_decides",
+        "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 1) <-> ((modelReady = 1) /\\ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) /\\ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = false))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "receipt_not_comparable_decides",
+        "(((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 0) <-> (((modelReady = 1) /\\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)) -> (1 = 0)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "receiptCode");
+    assert!(
+        found.contains("body: (if ((modelReady =? 1) && (Kernel.Determinism::comparable classOfRun sameAdapter)) then (if (Kernel.Admission::sameLabel outputClaimed outputReplayed) then 2 else 1) else 0)"),
+        "receiptCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "receiptAnswer");
+    assert!(
+        found.contains("body: (if (((((Foundation.Bytes::byteLength value) =? 68) && ((Kernel.Wire::fieldAt value 65 1) <=? 1)) && ((Kernel.Wire::fieldAt value 66 1) <=? 2)) && ((Kernel.Wire::fieldAt value 67 1) <=? 1)) then (receiptText (receiptCode (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 1) (Kernel.Wire::fieldAt value 66 1) (Kernel.Wire::fieldAt value 67 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "receiptAnswer changed:\n{found}"
+    );
+    assert_routed(31, "Kernel.Receipt::receiptAnswer");
+}
+/// `KN-32`: A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range
+#[test]
+fn kernel_kn_32() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Probe.lex.tex");
+    let proofs = model("app/src/Proofs/Probe.lex.tex");
+    assert_pinned(
+        &proofs,
+        "probe_exact_decides",
+        "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 2) <-> (((layer + 1) <= layers) /\\ (((position + 1) <= positions) /\\ (((component + 1) <= components) /\\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "probe_approximate_decides",
+        "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 1) <-> (((layer + 1) <= layers) /\\ (((position + 1) <= positions) /\\ (((component + 1) <= components) /\\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = false)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "probe_out_of_range_decides",
+        "(((Kernel.Probe::probeCode layer layers position positions component components classOfRun sameAdapter) = 0) <-> ((((layer + 1) <= layers) /\\ (((position + 1) <= positions) /\\ ((component + 1) <= components))) -> (1 = 0)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "probeInRange");
+    assert!(
+        found.contains(
+            "body: (((layer <? layers) && (position <? positions)) && (component <? components))"
+        ),
+        "probeInRange changed:\n{found}"
+    );
+    let found = declaration(&kernel, "probeCode");
+    assert!(
+        found.contains("body: (if (probeInRange layer layers position positions component components) then (if (Kernel.Determinism::comparable classOfRun sameAdapter) then 2 else 1) else 0)"),
+        "probeCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "probeAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 21) && ((Kernel.Wire::fieldAt value 19 1) <=? 2)) && ((Kernel.Wire::fieldAt value 20 1) <=? 1)) then (probeText (probeCode (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 1) (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "probeAnswer changed:\n{found}"
+    );
+    assert_routed(32, "Kernel.Probe::probeAnswer");
+}
+/// `KN-33`: A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable
+#[test]
+fn kernel_kn_33() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Share.lex.tex");
+    let proofs = model("app/src/Proofs/Share.lex.tex");
+    assert_pinned(
+        &proofs,
+        "shareable_decides",
+        "(((Kernel.Share::shareable asked held heldLength promptLength origin classOfRun sameAdapter) = true) <-> (((Kernel.Reuse::reusable asked held heldLength promptLength) = true) /\\ (((origin = 0) -> (1 = 0)) -> ((Kernel.Determinism::comparable classOfRun sameAdapter) = true))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "shareable");
+    assert!(
+        found.contains("body: ((Kernel.Reuse::reusable asked held heldLength promptLength) && ((origin =? 0) || (Kernel.Determinism::comparable classOfRun sameAdapter)))"),
+        "shareable changed:\n{found}"
+    );
+    let found = declaration(&kernel, "shareAnswer");
+    assert!(
+        found.contains("body: (if (((((Foundation.Bytes::byteLength value) =? 76) && ((Kernel.Wire::fieldAt value 73 1) <=? 1)) && ((Kernel.Wire::fieldAt value 74 1) <=? 2)) && ((Kernel.Wire::fieldAt value 75 1) <=? 1)) then (if (shareable (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 4) (Kernel.Wire::fieldAt value 69 4) (Kernel.Wire::fieldAt value 73 1) (Kernel.Wire::fieldAt value 74 1) (Kernel.Wire::fieldAt value 75 1)) then (prim utf8_encode \"reuse\" : Bytes) else (prim utf8_encode \"recompute\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "shareAnswer changed:\n{found}"
+    );
+    assert_routed(33, "Kernel.Share::shareAnswer");
+}

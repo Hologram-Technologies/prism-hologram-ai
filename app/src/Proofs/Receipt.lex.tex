@@ -1,0 +1,70 @@
+\begin{lexlean}{Proofs.Receipt}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Admission}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Receipt}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: receipt_confirmed_decides,
+  parameters: [
+    outputClaimed : Kernel.Admission::Label,
+    outputReplayed : Kernel.Admission::Label,
+    modelReady : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 2) <-> ((modelReady = 1) /\ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) /\ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = true)))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Admission::sameLabel,
+      Kernel.Determinism::comparable,
+      Kernel.Receipt::receiptCode
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: receipt_mismatch_decides,
+  parameters: [
+    outputClaimed : Kernel.Admission::Label,
+    outputReplayed : Kernel.Admission::Label,
+    modelReady : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 1) <-> ((modelReady = 1) /\ (((Kernel.Determinism::comparable classOfRun sameAdapter) = true) /\ ((Kernel.Admission::sameLabel outputClaimed outputReplayed) = false)))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Admission::sameLabel,
+      Kernel.Determinism::comparable,
+      Kernel.Receipt::receiptCode
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: receipt_not_comparable_decides,
+  parameters: [
+    outputClaimed : Kernel.Admission::Label,
+    outputReplayed : Kernel.Admission::Label,
+    modelReady : Nat,
+    classOfRun : Nat,
+    sameAdapter : Nat
+  ],
+  statement: (((Kernel.Receipt::receiptCode outputClaimed outputReplayed modelReady classOfRun sameAdapter) = 0) <-> (((modelReady = 1) /\ ((Kernel.Determinism::comparable classOfRun sameAdapter) = true)) -> (1 = 0))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Admission::sameLabel,
+      Kernel.Determinism::comparable,
+      Kernel.Receipt::receiptCode
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

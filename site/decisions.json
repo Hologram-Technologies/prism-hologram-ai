@@ -1553,6 +1553,339 @@
       "module": "Manifest",
       "name": "A model's manifest",
       "tag": 28
+    },
+    {
+      "asks": "Can this sum of products be held exactly?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Activation bits",
+          "value": 8,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Weight bits",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "name": "Group bits",
+          "value": 5,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Accumulator bits",
+          "value": 32,
+          "width": 1
+        }
+      ],
+      "length": 5,
+      "module": "Exact",
+      "name": "Exact accumulator",
+      "tag": 29
+    },
+    {
+      "asks": "Where will this run give the same answer again?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Products exact",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Other stages exact",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Float reductions in a fixed order",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 4,
+      "module": "Determinism",
+      "name": "Reproducibility",
+      "tag": 30
+    },
+    {
+      "asks": "Does replaying this answer confirm it?",
+      "fields": [
+        {
+          "at": 1,
+          "kind": "label",
+          "name": "Output claimed",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 33,
+          "kind": "label",
+          "name": "Output replayed",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 65,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Model ready by decision 28",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 66,
+          "choice": [
+            [
+              "none",
+              0
+            ],
+            [
+              "same hardware",
+              1
+            ],
+            [
+              "everywhere",
+              2
+            ]
+          ],
+          "name": "Reproducibility of the run",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 67,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Same adapter",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 68,
+      "module": "Receipt",
+      "name": "Receipt",
+      "tag": 31
+    },
+    {
+      "asks": "Will opening this part of a past answer show the value that produced it?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Layer",
+          "value": 12,
+          "width": 4
+        },
+        {
+          "at": 5,
+          "name": "Layers",
+          "value": 28,
+          "width": 4
+        },
+        {
+          "at": 9,
+          "name": "Position",
+          "value": 40,
+          "width": 4
+        },
+        {
+          "at": 13,
+          "name": "Positions",
+          "value": 64,
+          "width": 4
+        },
+        {
+          "at": 17,
+          "name": "Component",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 18,
+          "name": "Components",
+          "value": 4,
+          "width": 1
+        },
+        {
+          "at": 19,
+          "choice": [
+            [
+              "none",
+              0
+            ],
+            [
+              "same hardware",
+              1
+            ],
+            [
+              "everywhere",
+              2
+            ]
+          ],
+          "name": "Reproducibility of the run",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 20,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Same adapter",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 21,
+      "module": "Probe",
+      "name": "Probe",
+      "tag": 32
+    },
+    {
+      "asks": "May a prefix computed elsewhere be reused for this prompt?",
+      "fields": [
+        {
+          "at": 1,
+          "kind": "label",
+          "name": "Label asked for",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 33,
+          "kind": "label",
+          "name": "Label held",
+          "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85",
+          "width": 32
+        },
+        {
+          "at": 65,
+          "name": "Positions held",
+          "value": 400,
+          "width": 4
+        },
+        {
+          "at": 69,
+          "name": "Prompt length",
+          "value": 440,
+          "width": 4
+        },
+        {
+          "at": 73,
+          "choice": [
+            [
+              "on this device",
+              0
+            ],
+            [
+              "elsewhere",
+              1
+            ]
+          ],
+          "name": "Computed",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 74,
+          "choice": [
+            [
+              "none",
+              0
+            ],
+            [
+              "same hardware",
+              1
+            ],
+            [
+              "everywhere",
+              2
+            ]
+          ],
+          "name": "Reproducibility of the run",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 75,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Same adapter",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 76,
+      "module": "Share",
+      "name": "Shared prefix",
+      "tag": 33
     }
   ],
   "request": 81
