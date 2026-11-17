@@ -160,3 +160,12 @@ Feature: gpu
     Then every text is the one jinja2 rendered, byte for byte, and Llama's template raises its own error where jinja2 raised it
     And a macro, an include, the filter upper, the string method title, the test odd and an unclosed if are each refused, naming what is outside
     And the engine page frames an ONNX export's turn with the model's own template, read from tokenizer_config.json and checked against the record
+
+  @GP-21 @build
+  Scenario: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+    Given GP-19's Qwen3-shaped ONNX export, its files and a hub record naming each by its SHA-256, served to four visits in one browser profile
+    When `just page-journey` opens the engine page with ?onnx= naming it: first with the origin serving the files, then with the origin serving the record and no file, then with the kept graph's bytes replaced by a graph with one byte flipped, then with the origin serving the files again
+    Then the first visit downloads every file, keeps each named by its BLAKE3 and answers with the reference's tokens
+    And the second reads every file from the browser, downloads none, derives each file's BLAKE3 again, checks each against the record, imports the graph through the kernel and answers with the reference's tokens
+    And the third finds the kept graph is not its BLAKE3, stops, and forgets every file it read
+    And the fourth downloads every file again and answers with the reference's tokens

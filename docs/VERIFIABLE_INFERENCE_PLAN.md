@@ -75,6 +75,36 @@ WGSL kernel is tested equal to. Do not port verdant-aqm's TypeScript
 re-creation of it, its hand-assembled WebAssembly or its asserted flags: they
 break R1, R4 and R6.
 
+## Addresses: BLAKE3 is canonical
+
+Decided 2026-11-17, with the hub: everything Hologram AI names, it names by
+BLAKE3, written `blake3:` and 64 hex digits. A tensor's address is the
+BLAKE3 of its own raw bytes, the same number the hub indexes it by, the
+hologram runtime keys it by and the engine admits it by; a kept file, a
+receipt's labels and a prefix are named the same way. One identity, so no
+reader has to know which of two is canonical.
+
+SHA-256 and Git's SHA-1 stay only where a source publishes them and the
+engine checks against what was published: Hugging Face's SHA-256 of a
+file, which the hub's record carries, and Git's blob SHA-1 of a small file.
+They are checks, never names. Content Security Policy hashes are SHA-256
+because browsers define them so.
+
+A label is read by its prefix, never its length: `blake3:` and `sha256:`
+labels are both 71 bytes. The kernel's decisions compare labels and are the
+same for either.
+
+Where Hologram AI still names its own content by SHA-256, each to move:
+
+| What | Where | Blocked on |
+| --- | --- | --- |
+| A `.holk` container's root | `crates/download` (`Root`), `crates/model-reader/src/holk.rs` | Containers re-minted on the hub with a BLAKE3 root |
+| The deploy's file listing | `bootstrap/precache.mjs`, `site/app/index.html`, `site/sw.js` | Nothing; the listing is this repository's own |
+
+Per-tensor verified streaming (BLAKE3's tree, published per tensor as a Bao
+outboard) waits on the hub publishing outboards; until then a tensor is
+checked whole.
+
 ## What: the kernel decisions
 
 Each is proved, routed in `app/src/Kernel.lex.tex`, and answered as text.
