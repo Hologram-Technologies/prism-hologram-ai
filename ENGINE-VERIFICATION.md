@@ -83,6 +83,7 @@ runtime's crates are not published there.
 | `EN-21`: a model's own GGUF header is read into a tokeniser, and a pre-tokeniser name with no cited pattern is refused | `engine_en_21` | tested |
 | `EN-22`: a vocabulary read from a GGUF header gives the same ids as the same vocabulary written as a `tokenizer.json` | `engine_en_22`, with the authority checking the JSON side | tested |
 | `FL-24`, `FL-25`: the GGUF reader fails only as `model/failures.toml` lists | `engine_fl_24` and `engine_fl_25` | tested |
+| `EN-32`: a WordPiece `tokenizer.json` in BERT's shape gives the ids HuggingFace's own `tokenizers` gives, and a WordPiece file asking for another step is refused by the step | `engine_en_32`, over 2,135 texts and five files, the unknown token reached 13,820 times; eleven refusals | tested against the authority |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
@@ -1800,3 +1801,51 @@ The same rejections are kept as unit tests over scratch repositories:
 `crates/conformance/src/source.rs`, and
 `a_scaffolded_failure_is_red_until_its_test_names_the_variant` in
 `xtask/src/scaffold.rs`.
+
+## EN-32, WordPiece
+
+The encoders of milestone 2, all-MiniLM-L6-v2 and DistilBERT SST-2, read text
+as WordPiece ids, which the byte-pair tokeniser refuses (EN-16). `WordPiece`
+in `crates/tokenizer/src/wordpiece.rs` follows BERT's normaliser, BERT's
+pre-tokeniser, the WordPiece model and a one-sentence template, each written
+from the authority's source (HuggingFace `tokenizers` 0.21.4,
+`normalizers/bert.rs`, `pre_tokenizers/bert.rs`, `models/wordpiece`). Which
+characters are controls, punctuation and nonspacing marks, and how each
+decomposes, are read from `unicode_categories` 0.1.1 and
+`unicode-normalization-alignments` 0.1.12, the tables the authority reads;
+both were already locked as the authority's dependencies and are now
+production dependencies of the tokeniser, which `cargo deny` accepts.
+
+Padding is not applied: it adds ids the encoder masks out, and an encoder run
+on the sentence alone gives the same states for it. Truncation is applied as
+the file states.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_32`
+
+Run on 2026-11-16 in WSL with the locked toolchain. Each defect was planted
+alone in `wordpiece.rs`, the test run, the file restored.
+
+| Planted defect | Diagnostic |
+| --- | --- |
+| Accents never stripped | `the ids differ for ...` (engine.rs, the comparison with the authority) |
+| Punctuation other than `.` not split off | the same |
+| A word with no full covering gives the pieces found before the gap | the same |
+| Added tokens not matched in the text as written | the same |
+| Truncation ignored | the same |
+| Chinese characters not spaced | the same |
+| none, before and after | passed |
+
+Before the test was written the scaffold left `engine_en_32` red, as R3
+requires: it panicked with `EN-32 is registered and not built`.
+
+The two real files, at the hub's pinned revisions, were also compared once
+with the authority on ten texts each, a 300-word text among them
+(all-MiniLM-L6-v2 truncates it to 128 ids, as its file states): every id
+equal. That comparison is not in the suite: the files are 0.7 MB each and the
+suite builds its own.
+
+### What EN-32 does not establish
+
+Decoding WordPiece ids back to text, a pair of sentences, and padding are
+not built: the encoders read one sentence and give a vector or a label. The
+tokeniser is not yet reachable from the wasm module or the page.

@@ -1,6 +1,6 @@
 [package]
 name = "hologram-ai-tokenizer"
-description = "Turns text into the tokens a byte-level BPE model counts in, from the model's own tokenizer.json."
+description = "Turns text into the tokens a byte-level BPE or WordPiece model counts in, from the model's own tokenizer.json."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,9 +15,16 @@ categories.workspace = true
 # file carries, which needs the look-ahead the published patterns use. Neither
 # is reimplemented here: a pre-tokeniser that split text differently from the
 # model's own would count tokens the model does not have.
+# `unicode_categories` and `unicode-normalization-alignments` are the Unicode
+# tables the authority's BERT normaliser and pre-tokeniser read: which
+# characters are controls, punctuation and nonspacing marks, and how each
+# decomposes. WordPiece reads the same tables so that it agrees with the
+# authority on every character, not only on the ones a test thought of.
 [dependencies]
 fancy-regex = { workspace = true }
 serde_json = { workspace = true }
+unicode_categories = { workspace = true }
+unicode-normalization-alignments = { workspace = true }
 
 [lints]
 workspace = true

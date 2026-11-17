@@ -492,3 +492,12 @@ Feature: engine
     Given the model of EN-31, imported from its graph alone, and again with its data file cut short and admitted anyway
     When the import finishes
     Then it returns ImportError::DataMissing for the first tensor in the data file, and for the span that never ended
+
+  @EN-32 @build
+  Scenario: A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for
+    Given five WordPiece files in BERT's shape written out in the test: all-MiniLM-L6-v2's settings with its truncation at 128 and padding to 128, DistilBERT's with neither, and three with the normaliser's cleaning, Chinese spacing, accent stripping and lowercasing each turned the other way, one truncating at 9
+    And 27 written texts and 400 generated from controls, format characters, accents, combining marks, CJK, odd spaces, punctuation, letters whose lowercase is two characters, private use and the special tokens themselves
+    When crates/tokenizer reads each file as WordPiece and encodes each text, beside the authority's own tokeniser with its padding set aside
+    Then every text gives the authority's ids, the unknown token among them more than 100 times
+    And a model other than WordPiece, a normaliser other than BERT's or with a setting not a flag, a pre-tokeniser other than BERT's, a template other than one sentence between two special tokens of type 0, truncation from the left or with a stride, an added token normalised or stripping space, an unknown token not in the vocabulary, and a file that is not a JSON object are each refused by what they ask for
+    And the byte-pair reader still refuses a WordPiece file, as EN-16 states

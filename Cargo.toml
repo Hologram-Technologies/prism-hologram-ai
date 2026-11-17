@@ -39,6 +39,10 @@ fancy-regex = "0.14"
 # here against the standard's own examples; it is not re-derived (R2).
 sha2 = "0.10"
 serde_json = "1.0"
+# The Unicode tables the WordPiece tokeniser reads, the ones its authority
+# reads (crates/tokenizer/Cargo.toml).
+unicode_categories = "0.1.1"
+unicode-normalization-alignments = "0.1.12"
 
 [workspace.lints.rust]
 missing_docs = "deny"

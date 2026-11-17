@@ -6495,3 +6495,311 @@ fn engine_fl_48() {
     ));
     let _ = refuse;
 }
+
+/// A WordPiece `tokenizer.json` in BERT's shape, written out here: the
+/// normaliser's settings, truncation and padding as given, and a vocabulary
+/// small enough that unknown words, continuations and every rule are reached.
+fn wordpiece_file(
+    normaliser: serde_json::Value,
+    truncation: serde_json::Value,
+    padding: serde_json::Value,
+) -> serde_json::Value {
+    let mut vocab = serde_json::Map::new();
+    let mut words: Vec<String> = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+        .iter()
+        .map(|w| (*w).to_string())
+        .collect();
+    for w in [
+        "the", "quick", "brown", "fox", "jump", "##s", "##ed", "##ing", "un", "##aff", "##able",
+        "cafe", "café", "naive", "hello", "world", "play", "re", "##play", "the", "The", "Hello",
+        "中", "国", "日", "本", "1", "2", "##3", "ß", "ss", "i", "##̇", "σ", "ς", "ω", "дом", "##а",
+    ] {
+        words.push(w.to_string());
+    }
+    for c in ('a'..='z').chain('0'..='9') {
+        words.push(c.to_string());
+        words.push(format!("##{c}"));
+    }
+    for c in "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~¿¡—–…«»“”„·•".chars() {
+        words.push(c.to_string());
+    }
+    for w in words {
+        let id = vocab.len();
+        vocab.entry(w).or_insert(serde_json::json!(id));
+    }
+    let added: Vec<serde_json::Value> = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+        .iter()
+        .map(|t| {
+            serde_json::json!({"id": vocab[*t], "content": t, "single_word": false, "lstrip": false,
+                "rstrip": false, "normalized": false, "special": true})
+        })
+        .collect();
+    serde_json::json!({
+        "version": "1.0",
+        "truncation": truncation,
+        "padding": padding,
+        "added_tokens": added,
+        "normalizer": normaliser,
+        "pre_tokenizer": {"type": "BertPreTokenizer"},
+        "post_processor": {
+            "type": "TemplateProcessing",
+            "single": [{"SpecialToken": {"id": "[CLS]", "type_id": 0}}, {"Sequence": {"id": "A", "type_id": 0}},
+                       {"SpecialToken": {"id": "[SEP]", "type_id": 0}}],
+            "pair": [{"SpecialToken": {"id": "[CLS]", "type_id": 0}}, {"Sequence": {"id": "A", "type_id": 0}},
+                     {"SpecialToken": {"id": "[SEP]", "type_id": 0}}, {"Sequence": {"id": "B", "type_id": 1}},
+                     {"SpecialToken": {"id": "[SEP]", "type_id": 1}}],
+            "special_tokens": {
+                "[CLS]": {"id": "[CLS]", "ids": [vocab["[CLS]"]], "tokens": ["[CLS]"]},
+                "[SEP]": {"id": "[SEP]", "ids": [vocab["[SEP]"]], "tokens": ["[SEP]"]}
+            }
+        },
+        "decoder": {"type": "WordPiece", "prefix": "##", "cleanup": true},
+        "model": {"type": "WordPiece", "unk_token": "[UNK]", "continuing_subword_prefix": "##",
+                  "max_input_chars_per_word": 12, "vocab": vocab}
+    })
+}
+
+fn bert_normaliser(
+    clean_text: bool,
+    chinese: bool,
+    strip_accents: serde_json::Value,
+    lowercase: bool,
+) -> serde_json::Value {
+    serde_json::json!({"type": "BertNormalizer", "clean_text": clean_text, "handle_chinese_chars": chinese,
+                       "strip_accents": strip_accents, "lowercase": lowercase})
+}
+
+/// `EN-32`: A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for
+#[test]
+fn engine_en_32() {
+    use serde_json::json;
+    // all-MiniLM-L6-v2's and DistilBERT SST-2's own settings, then each
+    // setting turned the other way, so every branch of the normaliser runs.
+    let files = [
+        wordpiece_file(
+            bert_normaliser(true, true, serde_json::Value::Null, true),
+            json!({"direction": "Right", "max_length": 128, "strategy": "LongestFirst", "stride": 0}),
+            json!({"strategy": {"Fixed": 128}, "direction": "Right", "pad_to_multiple_of": null, "pad_id": 0, "pad_type_id": 0, "pad_token": "[PAD]"}),
+        ),
+        wordpiece_file(
+            bert_normaliser(true, true, serde_json::Value::Null, true),
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        ),
+        wordpiece_file(
+            bert_normaliser(false, false, json!(false), false),
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        ),
+        wordpiece_file(
+            bert_normaliser(true, false, json!(true), false),
+            json!({"direction": "Right", "max_length": 9, "strategy": "LongestFirst", "stride": 0}),
+            serde_json::Value::Null,
+        ),
+        wordpiece_file(
+            bert_normaliser(false, true, json!(false), true),
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        ),
+    ];
+
+    let written: Vec<String> = [
+        "",
+        " ",
+        "The quick brown fox jumps!",
+        "unaffable unaffed replaying",
+        "Hello, World... (hello)-world?",
+        "Café naïve résumé façade Ünïcödé",
+        "中国日本 and 中国",
+        "Straße STRASSE ß",
+        "İstanbul",
+        "ΣΟΦΟΣ σοφος",
+        "ДОМА дома",
+        "a\u{0}b\u{FFFD}c\u{200B}d\u{7}e",
+        "tabs\tand\nnew\r\nlines",
+        "\u{3000}wide\u{2003}spaces\u{a0}",
+        "[CLS] in the [SEP] middle [MASK]",
+        "[CLS][SEP]",
+        "x[UNK]y",
+        "[cls] lower",
+        "supercalifragilistic",
+        "twelvechars1 thirteenchars",
+        "12 123 1233 3",
+        "e\u{301}cole e\u{0308}",
+        "\u{E000}private\u{F8FF}",
+        "¿qué? ¡sí! «guillemets» “quotes” — dash … ellipsis",
+        "\u{1F600} emoji \u{1F1FA}\u{1F1F8}",
+        "a.b,c;d:e!f?g",
+        "   leading and trailing   ",
+    ]
+    .iter()
+    .map(|t| (*t).to_string())
+    .collect();
+
+    // And text nobody wrote on purpose, drawn from the ranges every rule
+    // decides on: controls, format characters, accents and combining marks,
+    // CJK, wide and odd spaces, punctuation, letters whose lowercase is two
+    // characters, private use, and the special tokens themselves.
+    let ranges: [(u32, u32); 14] = [
+        (0x20, 0x7E),
+        (0x0, 0x1F),
+        (0x7F, 0x9F),
+        (0xC0, 0x17F),
+        (0x300, 0x36F),
+        (0x370, 0x3FF),
+        (0x400, 0x45F),
+        (0x2000, 0x206F),
+        (0x3000, 0x3003),
+        (0x4E00, 0x4E2F),
+        (0xF900, 0xF90F),
+        (0xE000, 0xE00F),
+        (0x130, 0x131),
+        (0xFFF0, 0xFFFD),
+    ];
+    let mut rng = Rng(0x0e32_b3a7_1234_5678);
+    let generated: Vec<String> = (0..400)
+        .map(|_| {
+            let mut text = String::new();
+            for _ in 0..rng.below(40) {
+                if rng.below(40) == 0 {
+                    text.push_str(["[CLS]", "[SEP]", "[MASK]", "[UNK]", "[PAD]"][rng.below(5)]);
+                    continue;
+                }
+                let (low, high) = ranges[rng.below(ranges.len())];
+                let c = char::from_u32(low + rng.below((high - low + 1) as usize) as u32)
+                    .unwrap_or('a');
+                text.push(c);
+            }
+            text
+        })
+        .collect();
+
+    let mut compared = 0usize;
+    let mut unknown = 0usize;
+    for file in &files {
+        let bytes = serde_json::to_vec(file).expect("the file is written");
+        let ours = tokeniser::WordPiece::read(&bytes).expect("this repository reads the file");
+        let mut theirs =
+            tokenizers::Tokenizer::from_bytes(&bytes).expect("the authority reads it too");
+        // Padding adds masked ids the encoder does not need; the authority's
+        // own padding is set aside so the ids of the sentence are compared.
+        theirs.with_padding(None);
+        for text in written.iter().chain(generated.iter()) {
+            let encoded = theirs
+                .encode(text.as_str(), true)
+                .expect("the authority encodes the text");
+            let ids = ours.encode(text);
+            assert_eq!(
+                ids,
+                encoded.get_ids(),
+                "the ids differ for {text:?} under {}",
+                file["normalizer"]
+            );
+            unknown += ids.iter().filter(|id| **id == 1).count();
+            compared += 1;
+        }
+    }
+    assert_eq!(compared, files.len() * (written.len() + generated.len()));
+    // The unknown token is reached, so the fall back is compared, not only
+    // the words the vocabulary holds.
+    assert!(
+        unknown > 100,
+        "only {unknown} unknown ids: the fixture does not reach [UNK]"
+    );
+    println!(
+        "EN-32: {compared} texts, same ids as the authority; {unknown} unknown ids among them"
+    );
+
+    // Each step a WordPiece file can ask for that this crate does not follow,
+    // refused by the step.
+    let base = || {
+        wordpiece_file(
+            bert_normaliser(true, true, serde_json::Value::Null, true),
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        )
+    };
+    let refused = |change: &dyn Fn(&mut serde_json::Value)| {
+        let mut file = base();
+        change(&mut file);
+        tokeniser::WordPiece::read(&serde_json::to_vec(&file).expect("written"))
+            .map(|_| ())
+            .expect_err("refused")
+    };
+    use tokeniser::{TokeniserError::Unfollowable as U, Unfollowable as Why};
+    assert_eq!(
+        refused(&|f| f["model"]["type"] = json!("BPE")),
+        U(Why::NotWordPiece)
+    );
+    assert_eq!(
+        refused(&|f| f["normalizer"] = json!({"type": "Lowercase"})),
+        U(Why::NormaliserNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["normalizer"]["strip_accents"] = json!("yes")),
+        U(Why::NormaliserNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["normalizer"] = serde_json::Value::Null),
+        U(Why::NormaliserNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["pre_tokenizer"] = json!({"type": "Whitespace"})),
+        U(Why::PreTokeniserNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["post_processor"]["single"]
+            .as_array_mut()
+            .expect("single")
+            .pop()
+            .map(|_| ())
+            .unwrap_or(())),
+        U(Why::TemplateNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["post_processor"]["single"][1]["Sequence"]["type_id"] = json!(1)),
+        U(Why::TemplateNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["post_processor"] =
+            json!({"type": "BertProcessing", "sep": ["[SEP]", 3], "cls": ["[CLS]", 2]})),
+        U(Why::TemplateNotKnown)
+    );
+    assert_eq!(
+        refused(
+            &|f| f["truncation"] = json!({"direction": "Left", "max_length": 8, "strategy": "LongestFirst", "stride": 0})
+        ),
+        U(Why::TruncationNotKnown)
+    );
+    assert_eq!(
+        refused(
+            &|f| f["truncation"] = json!({"direction": "Right", "max_length": 8, "strategy": "LongestFirst", "stride": 2})
+        ),
+        U(Why::TruncationNotKnown)
+    );
+    assert_eq!(
+        refused(&|f| f["added_tokens"][2]["lstrip"] = json!(true)),
+        U(Why::AddedTokenNotPlain)
+    );
+    assert_eq!(
+        refused(&|f| f["added_tokens"][0]["normalized"] = json!(true)),
+        U(Why::AddedTokenNotPlain)
+    );
+    assert_eq!(
+        refused(&|f| f["model"]["unk_token"] = json!("[NOPE]")),
+        U(Why::NoVocabulary)
+    );
+    assert_eq!(
+        tokeniser::WordPiece::read(b"[1, 2]")
+            .map(|_| ())
+            .expect_err("refused"),
+        tokeniser::TokeniserError::NotJson
+    );
+    // The byte-pair reader still refuses WordPiece, as EN-16 states.
+    assert_eq!(
+        tokeniser::Tokeniser::read(&serde_json::to_vec(&base()).expect("written"))
+            .map(|_| ())
+            .expect_err("refused"),
+        U(Why::NotBytePair)
+    );
+}
