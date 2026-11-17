@@ -110,19 +110,16 @@ fn power_of_two(power: i32) -> f64 {
 
 /// The largest exponent `e` with `largest * 2^e <= 127`, for `largest > 0`.
 fn exponent_for(largest: f64) -> i32 {
-    // The float's own exponent puts `e` within one; the two loops settle it,
-    // each step an exact multiplication by a power of two.
+    // The float's own exponent puts `largest * 2^e` in [64, 128), so `e + 1`
+    // is always past 127 and only a value in (127, 128) needs one step down.
     let bits = largest.to_bits();
     let own = ((bits >> 52) & 0x7ff) as i32 - 1023;
-    let mut e = 6 - own;
-    let limit = f64::from(INPUT_LIMIT);
-    while e > -1022 && largest * power_of_two(e) > limit {
-        e -= 1;
+    let e = 6 - own;
+    if largest * power_of_two(e) > f64::from(INPUT_LIMIT) {
+        e - 1
+    } else {
+        e
     }
-    while e < 1023 && largest * power_of_two(e + 1) <= limit {
-        e += 1;
-    }
-    e
 }
 
 /// Scales `input` by one power of two onto the integers -127 to 127, each
@@ -385,9 +382,6 @@ pub fn request_product(bytes: &[u8], layout: Layout) -> Result<Vec<f32>, ExactEr
         .ok_or(ExactError::LengthMismatch)?;
     match layout {
         Layout::Q4F32 | Layout::Q4F16 => {
-            if !columns.is_multiple_of(Q4_GROUP) {
-                return Err(ExactError::GroupMisaligned);
-            }
             let (codes, scales) = tensor
                 .split_at_checked(weights / 2)
                 .ok_or(ExactError::LengthMismatch)?;
@@ -399,9 +393,6 @@ pub fn request_product(bytes: &[u8], layout: Layout) -> Result<Vec<f32>, ExactEr
             q4_matvec(&input, codes, scales, rows, columns)
         }
         Layout::Ternary => {
-            if !columns.is_multiple_of(TERNARY_GROUP) {
-                return Err(ExactError::GroupMisaligned);
-            }
             let plane = weights / 8;
             let (signs, rest) = tensor
                 .split_at_checked(plane)

@@ -6850,6 +6850,10 @@ fn half_bits(value: f32) -> u16 {
     }
     let sign = if value < 0.0 { 0x8000 } else { 0 };
     let mut magnitude = value.abs();
+    if magnitude < 2f32.powi(-14) {
+        // A subnormal half: its fraction counts units of 2^-24.
+        return sign | (magnitude * 2f32.powi(24)) as u16;
+    }
     let mut exponent = 15i32;
     while magnitude >= 2.0 {
         magnitude /= 2.0;
@@ -6978,7 +6982,13 @@ fn exact_cases() -> Vec<ExactCase> {
         spike[columns / 2] = 900.0;
         let tiny: Vec<f32> = (0..columns).map(|_| draw.unit() * 1e-30).collect();
         let large: Vec<f32> = (0..columns).map(|_| draw.unit() * 1e30).collect();
-        vec![plain, spike, tiny, large, vec![0.0; columns]]
+        // Every value halfway between two codes, at exponent 0.
+        let ties: Vec<f32> = (0..columns).map(|i| (i % 200) as f32 - 99.5).collect();
+        // The largest value in (127, 128), the one place the exponent steps down.
+        let edge: Vec<f32> = (0..columns)
+            .map(|i| if i % 2 == 0 { 127.5 } else { -3.25 })
+            .collect();
+        vec![plain, spike, tiny, large, ties, edge, vec![0.0; columns]]
     };
     for &(rows, columns) in &[(1usize, 32usize), (3, 64), (7, 96), (5, 256)] {
         for input in inputs(&mut draw, columns) {
@@ -6991,7 +7001,55 @@ fn exact_cases() -> Vec<ExactCase> {
             cases.push(ternary_case(&mut draw, rows, columns, input));
         }
     }
+
+    // Subnormal half scales, which widen by a different rule than normal ones.
+    let plain: Vec<f32> = (0..64).map(|_| draw.unit() * 3.0).collect();
+    let mut case = q4_case(&mut draw, 2, 64, true, plain);
+    set_scales(
+        &mut case,
+        &[
+            3.0 * 2f32.powi(-24),
+            1023.0 * 2f32.powi(-24),
+            2f32.powi(-14),
+            5.0 * 2f32.powi(-24),
+        ],
+    );
+    cases.push(case);
+
+    // Groups whose order decides the answer: two equal sums at 2^60 and -2^60
+    // cancel, and the small first group survives only if it is added last.
+    let repeated: Vec<f32> = (0..96).map(|i| (i % 32) as f32 - 15.0).collect();
+    let mut case = q4_case(&mut draw, 1, 96, false, repeated);
+    let (first, second) = case.tensor.split_at_mut(32);
+    second[..16].copy_from_slice(&first[16..32]);
+    let copied = case.weights[32..64].to_vec();
+    case.weights[64..96].copy_from_slice(&copied);
+    set_scales(&mut case, &[1.0, 2f32.powi(60), -(2f32.powi(60))]);
+    cases.push(case);
+
+    // A total past f32's range that the input's power of two brings back into
+    // it: rounding once gives a number, rounding before the rescale gives inf.
+    let mut case = q4_case(&mut draw, 1, 32, false, vec![2f32.powi(-20); 32]);
+    case.tensor[..16].fill(0xff);
+    case.weights.fill(7);
+    set_scales(&mut case, &[2f32.powi(120)]);
+    cases.push(case);
     cases
+}
+
+/// Replaces a q4 case's scales, in its stored width.
+fn set_scales(case: &mut ExactCase, scales: &[f32]) {
+    let codes = case.rows * case.columns / 2;
+    case.tensor.truncate(codes);
+    for &scale in scales {
+        if case.format == "q4f16" {
+            case.tensor
+                .extend_from_slice(&half_bits(scale).to_le_bytes());
+        } else {
+            case.tensor.extend_from_slice(&scale.to_le_bytes());
+        }
+    }
+    case.scales = scales.iter().map(|&s| f64::from(s)).collect();
 }
 
 /// `EN-33`: A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code
@@ -7013,6 +7071,12 @@ fn engine_en_33() {
             .fold(0f64, |m, x| m.max(f64::from(*x).abs()));
         for (&code, &x) in codes.iter().zip(&case.input) {
             assert!(code.unsigned_abs() <= 127, "case {index}: code {code}");
+            let nearest = (f64::from(x) / unit).round_ties_even().clamp(-127.0, 127.0);
+            assert_eq!(
+                f64::from(code),
+                nearest,
+                "case {index}: {x} is not rounded to the nearest code, ties to even"
+            );
             assert!(
                 (f64::from(code) * unit - f64::from(x)).abs() <= unit / 2.0,
                 "case {index}: {x} is not within half a step of its code {code}"
