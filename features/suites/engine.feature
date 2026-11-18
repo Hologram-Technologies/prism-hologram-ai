@@ -642,3 +642,11 @@ Feature: engine
     Then every entry is within half a unit of 2^30 sin(pi r / 32768), so it is the nearest integer, and the table's BLAKE3 is the one pinned
     And sine_turn at each step of 2^-16 of a turn is the entry its quadrant names, a tie between steps goes to the even step, and sine_turn of a negated angle is negated
     And cosine_turn of an angle is sine_turn a quarter turn on, and at every step sin^2 + cos^2 is within 2^31 of 2^60
+
+  @EN-46 @build
+  Scenario: SiLU is integer: for x in units of 2^-16 below 2^47 in size, the exponent |x| log2(e) is taken in units of 2^-8 with log2(e) as the integer nearest 2^32 log2(e), certified exactly, rounded half to even; w is exp2_neg of it, and silu(x) is x 2^30 / (2^30 + w) for x at or above 0 and x w / (2^30 + w) below, rounded half to even, so silu(x) - silu(-x) is x within one unit, and it is within |x| / 2048 plus one unit of x / (1 + e^-x)
+    Given hologram-ai-exact's LOG2_E and every x from -2^20 to 2^20 in steps of 7, with x drawn by xorshift up to 2^47 in size
+    When each x is put through hologram-ai-exact's silu
+    Then LOG2_E meets (2L - 1) ln 2 < 2^33 < (2L + 1) ln 2, with ln 2 worked out in the test in integers of any width
+    And every output p meets 2 |n - p D| <= D for the numerator n and the denominator D worked out in the test, and an exact tie gives the even p
+    And silu(x) - silu(-x) is x within one unit, and silu is within |x| / 2048 plus one unit of x / (1 + e^-x)
