@@ -86,7 +86,9 @@ The inherited gates and their own planted defects are in
 | The certified error of a narrowing's table is its true worst error | the table generator's, to be checked when each table is built; no table exists yet | not proved |
 | `KN-39`: one link of a row's exact recombination is `exact` exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part; a part counts on one side only, by its sign; two exact links compose into one, so a chain confirms the plain sum of every term in it; at most one claim is exact | `rows_accepts_decides`, `rows_part_splits`, `rows_part_one_side`, `rows_links_compose` and `rows_one_claim`, checked by the Lean kernel | proved |
 | A chain of any length confirms the plain sum | follows from `rows_links_compose` by induction on the number of links; no theorem states the induction, because the request holds one link | argued, not proved |
-| No number decision 39 computes passes 64 bits: partials below `2^62`, and each term's `sum * mantissa` below `2^(58 - shift)` | the guard in `rowsAnswer`, pinned by `kernel_kn_39` and exercised at its edges in the compiled guest; the product bound itself is not stated as a theorem, because it is not linear | tested, not proved |
+| `KN-39`: the next partial is a function, `rowsNextSign` and `rowsNextSize` of the positive and negative totals; the check accepts it, and any claim it accepts has that size, and that sign unless the size is zero | `rows_next_accepted`, `rows_accepts_only_next_positive` and `rows_accepts_only_next_negative`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| A term that fits has its shift at most 58, and its sum and mantissa below `2^24` | `rows_term_fits_bounds`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| No number decision 39 computes passes 64 bits: partials below `2^62`, and each term's `sum * mantissa * 2^shift` below `2^58` | the guard in `rowsAnswer`, pinned by `kernel_kn_39` and exercised at its edges in the compiled guest; the product bound is not stated as a theorem, because it is not linear | tested, not proved |
 | The compiled guest answers decision 39 as its definition does | 52,920 links from 3,640 real Qwen3-0.6B rows (half planted one too high) and 12 crafted edge requests, each answered as expected by the guest of a holo built from this branch; a measurement across this branch and `crates/exact`, not yet a test in the suite | measured |
 | Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
@@ -1037,8 +1039,34 @@ the guest's numbers are 64 bits, and the Lean model's are unbounded.
 | --- | --- |
 | a link accepted with the claim on the wrong side | rejected: `Lean rejected HologramAi.Proofs.Rows (error): omega could not prove the goal` |
 | a part counted whatever its sign | rejected: the same |
-| a shift of 59 admitted | not rejected: `verified 4 modules`. The bound is outside every theorem; `kernel_kn_39` rejects it |
+| a shift of 59 admitted | not rejected in this first run: the bound was outside every theorem. Since `rows_term_fits_bounds`, rejected (below) |
 | none | `verified 4 modules` |
+
+### Added after the first run: the function and the bounds, on the hosted verifier
+
+On 2026-11-18 this machine stopped running the SDK image, and Ilya chose the
+hosted LexLean verifier (`mcp.uor.foundation`, profile `prism-app`) for proving.
+Its results are the hosted verifier's diagnostic, not the locked SDK's verdict;
+the locked SDK checks the same modules on CI.
+
+- `Kernel.Rows` gained `rowsNextSign` and `rowsNextSize`: the partial a link
+  computes, as a function a stateful guest can call.
+- `Proofs.Rows` gained `rows_next_accepted`, `rows_accepts_only_next_positive`,
+  `rows_accepts_only_next_negative` and `rows_term_fits_bounds`. The first
+  attempt at the claim theorem took a signed claim through `rowsPart`, whose
+  `if` stayed in a hypothesis `linear_arithmetic` does not split; it is stated
+  once per sign instead.
+- The whole of `Kernel.Rows` with `rowsAnswer`, and all nine theorems, with
+  `Kernel.Wire` and `Foundation.Bytes`: `verified` on the hosted verifier.
+
+| Planted defect | Hosted verifier |
+| --- | --- |
+| the next size computed the wrong way round | rejected: `Lean rejected ... Proofs.Rows (error): omega could not prove the goal`, in `rows_accepts_only_next_positive` |
+| a shift of 59 admitted | rejected: the same, in `rows_term_fits_bounds` |
+
+A chain of any length is still argued from `rows_links_compose`, not stated:
+the request holds one link, and a theorem over a list of links has no request
+it would describe.
 
 ### The compiled guest against the fast path
 
