@@ -1899,3 +1899,78 @@ accepted; 508 tensors named; 611 nodes. The role map placed 310 tensors from
 the importer's own table, every one the same as from the graph recorded for
 GP-12 by a separate reader. 373 s on a shared machine, most of it download.
 Not in the suite: it reads 0.57 GB from the network.
+
+## EN-34, exact q4 and ternary products
+
+`hologram-ai-exact` scales the input by one power of two onto `i8`, decodes
+each group of weights to the integers its layout stores, and takes each
+group's sum with `uor-matmul`'s `dot_ref`. Only the recombination, each sum
+times its scale added in `f64` in stored order and rounded once to `f32`, is
+floating point, so the output has the same bits natively and in the page's
+module.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
+
+Run on 2026-11-17 in the pinned SDK image. Each defect was planted alone, the
+four tests run, the file restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| q4 nibbles read high first | `engine_en_34`: the group sums differ |
+| q4 code 0 decodes to +8 | `engine_en_34`: the group sums differ |
+| Ternary sign inverted | `engine_en_34`: the group sums differ |
+| Groups added in reverse order | `engine_en_34`: `-20 is not the stated 0` |
+| The total rounded to `f32` before the rescale | `engine_en_34`: `inf is not the stated 2.8e32` |
+| Input ties rounded away from zero | `engine_en_34`: not rounded to the nearest code, ties to even |
+| The exponent never steps down | `engine_en_34`: the step is too small |
+| A non-finite input admitted | `engine_fl_50` |
+| The q4 group check dropped | `engine_fl_51`, and `engine_en_34` through the module |
+| The q4 scale length unchecked | `engine_fl_52` (the crate indexes past its scales) |
+| The ternary group check dropped | `engine_fl_51` |
+| The module reads f16 scales as f32 | `engine_en_34`: the module's bytes differ from the crate's |
+| Subnormal half scales halved | `engine_en_34`: `-0.00134 is not the stated -0.00268` |
+| none, before and after | passed |
+
+A first round missed six of these, and the code or cases changed rather than
+the record. Four needed cases the generator never drew: inputs exactly
+halfway between codes, subnormal half scales, groups whose order decides the
+answer, and a total beyond `f32` that the rescale brings back. Two were code
+no input can reach: a loop that raised the exponent (the float's own exponent
+already puts the largest input in [64, 128)) and request-level group checks
+that repeat the group sums' own. Both were deleted.
+
+### Run over two real models
+
+A measurement, not part of the suite, run on 2026-11-17 in the pinned SDK image
+over every matrix of two models, one synthetic input per matrix:
+
+- Bonsai 1.7B at `HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256
+  `acf0b5ad…`): every ternary matrix, unpacked as the loader unpacks them.
+- Qwen2.5-1.5B-Instruct Q4_0 at `Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51`
+  (sha256 `dcd819ff…`): every Q4_0 matrix. Q4_0 holds the engine's q4f16
+  numbers (an f16 scale per 32 weights, each weight its code less eight, no
+  zero point) with the nibbles in another order, so each was repacked to the
+  engine's layout. The output head is Q6_K and was not measured.
+
+Two inputs were drawn: roughly normal, and the same with 0.2% of values at 40
+times, as activations have.
+
+| Model | Matrices | Weights | Group sums checked | Wrong | Rows past bound | Relative error (L2), normal / with outliers |
+| --- | --- | --- | --- | --- | --- | --- |
+| Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% |
+| Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% |
+
+Every output stayed within its stated bound, the worst at 0.18 of it. The
+module the page loads gave the same bytes as native code for Bonsai's
+151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix. The first module run
+over Qwen differed: the module on disk had been built during the planted-defect
+run, with f16 scales read as f32. Rebuilt from the committed source, it agreed.
+
+### What EN-34 does not establish
+
+Exact is not the same as accurate. Rounding the input onto eight bits with one
+power of two for the whole vector costs under 1% on ordinary inputs, but an
+outlier sets the step for every value, and the error rises to about 9%. A
+finer input scale, per group, is the next measurement, and an engine using
+these products has to be judged on its answers, not on these figures. Softmax, normalisation and rotary encoding remain floating point,
+and nothing on the page calls the module yet.

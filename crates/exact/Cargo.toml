@@ -1,0 +1,22 @@
+[package]
+name = "hologram-ai-exact"
+description = "Matrix-vector products for Hologram AI's q4 and ternary weights with every group sum exact in integers, over uor-matmul, so the same inputs give the same bits on every machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# `uor-matmul` is the UOR Foundation's exact matrix arithmetic: its codecs
+# decode the stored codes and `dot_ref` sums each group in an accumulator wide
+# enough that overflow is unreachable. It is cited in `model/authorities.toml`
+# and checked here against a sum written out in `i64`; it is not re-derived.
+[dependencies]
+uor-matmul = { workspace = true }
+
+[lints]
+workspace = true

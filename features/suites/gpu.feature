@@ -169,3 +169,10 @@ Feature: gpu
     And the second reads every file from the browser, downloads none, derives each file's BLAKE3 again, checks each against the record, imports the graph through the kernel and answers with the reference's tokens
     And the third finds the kept graph is not its BLAKE3, stops, and forgets every file it read
     And the fourth downloads every file again and answers with the reference's tokens
+
+  @GP-22 @build
+  Scenario: The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read
+    Given GP-19's Qwen3-shaped ONNX export, whose hub record offers its q4f16 files and no q4 files
+    When `just page-journey` opens the engine page with ?onnx= naming it, with WebGPU and with navigator.gpu taken away, and once more asking for ?precision=q4
+    Then each load asks the kernel for the precision and is answered q4f16, asks it for the graph's file and reads the file it names, and asks it for the device and runs on the one it names: WebGPU, then the CPU
+    And the load asking for q4 stops at the precision, the kernel answering none fits, with no file read
