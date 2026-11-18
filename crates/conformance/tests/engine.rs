@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
 use hologram_ai_download as download;
+use hologram_ai_exact as exact;
 use hologram_ai_model_reader::{config, gguf as tensors, header, holk, onnx as import, Kernel};
 use hologram_ai_onnx_preflight as onnx;
 use hologram_ai_tokenizer as tokeniser;
@@ -7005,4 +7006,973 @@ fn engine_fl_49() {
     // And with nothing imported there is nothing to finish.
     assert_eq!(wasm::onnx_finish(), 1);
     assert_eq!(wasm::last_answer(), named(wasm::CallError::NothingRead));
+}
+
+/// A small generator, so a case is the same on every run and a failing one can
+/// be named. Not the crate's: nothing in the exact products is random.
+struct Draw(u64);
+
+impl Draw {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    /// A value in -1 to 1, as an `f32`.
+    fn unit(&mut self) -> f32 {
+        ((self.next() >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    }
+}
+
+/// One exact-product case, with its weights decoded here, independently of
+/// the crate, from the definition of each layout.
+struct ExactCase {
+    format: &'static str,
+    rows: usize,
+    columns: usize,
+    input: Vec<f32>,
+    /// The tensor's bytes as the engine stores them.
+    tensor: Vec<u8>,
+    /// Each weight as the integer its code stands for.
+    weights: Vec<i8>,
+    /// Each group's scale.
+    scales: Vec<f64>,
+    group: usize,
+}
+
+/// An IEEE half's bits for a value that one represents exactly.
+fn half_bits(value: f32) -> u16 {
+    if value == 0.0 {
+        return 0;
+    }
+    let sign = if value < 0.0 { 0x8000 } else { 0 };
+    let mut magnitude = value.abs();
+    if magnitude < 2f32.powi(-14) {
+        // A subnormal half: its fraction counts units of 2^-24.
+        return sign | (magnitude * 2f32.powi(24)) as u16;
+    }
+    let mut exponent = 15i32;
+    while magnitude >= 2.0 {
+        magnitude /= 2.0;
+        exponent += 1;
+    }
+    while magnitude < 1.0 {
+        magnitude *= 2.0;
+        exponent -= 1;
+    }
+    sign | ((exponent as u16) << 10) | (((magnitude - 1.0) * 1024.0) as u16)
+}
+
+fn q4_case(draw: &mut Draw, rows: usize, columns: usize, half: bool, input: Vec<f32>) -> ExactCase {
+    let count = rows * columns;
+    let codes: Vec<u8> = (0..count).map(|_| draw.below(16) as u8).collect();
+    let mut tensor = vec![0u8; count / 2];
+    for (g, &code) in codes.iter().enumerate() {
+        tensor[g / 2] |= code << (4 * (g % 2));
+    }
+    let groups = count / 32;
+    let mut scales = Vec::with_capacity(groups);
+    for _ in 0..groups {
+        // A scale a half holds exactly: a multiple of 1/1024 in 1/1024 to 2.
+        let scale = (1 + draw.below(2047)) as f32 / 1024.0;
+        scales.push(f64::from(scale));
+        if !half {
+            tensor.extend_from_slice(&scale.to_le_bytes());
+        }
+    }
+    if half {
+        for &scale in &scales {
+            tensor.extend_from_slice(&half_bits(scale as f32).to_le_bytes());
+        }
+    }
+    ExactCase {
+        format: if half { "q4f16" } else { "q4" },
+        rows,
+        columns,
+        input,
+        tensor,
+        weights: codes.iter().map(|&code| code as i8 - 8).collect(),
+        scales,
+        group: 32,
+    }
+}
+
+fn ternary_case(draw: &mut Draw, rows: usize, columns: usize, input: Vec<f32>) -> ExactCase {
+    let count = rows * columns;
+    let weights: Vec<i8> = (0..count).map(|_| draw.below(3) as i8 - 1).collect();
+    let plane = count / 8;
+    let mut tensor = vec![0u8; 2 * plane];
+    for (g, &weight) in weights.iter().enumerate() {
+        if weight > 0 {
+            tensor[g / 8] |= 1 << (g % 8);
+        }
+        if weight != 0 {
+            tensor[plane + g / 8] |= 1 << (g % 8);
+        }
+    }
+    let mut scales = Vec::new();
+    for _ in 0..count / 128 {
+        let scale = draw.unit().abs() + 0.01;
+        scales.push(f64::from(scale));
+        tensor.extend_from_slice(&scale.to_le_bytes());
+    }
+    ExactCase {
+        format: "ternary",
+        rows,
+        columns,
+        input,
+        tensor,
+        weights,
+        scales,
+        group: 128,
+    }
+}
+
+/// Binary32 values as the bit patterns the exact crate takes.
+fn bits(values: &[f32]) -> Vec<u32> {
+    values.iter().map(|x| x.to_bits()).collect()
+}
+
+/// The crate's answer for a case, through its public functions.
+fn exact_rows(case: &ExactCase) -> Result<Vec<f32>, exact::ExactError> {
+    let (rows, columns) = (case.rows, case.columns);
+    let input = bits(&case.input);
+    let count = rows * columns;
+    match case.format {
+        "ternary" => {
+            let plane = count / 8;
+            exact::ternary_matvec(
+                &input,
+                &case.tensor[..plane],
+                &case.tensor[plane..2 * plane],
+                &case.tensor[2 * plane..],
+                rows,
+                columns,
+            )
+        }
+        format => {
+            let (codes, scales) = case.tensor.split_at(count / 2);
+            let scales = if format == "q4f16" {
+                exact::Q4Scales::F16(scales)
+            } else {
+                exact::Q4Scales::F32(scales)
+            };
+            exact::q4_matvec(&input, codes, scales, rows, columns)
+        }
+    }
+    .map(|rows| rows.into_iter().map(f32::from_bits).collect())
+}
+
+/// What the module is handed for a case: rows, columns, input, tensor.
+fn exact_request(case: &ExactCase) -> Vec<u8> {
+    let mut request = Vec::new();
+    request.extend_from_slice(&(case.rows as u32).to_le_bytes());
+    request.extend_from_slice(&(case.columns as u32).to_le_bytes());
+    for x in &case.input {
+        request.extend_from_slice(&x.to_le_bytes());
+    }
+    request.extend_from_slice(&case.tensor);
+    request
+}
+
+/// The cases EN-34 runs: every format, odd row counts, several group counts,
+/// and inputs at the edges of what a power-of-two scale has to reach.
+fn exact_cases() -> Vec<ExactCase> {
+    let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
+    let mut cases = Vec::new();
+    let inputs = |draw: &mut Draw, columns: usize| -> Vec<Vec<f32>> {
+        let plain: Vec<f32> = (0..columns).map(|_| draw.unit() * 3.0).collect();
+        let mut spike = vec![0.001f32; columns];
+        spike[columns / 2] = 900.0;
+        let tiny: Vec<f32> = (0..columns).map(|_| draw.unit() * 1e-30).collect();
+        let large: Vec<f32> = (0..columns).map(|_| draw.unit() * 1e30).collect();
+        // Every value halfway between two codes, at exponent 0.
+        let ties: Vec<f32> = (0..columns).map(|i| (i % 200) as f32 - 99.5).collect();
+        // The largest value in (127, 128), the one place the exponent steps down.
+        let edge: Vec<f32> = (0..columns)
+            .map(|i| if i % 2 == 0 { 127.5 } else { -3.25 })
+            .collect();
+        vec![plain, spike, tiny, large, ties, edge, vec![0.0; columns]]
+    };
+    for &(rows, columns) in &[(1usize, 32usize), (3, 64), (7, 96), (5, 256)] {
+        for input in inputs(&mut draw, columns) {
+            cases.push(q4_case(&mut draw, rows, columns, false, input.clone()));
+            cases.push(q4_case(&mut draw, rows, columns, true, input));
+        }
+    }
+    for &(rows, columns) in &[(1usize, 128usize), (3, 256), (6, 384)] {
+        for input in inputs(&mut draw, columns) {
+            cases.push(ternary_case(&mut draw, rows, columns, input));
+        }
+    }
+
+    // Subnormal half scales, which widen by a different rule than normal ones.
+    let plain: Vec<f32> = (0..64).map(|_| draw.unit() * 3.0).collect();
+    let mut case = q4_case(&mut draw, 2, 64, true, plain);
+    set_scales(
+        &mut case,
+        &[
+            3.0 * 2f32.powi(-24),
+            1023.0 * 2f32.powi(-24),
+            2f32.powi(-14),
+            5.0 * 2f32.powi(-24),
+        ],
+    );
+    cases.push(case);
+
+    // Groups whose order decides the answer: two equal sums at 2^60 and -2^60
+    // cancel, and the small first group survives only if it is added last.
+    let repeated: Vec<f32> = (0..96).map(|i| (i % 32) as f32 - 15.0).collect();
+    let mut case = q4_case(&mut draw, 1, 96, false, repeated);
+    let (first, second) = case.tensor.split_at_mut(32);
+    second[..16].copy_from_slice(&first[16..32]);
+    let copied = case.weights[32..64].to_vec();
+    case.weights[64..96].copy_from_slice(&copied);
+    set_scales(&mut case, &[1.0, 2f32.powi(60), -(2f32.powi(60))]);
+    cases.push(case);
+
+    // A total past f32's range that the input's power of two brings back into
+    // it: rounding once gives a number, rounding before the rescale gives inf.
+    let mut case = q4_case(&mut draw, 1, 32, false, vec![2f32.powi(-20); 32]);
+    case.tensor[..16].fill(0xff);
+    case.weights.fill(7);
+    set_scales(&mut case, &[2f32.powi(120)]);
+    cases.push(case);
+    cases
+}
+
+/// Replaces a q4 case's scales, in its stored width.
+fn set_scales(case: &mut ExactCase, scales: &[f32]) {
+    let codes = case.rows * case.columns / 2;
+    case.tensor.truncate(codes);
+    for &scale in scales {
+        if case.format == "q4f16" {
+            case.tensor
+                .extend_from_slice(&half_bits(scale).to_le_bytes());
+        } else {
+            case.tensor.extend_from_slice(&scale.to_le_bytes());
+        }
+    }
+    case.scales = scales.iter().map(|&s| f64::from(s)).collect();
+}
+
+/// A finite f64 as `(mantissa, exponent)` with the mantissa odd or zero, read
+/// from its bits.
+fn f64_parts(value: f64) -> (i128, i32) {
+    let bits = value.to_bits();
+    let fraction = (bits & ((1u64 << 52) - 1)) as i128;
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let (mut mantissa, mut exponent) = if biased == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1i128 << 52), biased - 1075)
+    };
+    if mantissa == 0 {
+        return (0, 0);
+    }
+    while mantissa & 1 == 0 {
+        mantissa >>= 1;
+        exponent += 1;
+    }
+    if bits >> 63 == 1 {
+        mantissa = -mantissa;
+    }
+    (mantissa, exponent)
+}
+
+/// The row a case states: the exact sum of `sums` times `scales`, times
+/// `2^-input_exponent`, rounded once to f32. The exact sum is an integer
+/// times a power of two; when it has at most 53 bits the f64 holding it is
+/// exact, and Rust's f64-to-f32 conversion rounds once, ties to even.
+fn exact_reference(sums: &[i64], scales: &[f64], input_exponent: i32) -> f32 {
+    let terms: Vec<(i128, i32)> = sums
+        .iter()
+        .zip(scales)
+        .map(|(&sum, &scale)| {
+            let (mantissa, exponent) = f64_parts(scale);
+            (i128::from(sum) * mantissa, exponent)
+        })
+        .filter(|&(m, _)| m != 0)
+        .collect();
+    let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
+        return 0.0;
+    };
+    let mut total = terms.iter().map(|&(m, e)| m << (e - lowest)).sum::<i128>();
+    let mut exponent = lowest - input_exponent;
+    if total == 0 {
+        return 0.0;
+    }
+    while total & 1 == 0 {
+        total >>= 1;
+        exponent += 1;
+    }
+    assert!(
+        total.unsigned_abs() < 1u128 << 53,
+        "a case's exact row needs more than 53 bits: state it by hand"
+    );
+    assert!(
+        exponent.abs() <= 1000,
+        "a case's exponent is outside the reference's range"
+    );
+    let value = total as f64 * 2f64.powi(exponent);
+    value as f32
+}
+
+/// A q4 case with each row's groups in reverse order: codes, scales and the
+/// input's columns moved together, so every product is the same.
+fn reversed_groups(case: &ExactCase) -> ExactCase {
+    let groups = case.columns / case.group;
+    let bytes_per_scale = if case.format == "q4f16" { 2 } else { 4 };
+    let codes_len = case.rows * case.columns / 2;
+    let (codes, scale_bytes) = case.tensor.split_at(codes_len);
+    let mut tensor = vec![0u8; codes_len];
+    let mut scales_out = Vec::with_capacity(scale_bytes.len());
+    let mut weights = vec![0i8; case.weights.len()];
+    let mut scales = Vec::with_capacity(case.scales.len());
+    let mut input = vec![0f32; case.columns];
+    for group in 0..groups {
+        let from = groups - 1 - group;
+        for i in 0..case.group {
+            input[group * case.group + i] = case.input[from * case.group + i];
+        }
+    }
+    for row in 0..case.rows {
+        for group in 0..groups {
+            let from = groups - 1 - group;
+            for i in 0..case.group {
+                let to_g = row * case.columns + group * case.group + i;
+                let from_g = row * case.columns + from * case.group + i;
+                let code = (codes[from_g / 2] >> (4 * (from_g % 2))) & 0x0f;
+                tensor[to_g / 2] |= code << (4 * (to_g % 2));
+                weights[to_g] = case.weights[from_g];
+            }
+            let s = (row * groups + from) * bytes_per_scale;
+            scales_out.extend_from_slice(&scale_bytes[s..s + bytes_per_scale]);
+            scales.push(case.scales[row * groups + from]);
+        }
+    }
+    tensor.extend_from_slice(&scales_out);
+    ExactCase {
+        format: case.format,
+        rows: case.rows,
+        columns: case.columns,
+        input,
+        tensor,
+        weights,
+        scales,
+        group: case.group,
+    }
+}
+
+/// `EN-34`: A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code
+#[test]
+fn engine_en_34() {
+    let cases = exact_cases();
+    assert!(cases.len() >= 50, "only {} cases", cases.len());
+    let mut module_cases = Vec::new();
+    for (index, case) in cases.iter().enumerate() {
+        let quantised = exact::quantise(&bits(&case.input)).expect("a finite input quantises");
+        let codes = quantised.codes();
+        let unit = 2f64.powi(-quantised.exponent());
+
+        // The input on integers: within 127, within half a step of each value,
+        // and the step the largest the 127 limit allows.
+        let largest = case
+            .input
+            .iter()
+            .fold(0f64, |m, x| m.max(f64::from(*x).abs()));
+        for (&code, &x) in codes.iter().zip(&case.input) {
+            assert!(code.unsigned_abs() <= 127, "case {index}: code {code}");
+            let nearest = (f64::from(x) / unit).round_ties_even().clamp(-127.0, 127.0);
+            assert_eq!(
+                f64::from(code),
+                nearest,
+                "case {index}: {x} is not rounded to the nearest code, ties to even"
+            );
+            assert!(
+                (f64::from(code) * unit - f64::from(x)).abs() <= unit / 2.0,
+                "case {index}: {x} is not within half a step of its code {code}"
+            );
+        }
+        if largest > 0.0 {
+            assert!(
+                largest / unit <= 127.0,
+                "case {index}: the step is too small"
+            );
+            assert!(
+                largest / unit > 63.5,
+                "case {index}: the step is not the largest"
+            );
+        }
+
+        // Each group's sum, written out here in i64 over weights decoded here.
+        let groups = case.columns / case.group;
+        let mut sums = Vec::new();
+        for row in 0..case.rows {
+            for group in 0..groups {
+                let mut sum = 0i64;
+                for i in 0..case.group {
+                    let column = group * case.group + i;
+                    sum += i64::from(codes[column])
+                        * i64::from(case.weights[row * case.columns + column]);
+                }
+                sums.push(sum);
+            }
+        }
+        let crate_sums = match case.format {
+            "ternary" => {
+                let plane = case.rows * case.columns / 8;
+                exact::ternary_group_sums(
+                    &quantised,
+                    &case.tensor[..plane],
+                    &case.tensor[plane..2 * plane],
+                    case.rows,
+                    case.columns,
+                )
+            }
+            _ => exact::q4_group_sums(
+                &quantised,
+                &case.tensor[..case.rows * case.columns / 2],
+                case.rows,
+                case.columns,
+            ),
+        }
+        .expect("the case is well formed");
+        assert_eq!(
+            crate_sums, sums,
+            "case {index} ({}): the group sums differ",
+            case.format
+        );
+
+        // Each output: the exact sum of the group sums times their scales,
+        // worked here from each scale's f64 bits, rounded once to f32.
+        let rows = exact_rows(case).expect("the case is well formed");
+        for row in 0..case.rows {
+            let stated = exact_reference(
+                &sums[row * groups..(row + 1) * groups],
+                &case.scales[row * groups..(row + 1) * groups],
+                quantised.exponent(),
+            );
+            assert_eq!(
+                rows[row].to_bits(),
+                stated.to_bits(),
+                "case {index} ({}), row {row}: {} is not the stated {stated}",
+                case.format,
+                rows[row]
+            );
+
+            // Against the float product of the unrounded input: off by no more
+            // than each input's half step through its weight and scale, plus
+            // the one rounding to f32.
+            let mut float = 0f64;
+            let mut bound = 0f64;
+            for column in 0..case.columns {
+                let weight = f64::from(case.weights[row * case.columns + column]);
+                let scale = case.scales[row * groups + column / case.group];
+                float += f64::from(case.input[column]) * weight * scale;
+                bound += (weight * scale).abs() * unit / 2.0;
+            }
+            let bound = bound + float.abs() * 1e-6 + f64::from(f32::MIN_POSITIVE);
+            assert!(
+                (f64::from(rows[row]) - float).abs() <= bound,
+                "case {index} ({}), row {row}: {} is {} from the float {float}, past {bound}",
+                case.format,
+                rows[row],
+                (f64::from(rows[row]) - float).abs()
+            );
+        }
+
+        if case.format != "ternary" && groups > 1 {
+            let reversed = exact_rows(&reversed_groups(case)).expect("the case is well formed");
+            for row in 0..case.rows {
+                assert_eq!(
+                    reversed[row].to_bits(),
+                    rows[row].to_bits(),
+                    "case {index} ({}), row {row}: the groups' order changed the answer",
+                    case.format
+                );
+            }
+        }
+
+        let answer: Vec<u8> = rows.iter().flat_map(|r| r.to_le_bytes()).collect();
+        module_cases.push(serde_json::json!({
+            "call": format!("exact_{}", case.format),
+            "request": enhex(&exact_request(case)),
+            "answer": enhex(&answer),
+            "said": 0,
+        }));
+    }
+    // No floating-point type at all: the crate takes and returns binary32
+    // bit patterns and does everything between in integers.
+    let source = std::fs::read_to_string(root().join("crates/exact/src/lib.rs"))
+        .expect("the crate's source");
+    for line in source.lines().filter(|l| !l.trim_start().starts_with("//")) {
+        assert!(
+            !line.contains("f32") && !line.contains("f64"),
+            "crates/exact/src/lib.rs names a float type outside a comment: {line}"
+        );
+    }
+
+    // A misshapen request is refused by the module as the crate refuses it.
+    let mut misaligned = exact_request(&cases[0]);
+    misaligned[4] = 33;
+    module_cases.push(serde_json::json!({
+        "call": "exact_q4",
+        "request": enhex(&misaligned),
+        "answer": enhex(b"GroupMisaligned"),
+        "said": 1,
+    }));
+
+    // The same bytes from the module the page loads.
+    let module = built_module();
+    let target = target_dir();
+    let listed = target.join("en-34-cases.json");
+    std::fs::write(&listed, serde_json::to_string(&module_cases).expect("JSON")).expect("written");
+    let script = target.join("en-34-browser.mjs");
+    std::fs::write(&script, EXACT_BROWSER_CHECK).expect("the script is written");
+    let ran = std::process::Command::new("node")
+        .arg(&script)
+        .arg(&module)
+        .arg(&listed)
+        .output()
+        .expect("node runs the module the page loads");
+    assert!(
+        ran.status.success(),
+        "the module does not answer what the crate answers:\n{}{}",
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let said = String::from_utf8_lossy(&ran.stdout);
+    assert!(
+        said.contains(&format!("agreed {}", module_cases.len())),
+        "the module was not asked every case:\n{said}"
+    );
+}
+
+/// Hands each case to the module as the page would and requires its answer's
+/// bytes to be the crate's.
+const EXACT_BROWSER_CHECK: &str = r#"
+import { readFileSync } from "node:fs";
+
+const [, , modulePath, casesPath] = process.argv;
+const cases = JSON.parse(readFileSync(casesPath, "utf8"));
+// The module asks the kernel through one import; these calls never reach it.
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
+const call = instance.exports;
+const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
+const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
+let agreed = 0;
+for (const [index, c] of cases.entries()) {
+  const bytes = unhex(c.request);
+  const at = call.allocate(bytes.length);
+  new Uint8Array(call.memory.buffer).set(bytes, at);
+  const said = call[c.call](at, bytes.length);
+  call.release(at);
+  const answer = enhex(new Uint8Array(call.memory.buffer).slice(call.result_at(), call.result_at() + call.result_len()));
+  if (said !== c.said || answer !== c.answer) {
+    throw new Error(`case ${index} (${c.call}): the module said ${said} ${answer}, the crate ${c.said} ${c.answer}`);
+  }
+  agreed += 1;
+}
+console.log(`agreed ${agreed}`);
+"#;
+
+/// `FL-50`: An input to an exact product is not a finite number
+#[test]
+fn engine_fl_50() {
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let mut input = vec![1.0f32; 32];
+        input[7] = bad;
+        assert_eq!(
+            exact::quantise(&bits(&input)),
+            Err(exact::ExactError::InputNotFinite)
+        );
+        assert_eq!(
+            exact::q4_matvec(
+                &bits(&input),
+                &[0x88; 16],
+                exact::Q4Scales::F32(&1f32.to_le_bytes()),
+                1,
+                32
+            ),
+            Err(exact::ExactError::InputNotFinite)
+        );
+    }
+}
+
+/// `FL-51`: An exact product's row length is not a whole number of scale groups
+#[test]
+fn engine_fl_51() {
+    let quantised = exact::quantise(&bits(&[1.0; 48])).expect("finite");
+    assert_eq!(
+        exact::q4_group_sums(&quantised, &[0x88; 24], 1, 48),
+        Err(exact::ExactError::GroupMisaligned)
+    );
+    let quantised = exact::quantise(&bits(&[1.0; 64])).expect("finite");
+    assert_eq!(
+        exact::ternary_group_sums(&quantised, &[0; 8], &[0; 8], 1, 64),
+        Err(exact::ExactError::GroupMisaligned)
+    );
+}
+
+/// `FL-52`: A buffer handed to an exact product is not the length its shape implies
+#[test]
+fn engine_fl_52() {
+    let input = vec![1.0f32; 32];
+    let scale = 1f32.to_le_bytes();
+    // Codes one byte short.
+    assert_eq!(
+        exact::q4_matvec(
+            &bits(&input),
+            &[0x88; 15],
+            exact::Q4Scales::F32(&scale),
+            1,
+            32
+        ),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // A scale missing.
+    assert_eq!(
+        exact::q4_matvec(
+            &bits(&input),
+            &[0x88; 32],
+            exact::Q4Scales::F32(&scale),
+            2,
+            32
+        ),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // An input of the wrong length.
+    assert_eq!(
+        exact::q4_matvec(
+            &bits(&input[..31]),
+            &[0x88; 16],
+            exact::Q4Scales::F32(&scale),
+            1,
+            32
+        ),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // A ternary plane short.
+    assert_eq!(
+        exact::ternary_matvec(&bits(&[1.0; 128]), &[0; 16], &[0; 15], &scale, 1, 128),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // A request to the module shorter than its own row and column counts, and
+    // one whose counts would overflow before any slice is taken.
+    assert_eq!(
+        exact::request_product(&[1, 0, 0], exact::Layout::Q4F32),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    let mut huge = vec![0xff; 8];
+    huge.extend_from_slice(&[0; 64]);
+    assert_eq!(
+        exact::request_product(&huge, exact::Layout::Ternary),
+        Err(exact::ExactError::LengthMismatch)
+    );
+}
+
+/// `FL-53`: A scale stored with an exact product's weights is not a finite number
+#[test]
+fn engine_fl_53() {
+    let input = vec![1.0f32; 32];
+    for bad in [f32::INFINITY, f32::NAN] {
+        assert_eq!(
+            exact::q4_matvec(
+                &bits(&input),
+                &[0x99; 16],
+                exact::Q4Scales::F32(&bad.to_le_bytes()),
+                1,
+                32
+            ),
+            Err(exact::ExactError::ScaleNotFinite)
+        );
+    }
+    for bad in [0x7c00u16, 0xfe00] {
+        assert_eq!(
+            exact::q4_matvec(
+                &bits(&input),
+                &[0x99; 16],
+                exact::Q4Scales::F16(&bad.to_le_bytes()),
+                1,
+                32
+            ),
+            Err(exact::ExactError::ScaleNotFinite)
+        );
+    }
+    assert_eq!(
+        exact::ternary_matvec(
+            &bits(&[1.0; 128]),
+            &[0xff; 16],
+            &[0xff; 16],
+            &f32::NAN.to_le_bytes(),
+            1,
+            128
+        ),
+        Err(exact::ExactError::ScaleNotFinite)
+    );
+}
+
+/// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
+#[test]
+fn engine_en_35() {
+    use hologram_ai_kernel_client::block_check;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    for (name, codes, activations) in en_35_blocks() {
+        // The crate's own sum, from its own path: the input quantised by the
+        // crate, the codes read as the engine stores them.
+        let input: Vec<f32> = activations.iter().map(|&a| f32::from(a)).collect();
+        let quantised = exact::quantise(&bits(&input)).expect("a finite input quantises");
+        assert_eq!(
+            quantised.codes(),
+            activations.as_slice(),
+            "{name}: the codes are the activations"
+        );
+        let sums = exact::q4_group_sums(&quantised, &codes, 1, 32).expect("one block sums");
+        let sum = i32::try_from(sums[0]).expect("a block's sum fits 32 bits");
+
+        // What decision 34 recomputes from the request, read as Kernel.Block
+        // reads it, so a wrong layout fails here as well as in the guest.
+        let request = block_check::request(&codes, &activations, sum);
+        assert_eq!(
+            block_reading(&request),
+            (sum, sum),
+            "{name}: the kernel reads another block"
+        );
+        let off = block_check::request(&codes, &activations, sum + 1);
+        assert_eq!(
+            block_reading(&off),
+            (sum + 1, sum),
+            "{name}: the claim is not read plus one"
+        );
+
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let claim = (
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                answer.to_string(),
+            );
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 34:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// request in hex, the answer the guest must give).
+fn kernel_claims() -> Vec<(String, String)> {
+    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+        .expect("the claims the crates make of the kernel");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    value["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .map(|one| {
+            (
+                one["request"].as_str().expect("a request").to_string(),
+                one["answer"].as_str().expect("an answer").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The `app` recipe runs every claim through the guest of the holo it has
+/// just built. The claims are not the holo's examples, which cannot grow past
+/// about 108.
+fn assert_kernel_replays_claims() {
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
+    let verify = app
+        .find("prismpm --project app verify")
+        .expect("the app recipe builds the holo");
+    let replay = app
+        .find(
+            "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
+             crates/conformance/tests/kernel/claims.json",
+        )
+        .expect("the app recipe replays the claims through the holo's guest");
+    assert!(
+        verify < replay,
+        "the claims are replayed after the holo is built"
+    );
+}
+
+/// The blocks EN-35 hands the kernel, each with an activation of magnitude
+/// 127 so the crate quantises the activations to themselves: the sums at both
+/// ends of the range, every weight zero, and blocks drawn at random.
+fn en_35_blocks() -> Vec<(String, [u8; 16], [i8; 32])> {
+    let mut out = vec![
+        (
+            "every weight -8, activations -127".to_string(),
+            [0x00; 16],
+            [-127; 32],
+        ),
+        (
+            "every weight -8, activations 127".to_string(),
+            [0x00; 16],
+            [127; 32],
+        ),
+        (
+            "every weight 7, activations 127".to_string(),
+            [0xff; 16],
+            [127; 32],
+        ),
+        ("every weight 0".to_string(), [0x88; 16], {
+            let mut a = [5; 32];
+            a[31] = -127;
+            a
+        }),
+    ];
+    let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
+    for case in 0..4 {
+        let mut codes = [0; 16];
+        for c in &mut codes {
+            *c = draw.below(256) as u8;
+        }
+        let mut activations = [0; 32];
+        for a in &mut activations {
+            *a = (draw.below(255) as i16 - 127) as i8;
+        }
+        activations[draw.below(32) as usize] = if case % 2 == 0 { 127 } else { -127 };
+        out.push((format!("drawn block {case}"), codes, activations));
+    }
+    out
+}
+
+/// A decision-34 request read as `Kernel.Block` reads it: the claim less
+/// 32768, and the sum of `positiveFrom` less `negativeFrom` over its four
+/// halves, which `parts_cover_every_product` and the size theorems make the
+/// signed sum of each code less eight times each byte as an `i8`.
+fn block_reading(request: &[u8; 53]) -> (i32, i32) {
+    let mut sum = 0;
+    for (weights, activations, base) in [(1, 25, 0), (1, 17, 8), (9, 41, 0), (9, 33, 8)] {
+        for rest in 0..8 {
+            let index = base + rest;
+            let byte = request[weights + 7 - index / 2];
+            let code = if index % 2 == 1 { byte % 16 } else { byte / 16 };
+            let activation = i32::from(request[activations + 7 - rest] as i8);
+            sum += (i32::from(code) - 8) * activation;
+        }
+    }
+    let claim = u32::from_be_bytes(request[49..53].try_into().expect("four bytes"));
+    (claim.wrapping_sub(32768) as i32, sum)
+}
+
+/// `EN-36`: Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one
+#[test]
+fn engine_en_36() {
+    use hologram_ai_kernel_client::scale_check;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    for (sum, bits) in EN_36_GROUPS {
+        // The crate's own reading of the half: an exact mantissa times a power
+        // of two no lower than 2^-24, so the product in units of 2^-24 is the
+        // sum times the mantissa shifted up by the exponent's distance from it.
+        let scale = exact::Dyadic::from_binary16(bits).expect("a finite half");
+        let shift = u32::try_from(scale.exponent + 24).expect("no half is below 2^-24");
+        let product = i128::from(sum) * (scale.mantissa << shift);
+
+        // What decision 37 recomputes, read as Kernel.Scale reads it.
+        let request = scale_check::request(sum, bits, product);
+        assert_eq!(
+            scale_reading(&request),
+            Some((product, product)),
+            "{sum} times {bits:#06x}: the kernel reads another group"
+        );
+        let off = scale_check::request(sum, bits, product + 1);
+        assert_eq!(
+            scale_reading(&off),
+            Some((product + 1, product)),
+            "{sum} times {bits:#06x}: the claim is not read plus one"
+        );
+
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let claim = (
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                answer.to_string(),
+            );
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
+            }
+        }
+    }
+    // A scale that is an infinity or a NaN has no product.
+    for bits in [0x7c00, 0xfc00, 0x7e00] {
+        assert_eq!(
+            exact::Dyadic::from_binary16(bits),
+            None,
+            "{bits:#06x} is not finite"
+        );
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 37:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The groups EN-36 hands the kernel, as (sum, half scale): one, the largest
+/// half and the smallest subnormal, the smallest normal, a negative scale, a
+/// negative zero, zero sums, and the sums at both ends of a block's range.
+const EN_36_GROUPS: [(i32, u16); 9] = [
+    (32512, 0x3c00),
+    (-32512, 0x3c00),
+    (32512, 0x7bff),
+    (-32512, 0xfbff),
+    (12345, 0x0001),
+    (-1, 0x0400),
+    (0, 0xbc00),
+    (7, 0x8000),
+    (-300, 0xb555),
+];
+
+/// A decision-37 request read as `Kernel.Scale` reads it: the signed claim,
+/// and the sum's magnitude times `halfUnits` of the half with the sign the
+/// two signs give, a zero product never negative. `None` for a scale that is
+/// not finite.
+fn scale_reading(request: &[u8; 16]) -> Option<(i128, i128)> {
+    let offset = i128::from(u32::from_be_bytes(
+        request[1..5].try_into().expect("four bytes"),
+    ));
+    let bits = u32::from(u16::from_be_bytes([request[5], request[6]]));
+    let (exponent, mantissa) = ((bits / 1024) % 32, i128::from(bits % 1024));
+    let units = match exponent {
+        0 => mantissa,
+        31 => return None,
+        e => (1024 + mantissa) * (1 << (e - 1)),
+    };
+    let size = (offset - 32768).abs() * units;
+    let negative = size > 0 && ((bits >= 32768) == (offset >= 32768));
+    let claimed = i128::from(u64::from_be_bytes(
+        request[8..16].try_into().expect("eight bytes"),
+    ));
+    let claim = if request[7] == 1 { -claimed } else { claimed };
+    Some((claim, if negative { -size } else { size }))
 }
