@@ -1231,6 +1231,92 @@
           "value": 0
         }
       }
+    },
+    "34": {
+      "name": "Block check",
+      "asks": "Is this claimed sum of one 32-wide block exact?",
+      "fields": {
+        "1": {
+          "name": "Weight codes 1 to 16, two to a byte, low half first",
+          "value": 0
+        },
+        "9": {
+          "name": "Weight codes 17 to 32",
+          "value": 0
+        },
+        "17": {
+          "name": "Activations 1 to 8, one signed byte each",
+          "value": 0
+        },
+        "25": {
+          "name": "Activations 9 to 16",
+          "value": 0
+        },
+        "33": {
+          "name": "Activations 17 to 24",
+          "value": 0
+        },
+        "41": {
+          "name": "Activations 25 to 32",
+          "value": 0
+        },
+        "49": {
+          "name": "Claimed sum plus 32768",
+          "value": 32768
+        }
+      }
+    },
+    "35": {
+      "name": "Address axis",
+      "asks": "Is this label a BLAKE3 address?",
+      "fields": {
+        "1": {
+          "name": "The label's bytes 1 to 4",
+          "value": 1651269995
+        },
+        "5": {
+          "name": "The label's bytes 5 and 6",
+          "value": 25907
+        },
+        "7": {
+          "name": "The label's byte 7",
+          "value": 58
+        }
+      }
+    },
+    "36": {
+      "name": "Integer run",
+      "asks": "May this run start, with no floating point in it?",
+      "fields": {
+        "1": {
+          "name": "Products exact",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Other stages exact",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        }
+      }
     }
   }
 }

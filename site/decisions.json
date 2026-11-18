@@ -1886,6 +1886,125 @@
       "module": "Share",
       "name": "Shared prefix",
       "tag": 33
+    },
+    {
+      "asks": "Is this claimed sum of one 32-wide block exact?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Weight codes 1 to 16, two to a byte, low half first",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Weight codes 17 to 32",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "Activations 1 to 8, one signed byte each",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "Activations 9 to 16",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 33,
+          "name": "Activations 17 to 24",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 41,
+          "name": "Activations 25 to 32",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 49,
+          "name": "Claimed sum plus 32768",
+          "value": 32768,
+          "width": 4
+        }
+      ],
+      "length": 53,
+      "module": "Block",
+      "name": "Block check",
+      "tag": 34
+    },
+    {
+      "asks": "Is this label a BLAKE3 address?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The label's bytes 1 to 4",
+          "value": 1651269995,
+          "width": 4
+        },
+        {
+          "at": 5,
+          "name": "The label's bytes 5 and 6",
+          "value": 25907,
+          "width": 2
+        },
+        {
+          "at": 7,
+          "name": "The label's byte 7",
+          "value": 58,
+          "width": 1
+        }
+      ],
+      "length": 8,
+      "module": "Address",
+      "name": "Address axis",
+      "tag": 35
+    },
+    {
+      "asks": "May this run start, with no floating point in it?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Products exact",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Other stages exact",
+          "value": 1,
+          "width": 1
+        }
+      ],
+      "length": 3,
+      "module": "Integer",
+      "name": "Integer run",
+      "tag": 36
     }
   ],
   "request": 81

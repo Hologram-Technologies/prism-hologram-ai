@@ -1,0 +1,24 @@
+\begin{lexlean}{Kernel.Address}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: addressBlake3,
+  parameters: [head : Nat, middle : Nat, tail : Nat],
+  result: Bool,
+  body: (((head =? 1651269995) && (middle =? 25907)) && (tail =? 58))
+}
+
+definition{
+  name: addressAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 8) then (if (addressBlake3 (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1)) then (prim utf8_encode "blake3" : Bytes) else (prim utf8_encode "not blake3" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

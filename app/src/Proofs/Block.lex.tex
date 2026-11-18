@@ -1,0 +1,109 @@
+\begin{lexlean}{Proofs.Block}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Block}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: totalFrom,
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Kernel.Block::term (Kernel.Block::weightCode weights (base + rest)) (Kernel.Block::byteFromEnd activations rest)) + (totalFrom weights activations base rest))),
+  recursive_argument: remaining
+}
+
+theorem{
+  name: agrees_when_both_positive,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((8 <= code) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: agrees_when_both_negative,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((code < 8) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: differs_when_weight_positive,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((8 <= code) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: differs_when_weight_negative,
+  parameters: [code : Nat, byte : Nat],
+  statement: ((code < 8) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::signsAgree]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: weight_size_about_eight,
+  parameters: [code : Nat],
+  statement: (((8 <= code) -> (((Kernel.Block::weightSize code) + 8) = code)) /\ ((code < 8) -> (((Kernel.Block::weightSize code) + code) = 8))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::weightSize]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: activation_size_about_zero,
+  parameters: [byte : Nat],
+  statement: (((byte < 128) -> ((Kernel.Block::activationSize byte) = byte)) /\ (((128 <= byte) /\ (byte <= 256)) -> (((Kernel.Block::activationSize byte) + byte) = 256))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::activationSize]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: accepts_decides,
+  parameters: [claimed : Nat, positive : Nat, negative : Nat],
+  statement: (((Kernel.Block::accepts claimed positive negative) = true) <-> ((claimed + negative) = (positive + 32768))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
+  axioms: [propext]
+}
+
+theorem{
+  name: accepts_one_claim,
+  parameters: [one : Nat, other : Nat, positive : Nat, negative : Nat],
+  statement: (((Kernel.Block::accepts one positive negative) = true) -> (((Kernel.Block::accepts other positive negative) = true) -> (one = other))),
+  proof: linear_arithmetic{definitions: [Kernel.Block::accepts]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: parts_cover_every_product,
+  parameters: [weights : Nat, activations : Nat, base : Nat, remaining : Nat],
+  statement: (((Kernel.Block::positiveFrom weights activations base remaining) + (Kernel.Block::negativeFrom weights activations base remaining)) = (totalFrom weights activations base remaining)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [totalFrom, Kernel.Block::negativeFrom, Kernel.Block::positiveFrom]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Kernel.Block::negativeFrom, Kernel.Block::positiveFrom, totalFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: remaining
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

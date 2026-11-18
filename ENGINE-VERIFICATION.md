@@ -85,6 +85,7 @@ runtime's crates are not published there.
 | `FL-24`, `FL-25`: the GGUF reader fails only as `model/failures.toml` lists | `engine_fl_24` and `engine_fl_25` | tested |
 | `EN-32`: a WordPiece `tokenizer.json` in BERT's shape gives the ids HuggingFace's own `tokenizers` gives, and a WordPiece file asking for another step is refused by the step | `engine_en_32`, over 2,135 texts and five files, the unknown token reached 13,820 times; eleven refusals | tested against the authority |
 | `EN-33`: an ONNX export is imported through the page's module, every question put to the kernel the page runs through one import exactly as the importer asks natively, and the model handed back as the nodes, tensors and places the role map reads | `engine_en_33`, EN-31's model in pieces of 7, 4096 and the whole graph; and once, locally, Qwen3-0.6B's real q4f16 export through the release module and the published kernel | tested; real export measured |
+| `EN-35`: every group sum `hologram-ai-exact` takes of a q4 block is one the compiled guest answers `exact` for decision 34 | `engine_en_35`, eight blocks and 17 claims; `replay.mjs` in the `app` recipe | tested here; replayed in main's published guest; replayed in this holo's guest on CI |
 | `FL-49`: the importer's refusal reaches the page as the importer's own failure | `engine_fl_49` | tested |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
@@ -1899,3 +1900,200 @@ accepted; 508 tensors named; 611 nodes. The role map placed 310 tensors from
 the importer's own table, every one the same as from the graph recorded for
 GP-12 by a separate reader. 373 s on a shared machine, most of it download.
 Not in the suite: it reads 0.57 GB from the network.
+
+## EN-34, exact q4 and ternary products
+
+`hologram-ai-exact` computes a q4 or ternary product in integers from the
+stored bytes to one final rounding, and has no floating-point type: it takes
+the input as binary32 bit patterns and returns binary32 bit patterns. Each
+binary32 or half scale and each input is read from its bits as the exact
+`mantissa * 2^exponent` it stands for. The input is scaled by one power of two
+onto `i8`, rounded to the nearest, ties to even, by integer shifts. Each
+group's sum is taken by `uor-matmul`'s `dot_ref`. A row's group sums times
+their scales' mantissas are placed, at their exponents less the input's, in
+`uor-matmul`'s complete register (`Complete<12, -320>`), which holds every bit
+of every row any finite inputs and scales can give. That exact value is
+rounded once to the nearest binary32, ties to even, from the register's leading
+bits and its sticky bit. A scale that is infinity or NaN is refused (`FL-53`).
+
+Two earlier forms are measured below: one that added the groups in `f64`, and
+one that added them in `i128` and refused a row whose scales were too far apart
+(a failure that the complete register removes). On both real models and both
+inputs, all three give the same output bytes.
+
+### What runs on uor-matmul, and what is ours
+
+| Piece | Where | Why |
+| --- | --- | --- |
+| A group's sum of products, exactly | `uor-matmul` `dot_ref` | its accumulator cannot overflow |
+| q4 and ternary codes to integers | `uor-matmul` `Grid` | the table codec |
+| A row's exact sum over its groups | `uor-matmul` `Complete` (`add_scaled`) | a fixed-point register over the whole exponent range, with no rounding |
+| Reading a binary32 or half from its bits | ours (`Dyadic`, `Format::read`) | `uor-matmul` 0.1.0 reads floats only through `FloatElement::decode(self)`, for `f32` and `f64` values, so using it would put a float-typed value in the crate; it has no half or bfloat16. To be proposed upstream as a reader over bit patterns |
+| Rounding the register to binary32 bits | ours (`round_to_binary32`), over `Complete`'s `magnitude_high_bit`, `magnitude_bit` and `magnitude_any_below` | `uor-matmul`'s own `EncodeFrom<Complete>` returns an `f32` value. To be proposed upstream as an encoder to bit patterns |
+| Scaling the input onto `i8` | ours (`quantise`) | an activation scheme, not arithmetic `uor-matmul` names; brief step 3 chooses it |
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53`
+
+Run on 2026-11-17 in WSL with the workspace toolchain. Each defect was planted
+alone, the five tests run, the files restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| an input tie rounded away from zero | `engine_en_34`: `900 is not rounded to the nearest code, ties to even` |
+| the binary32 rounding ignores the sticky bit and evenness | `engine_en_34`: `-880.87787 is not the stated -880.8778` |
+| the binary32 rounding truncates | `engine_en_34`: a ternary row one unit below the stated value |
+| a float's exponent read one too low | `engine_en_34`: input codes not the nearest |
+| the register's floor at 2^-60, dropping lower bits | `engine_en_34`: `0 is not the stated -0.000000000000000000000000000008365156` |
+| the input's power applied the wrong way | `engine_en_34`: `-125719 is not the stated -122.77246` |
+| an infinite or NaN scale read as a number | `engine_fl_53`, and `engine_fl_50` |
+| the input exponent never steps down | `engine_en_34`: `the step is too small` |
+| an `f32` constant in the crate | `engine_en_34`: `names a float type outside a comment` |
+| the module reads half scales as binary32 | `engine_en_34`: the module's bytes differ from the crate's |
+| none, before and after | passed |
+
+What each output is checked against: the exact sum worked in the test from
+each scale's `f64` bits, independently of the crate's reading of binary32 and
+half bits, and rounded once by Rust's own `f64`-to-`f32` conversion; the test
+asserts that sum has at most 53 bits, so that conversion is the one rounding.
+Each q4 row is also taken with its groups, scales and input columns in reverse
+order, and must give the same bits. The crate's source may not name `f32` or
+`f64` outside a comment.
+
+### The first form's gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_fl_50 engine_fl_51 engine_fl_52`
+
+Run on 2026-11-17 in the pinned SDK image. Each defect was planted alone, the
+four tests run, the file restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| q4 nibbles read high first | `engine_en_34`: the group sums differ |
+| q4 code 0 decodes to +8 | `engine_en_34`: the group sums differ |
+| Ternary sign inverted | `engine_en_34`: the group sums differ |
+| Groups added in reverse order | `engine_en_34`: `-20 is not the stated 0` |
+| The total rounded to `f32` before the rescale | `engine_en_34`: `inf is not the stated 2.8e32` |
+| Input ties rounded away from zero | `engine_en_34`: not rounded to the nearest code, ties to even |
+| The exponent never steps down | `engine_en_34`: the step is too small |
+| A non-finite input admitted | `engine_fl_50` |
+| The q4 group check dropped | `engine_fl_51`, and `engine_en_34` through the module |
+| The q4 scale length unchecked | `engine_fl_52` (the crate indexes past its scales) |
+| The ternary group check dropped | `engine_fl_51` |
+| The module reads f16 scales as f32 | `engine_en_34`: the module's bytes differ from the crate's |
+| Subnormal half scales halved | `engine_en_34`: `-0.00134 is not the stated -0.00268` |
+| none, before and after | passed |
+
+A first round missed six of these, and the code or cases changed rather than
+the record. Four needed cases the generator never drew: inputs exactly
+halfway between codes, subnormal half scales, groups whose order decides the
+answer, and a total beyond `f32` that the rescale brings back. Two were code
+no input can reach: a loop that raised the exponent (the float's own exponent
+already puts the largest input in [64, 128)) and request-level group checks
+that repeat the group sums' own. Both were deleted.
+
+### Run over two real models
+
+A measurement, not part of the suite, over every matrix of two models, one
+synthetic input per matrix. Bonsai 1.7B at
+`HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12` (sha256 `acf0b5ad…`): every
+ternary matrix. Qwen2.5-1.5B-Instruct Q4_0 at
+`Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51` (sha256 `dcd819ff…`): every Q4_0
+matrix, repacked to the engine's q4f16 layout (the same codes and scales, the
+nibbles in another order); the Q6_K output head was not measured. Inputs
+roughly normal, and the same with 0.2% of values at 40 times.
+
+With the integer form, on 2026-11-17, natively in WSL (one thread):
+
+| Model | Matrices | Weights | Group sums checked | Wrong | Rows past bound | Relative error (L2), normal / with outliers | Throughput |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Bonsai 1.7B | 198 | 2,030,522,368 | 15,863,456 | 0 | 0 | 0.78% / 9.9% | 466 to 479 M weights/s |
+| Qwen2.5-1.5B | 197 | 1,543,569,408 | 48,236,544 | 0 | 0 | 0.77% / 8.9% | 512 to 519 M weights/s |
+
+With the complete register, on 2026-11-17, natively in WSL (one thread), the
+same counts and the same errors, and the same output bytes as the `i128` form
+for both models and both inputs. Throughput: 412 M weights/s (Bonsai) and 313 M
+weights/s (Qwen) on the ordinary input; on the first pass, with outliers, 211
+and 189, likely sharing the machine. The register costs about a third of the
+throughput against the `i128` form; a narrower register sized to the scales a
+tensor actually has is the obvious next measurement.
+
+The module the page loads, built from the same source, gave the same bytes as
+native code for Bonsai's 151,669 by 2,048 head and a Qwen 1,536 by 8,960 matrix,
+for both inputs. The errors are those of the first form to the digits shown:
+they are the input's rounding onto eight bits, which this change does not touch.
+
+The first form's run had reported one Qwen matrix whose module bytes differed
+from native code. The cause was a module built during that form's
+planted-defect run, with half scales read as `f32`: rebuilt from that form's
+committed source (`d08bc2b`, the same tree as `cafac69`), it gave identical
+bytes on the saved Qwen request, checked again here. `engine_en_34` builds the
+module it compares, so the gate cannot run against a stale one.
+
+### What EN-34 does not establish
+
+Exact is not the same as accurate. Rounding the input onto eight bits with one
+power of two for the whole vector costs under 1% on ordinary inputs, but an
+outlier sets the step for every value, and the error rises to about 9%. A
+finer input scale, per group, is the next measurement, and an engine using
+these products has to be judged on its answers, not on these figures. Softmax, normalisation and rotary encoding remain floating point,
+and nothing on the page calls the module yet.
+
+The input still arrives as binary32 bit patterns and leaves as binary32 bit
+patterns, because the stages around the product are floating point until they
+are made integer (brief step 4). The crate holds no float value. The reference the test checks
+the rounding against is Rust's own conversion; that the crate's reading of
+half and `f32` bits matches IEEE 754 is tested on the cases drawn, not proved.
+
+## EN-35, the crate's group sums confirmed by the kernel
+
+The engine's rule is that an integer stage is defined and proved in LexLean
+and the fast path is gated equal to it. For the q4 group sum the definition
+is `Kernel.Block` (KN-34); this gate ties `hologram-ai-exact` to it. Eight
+blocks, at both ends of the sum's range, with every weight zero, and four
+drawn at random, are summed by the crate's own path and written by
+`block_check::request`. `crates/conformance/tests/kernel/claims.json` lists 17
+claims: each sum `exact`, each sum plus one `differs`, and one 52-byte request
+`invalid request`. `engine_en_35` checks that every crate sum and sum plus one
+is listed, and that the `app` recipe runs
+`crates/conformance/tests/kernel/replay.mjs` on the holo it has just built.
+That script runs every claim through the compiled guest, the one built from
+the proved definitions, and fails unless each gets the answer listed.
+
+The claims are not the holo's examples. A first form carried them as decision
+34's examples, and CI refused the holo: `error[LLT4001]: phase link: invalid
+semantic-module JSON: recursion limit exceeded`, at 125 examples, past the
+limit "The limit on examples" in KERNEL-VERIFICATION.md describes. A claims
+file has no such limit.
+
+`engine_en_35` also reads each request as `Kernel.Block` reads it, by its
+fields, `byteFromEnd` and the high half for an even index, so a wrong layout
+fails in the Rust suite as well as in the guest.
+
+### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo claims.json`
+
+The holo published from main at 2026-11-18 (`site/app.holo` on the project's
+Pages, which carries decision 34) answered all 17 claims as listed. With the
+first claim's answer changed to `differs` it failed:
+`1 of 17 claims answered otherwise ... the guest answers exact`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_35`
+
+Run on 2026-11-18 in WSL with the pinned toolchain (cargo 1.97.1), not in the
+SDK image. Each defect was planted alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| the crate reads q4 nibbles high first | the kernel reads another block |
+| the crate decodes q4 code 0 as +8 | the kernel reads another block |
+| the client writes the low half for an even index | the kernel reads another block |
+| the client offsets the claim by 32767 | the kernel reads another block |
+| the client pairs a weight with its neighbour's activation | the kernel reads another block |
+| an `exact` claim listed as `differs` | the claims lack 1 the crate makes of decision 34 |
+| the replay dropped from the `app` recipe | the app recipe replays the claims through the holo's guest (missing) |
+| none | passed |
+
+### What EN-35 does not establish
+
+The replay on CI runs against this branch's holo; locally it ran against the
+published one. The gate covers the group sum only: the crate's quantisation of
+the input and its recombination of the sums with the scales are still
+floating point with no LexLean definition, which the engine's rule does not
+allow in a shipped path.

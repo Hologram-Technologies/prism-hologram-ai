@@ -516,3 +516,49 @@ Feature: engine
     When the page's module imports it
     Then onnx_take says no at the first inline tensor and leaves Import(SpanRefused(TensorAt(0), ...)), the importer's own failure, where the page reads answers
     And onnx_finish with nothing imported says no with NothingRead
+
+  @EN-34 @build
+  Scenario: A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code
+    Given q4 matrices with f32 and with f16 scales and ternary matrices, of one to seven rows and one to eight scale groups, with weights decoded independently from each layout's definition
+    And inputs that are ordinary, one spike among small values, near 1e-30, near 1e30, halfway between codes, at the edge of a step, and all zero
+    And scales that are subnormal halves, far apart, cancelling, or past f32's range before the input's power of two
+    When each is taken by hologram-ai-exact natively and by the exact_q4, exact_q4f16 and exact_ternary calls of the module the page loads
+    Then every input code lies within 127 and is its input rounded to the nearest, ties to even, at the largest step the limit allows
+    And every group sum equals the same sum of the codes times the weights written out in i64
+    And every output's bits are the exact sum of its group sums times their scales, worked here from each scale's own bits, rounded once to the nearest f32, ties to even
+    And a q4 row gives the same bits with its groups in reverse order
+    And every output lies within the inputs' half steps through their weights and scales of the float product
+    And the crate's source names no f64
+    And the module answers every case with the crate's bytes, and refuses a misaligned row as GroupMisaligned
+
+  @FL-50 @build
+  Scenario: An input to an exact product is not a finite number
+    Given an input of 32 values with one NaN, infinity or negative infinity among them
+    When it is quantised, or a q4 product of it is asked for
+    Then each returns ExactError::InputNotFinite
+
+  @FL-51 @build
+  Scenario: An exact product's row length is not a whole number of scale groups
+    Given a q4 row of 48 weights and a ternary row of 64
+    When their group sums are asked for
+    Then each returns ExactError::GroupMisaligned
+
+  @FL-52 @build
+  Scenario: A buffer handed to an exact product is not the length its shape implies
+    Given q4 codes one byte short, a missing scale, an input one value short, a ternary plane one byte short, and requests to the module too short for their counts or with counts that overflow
+    When each product is asked for
+    Then each returns ExactError::LengthMismatch
+
+  @FL-53 @build
+  Scenario: A scale stored with an exact product's weights is not a finite number
+    Given a q4 matrix whose f32 scale is infinity or NaN, one whose half scale is infinity or NaN, and a ternary matrix whose scale is NaN
+    When each product is asked for
+    Then each returns ExactError::ScaleNotFinite
+
+  @EN-35 @build
+  Scenario: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
+    Given q4 blocks as the engine stores them, at both ends of the sum's range, with every weight zero, and drawn at random, each with an activation of magnitude 127
+    When hologram-ai-exact quantises each block's activations and takes its group sum, and the kernel client writes decision 34's request for that sum and for that sum plus one
+    Then the request read as Kernel.Block reads it gives the crate's sum and the claim written
+    And claims.json lists the crate's sum as exact and the sum plus one as differs
+    And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed
