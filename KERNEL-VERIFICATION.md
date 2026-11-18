@@ -82,6 +82,9 @@ The inherited gates and their own planted defects are in
 | `KN-37`: one group's sum times its IEEE half is `exact` exactly when the claimed magnitude is the sum's magnitude times `halfUnits` and the claimed sign is 1 just when that product is nonzero and the signs differ; a zero product is never negative; a half with exponent field 31 is `not finite` | `scale_accepts_size`, `scale_accepts_sign`, `scale_accepts_the_claim`, `zero_is_not_negative`, `sum_size_about_offset`, and `halfOf` by `half_subnormal_is_mantissa`, `half_normal_is_scaled` and `two_to_doubles`; checked by the Lean kernel | proved |
 | That `halfUnits` is the half's value in units of 2^-24 | argued from the two `halfOf` theorems and `two_to_doubles`: a subnormal is its fraction, a normal half of field `e` is `(1024 + fraction) * 2^(e-1)`; the value itself is not stated, because the proof language's arithmetic is linear | not proved |
 | Decision 37 answers the crate's claims in the compiled guest | `replay.mjs` in the `app` recipe, over the decision-37 claims in `crates/conformance/tests/kernel/claims.json` | tested on CI |
+| `KN-42`: a claimed binary32 is `exact` exactly when it is `roundResult` of the sign, magnitude and exponent: zero for a zero magnitude, infinity when the leading bit is past 2^127, otherwise the kept bits plus one exactly when the guard bit is set and the sticky bit or the last kept bit is | `round_accepts_decides`, `round_zero_is_zero`, `round_past_largest_is_infinite`, `round_up_at_most_one`, `round_no_guard_no_change`, `round_shift_past_word`; checked by the Lean kernel | proved |
+| That `roundResult` is the binary32 nearest the value | argued from the definition's steps, which follow IEEE 754's; nearness itself is not stated, because the proof language's arithmetic is linear | not proved |
+| Decision 42 answers the crate's claims in the compiled guest | `replay.mjs` in the `app` recipe, over the decision-42 claims in `crates/conformance/tests/kernel/claims.json` | tested on CI |
 | Decisions 29 to 34 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | `KN-38`: a stored q4 byte, half, bfloat16 or binary32 is read into integer fields that encode back to exactly the stored bits; every field lies within its width; fields within their widths read back unchanged | `codec_round_trip`, `codec_fields_fit` and `codec_reads_back_q4`, `_half`, `_bfloat16`, `_binary32`, checked by the Lean kernel | proved |
 | The fields of a half, bfloat16 or binary32 stand for the IEEE 754 value `(-1)^sign * fraction-with-leading-bit * 2^(exponent - bias)` | the reading in `crates/exact` (`Dyadic`), tested against Rust's own conversions in `EN-34` on the cases drawn | tested, not proved |
@@ -1193,6 +1196,38 @@ day on the hosted verifier, the whole of `Kernel.Requant` and `Proofs.Requant`,
 | --- | --- |
 | an input just past half a step counted down to `q + 1` and the up case widened to `<=` | rejected: `Lean rejected ... Proofs.Requant (error): omega could not prove the goal`, in `rq_down_half_step` and `rq_down_one_code` |
 | the largest-power check made `<=` | rejected: the same, in `rq_largest_down_decides` |
+
+## KN-42, round check
+
+Decision 42 checks the one rounding in a product's row: an exact value
+`magnitude * 2^exponent`, negative or not, to the nearest binary32, ties to
+even. It follows `hologram-ai-exact`'s `round_to_binary32` step by step: the
+leading bit fixes the top power; past 2^127 the answer is infinity; the last
+kept bit stands for 2^(top - 23), or 2^-149 below the normal range; the guard
+bit below it and whether any lower bit is set decide one increment; and a
+field at or past infinity's is infinity, so a carry past the largest finite
+value is too. A zero magnitude is +0 whatever its sign, and a negative value
+that rounds to zero keeps its sign bit, as the crate does. The request is 16
+bytes: the tag, the sign, the magnitude in eight, the exponent plus 32768 in
+two, and the claimed bits in four.
+
+The compiled guest holds naturals in 64 bits, so no step forms a power of two
+at or past 2^64: a shift by 64 or more is its own case (`roundShift`,
+`roundBit` and `roundAny`), and the largest power formed is 2^63. A magnitude
+is at most 2^64 - 1, so a row whose exact value needs more bits than that is
+outside this decision; the crate's register is wider.
+
+### The pinned test: `kernel_kn_38`
+
+Run on 2026-11-18 in WSL with the pinned toolchain. Each defect was planted
+alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| ties rounded away from zero (`roundUp` on the guard bit alone) | rejected: `roundUp changed` |
+| the subnormal floor at 2^-148 | rejected: `roundUnit changed` |
+| a theorem declares `Classical.choice` it does not use | rejected: `must rest on` |
+| none | passed |
 
 ## The examples in the compiled guest
 

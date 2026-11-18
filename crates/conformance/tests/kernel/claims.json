@@ -148,6 +148,210 @@
     {
       "request": "250000ff003c00000000007f000000",
       "answer": "invalid request"
+    },
+    {
+      "request": "2a00000000000000000180003f800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000000000000180003f800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0100000000000000037fffbfc00000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0100000000000000037fffbfc00001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000000100000180004b800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000000100000180004b800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000000100000380004b800002",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000000100000380004b800003",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000000200000380004c000001",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000000200000380004c000000",
+      "answer": "differs"
+    },
+    {
+      "request": "2a000000000000ffffff80687f7fffff",
+      "answer": "exact"
+    },
+    {
+      "request": "2a000000000000ffffff80687f7ffffe",
+      "answer": "differs"
+    },
+    {
+      "request": "2a000000000001ffffff80677f800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a000000000001ffffff80677f800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000000000000180807f800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000000000000180807f800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a01000000000000000180c8ff800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a01000000000000000180c8ff800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000000000000017f6b00000001",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000000000000017f6b00000000",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000000000000017f6a00000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000000000000017f6a00000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000000000000037f6900000001",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000000000000037f6900000000",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0100000000000000017f6080000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0100000000000000017f6080000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000000007fffff7f6b007fffff",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000000007fffff7f6b007ffffe",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000000000000017f8200800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000000000000017f8200800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00ffffffffffffffff7fd84b800000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00ffffffffffffffff7fd84b800001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a01ffffffffffffffff7ec080000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a01ffffffffffffffff7ec080000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a000000000000000000800500000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a000000000000000000800500000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a010000000000000000800500000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2a010000000000000000800500000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000007f6c280b7f5b00007f6c",
+      "answer": "exact"
+    },
+    {
+      "request": "2a00000000007f6c280b7f5b00007f6d",
+      "answer": "differs"
+    },
+    {
+      "request": "2a017641cb964bdb33c77fe8d2ec8397",
+      "answer": "exact"
+    },
+    {
+      "request": "2a017641cb964bdb33c77fe8d2ec8396",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0100000043ca2635898020e287944c",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0100000043ca2635898020e287944d",
+      "answer": "differs"
+    },
+    {
+      "request": "2a01000000000278b0c78044ee1e2c32",
+      "answer": "exact"
+    },
+    {
+      "request": "2a01000000000278b0c78044ee1e2c33",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0000000009bb024aec7fad279bb025",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0000000009bb024aec7fad279bb024",
+      "answer": "differs"
+    },
+    {
+      "request": "2a0100b1e297b0739d797f3f80000b1e",
+      "answer": "exact"
+    },
+    {
+      "request": "2a0100b1e297b0739d797f3f80000b1f",
+      "answer": "differs"
+    },
+    {
+      "request": "2a00000000000000000180003f8000",
+      "answer": "invalid request"
     }
   ]
 }
