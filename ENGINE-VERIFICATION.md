@@ -2040,3 +2040,53 @@ patterns, because the stages around the product are floating point until they
 are made integer (brief step 4). The crate holds no float value. The reference the test checks
 the rounding against is Rust's own conversion; that the crate's reading of
 half and `f32` bits matches IEEE 754 is tested on the cases drawn, not proved.
+
+## EN-35, exact codecs for the weights Milestone 2 runs
+
+The Milestone 2 exports store their projections as ONNX `MatMulNBits` at four
+bits and a few weights as dense initializers. `hologram-ai-exact` now has an
+exact codec for each, read from the stored bytes with no repack:
+
+- `MatMulNBits` at four bits (`Q4Matrix`): any block in 16, 32, 64, 128 and
+  256, the last block of a row padded, half or binary32 scales, and zero points
+  left out (each 8) or packed four bits to a block, low half first. Each weight
+  is its code less its block's zero point, decoded by `uor-matmul`'s `Offset`
+  over a table of the sixteen codes; each block's sum is `dot_ref`; each row is
+  the complete register of EN-34, rounded once.
+- Dense binary32, half and bfloat16 weights as `MatMul` stores its second input
+  (`Dense`): each product of an input code and a weight's exact value is placed
+  in the complete register, and each output rounded once.
+- Anything else is refused by name (`FL-54`): `matmulnbits_codec` admits only
+  four bits, those blocks, half or binary32 scales and `uint8` zero points, and
+  `initializer_codec` only types 1, 10 and 16.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_35 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+
+Every block sum is checked against the sum written out in the test from the
+operator's definition (each code less its block's zero point, padding left
+out), and every output's bits against the exact sum worked from each scale's
+or weight's own bits and rounded once by Rust's own conversion. Run on
+2026-11-18 in WSL with the workspace toolchain; each defect planted alone, the
+seven tests run, the file restored.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| zero points read high half first | `engine_en_35`: `block 16, 16 columns, half true, zeros true, row 0: the block sums differ` |
+| stored zero points ignored, every block at 8 | `engine_en_35`: the block sums differ |
+| a padded block counts its padding | `engine_en_35`: the crate reads past the input (`range end index 48 out of range for slice of length 41`) |
+| a padded last block left out of a row's stride | `engine_en_35`: `LengthMismatch` on a well-formed matrix |
+| bfloat16 read with a half's fraction width | `engine_en_35`: `bf16 output 0 ... is not the stated -10.562988` |
+| dense weights read transposed | `engine_en_35`: `f32 output 0: 2.1704102 is not the stated -0.8469238` |
+| eight-bit `MatMulNBits` admitted | `engine_fl_54`: `eight bits` |
+| a double initializer read as binary32 | `engine_fl_54`: `initializer type 11` |
+| a block of 24 admitted | `engine_fl_54` and `engine_en_35` |
+| a weight below -8 clamped | `engine_en_35`: the block sums differ |
+| none, before and after | passed |
+
+### What EN-35 does not establish
+
+No real export has been run through these codecs yet: the cases are drawn from
+the operator's definition, not read from a model file. The page's module does
+not yet expose them; that is the `int_tensor` calls agreed with the page work.
+Eight-bit and two-bit `MatMulNBits`, GGUF's types, and zero points stored as
+floats are refused, not run.
