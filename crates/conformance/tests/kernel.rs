@@ -3065,7 +3065,7 @@ fn kernel_kn_40() {
     );
     let found = declaration(&kernel, "rqLargest");
     assert!(
-        found.contains("body: (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false)"),
+        found.contains("body: (if (largest =? 0) then true else (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false))"),
         "rqLargest changed:\n{found}"
     );
     let found = declaration(&kernel, "rqDownCode");

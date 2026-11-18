@@ -62,7 +62,7 @@ definition{
   name: rqLargest,
   parameters: [largest : Nat, direction : Nat, shift : Nat],
   result: Bool,
-  body: (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false)
+  body: (if (largest =? 0) then true else (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false))
 }
 
 definition{

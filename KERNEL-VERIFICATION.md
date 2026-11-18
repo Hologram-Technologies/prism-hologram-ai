@@ -93,7 +93,7 @@ The inherited gates and their own planted defects are in
 | `KN-40`: an input divided down to its code is within half a step of it (`2v <= 2p + s` for the lower code, `s + 2p <= 2v` for the upper), a tie gives the even code, and one input with one quotient witness has at most one code; an input multiplied up is its code exactly, within 32767 | `rq_down_witness`, `rq_down_half_step`, `rq_down_tie_even`, `rq_down_one_code` and `rq_up_exact`, checked by Lean on the hosted verifier | proved (hosted verifier) |
 | `KN-40`: a group's power is accepted only when its largest input is within 32767 at it and past it at the next power up | `rq_largest_down_decides` and `rq_largest_up_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
 | The quotient witness is the input's quotient by the step | the guest checks `q * step <= value < q * step + step`, so a wrong witness is refused; that this pins `q` uniquely is the division algorithm, not stated as a theorem, because the product is not linear | argued, not proved |
-| `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; to be gated by test against `crates/exact`'s `quantise_with` | not proved |
+| `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; EN-38 (branch `exact-codecs`) checks, for every input it writes, that the code is `rqDownCode`'s, passes the transcribed `rqElementOk`, and is `quantise_with`'s | tested, not proved |
 | No number decision 40 computes passes 64 bits | the guards in `rqElementOk` and `rqLargest` (mantissa below `2^24`, quotient at most 32767, a down shift at most 39 and an up shift at most 15, each inside an `if` so no product is formed before them), pinned by `kernel_kn_40` | tested, not proved |
 | Decision 40 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
 | Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
@@ -1119,6 +1119,13 @@ profile `prism-app`), the hosted verifier's diagnostic and not the locked SDK's
 verdict: the whole of `Kernel.Requant` with `rqAnswer`, and all seven theorems,
 `verified`.
 
+An all-zero group has no power: its largest input is 0, and no power makes 0
+reach 32767. EN-38 found that `rqLargest` answered such a group `not the largest
+power`. It now accepts a largest input of 0 first; every input of that group
+is then 0, and `rqElementOk` accepts only code 0 for it. Re-verified the same
+day on the hosted verifier, the whole of `Kernel.Requant` and `Proofs.Requant`,
+`verified`.
+
 ### The pinned test: `kernel_kn_40`
 
 | Planted defect | Result |
@@ -1128,6 +1135,7 @@ verdict: the whole of `Kernel.Requant` with `rqAnswer`, and all seven theorems,
 | a quotient of 32768 admitted | rejected: `rqElementOk changed` |
 | a power one too small accepted as the largest | rejected: `rqLargestUp changed` |
 | decision 40 routed to decision 39's answer | rejected: `decision 40 must be routed to Kernel.Requant::rqAnswer` |
+| an all-zero group refused again | rejected: `rqLargest changed` |
 | none | passed |
 
 ### The proof gate, on the hosted verifier
