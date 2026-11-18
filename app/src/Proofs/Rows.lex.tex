@@ -62,11 +62,19 @@ theorem{
   proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts]},
   axioms: [Quot.sound, propext]
 }
+
 theorem{
   name: rows_next_accepted,
   parameters: [positive : Nat, negative : Nat],
   statement: ((Kernel.Rows::rowsAccepts positive negative (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 0) (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 1)) = true),
-  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts, Kernel.Rows::rowsNextSign, Kernel.Rows::rowsNextSize, Kernel.Rows::rowsPart]},
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Rows::rowsAccepts,
+      Kernel.Rows::rowsNextSign,
+      Kernel.Rows::rowsNextSize,
+      Kernel.Rows::rowsPart
+    ]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -74,7 +82,9 @@ theorem{
   name: rows_accepts_only_next_positive,
   parameters: [positive : Nat, negative : Nat, size : Nat],
   statement: (((Kernel.Rows::rowsAccepts positive negative size 0) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 0)))),
-  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts, Kernel.Rows::rowsNextSign, Kernel.Rows::rowsNextSize]},
+  proof: linear_arithmetic{
+    definitions: [Kernel.Rows::rowsAccepts, Kernel.Rows::rowsNextSign, Kernel.Rows::rowsNextSize]
+  },
   axioms: [Classical.choice, Quot.sound, propext]
 }
 
@@ -82,10 +92,11 @@ theorem{
   name: rows_accepts_only_next_negative,
   parameters: [positive : Nat, negative : Nat, size : Nat],
   statement: (((Kernel.Rows::rowsAccepts positive negative 0 size) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 1)))),
-  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts, Kernel.Rows::rowsNextSign, Kernel.Rows::rowsNextSize]},
+  proof: linear_arithmetic{
+    definitions: [Kernel.Rows::rowsAccepts, Kernel.Rows::rowsNextSign, Kernel.Rows::rowsNextSize]
+  },
   axioms: [Classical.choice, Quot.sound, propext]
 }
-
 
 theorem{
   name: rows_term_fits_bounds,

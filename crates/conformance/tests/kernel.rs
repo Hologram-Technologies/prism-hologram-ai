@@ -3173,7 +3173,7 @@ fn kernel_kn_41() {
     );
     let found = declaration(&kernel, "rqPow2");
     assert!(
-        found.contains("body: (match power\n    | Nat.zero => 1\n    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
+        found.contains("body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
         "rqPow2 changed:\n{found}"
     );
     let found = declaration(&kernel, "rqDownOk");
