@@ -7679,7 +7679,7 @@ fn engine_fl_52() {
     );
 }
 
-/// `FL-53`: A scale stored with an exact product's weights is not a finite number
+/// `FL-53`: A scale or weight stored for an exact product is not a finite number
 #[test]
 fn engine_fl_53() {
     let input = vec![1.0f32; 32];
@@ -7718,6 +7718,967 @@ fn engine_fl_53() {
         ),
         Err(exact::ExactError::ScaleNotFinite)
     );
+    let nan = f32::NAN.to_le_bytes();
+    assert_eq!(
+        exact::dense_product(
+            &bits(&[1.0]),
+            exact::Dense::F32(&nan),
+            exact::DenseLayout::InputMajor,
+            1,
+            1
+        ),
+        Err(exact::ExactError::ScaleNotFinite)
+    );
+}
+
+/// A `MatMulNBits` case written out from the operator's definition: the codes,
+/// two to a byte, low half first; one scale per block; the zero points, packed
+/// four bits to a block, or absent for 8; and each weight as `code - zero`.
+struct NbitsCase {
+    rows: usize,
+    columns: usize,
+    block: usize,
+    half: bool,
+    codes: Vec<u8>,
+    scale_bytes: Vec<u8>,
+    zeros: Option<Vec<u8>>,
+    /// `weights[row][column]`, the integer each weight stands for.
+    weights: Vec<Vec<i64>>,
+    /// One scale per block, row after row.
+    scales: Vec<f64>,
+}
+
+fn nbits_case(
+    draw: &mut Draw,
+    rows: usize,
+    columns: usize,
+    block: usize,
+    half: bool,
+    zeros: bool,
+) -> NbitsCase {
+    let blocks = columns.div_ceil(block);
+    let mut codes = vec![0u8; rows * blocks * block / 2];
+    let mut zero_bytes = vec![0u8; rows * blocks.div_ceil(2)];
+    let mut weights = vec![vec![0i64; columns]; rows];
+    let mut scales = Vec::new();
+    let mut scale_bytes = Vec::new();
+    for row in 0..rows {
+        for b in 0..blocks {
+            let zero = if zeros { draw.below(16) as u8 } else { 8 };
+            zero_bytes[row * blocks.div_ceil(2) + b / 2] |= zero << (4 * (b % 2));
+            // A scale a half holds exactly, either sign.
+            let magnitude = (1 + draw.below(2047)) as f32 / 1024.0;
+            let scale = if draw.below(2) == 0 {
+                magnitude
+            } else {
+                -magnitude
+            };
+            scales.push(f64::from(scale));
+            if half {
+                scale_bytes.extend_from_slice(&half_bits(scale).to_le_bytes());
+            } else {
+                scale_bytes.extend_from_slice(&scale.to_le_bytes());
+            }
+            for i in 0..block {
+                // Padding past the last column holds codes too, and must not count.
+                let code = draw.below(16) as u8;
+                let g = (row * blocks + b) * block + i;
+                codes[g / 2] |= code << (4 * (g % 2));
+                let column = b * block + i;
+                if column < columns {
+                    weights[row][column] = i64::from(code) - i64::from(zero);
+                }
+            }
+        }
+    }
+    NbitsCase {
+        rows,
+        columns,
+        block,
+        half,
+        codes,
+        scale_bytes,
+        zeros: zeros.then_some(zero_bytes),
+        weights,
+        scales,
+    }
+}
+
+fn nbits_matrix(case: &NbitsCase) -> exact::Q4Matrix<'_> {
+    exact::Q4Matrix {
+        codes: &case.codes,
+        scales: if case.half {
+            exact::Q4Scales::F16(&case.scale_bytes)
+        } else {
+            exact::Q4Scales::F32(&case.scale_bytes)
+        },
+        zeros: match &case.zeros {
+            Some(bytes) => exact::Q4Zeros::Packed(bytes),
+            None => exact::Q4Zeros::Eight,
+        },
+        rows: case.rows,
+        columns: case.columns,
+        block: case.block,
+    }
+}
+
+/// `EN-39`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
+#[test]
+fn engine_en_39() {
+    let mut draw = Draw(0x51_7cc1_b727_220a);
+    let mut checked = 0;
+    for &block in exact::Q4_BLOCKS.iter() {
+        // A whole number of blocks, and a last block padded.
+        for &columns in &[block, 2 * block, 2 * block + block / 2 + 1] {
+            for (half, zeros) in [(true, false), (true, true), (false, true), (false, false)] {
+                let case = nbits_case(&mut draw, 3, columns, block, half, zeros);
+                let input: Vec<f32> = (0..columns).map(|_| draw.unit() * 4.0).collect();
+                let quantised = exact::quantise(&bits(&input)).expect("finite");
+                let matrix = nbits_matrix(&case);
+                let sums = exact::q4_block_sums(&quantised, &matrix).expect("well formed");
+                let blocks = columns.div_ceil(block);
+                let rows = exact::q4_product(&bits(&input), &matrix).expect("well formed");
+                for row in 0..case.rows {
+                    let mut written = Vec::new();
+                    for b in 0..blocks {
+                        let mut sum = 0i64;
+                        for column in b * block..((b + 1) * block).min(columns) {
+                            sum += i64::from(quantised.codes()[column]) * case.weights[row][column];
+                        }
+                        written.push(sum);
+                    }
+                    assert_eq!(
+                        &sums[row * blocks..(row + 1) * blocks],
+                        &written[..],
+                        "block {block}, {columns} columns, half {half}, zeros {zeros}, row {row}: the block sums differ"
+                    );
+                    let stated = exact_reference(
+                        &written,
+                        &case.scales[row * blocks..(row + 1) * blocks],
+                        quantised.exponent(),
+                    );
+                    assert_eq!(
+                        rows[row],
+                        stated.to_bits(),
+                        "block {block}, {columns} columns, half {half}, zeros {zeros}, row {row}: {} is not the stated {stated}",
+                        f32::from_bits(rows[row])
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 5 * 3 * 4 * 3);
+
+    // Zero points stored as eights are the zero points left out.
+    let case = nbits_case(&mut draw, 4, 96, 32, true, false);
+    let input: Vec<f32> = (0..96).map(|_| draw.unit()).collect();
+    let eights = vec![0x88u8; 4 * 3usize.div_ceil(2)];
+    let absent = exact::q4_product(&bits(&input), &nbits_matrix(&case)).expect("well formed");
+    let stored = exact::q4_product(
+        &bits(&input),
+        &exact::Q4Matrix {
+            zeros: exact::Q4Zeros::Packed(&eights),
+            ..nbits_matrix(&case)
+        },
+    )
+    .expect("well formed");
+    assert_eq!(
+        absent, stored,
+        "zero points of 8 are not the zero points left out"
+    );
+    // And block 32 with no zero points is EN-34's q4.
+    let (codes, scales) = (&case.codes, exact::Q4Scales::F16(&case.scale_bytes));
+    assert_eq!(
+        absent,
+        exact::q4_matvec(&bits(&input), codes, scales, 4, 96).expect("well formed"),
+        "MatMulNBits at block 32 with no zero points is not EN-34's q4"
+    );
+
+    // Dense weights, as MatMul's second input stores them: K rows of N.
+    for format in ["f32", "f16", "bf16"] {
+        let (k, n) = (40usize, 5usize);
+        let mut stored = Vec::new();
+        let mut values = Vec::new();
+        for _ in 0..k * n {
+            // Values each format holds exactly: a multiple of 1/64 below 2.
+            let value = (draw.below(255) as i32 - 127) as f32 / 64.0;
+            values.push(f64::from(value));
+            match format {
+                "f32" => stored.extend_from_slice(&value.to_le_bytes()),
+                "f16" => stored.extend_from_slice(&half_bits(value).to_le_bytes()),
+                _ => stored.extend_from_slice(&((value.to_bits() >> 16) as u16).to_le_bytes()),
+            }
+        }
+        let weights = match format {
+            "f32" => exact::initializer_codec(1, &stored),
+            "f16" => exact::initializer_codec(10, &stored),
+            _ => exact::initializer_codec(16, &stored),
+        }
+        .expect("an exact codec");
+        let input: Vec<f32> = (0..k).map(|_| draw.unit() * 2.0).collect();
+        let quantised = exact::quantise(&bits(&input)).expect("finite");
+        let out =
+            exact::dense_product(&bits(&input), weights, exact::DenseLayout::InputMajor, k, n)
+                .expect("well formed");
+        // The same values stored output-major, as an embedding table is.
+        let mut transposed = vec![0u8; stored.len()];
+        let width = stored.len() / (k * n);
+        for row in 0..k {
+            for column in 0..n {
+                let from = (row * n + column) * width;
+                let to = (column * k + row) * width;
+                transposed[to..to + width].copy_from_slice(&stored[from..from + width]);
+            }
+        }
+        let weights_t = match format {
+            "f32" => exact::Dense::F32(&transposed),
+            "f16" => exact::Dense::F16(&transposed),
+            _ => exact::Dense::Bf16(&transposed),
+        };
+        assert_eq!(
+            exact::dense_product(
+                &bits(&input),
+                weights_t,
+                exact::DenseLayout::OutputMajor,
+                k,
+                n
+            )
+            .expect("well formed"),
+            out,
+            "{format}: the output-major layout gives other bits"
+        );
+        for column in 0..n {
+            let codes: Vec<i64> = quantised.codes().iter().map(|&c| i64::from(c)).collect();
+            let column_values: Vec<f64> = (0..k).map(|row| values[row * n + column]).collect();
+            let stated = exact_reference(&codes, &column_values, quantised.exponent());
+            assert_eq!(
+                out[column],
+                stated.to_bits(),
+                "{format} output {column}: {} is not the stated {stated}",
+                f32::from_bits(out[column])
+            );
+        }
+    }
+
+    // Half weights below the normal range, which a half stores with no
+    // leading one, alongside normal ones of both signs.
+    let subnormal = [
+        3.0 * 2f32.powi(-24),
+        -1023.0 * 2f32.powi(-24),
+        2f32.powi(-14),
+        -5.0 * 2f32.powi(-24),
+        0.75,
+    ];
+    let stored: Vec<u8> = subnormal
+        .iter()
+        .flat_map(|&v| half_bits(v).to_le_bytes())
+        .collect();
+    let input: Vec<f32> = vec![1.5, -0.25, 3.0, 0.125, -2.0];
+    let quantised = exact::quantise(&bits(&input)).expect("finite");
+    let codes: Vec<i64> = quantised.codes().iter().map(|&c| i64::from(c)).collect();
+    let values: Vec<f64> = subnormal.iter().map(|&v| f64::from(v)).collect();
+    let stated = exact_reference(&codes, &values, quantised.exponent());
+    assert_eq!(
+        exact::dense_product(
+            &bits(&input),
+            exact::Dense::F16(&stored),
+            exact::DenseLayout::InputMajor,
+            5,
+            1
+        ),
+        Ok(vec![stated.to_bits()]),
+        "half weights below the normal range are not read exactly"
+    );
+
+    // Rows whose weights lie too far apart to share one 62-bit integer form
+    // are placed weight by weight, and are still exact: 2^100, -2^100 and
+    // 2^-100 times equal codes cancel to 2^-100, and 2^100 with 2^-100 rounds
+    // to 2^100 only at the one rounding.
+    let wide: Vec<u8> = [2f32.powi(100), -(2f32.powi(100)), 2f32.powi(-100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let ones = bits(&[1.0f32; 3]);
+    assert_eq!(
+        exact::dense_product(
+            &ones,
+            exact::Dense::F32(&wide),
+            exact::DenseLayout::InputMajor,
+            3,
+            1
+        ),
+        Ok(vec![2f32.powi(-100).to_bits()]),
+        "a row of 2^100, -2^100 and 2^-100 does not cancel exactly"
+    );
+    let apart: Vec<u8> = [2f32.powi(100), 2f32.powi(-100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    assert_eq!(
+        exact::dense_product(
+            &bits(&[1.0f32; 2]),
+            exact::Dense::F32(&apart),
+            exact::DenseLayout::InputMajor,
+            2,
+            1
+        ),
+        Ok(vec![2f32.powi(100).to_bits()]),
+        "a row of 2^100 and 2^-100 is not 2^100 after one rounding"
+    );
+
+    // A q4 row whose scales lie 249 powers of two apart is placed term by
+    // term: every weight 1 (code 9), every input 1 (code 64, power 6), so each
+    // block sums to 2048 and the row is 2^105 plus 2^-138, which is 2^105.
+    let apart_scales: Vec<u8> = [f32::from_bits(1), 2f32.powi(100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let nines = [0x99u8; 32];
+    let wide_q4 = exact::Q4Matrix {
+        codes: &nines,
+        scales: exact::Q4Scales::F32(&apart_scales),
+        zeros: exact::Q4Zeros::Eight,
+        rows: 1,
+        columns: 64,
+        block: 32,
+    };
+    assert_eq!(
+        exact::q4_product(&bits(&[1.0f32; 64]), &wide_q4),
+        Ok(vec![2f32.powi(105).to_bits()]),
+        "a q4 row with scales 2^-149 and 2^100 is not 2^105"
+    );
+
+    // The formats with an exact codec, as a node or initializer names them.
+    assert_eq!(exact::matmulnbits_codec(4, 32, 10, None), Ok(()));
+    assert_eq!(exact::matmulnbits_codec(4, 128, 1, Some(2)), Ok(()));
+}
+
+/// `FL-54`: A stored format has no exact codec, so it is refused by name instead of run approximately
+#[test]
+fn engine_fl_54() {
+    let no = Err(exact::ExactError::NoExactCodec);
+    assert_eq!(exact::matmulnbits_codec(8, 32, 10, None), no, "eight bits");
+    assert_eq!(exact::matmulnbits_codec(2, 32, 10, None), no, "two bits");
+    assert_eq!(
+        exact::matmulnbits_codec(4, 24, 10, None),
+        no,
+        "a block of 24"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 512, 10, None),
+        no,
+        "a block of 512"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 32, 16, None),
+        no,
+        "bfloat16 scales"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 32, 10, Some(10)),
+        no,
+        "half zero points"
+    );
+    for data_type in [2, 3, 6, 7, 11, 17] {
+        assert_eq!(
+            exact::initializer_codec(data_type, &[0; 8]).map(|_| ()),
+            no,
+            "initializer type {data_type}"
+        );
+    }
+    let input = bits(&[1.0f32; 48]);
+    let codes = [0x88u8; 24];
+    let scales = [0u8; 4];
+    let matrix = exact::Q4Matrix {
+        codes: &codes,
+        scales: exact::Q4Scales::F16(&scales),
+        zeros: exact::Q4Zeros::Eight,
+        rows: 1,
+        columns: 48,
+        block: 24,
+    };
+    assert_eq!(
+        exact::q4_product(&input, &matrix).map(|_| ()),
+        no,
+        "a product at a block of 24"
+    );
+}
+
+/// The row a case states from terms `(sum, scale, input power)`: the exact
+/// sum of each `sum * scale * 2^-power`, worked from each scale's f64 bits and
+/// rounded once by Rust's own conversion (asserted to need at most 53 bits).
+fn exact_reference_terms(terms: &[(i64, f64, i32)]) -> f32 {
+    let parts: Vec<(i128, i32)> = terms
+        .iter()
+        .map(|&(sum, scale, power)| {
+            let (mantissa, exponent) = f64_parts(scale);
+            (i128::from(sum) * mantissa, exponent - power)
+        })
+        .filter(|&(m, _)| m != 0)
+        .collect();
+    let Some(lowest) = parts.iter().map(|&(_, e)| e).min() else {
+        return 0.0;
+    };
+    let total: i128 = parts.iter().map(|&(m, e)| m << (e - lowest)).sum();
+    let mut exponent = lowest;
+    if total == 0 {
+        return 0.0;
+    }
+    // One rounding to 24 bits, ties to even, written here apart from the
+    // crate's: the bits below the 24th decide it.
+    let negative = total < 0;
+    let mut magnitude = total.unsigned_abs();
+    let width = 128 - magnitude.leading_zeros();
+    if width > 24 {
+        let shift = width - 24;
+        let kept = magnitude >> shift;
+        let rest = magnitude & ((1u128 << shift) - 1);
+        let half = 1u128 << (shift - 1);
+        magnitude = kept + u128::from(rest > half || (rest == half && kept & 1 == 1));
+        exponent += shift as i32;
+    }
+    assert!(
+        (-126..=103).contains(&exponent),
+        "a case's value is outside the normal binary32 range the reference handles"
+    );
+    let value = magnitude as f32 * 2f32.powi(exponent);
+    if negative {
+        -value
+    } else {
+        value
+    }
+}
+
+const SCHEMES: [exact::Scheme; 4] = [
+    exact::Scheme {
+        width: exact::Width::Eight,
+        grouping: exact::Grouping::Vector,
+    },
+    exact::Scheme {
+        width: exact::Width::Eight,
+        grouping: exact::Grouping::Groups,
+    },
+    exact::Scheme {
+        width: exact::Width::Sixteen,
+        grouping: exact::Grouping::Vector,
+    },
+    exact::Scheme {
+        width: exact::Width::Sixteen,
+        grouping: exact::Grouping::Groups,
+    },
+];
+
+/// `EN-36`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits
+#[test]
+// Rows and outputs are indexed together with the weights and scales they read.
+#[allow(clippy::needless_range_loop)]
+fn engine_en_36() {
+    let mut draw = Draw(0x6a09_e667_f3bc_c908);
+    let spiky = |draw: &mut Draw, n: usize| -> Vec<f32> {
+        let mut v: Vec<f32> = (0..n).map(|_| draw.unit() * 2.0).collect();
+        v[n / 3] = 300.0;
+        v
+    };
+
+    // Every code is its input rounded to the nearest at its group's step, the
+    // largest step that keeps the group within the width's limit.
+    for scheme in SCHEMES {
+        let limit = if scheme.width == exact::Width::Eight {
+            127f64
+        } else {
+            32767f64
+        };
+        for n in [1usize, 31, 32, 33, 100, 256] {
+            let input = spiky(&mut draw, n);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let group = a.group();
+            assert_eq!(
+                group,
+                if scheme.grouping == exact::Grouping::Vector {
+                    n
+                } else {
+                    32
+                }
+            );
+            assert_eq!(a.exponents().len(), n.div_ceil(group));
+            for (g, part) in input.chunks(group).enumerate() {
+                let unit = 2f64.powi(-a.exponents()[g]);
+                let largest = part.iter().fold(0f64, |m, x| m.max(f64::from(*x).abs()));
+                if largest > 0.0 {
+                    assert!(
+                        largest / unit <= limit,
+                        "{scheme:?}, {n}: group {g}'s step is too small"
+                    );
+                    assert!(
+                        largest / unit > limit / 2.0,
+                        "{scheme:?}, {n}: group {g}'s step is not the largest"
+                    );
+                }
+                for (i, &x) in part.iter().enumerate() {
+                    let code = f64::from(a.codes()[g * group + i]);
+                    let nearest = (f64::from(x) / unit).round_ties_even().clamp(-limit, limit);
+                    assert_eq!(
+                        code, nearest,
+                        "{scheme:?}, {n}: {x} is not rounded to the nearest code"
+                    );
+                }
+            }
+        }
+    }
+
+    // A spike sets the step only for its own group.
+    let input = spiky(&mut draw, 96);
+    let grouped = exact::quantise_with(
+        &bits(&input),
+        exact::Scheme {
+            width: exact::Width::Eight,
+            grouping: exact::Grouping::Groups,
+        },
+    )
+    .expect("finite");
+    let whole = exact::quantise_with(
+        &bits(&input),
+        exact::Scheme {
+            width: exact::Width::Eight,
+            grouping: exact::Grouping::Vector,
+        },
+    )
+    .expect("finite");
+    assert!(
+        grouped.exponents()[2] > whole.exponents()[0],
+        "the spike's step reached a group without it"
+    );
+    assert_eq!(
+        grouped.exponents()[1],
+        whole.exponents()[0],
+        "the spike's own group has another step"
+    );
+
+    // Per vector at eight bits is EN-34's and EN-39's input: the same bits.
+    let vector8 = SCHEMES[0];
+    for &block in exact::Q4_BLOCKS.iter() {
+        let case = nbits_case(&mut draw, 3, 2 * block + block / 2 + 1, block, true, true);
+        let input: Vec<f32> = (0..case.columns).map(|_| draw.unit() * 3.0).collect();
+        assert_eq!(
+            exact::q4_product_with(&bits(&input), &nbits_matrix(&case), vector8),
+            exact::q4_product(&bits(&input), &nbits_matrix(&case)),
+            "block {block}: the eight-bit vector scheme is not EN-39's q4 product"
+        );
+    }
+
+    // Each scheme's product is the exact sum, each unit at its own powers.
+    for scheme in SCHEMES {
+        for &block in exact::Q4_BLOCKS.iter() {
+            let case = nbits_case(&mut draw, 2, 2 * block + 7, block, true, true);
+            let input = spiky(&mut draw, case.columns);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let out = exact::q4_product_with(&bits(&input), &nbits_matrix(&case), scheme)
+                .expect("well formed");
+            let blocks = case.columns.div_ceil(block);
+            for row in 0..case.rows {
+                let terms: Vec<(i64, f64, i32)> = (0..case.columns)
+                    .map(|c| {
+                        (
+                            i64::from(a.codes()[c]) * case.weights[row][c],
+                            case.scales[row * blocks + c / block],
+                            a.exponents()[c / a.group()],
+                        )
+                    })
+                    .collect();
+                let stated = exact_reference_terms(&terms);
+                assert_eq!(
+                    out[row],
+                    stated.to_bits(),
+                    "{scheme:?}, block {block}, row {row}: {} is not the stated {stated}",
+                    f32::from_bits(out[row])
+                );
+            }
+        }
+
+        // Dense half and binary32 weights.
+        for half in [true, false] {
+            let (k, n) = (70usize, 3usize);
+            let values: Vec<f32> = (0..k * n)
+                .map(|_| (draw.below(255) as i32 - 127) as f32 / 64.0)
+                .collect();
+            let stored: Vec<u8> = if half {
+                values
+                    .iter()
+                    .flat_map(|&v| half_bits(v).to_le_bytes())
+                    .collect()
+            } else {
+                values.iter().flat_map(|&v| v.to_le_bytes()).collect()
+            };
+            let weights = if half {
+                exact::Dense::F16(&stored)
+            } else {
+                exact::Dense::F32(&stored)
+            };
+            let input = spiky(&mut draw, k);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let out = exact::dense_product_with(
+                &bits(&input),
+                weights,
+                exact::DenseLayout::InputMajor,
+                k,
+                n,
+                scheme,
+            )
+            .expect("well formed");
+            for column in 0..n {
+                let terms: Vec<(i64, f64, i32)> = (0..k)
+                    .map(|r| {
+                        (
+                            i64::from(a.codes()[r]),
+                            f64::from(values[r * n + column]),
+                            a.exponents()[r / a.group()],
+                        )
+                    })
+                    .collect();
+                let stated = exact_reference_terms(&terms);
+                assert_eq!(
+                    out[column],
+                    stated.to_bits(),
+                    "{scheme:?}, dense half {half}, output {column}"
+                );
+            }
+            if scheme == vector8 {
+                assert_eq!(
+                    out,
+                    exact::dense_product(
+                        &bits(&input),
+                        weights,
+                        exact::DenseLayout::InputMajor,
+                        k,
+                        n
+                    )
+                    .expect("well formed"),
+                    "the eight-bit vector scheme is not EN-39's dense product"
+                );
+            }
+        }
+
+        // Ternary.
+        let spike = spiky(&mut draw, 256);
+        let case = ternary_case(&mut draw, 2, 256, spike);
+        let a = exact::quantise_with(&bits(&case.input), scheme).expect("finite");
+        let plane = 2 * 256 / 8;
+        let out = exact::ternary_product_with(
+            &bits(&case.input),
+            &case.tensor[..plane],
+            &case.tensor[plane..2 * plane],
+            &case.tensor[2 * plane..],
+            2,
+            256,
+            scheme,
+        )
+        .expect("well formed");
+        for row in 0..2 {
+            let terms: Vec<(i64, f64, i32)> = (0..256)
+                .map(|c| {
+                    (
+                        i64::from(a.codes()[c]) * i64::from(case.weights[row * 256 + c]),
+                        case.scales[row * 2 + c / 128],
+                        a.exponents()[c / a.group()],
+                    )
+                })
+                .collect();
+            assert_eq!(
+                out[row],
+                exact_reference_terms(&terms).to_bits(),
+                "{scheme:?}, ternary row {row}"
+            );
+        }
+        if scheme == vector8 {
+            assert_eq!(
+                out.iter().map(|&b| f32::from_bits(b)).collect::<Vec<f32>>(),
+                exact_rows(&case).expect("well formed"),
+                "the eight-bit vector scheme is not EN-34's ternary product"
+            );
+        }
+    }
+}
+
+/// Decision 39's signed number at `at`: a sign byte, then 8 bytes.
+fn link_number(request: &[u8], at: usize) -> i128 {
+    let magnitude = u64::from_be_bytes(request[at + 1..at + 9].try_into().expect("8 bytes"));
+    if request[at] == 1 {
+        -i128::from(magnitude)
+    } else {
+        i128::from(magnitude)
+    }
+}
+
+/// `EN-37`: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
+#[test]
+fn engine_en_37() {
+    let mut draw = Draw(0xbb67_ae85_84ca_a73b);
+    let mut chained = 0;
+    for scheme in SCHEMES {
+        for &block in exact::Q4_BLOCKS.iter() {
+            let case = nbits_case(&mut draw, 3, 2 * block + 9, block, true, true);
+            let mut input: Vec<f32> = (0..case.columns).map(|_| draw.unit() * 2.0).collect();
+            input[case.columns / 2] = 150.0;
+            let matrix = nbits_matrix(&case);
+            let rows = exact::q4_product_with(&bits(&input), &matrix, scheme).expect("well formed");
+            let terms = exact::q4_row_terms(&bits(&input), &matrix, scheme).expect("well formed");
+            for (row, row_terms) in terms.iter().enumerate() {
+                let (links, last, power) = exact::row_links(row_terms).expect("these rows fit");
+                assert_eq!(links.len(), row_terms.len().div_ceil(exact::LINK_TERMS));
+                let mut partial = 0i128;
+                for (link, chunk) in links.iter().zip(row_terms.chunks(exact::LINK_TERMS)) {
+                    assert_eq!(link.len(), exact::LINK_BYTES);
+                    assert_eq!(link[0], 39, "a link is not a decision-39 request");
+                    assert_eq!(
+                        link_number(link, 1),
+                        partial,
+                        "a link does not start at the partial before it"
+                    );
+                    // The terms as the decision reads them, summed here.
+                    let mut next = partial;
+                    for i in 0..exact::LINK_TERMS {
+                        let b = 19 + 10 * i;
+                        let s = i128::from(u32::from_be_bytes(
+                            link[b + 1..b + 5].try_into().expect("4 bytes"),
+                        ));
+                        let m = i128::from(u32::from_be_bytes(
+                            link[b + 5..b + 9].try_into().expect("4 bytes"),
+                        ));
+                        let value = (s * m) << link[b + 9];
+                        next += if link[b] == 1 { -value } else { value };
+                        if i >= chunk.len() {
+                            assert_eq!(&link[b..b + 10], &[0u8; 10], "an unused term is not zero");
+                        }
+                    }
+                    assert_eq!(
+                        link_number(link, 10),
+                        next,
+                        "a link's claimed partial is not its partial plus its terms"
+                    );
+                    partial = next;
+                }
+                assert_eq!(partial, last);
+                assert_eq!(
+                    exact::round_exact(last, power),
+                    rows[row],
+                    "{scheme:?}, block {block}, row {row}: the chain's row is not the fast path's"
+                );
+                chained += 1;
+            }
+        }
+    }
+    assert_eq!(chained, 4 * 5 * 3);
+
+    // A term that could pass 2^58 at the chain's power is too wide to chain.
+    let wide = [
+        exact::RowTerm {
+            sum: 3,
+            mantissa: 1,
+            exponent: 0,
+        },
+        exact::RowTerm {
+            sum: 1 << 20,
+            mantissa: 1 << 20,
+            exponent: 30,
+        },
+    ];
+    assert!(
+        exact::row_links(&wide).is_none(),
+        "a term past 2^58 was chained"
+    );
+    // And one at the edge is chained.
+    let edge = [
+        exact::RowTerm {
+            sum: 3,
+            mantissa: 1,
+            exponent: 0,
+        },
+        exact::RowTerm {
+            sum: 1,
+            mantissa: 1,
+            exponent: 57,
+        },
+    ];
+    assert!(
+        exact::row_links(&edge).is_some(),
+        "a term below 2^58 was refused"
+    );
+}
+
+/// Decision 40's definitions, transcribed from `app/src/Kernel/Requant.lex.tex`
+/// for EN-38: each a plain function over the request's numbers.
+mod requant_definition {
+    pub fn pow2(power: u64) -> u128 {
+        1u128 << power
+    }
+    pub fn down_ok(
+        value: u128,
+        step: u128,
+        half: u128,
+        odd: u128,
+        product: u128,
+        code: u128,
+    ) -> bool {
+        let q = half + half + odd;
+        product <= value
+            && value < product + step
+            && code <= 32767
+            && ((step + 2 * product < 2 * value && code == q + 1)
+                || (2 * value < step + 2 * product && code == q)
+                || (2 * value == step + 2 * product && code == q + odd))
+    }
+    pub fn element_ok(
+        value: u128,
+        direction: u128,
+        shift: u64,
+        half: u128,
+        odd: u128,
+        code: u128,
+    ) -> bool {
+        if value < 16_777_216 && half <= 16383 {
+            if direction == 1 {
+                shift <= 15 && code <= 32767 && code == value * pow2(shift)
+            } else if shift <= 39 {
+                down_ok(
+                    value,
+                    pow2(shift),
+                    half,
+                    odd,
+                    (half + half + odd) * pow2(shift),
+                    code,
+                )
+            } else {
+                code == 0 && half == 0 && odd == 0
+            }
+        } else {
+            false
+        }
+    }
+    pub fn largest(value: u128, direction: u128, shift: u64) -> bool {
+        if value == 0 {
+            return true;
+        }
+        if value >= 16_777_216 {
+            return false;
+        }
+        if direction == 1 {
+            shift <= 15 && {
+                let scaled = value * pow2(shift);
+                scaled <= 32767 && 32767 < 2 * scaled
+            }
+        } else {
+            shift <= 39 && value <= 32767 * pow2(shift) && 32767 * pow2(shift) < 2 * value
+        }
+    }
+    pub fn down_code(value: u128, step: u128) -> u128 {
+        let (q, r) = (value / step, value % step);
+        q + u128::from(step < 2 * r || (2 * r == step && q % 2 == 1))
+    }
+}
+
+/// `EN-38`: An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
+#[test]
+fn engine_en_38() {
+    use requant_definition as d;
+    let mut draw = Draw(0x510e_527f_ade6_82d1);
+    let mut inputs: Vec<Vec<f32>> = Vec::new();
+    inputs.push((0..96).map(|_| draw.unit() * 3.0).collect());
+    // Exactly halfway between codes: a group whose largest is 1.0 is at 2^14,
+    // so (2n + 1) / 2^15 lands on a tie.
+    let mut ties: Vec<f32> = (0..32).map(|n| (2 * n + 1) as f32 / 32768.0).collect();
+    ties[0] = 1.0;
+    inputs.push(ties);
+    inputs.push(
+        (0..40)
+            .map(|i| f32::from_bits(1 + i as u32 * 977))
+            .collect(),
+    );
+    inputs.push(vec![0.0; 37]);
+    inputs.push(
+        (0..32)
+            .map(|i| if i % 2 == 0 { 3.0e38 } else { -1.0e30 })
+            .collect(),
+    );
+    let mut spike: Vec<f32> = (0..64).map(|_| draw.unit() * 1.0e-20).collect();
+    spike[5] = 7000.0;
+    spike[40] = -0.5;
+    inputs.push(spike);
+    let mut checked = 0usize;
+    for input in &inputs {
+        let bits = bits(input);
+        let a = exact::quantise_with(
+            &bits,
+            exact::Scheme {
+                width: exact::Width::Sixteen,
+                grouping: exact::Grouping::Groups,
+            },
+        )
+        .expect("finite");
+        let requests = exact::requant_requests(&bits).expect("finite");
+        let groups = input.len().div_ceil(32);
+        let expected: usize = (0..groups)
+            .map(|g| (input.len() - 32 * g).min(32).div_ceil(5))
+            .sum();
+        assert_eq!(
+            requests.len(),
+            expected,
+            "one request for every five inputs of a group"
+        );
+        let mut codes = Vec::new();
+        for request in &requests {
+            assert_eq!(request.len(), exact::REQUANT_BYTES);
+            assert_eq!(request[0], 40, "a request that is not decision 40's");
+            let n = |at: usize, width: usize| {
+                request[at..at + width]
+                    .iter()
+                    .fold(0u128, |v, &b| v * 256 + u128::from(b))
+            };
+            assert!(
+                d::largest(n(1, 4), n(5, 1), n(6, 1) as u64),
+                "the power is not the group's largest: {:?}",
+                &request[..7]
+            );
+            for i in 0..exact::REQUANT_INPUTS {
+                let b = 7 + 11 * i;
+                let (value, direction, shift) = (n(b, 4), n(b + 4, 1), n(b + 5, 1) as u64);
+                let (half, odd, code) = (n(b + 6, 2), n(b + 8, 1), n(b + 9, 2));
+                assert!(
+                    d::element_ok(value, direction, shift, half, odd, code),
+                    "input {i} of a request fails decision 40: {:?}",
+                    &request[b..b + 11]
+                );
+                if direction == 0 && shift <= 39 {
+                    assert_eq!(
+                        code,
+                        d::down_code(value, d::pow2(shift)),
+                        "a code is not rqDownCode's"
+                    );
+                }
+                codes.push(code);
+                checked += 1;
+            }
+        }
+        // The requests' codes, in order, are quantise_with's magnitudes; a
+        // short last request in a group pads with zero inputs.
+        let mut at = 0;
+        for g in 0..groups {
+            let len = (input.len() - 32 * g).min(32);
+            for i in 0..len.div_ceil(5) * 5 {
+                let want = if i < len {
+                    u128::from(a.codes()[32 * g + i].unsigned_abs())
+                } else {
+                    0
+                };
+                assert_eq!(
+                    codes[at], want,
+                    "group {g}, input {i}: the request's code is not quantise_with's"
+                );
+                at += 1;
+            }
+        }
+    }
+    assert!(checked > 300, "only {checked} inputs checked");
 }
 
 /// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
