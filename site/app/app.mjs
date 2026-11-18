@@ -7,6 +7,7 @@ import { createEngine } from "./engine/gpu.mjs";
 import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
 import { strftime } from "./engine/jinja.mjs";
 import { fetched, loadOnnx } from "./engine/onnx-load.mjs";
+import { keepFiles } from "./engine/files.mjs";
 
 // The model to run: Bonsai unless the address names another, so a link can say
 // "run this model" (?repo=owner/name&path=file&index=hub index base), or an
@@ -194,12 +195,21 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   if (!device) checks.add("device", "the CPU path, with no WebGPU adapter", "not checked", "the kernel's device decision (22) is not asked here yet");
 
   const module = await openModule("./engine/engine.wasm");
+  // The files kept from an earlier visit are read from this browser and
+  // checked exactly as a download is; where the browser keeps none, every
+  // file comes from the origin.
+  let files = null;
+  try {
+    files = await keepFiles({ record, open: fetched(base), module });
+  } catch (e) {
+    checks.add("kept", "model files kept in this browser", "not checked", `none kept: ${e.message}`);
+  }
   status("Downloading and checking every tensor…");
   $("progress").hidden = false;
-  const { engine, stops, chat } = await loadOnnx({
+  const loading = loadOnnx({
     record,
     path,
-    open: fetched(base),
+    open: files ? files.open : fetched(base),
     module,
     kernel: answer,
     checks,
@@ -209,6 +219,18 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
       return device ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
     },
   });
+  // A failed load forgets every file it read or kept here, since one of them
+  // may be the file that was not the record's; the next load downloads them.
+  const { engine, stops, chat } = await loading.catch(async (e) => {
+    if (files) await files.forget();
+    throw e;
+  });
+  if (files) {
+    await files.settled();
+    const c = files.counts;
+    const mb = (n) => (n / 1048576).toFixed(1);
+    checks.add("kept", "model files read from this browser are the record's, checked as a download is", "pass", `${c.read} read here (${mb(c.readBytes)} MB), ${c.fetched} downloaded and kept (${mb(c.fetchedBytes)} MB), each named by its BLAKE3: ${files.kept.map((k) => `${k.path} ${k.address}`).join(", ")}`);
+  }
   session = { engine, module, kernel, ask, stops, chat };
   state.phase = "ready";
   state.device = device ? "webgpu" : "cpu";

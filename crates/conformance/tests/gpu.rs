@@ -1162,3 +1162,52 @@ fn gpu_gp_20() {
     let page = read("site/app/app.mjs");
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
+
+/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+#[test]
+fn gpu_gp_21() {
+    // The journey runs the four visits in a browser (`just page-journey`, as
+    // in GP-19); this test reads that it does, and that the page reads the
+    // kept files through the same loader and checks a download takes.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let kept = read("site/app/engine/files.mjs");
+    for wanted in [
+        "m.callWith(\"hash_take\", chunk, id);",
+        "if (digest() !== local.named) controller.error(",
+        "return bytes.size === file.size ? { named, bytes } : null;",
+        "else await handle.move(named);",
+        "else await dir.removeEntry(t.dir);",
+    ] {
+        assert!(
+            kept.contains(wanted),
+            "site/app/engine/files.mjs no longer has `{wanted}`"
+        );
+    }
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "files = await keepFiles({ record, open: fetched(base), module });",
+        "open: files ? files.open : fetched(base),",
+        "if (files) await files.forget();",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "kept first: expected 0 read here and",
+        "kept offline: expected",
+        "kept tampered: expected the kept graph refused as not its BLAKE3",
+        "kept first: expected every kept file named by its BLAKE3",
+        "kept tampered: the files this load read were not forgotten",
+        "kept again: expected every file downloaded again",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}

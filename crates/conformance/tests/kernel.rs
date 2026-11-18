@@ -2568,3 +2568,116 @@ fn kernel_kn_33() {
     );
     assert_routed(33, "Kernel.Share::shareAnswer");
 }
+/// `KN-34`: One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise
+#[test]
+fn kernel_kn_34() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Block.lex.tex");
+    let proofs = model("app/src/Proofs/Block.lex.tex");
+    assert_pinned(
+        &proofs,
+        "agrees_when_both_positive",
+        "((8 <= code) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "agrees_when_both_negative",
+        "((code < 8) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = true)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "differs_when_weight_positive",
+        "((8 <= code) -> ((128 <= byte) -> ((Kernel.Block::signsAgree code byte) = false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "differs_when_weight_negative",
+        "((code < 8) -> ((byte < 128) -> ((Kernel.Block::signsAgree code byte) = false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "weight_size_about_eight",
+        "(((8 <= code) -> (((Kernel.Block::weightSize code) + 8) = code)) /\\ ((code < 8) -> (((Kernel.Block::weightSize code) + code) = 8)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "activation_size_about_zero",
+        "(((byte < 128) -> ((Kernel.Block::activationSize byte) = byte)) /\\ (((128 <= byte) /\\ (byte <= 256)) -> (((Kernel.Block::activationSize byte) + byte) = 256)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "accepts_decides",
+        "(((Kernel.Block::accepts claimed positive negative) = true) <-> ((claimed + negative) = (positive + 32768)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "accepts_one_claim",
+        "(((Kernel.Block::accepts one positive negative) = true) -> (((Kernel.Block::accepts other positive negative) = true) -> (one = other)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "parts_cover_every_product",
+        "(((Kernel.Block::positiveFrom weights activations base remaining) + (Kernel.Block::negativeFrom weights activations base remaining)) = (totalFrom weights activations base remaining))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "byteFromEnd");
+    assert!(
+        found.contains("body: (match index\n    | Nat.zero => (prim remainder word 256 0 : Nat)\n    | Nat.succ rest => (byteFromEnd (prim quotient word 256 0 : Nat) rest))"),
+        "byteFromEnd changed:\n{found}"
+    );
+    let found = declaration(&kernel, "weightCode");
+    assert!(
+        found.contains("body: (if ((prim remainder index 2 0 : Nat) =? 1) then (prim remainder (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat) else (prim quotient (byteFromEnd weights (prim quotient index 2 0 : Nat)) 16 0 : Nat))"),
+        "weightCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "weightSize");
+    assert!(
+        found.contains("body: (if (8 <=? code) then (prim subtract code 8 : Nat) else (prim subtract 8 code : Nat))"),
+        "weightSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "activationSize");
+    assert!(
+        found.contains("body: (if (byte <? 128) then byte else (prim subtract 256 byte : Nat))"),
+        "activationSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "signsAgree");
+    assert!(
+        found
+            .contains("body: (((8 <=? code) && (byte <? 128)) || ((code <? 8) && (128 <=? byte)))"),
+        "signsAgree changed:\n{found}"
+    );
+    let found = declaration(&kernel, "term");
+    assert!(
+        found.contains("body: (prim multiply (weightSize code) (activationSize byte) : Nat)"),
+        "term changed:\n{found}"
+    );
+    let found = declaration(&kernel, "positiveFrom");
+    assert!(
+        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode weights (base + rest)) (byteFromEnd activations rest)) then (term (weightCode weights (base + rest)) (byteFromEnd activations rest)) else 0) + (positiveFrom weights activations base rest)))"),
+        "positiveFrom changed:\n{found}"
+    );
+    let found = declaration(&kernel, "negativeFrom");
+    assert!(
+        found.contains("body: (match remaining\n    | Nat.zero => 0\n    | Nat.succ rest => ((if (signsAgree (weightCode weights (base + rest)) (byteFromEnd activations rest)) then 0 else (term (weightCode weights (base + rest)) (byteFromEnd activations rest))) + (negativeFrom weights activations base rest)))"),
+        "negativeFrom changed:\n{found}"
+    );
+    let found = declaration(&kernel, "accepts");
+    assert!(
+        found.contains("body: ((claimed + negative) =? (positive + 32768))"),
+        "accepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "blockCheckAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 53) then (if (accepts (Kernel.Wire::fieldAt value 49 4) ((((positiveFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 25 8) 0 8) + (positiveFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 17 8) 8 8)) + (positiveFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 41 8) 0 8)) + (positiveFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 33 8) 8 8)) ((((negativeFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 25 8) 0 8) + (negativeFrom (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 17 8) 8 8)) + (negativeFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 41 8) 0 8)) + (negativeFrom (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 33 8) 8 8))) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "blockCheckAnswer changed:\n{found}"
+    );
+    assert_routed(34, "Kernel.Block::blockCheckAnswer");
+}

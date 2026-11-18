@@ -99,6 +99,10 @@ struct State {
     whole: Option<Whole>,
     /// The container whose header was read, if one was.
     container: Option<Container>,
+    /// Files being named by their BLAKE3, by the number `hash_start` gave.
+    hashing: BTreeMap<u32, blake3::Hasher>,
+    /// The number the next `hash_start` gives.
+    next_hash: u32,
 }
 
 thread_local! {
@@ -900,6 +904,45 @@ pub extern "C" fn onnx_finish() -> u32 {
     })
 }
 
+/// Start naming a file by its BLAKE3, the address Hologram AI names
+/// everything by. Answers the number the next calls name this file by, four
+/// bytes little-endian, so the bytes of several files may arrive interleaved.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn hash_start() -> u32 {
+    answer(|state| {
+        let id = state.next_hash;
+        state.next_hash = state.next_hash.wrapping_add(1);
+        state.hashing.insert(id, blake3::Hasher::new());
+        Ok(id.to_le_bytes().to_vec())
+    })
+}
+
+/// The next bytes of the file numbered `id`, in order.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn hash_take(at: u32, len: u32, id: u32) -> u32 {
+    answer(|state| {
+        let chunk = taken(state, at, len)?;
+        state
+            .hashing
+            .get_mut(&id)
+            .ok_or(CallError::NothingRead)?
+            .update(&chunk);
+        Ok(Vec::new())
+    })
+}
+
+/// The file numbered `id` has ended: its BLAKE3, thirty-two bytes.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn hash_finish(id: u32) -> u32 {
+    answer(|state| {
+        let hasher = state.hashing.remove(&id).ok_or(CallError::NothingRead)?;
+        Ok(hasher.finalize().as_bytes().to_vec())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -945,6 +988,44 @@ mod tests {
         assert_eq!(download_root(), NO);
         assert_eq!(said(), b"NothingRead");
         assert_eq!(download_block(), NO);
+        assert_eq!(said(), b"NothingRead");
+    }
+
+    /// A file's BLAKE3 is the same however its bytes arrive, and two files
+    /// hashed at once do not mix.
+    #[test]
+    fn a_file_is_named_by_its_blake3_however_it_arrives() {
+        let bytes: Vec<u8> = (0..5000u32).map(|i| (i * 31 % 251) as u8).collect();
+        let other = b"another file".to_vec();
+        let started = |answer: u32| {
+            assert_eq!(answer, OK);
+            STATE.with_borrow(|state| {
+                u32::from_le_bytes([
+                    state.result[0],
+                    state.result[1],
+                    state.result[2],
+                    state.result[3],
+                ])
+            })
+        };
+        let a = started(hash_start());
+        let b = started(hash_start());
+        for part in bytes.chunks(1999) {
+            let at = given(part);
+            assert_eq!(hash_take(at, part.len() as u32, a), OK);
+            let at = given(&other);
+            assert_eq!(hash_take(at, 0, b), OK);
+        }
+        let at = given(&other);
+        assert_eq!(hash_take(at, other.len() as u32, b), OK);
+        assert_eq!(hash_finish(a), OK);
+        assert_eq!(said(), blake3::hash(&bytes).as_bytes());
+        assert_eq!(hash_finish(b), OK);
+        assert_eq!(said(), blake3::hash(&other).as_bytes());
+        assert_eq!(hash_finish(a), NO, "a finished file is not finished twice");
+        assert_eq!(said(), b"NothingRead");
+        let at = given(&other);
+        assert_eq!(hash_take(at, 1, 9_999), NO, "a file never started");
         assert_eq!(said(), b"NothingRead");
     }
 

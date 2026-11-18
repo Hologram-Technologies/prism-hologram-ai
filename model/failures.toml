@@ -254,7 +254,7 @@ crate = "wasm"
 type = "CallError"
 variant = "NothingRead"
 suite = "engine"
-condition = "A tokeniser or a download is used before one has been started"
+condition = "A tokeniser, a download or a file's hash is used before one has been started"
 
 [[failure]]
 id = "FL-29"
