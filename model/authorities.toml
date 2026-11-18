@@ -61,3 +61,12 @@ citation = """Qwen/Qwen2.5-1.5B-Instruct-GGUF on huggingface.co at revision 91ca
 checksum = "sha256:1af9b85ca59e5cd7ca776e6ac20c17df02756631b30626b587d8083c1ca8e7ff"
 statement = """This file declares the architecture qwen2 and a gpt2 tokeniser model with the qwen2 pre-tokeniser, carries 151,936 tokens, 151,387 merges and a token-type array, and marks its control tokens there. Its tensor table holds 339 entries in three storage types, one of which this engine does not follow. What this repository reproduces is this one file's header; nothing here establishes that another model's is written the same way."""
 realized_by = ["EN-21", "EN-22", "EN-27"]
+
+[[authority]]
+id = "UOR-MATMUL"
+name = "uor-matmul, the UOR Foundation's exact matrix arithmetic"
+citation = """UOR-Foundation/uor-matmul, the crates uor-matmul, uor-matmul-core and uor-matmul-codec 0.1.0 as published on crates.io (2026-08-14), Apache-2.0. Its `dot_ref` sums products of `i8` values in an `i128` accumulator, wide enough for every length a machine can address, and its `Grid` codec decodes a code through a table."""
+checksum = "sha256:a8df8cee8a547a9eb4790b64d438e7eaf1743a37b17d619f0e98318dd30aa6ae"
+checksum_reason = """The crates.io checksum of the uor-matmul 0.1.0 package, which Cargo.lock pins with the checksums of the crates it brings in."""
+statement = """The sum of products of two sequences of i8 values is returned exactly, and a Grid code decodes to its table's entry. EN-34 checks the first against the same sum written out in i64 over weights decoded independently; it does not establish the library's other claims."""
+realized_by = ["EN-34"]

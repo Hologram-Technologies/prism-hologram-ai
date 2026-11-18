@@ -57,6 +57,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives |
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
 | `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
+| `EN-34` | `build` | A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code |
 
 ## gpu
 
@@ -83,6 +84,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-19` | `build` | The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's |
 | `GP-20` | `build` | The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name |
 | `GP-21` | `build` | The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again |
+| `GP-22` | `build` | The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read |
 
 ## kernel
 
@@ -186,6 +188,9 @@ not that the test provokes the failure.
 | `FL-47` | `model-reader` | `ImportError::WeightRefused` | A 4-bit weight's codes or scales are not the length the kernel gives for its shape |
 | `FL-48` | `model-reader` | `ImportError::DataMissing` | A tensor's data lies in a file the import is not given, or past the end of the one it is |
 | `FL-49` | `wasm` | `CallError::Import` | The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure |
+| `FL-50` | `exact` | `ExactError::InputNotFinite` | An input to an exact product is not a finite number |
+| `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
+| `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
 
 ## Cited authorities
 
@@ -199,6 +204,7 @@ Never re-derived, vendored, or gated on.
 | `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
 | `HOLK-BONSAI` | HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest. | `EN-25` |
 | `QWEN25-GGUF` | Qwen/Qwen2.5-1.5B-Instruct-GGUF on huggingface.co at revision 91cad51, the file qwen2.5-1.5b-instruct-q4_0.gguf, bytes 0 to 5,950,495, vendored at model/authorities/qwen25-header.bin. The whole file is 1,066,227,232 bytes with sha256 dcd819ff094852c38faba6873d8ff0c9d51eadb2844539e52042ae5d647bbfdb, which is the digest the hub publishes for it and the digest of the copy these bytes were cut from; the file itself is not vendored. | `EN-21`, `EN-22`, `EN-27` |
+| `UOR-MATMUL` | UOR-Foundation/uor-matmul, the crates uor-matmul, uor-matmul-core and uor-matmul-codec 0.1.0 as published on crates.io (2026-08-14), Apache-2.0. Its `dot_ref` sums products of `i8` values in an `i128` accumulator, wide enough for every length a machine can address, and its `Grid` codec decodes a code through a table. | `EN-34` |
 
 ## Claims that are not conformance IDs
 

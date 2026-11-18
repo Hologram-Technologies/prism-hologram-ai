@@ -1,6 +1,6 @@
 [package]
 name = "hologram-ai-wasm"
-description = "The Hologram AI engine as one WebAssembly module: the page's tokeniser, download labelling and model reading, called through bytes in linear memory."
+description = "The Hologram AI engine as one WebAssembly module: the page's tokeniser, download labelling, model reading and exact products, called through bytes in linear memory."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,6 +21,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 blake3 = { workspace = true }
 hologram-ai-download = { workspace = true }
+hologram-ai-exact = { workspace = true }
 hologram-ai-model-reader = { workspace = true }
 hologram-ai-tokenizer = { workspace = true }
 serde_json = { workspace = true }
