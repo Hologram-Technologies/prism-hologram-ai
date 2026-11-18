@@ -71,6 +71,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-46` | `build` | SiLU is integer: for x in units of 2^-16 below 2^47 in size, the exponent \|x\| log2(e) is taken in units of 2^-8 with log2(e) as the integer nearest 2^32 log2(e), certified exactly, rounded half to even; w is exp2_neg of it, and silu(x) is x 2^30 / (2^30 + w) for x at or above 0 and x w / (2^30 + w) below, rounded half to even, so silu(x) - silu(-x) is x within one unit, and it is within \|x\| / 2048 plus one unit of x / (1 + e^-x) |
 | `EN-47` | `build` | RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within \|y\| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused |
 | `EN-48` | `build` | Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^6 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d) |
+| `EN-49` | `build` | The CPU path is integer from token ids to logits: hologram-ai-cpu-decode reads a Qwen3-shaped model from its fused q4f16 ONNX export by the nodes that read each weight, holds the residual stream as binary32 bit patterns touched only by integer code, and runs every stage on the exact products and the integer stages EN-43 to EN-48, each result rounded once, half to even; on GP-19's fixture its greedy tokens after the prompt are the float reference's sixteen, every logit within 2^-7 of the reference's, and a second run gives the same bits |
 
 ## gpu
 
@@ -213,6 +214,10 @@ not that the test provokes the failure.
 | `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
 | `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale or weight stored for an exact product is not a finite number |
 | `FL-54` | `exact` | `ExactError::NoExactCodec` | A stored format has no exact codec, so it is refused by name instead of run approximately |
+| `FL-55` | `cpu-decode` | `DecodeError::Unrecognised` | The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs |
+| `FL-56` | `cpu-decode` | `DecodeError::Exact` | An exact stage refuses its operands, as a 4-bit matrix whose block has no exact codec |
+| `FL-57` | `cpu-decode` | `DecodeError::NormRefused` | A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately |
+| `FL-58` | `cpu-decode` | `DecodeError::TokenOutOfRange` | A token id at or past the vocabulary is refused before any weight is read |
 
 ## Cited authorities
 

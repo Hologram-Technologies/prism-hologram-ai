@@ -9904,16 +9904,25 @@ fn en_49_fixture() -> En49 {
         .arg(root())
         .output()
         .expect("node runs");
-    assert!(ran.status.success(), "forward-fixture.mjs failed: {}", String::from_utf8_lossy(&ran.stderr));
-    let out: serde_json::Value =
-        serde_json::from_slice(ran.stdout.trim_ascii_end()).expect("forward-fixture.mjs prints JSON");
+    assert!(
+        ran.status.success(),
+        "forward-fixture.mjs failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(ran.stdout.trim_ascii_end())
+        .expect("forward-fixture.mjs prints JSON");
     let hex = out["graph"].as_str().expect("the graph");
     let graph = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex"))
         .collect();
     let ids = |key: &str| -> Vec<u32> {
-        out[key].as_array().expect("ids").iter().map(|v| v.as_u64().expect("an id") as u32).collect()
+        out[key]
+            .as_array()
+            .expect("ids")
+            .iter()
+            .map(|v| v.as_u64().expect("an id") as u32)
+            .collect()
     };
     En49 {
         graph,
@@ -9926,7 +9935,13 @@ fn en_49_fixture() -> En49 {
             .as_array()
             .expect("logits")
             .iter()
-            .map(|row| row.as_array().expect("a row").iter().map(|v| v.as_f64().expect("a logit")).collect())
+            .map(|row| {
+                row.as_array()
+                    .expect("a row")
+                    .iter()
+                    .map(|v| v.as_f64().expect("a logit"))
+                    .collect()
+            })
             .collect(),
     }
 }
@@ -9949,7 +9964,13 @@ fn en_49_graph(
                 Event::Tensor(t) => {
                     if let Data::Inline { offset, length } = t.data {
                         let bytes = &graph[offset as usize..(offset + length) as usize];
-                        initializers.insert(t.name, hologram_ai_cpu_decode::Initializer { data_type: t.data_type, bytes });
+                        initializers.insert(
+                            t.name,
+                            hologram_ai_cpu_decode::Initializer {
+                                data_type: t.data_type,
+                                bytes,
+                            },
+                        );
                     }
                 }
                 _ => {}
@@ -9968,7 +9989,10 @@ fn en_49_config(fixture: &En49) -> hologram_ai_cpu_decode::Config {
 }
 
 /// The prompt, then sixteen greedy steps: the tokens and each step's logits.
-fn en_49_run(model: &hologram_ai_cpu_decode::Model<'_>, prompt: &[u32]) -> (Vec<u32>, Vec<Vec<u32>>) {
+fn en_49_run(
+    model: &hologram_ai_cpu_decode::Model<'_>,
+    prompt: &[u32],
+) -> (Vec<u32>, Vec<Vec<u32>>) {
     use hologram_ai_cpu_decode as decode;
     let mut session = decode::Session::new(model);
     let mut logits = Vec::new();
@@ -9990,21 +10014,33 @@ fn en_49_run(model: &hologram_ai_cpu_decode::Model<'_>, prompt: &[u32]) -> (Vec<
 fn engine_en_49() {
     let fixture = en_49_fixture();
     let (nodes, initializers) = en_49_graph(&fixture.graph);
-    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
     let (tokens, logits) = en_49_run(&model, &fixture.prompt);
-    assert_eq!(tokens, fixture.expected, "the integer path's tokens are not the float reference's");
+    assert_eq!(
+        tokens, fixture.expected,
+        "the integer path's tokens are not the float reference's"
+    );
     let mut worst = 0f64;
     for (step, (ours, theirs)) in logits.iter().zip(&fixture.logits).enumerate() {
         for (i, (&bits, &reference)) in ours.iter().zip(theirs).enumerate() {
             // The yardstick, in the test only: the logit read as a float.
             let gap = (f64::from(f32::from_bits(bits)) - reference).abs();
             worst = worst.max(gap);
-            assert!(gap <= 1.0 / 128.0, "step {step}, logit {i}: {} against {reference}", f32::from_bits(bits));
+            assert!(
+                gap <= 1.0 / 128.0,
+                "step {step}, logit {i}: {} against {reference}",
+                f32::from_bits(bits)
+            );
         }
     }
     println!("EN-49: sixteen tokens equal, largest logit gap {worst:e}");
     let (again, again_logits) = en_49_run(&model, &fixture.prompt);
-    assert_eq!((again, again_logits), (tokens, logits), "a second run gave other bits");
+    assert_eq!(
+        (again, again_logits),
+        (tokens, logits),
+        "a second run gave other bits"
+    );
 }
 
 /// `FL-55`: The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs
@@ -10034,7 +10070,10 @@ fn engine_fl_56() {
         }
     }
     let read = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture));
-    assert_eq!(read.err(), Some(DecodeError::Exact(exact::ExactError::NoExactCodec)));
+    assert_eq!(
+        read.err(),
+        Some(DecodeError::Exact(exact::ExactError::NoExactCodec))
+    );
 }
 
 /// `FL-57`: A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately
@@ -10043,8 +10082,12 @@ fn engine_fl_57() {
     use hologram_ai_cpu_decode::DecodeError;
     let fixture = en_49_fixture();
     let (nodes, initializers) = en_49_graph(&fixture.graph);
-    let config = hologram_ai_cpu_decode::Config { rms_norm_eps: 0x4000_0000, ..en_49_config(&fixture) };
-    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, config).expect("the model reads");
+    let config = hologram_ai_cpu_decode::Config {
+        rms_norm_eps: 0x4000_0000,
+        ..en_49_config(&fixture)
+    };
+    let model =
+        hologram_ai_cpu_decode::read(&nodes, &initializers, config).expect("the model reads");
     let mut session = hologram_ai_cpu_decode::Session::new(&model);
     let stepped = hologram_ai_cpu_decode::step(&model, &mut session, 0);
     assert_eq!(stepped.err(), Some(DecodeError::NormRefused));
@@ -10056,9 +10099,13 @@ fn engine_fl_58() {
     use hologram_ai_cpu_decode::DecodeError;
     let fixture = en_49_fixture();
     let (nodes, initializers) = en_49_graph(&fixture.graph);
-    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
     let mut session = hologram_ai_cpu_decode::Session::new(&model);
     let vocab = model.dims.vocab as u32;
-    assert_eq!(hologram_ai_cpu_decode::step(&model, &mut session, vocab).err(), Some(DecodeError::TokenOutOfRange));
+    assert_eq!(
+        hologram_ai_cpu_decode::step(&model, &mut session, vocab).err(),
+        Some(DecodeError::TokenOutOfRange)
+    );
     assert_eq!(session.position(), 0, "a refused token moved the session");
 }
