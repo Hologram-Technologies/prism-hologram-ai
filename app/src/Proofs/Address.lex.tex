@@ -1,0 +1,24 @@
+\begin{lexlean}{Proofs.Address}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Address}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: address_blake3_decides,
+  parameters: [head : Nat, middle : Nat, tail : Nat],
+  statement: (((Kernel.Address::addressBlake3 head middle tail) = true) <-> ((head = 1651269995) /\ ((middle = 25907) /\ (tail = 58)))),
+  proof: linear_arithmetic{definitions: [Kernel.Address::addressBlake3]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: address_sha256_refused,
+  parameters: [],
+  statement: ((Kernel.Address::addressBlake3 1936220466 13622 58) = false),
+  proof: linear_arithmetic{definitions: [Kernel.Address::addressBlake3]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -259,3 +259,32 @@ Feature: kernel
     When the Lean kernel checks shareable_decides during lexlean verify in the gate
     Then a held prefix is shared exactly when decision 27 finds it reusable and it was computed on this device or the run is comparable by decision 30
     And the answer to decision 33 is reuse or recompute by that same shareable, over the labels at bytes 1 and 33
+
+  @KN-34 @build
+  Scenario: One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise
+    Given the block check model in app/src/Kernel/Block.lex.tex and its proofs in app/src/Proofs/Block.lex.tex
+    When the Lean kernel checks accepts_decides, parts_cover_every_product and the four sign theorems during lexlean verify in the gate
+    Then every product of the block falls in exactly one of the positive and negative parts, by the signs of its weight code and its activation
+    And the answer to decision 34 is exact when the claim at byte 49 plus the negative part equals the positive part plus 32768, differs otherwise, and invalid request for any length but 53
+
+  @KN-35 @build
+  Scenario: A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3
+    Given the address model in app/src/Kernel/Address.lex.tex and its proofs in app/src/Proofs/Address.lex.tex
+    When the Lean kernel checks address_blake3_decides and address_sha256_refused during lexlean verify in the gate
+    Then a label's seven-byte prefix is admitted exactly when it is blake3:
+    And the answer to decision 35 is blake3 for that prefix, not blake3 for sha256: or any other, and invalid request for any length but 8
+
+  @KN-36 @build
+  Scenario: A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions
+    Given the integer-run model in app/src/Kernel/Integer.lex.tex, decision 30's class in app/src/Kernel/Determinism.lex.tex, and the proofs in app/src/Proofs/Integer.lex.tex
+    When the Lean kernel checks integer_run_decides, integer_run_is_everywhere and integer_run_refuses_fixed_order_floats during lexlean verify in the gate
+    Then a run is admitted exactly when its products and every other stage are exact, which is decision 30's class everywhere for any order of reductions
+    And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
+
+  @KN-37 @build
+  Scenario: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
+    Given a request of the tag 37, a group sum plus 32768 in four bytes, an IEEE half in two, a sign byte and a magnitude in eight
+    When the kernel reads the half as its fraction when its exponent field is zero and as 1024 plus its fraction times 2 to the field less one otherwise, and multiplies the sum's magnitude by it
+    Then the answer is exact exactly when the magnitude is that product and the sign is 1 just when the product is nonzero and the two signs differ
+    And a zero product is never negative, a half whose exponent field is 31 is answered not finite, and a request of another length is answered invalid request
+    And the theorems of Proofs.Scale state each of these and are pinned with their axioms
