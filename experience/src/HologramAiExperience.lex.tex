@@ -1,0 +1,111 @@
+\begin{lexlean}{HologramAiExperience}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\title{Boolean}
+\begin{semanticmodule}
+definition{
+  name: openModelInTheBrowser,
+  parameters: [],
+  result: String,
+  body: "A person on a laptop or a phone opens the Hologram AI page, names an open text model on the hub, and talks to it in their own browser. No server of ours is in the path: the page, the model's files and the answers all stay between the browser and the static hosts that serve the files."
+}
+
+definition{
+  name: modelsByName,
+  parameters: [],
+  result: String,
+  body: "A model is named as it is on Hugging Face. Qwen2.5-1.5B-Instruct, Qwen3-0.6B, Llama 3.2 1B and SmolLM2 load from their own ONNX exports, read from the hub's files as they are, with nothing repacked before they run."
+}
+
+definition{
+  name: oneCall,
+  parameters: [],
+  result: String,
+  body: "A developer loads and runs a model with one call, pipeline(task, model, { device, dtype }), the shape transformers.js uses: the task, the model's name, and optionally the device and the precision."
+}
+
+definition{
+  name: sensibleChoices,
+  parameters: [],
+  result: String,
+  body: "Nothing has to be tuned. The kernel chooses the precision the model offers that fits, and the device: the GPU when there is a usable one, otherwise the CPU for a model small enough. The chat template and the stop tokens are the model's own, from its own files."
+}
+
+definition{
+  name: offlineReturn,
+  parameters: [],
+  result: String,
+  body: "A second visit needs no network. The files a load read are kept in the browser under their BLAKE3 address, each checked again as it is read back, so a return visit loads with the network off. When the browser is short of room, a kept file is dropped only on the kernel's word."
+}
+
+definition{
+  name: storedOnce,
+  parameters: [],
+  result: String,
+  body: "A tensor is stored once. Every tensor of every open model has one address, the BLAKE3 of its own bytes, so a tensor already held, under any model, precision or repository, is not downloaded or stored again, and any listed source may serve one, because the address checks the bytes. The bytes and the load time this saves are measured, and so is how many tensors the supported models share."
+}
+
+definition{
+  name: sameAnswerEverywhere,
+  parameters: [],
+  result: String,
+  body: "The same model, prompt and settings give the same tokens on every GPU, CPU, browser and phone, bit for bit. The engine computes in integers only, with no floating-point operation between the bytes it admits and the token ids it emits."
+}
+
+definition{
+  name: checkedNotTrusted,
+  parameters: [],
+  result: String,
+  body: "Nothing that arrives is trusted. Every file and tensor is checked against the address the hub publishes for it before the kernel admits it, and anyone can recompute an answer exactly and confirm it."
+}
+
+definition{
+  name: openAnyLayer,
+  parameters: [],
+  result: String,
+  body: "Any layer at any position opens to the exact integers that produced it, each weight named by its tensor's address, so a person can see why the model answered as it did."
+}
+
+definition{
+  name: reuseThePrompt,
+  parameters: [],
+  result: String,
+  body: "A conversation does not compute its start again: a prefix already computed is reused when the kernel finds it is the one asked for, and the tokens are the same as without reuse."
+}
+
+definition{
+  name: embeddingsAndClassifiers,
+  parameters: [],
+  result: String,
+  body: "Beyond chat, one embedding model and one classifier run the same way and give the same integers as the engine's CPU reference."
+}
+
+definition{
+  name: refusedByName,
+  parameters: [],
+  result: String,
+  body: "A model the engine does not run is refused by name before anything runs: an unknown family, an operator outside the export style's list, or a precision it does not read. It is never run badly."
+}
+
+definition{
+  name: phoneAndNoGpu,
+  parameters: [],
+  result: String,
+  body: "A small model runs with the GPU off, and on a named phone, with the same tokens as on this machine."
+}
+
+definition{
+  name: fastAndMeasured,
+  parameters: [],
+  result: String,
+  body: "It is quick, and the speed is measured, not claimed: on the published page, on this machine and on the phone, the time to the first token, the tokens per second, the cold load and the download size are recorded beside transformers.js on the same model and precision. The aims are under 300 milliseconds to the first token with a warm cache, and 100 tokens per second or more on Qwen2.5-1.5B at 4 bits; an aim missed is reported with the step that bounds it."
+}
+
+definition{
+  name: textOnly,
+  parameters: [],
+  result: String,
+  body: "This milestone is text: generation, embeddings and classification. Vision and audio, mixture of experts, and GGUF and safetensors files are later milestones, and until then a model of that kind is refused by name."
+}
+\end{semanticmodule}
+\end{lexlean}

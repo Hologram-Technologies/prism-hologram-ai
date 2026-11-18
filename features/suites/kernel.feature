@@ -327,6 +327,13 @@ Feature: kernel
     And no power of two the kernel forms reaches 2^64, so a shift of 64 or more is its own case
     And the theorems of Proofs.Round state these and are pinned with their axioms
 
+  @KN-43 @build
+  Scenario: A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root
+    Given the root model in app/src/Kernel/Root.lex.tex and its proofs in app/src/Proofs/Root.lex.tex
+    When the Lean kernel checks root_ok_decides during lexlean verify in the gate
+    Then a root is accepted exactly when its square is at most the value and the value is below the square of the root plus one, so the accepted root is the floor square root
+    And the answer to decision 43 is exact or differs, and invalid request for any length but 13, a value of 2^62 or more or a root of 2^31 or more, so no number it computes passes 64 bits
+
   @KN-45 @build
   Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
     Given the engine session in app/src/Engine/Session.lex.tex, built on decisions 35 and 36, and its proofs in app/src/Proofs/Session.lex.tex
