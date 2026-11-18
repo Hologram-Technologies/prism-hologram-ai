@@ -131,6 +131,7 @@ jobs:
           ' "$FINGERPRINT" "$ATTESTATION_URL"
           node bootstrap/page.mjs site
           node bootstrap/precache.mjs site
+          node bootstrap/listing-blake3.mjs site
       - name: Load a container through the verified kernel in a real browser
         # In the locked SDK image, as `just app` is: it carries just, Node, the
         # pinned Playwright and its Chromium, which drives WebGPU on its
