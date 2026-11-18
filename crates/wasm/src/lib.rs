@@ -49,11 +49,14 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use hologram_ai_cpu_decode::{self as decode, Config, DecodeError, Initializer, Session};
 use hologram_ai_download::{Arriving, Label, Root, Whole, LABEL_BYTES};
+use hologram_ai_exact::RopeScaling;
 use hologram_ai_exact::{request_product, Layout};
 use hologram_ai_model_reader::holk::Container;
 use hologram_ai_model_reader::onnx::{DataFile, File, Graph, ImportError, Imported, ReadFile};
 use hologram_ai_model_reader::Kernel;
+use hologram_ai_onnx_preflight::stream::Node;
 use hologram_ai_tokenizer::Tokeniser;
 
 /// The call was answered; the result buffer holds the answer.
@@ -82,6 +85,8 @@ pub enum CallError {
     WrongSize,
     /// `FL-49`: the ONNX importer refused, named as `ImportError` names it.
     Import(ImportError),
+    /// `FL-59`: the integer forward pass refused, named as `DecodeError` names it.
+    Decode(DecodeError),
 }
 
 /// What the module holds between calls.
@@ -849,6 +854,12 @@ pub extern "C" fn onnx_finish() -> u32 {
         ONNX.with_borrow_mut(|onnx| {
             let imported = onnx.imported.take().ok_or(CallError::NothingRead)?;
             let nodes = imported.nodes().to_vec();
+            DECODE.with_borrow_mut(|d| {
+                *d = Decode {
+                    nodes: nodes.clone(),
+                    ..Decode::default()
+                }
+            });
             let read = std::mem::take(&mut onnx.read);
             let model = imported
                 .finish(read, &mut PageKernel)
@@ -901,6 +912,168 @@ pub extern "C" fn onnx_finish() -> u32 {
             });
             serde_json::to_vec(&out).map_err(|_| CallError::NotText)
         })
+    })
+}
+
+// ─── The integer forward pass ──────────────────────────────────────────────
+//
+// `hologram-ai-cpu-decode` runs a model from token ids to logits in integers
+// only (EN-49 to EN-51). The page imports the graph through this module, so
+// the module keeps the graph's nodes; the page then hands it each weight's
+// bytes once, opens the model with what its config says, and steps it a token
+// at a time. The answer of a step is the greedy token and the logits, binary32
+// bit patterns, so the page reads no number of its own.
+
+/// What the forward pass holds between calls.
+#[derive(Default)]
+struct Decode {
+    /// The graph's nodes, from the last import.
+    nodes: Vec<Node>,
+    /// Each weight the page handed in: its element type and its bytes.
+    tensors: BTreeMap<String, (u64, Vec<u8>)>,
+    /// The config the model was opened with, once it is.
+    config: Option<Config>,
+    /// The run so far.
+    session: Option<Session>,
+}
+
+thread_local! {
+    static DECODE: RefCell<Decode> = RefCell::new(Decode::default());
+}
+
+/// The model the held nodes and weights make under `config`, handed to `run`.
+fn with_model<T>(
+    decode: &Decode,
+    config: Config,
+    run: impl FnOnce(&decode::Model<'_>) -> Result<T, CallError>,
+) -> Result<T, CallError> {
+    let initializers: BTreeMap<String, Initializer<'_>> = decode
+        .tensors
+        .iter()
+        .map(|(name, (data_type, bytes))| {
+            (
+                name.clone(),
+                Initializer {
+                    data_type: *data_type,
+                    bytes,
+                },
+            )
+        })
+        .collect();
+    let model = decode::read(&decode.nodes, &initializers, config).map_err(CallError::Decode)?;
+    run(&model)
+}
+
+fn word(bytes: &[u8], at: usize) -> Result<u32, CallError> {
+    bytes
+        .get(at..at + 4)
+        .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        .ok_or(CallError::WrongSize)
+}
+
+/// One weight for the forward pass: four bytes of name length, the name, four
+/// bytes of element type, then the tensor's bytes, all little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_tensor(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let named = word(&given, 0)? as usize;
+        let name = given.get(4..4 + named).ok_or(CallError::WrongSize)?;
+        let name = std::str::from_utf8(name)
+            .map_err(|_| CallError::NotText)?
+            .to_string();
+        let data_type = u64::from(word(&given, 4 + named)?);
+        let bytes = given.get(8 + named..).ok_or(CallError::WrongSize)?.to_vec();
+        DECODE.with_borrow_mut(|d| d.tensors.insert(name, (data_type, bytes)));
+        Ok(Vec::new())
+    })
+}
+
+/// Open the model the held nodes and weights make, with what its config says,
+/// as JSON: `heads`, `kv_heads`, `rope_theta`, `rms_norm_eps` (binary32 bits)
+/// and `scaling` (`null`, or Llama 3's `factor`, `low`, `high` and `original`).
+/// Starts a new run; answers the model's sizes as JSON.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let c: serde_json::Value =
+            serde_json::from_slice(&given).map_err(|_| CallError::NotText)?;
+        let whole = |v: &serde_json::Value| v.as_u64().ok_or(CallError::NotText);
+        let scaling = match &c["scaling"] {
+            serde_json::Value::Null => RopeScaling::None,
+            s => RopeScaling::Llama3 {
+                factor: u32::try_from(whole(&s["factor"])?).map_err(|_| CallError::WrongSize)?,
+                low: u32::try_from(whole(&s["low"])?).map_err(|_| CallError::WrongSize)?,
+                high: u32::try_from(whole(&s["high"])?).map_err(|_| CallError::WrongSize)?,
+                original: u32::try_from(whole(&s["original"])?)
+                    .map_err(|_| CallError::WrongSize)?,
+            },
+        };
+        let config = Config {
+            heads: usize::try_from(whole(&c["heads"])?).map_err(|_| CallError::WrongSize)?,
+            kv_heads: usize::try_from(whole(&c["kv_heads"])?).map_err(|_| CallError::WrongSize)?,
+            rope_theta: whole(&c["rope_theta"])?,
+            rms_norm_eps: u32::try_from(whole(&c["rms_norm_eps"])?)
+                .map_err(|_| CallError::WrongSize)?,
+            scaling,
+        };
+        DECODE.with_borrow_mut(|d| {
+            let (dims, session) = with_model(d, config, |model| {
+                let x = model.dims;
+                Ok((
+                    serde_json::json!({
+                        "hidden": x.hidden, "layers": x.layers, "heads": x.heads, "kv_heads": x.kv_heads,
+                        "head_dim": x.head_dim, "ff": x.ff, "vocab": x.vocab,
+                    }),
+                    Session::new(model),
+                ))
+            })?;
+            d.config = Some(config);
+            d.session = Some(session);
+            serde_json::to_vec(&dims).map_err(|_| CallError::NotText)
+        })
+    })
+}
+
+/// One token through the open model: the greedy token, four bytes, then one
+/// logit per token id, binary32 bits, four bytes each, little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_step(token: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let stepped = with_model(d, config, |model| {
+                decode::step(model, &mut session, token).map_err(CallError::Decode)
+            });
+            d.session = Some(session);
+            let logits = stepped?;
+            let greedy = decode::greedy(&logits).ok_or(CallError::NothingRead)?;
+            let mut out = Vec::with_capacity(4 + 4 * logits.len());
+            out.extend_from_slice(&greedy.to_le_bytes());
+            for bits in logits {
+                out.extend_from_slice(&bits.to_le_bytes());
+            }
+            Ok(out)
+        })
+    })
+}
+
+/// Let go of every weight and the run, so their memory can be used again.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_clear() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            d.tensors.clear();
+            d.config = None;
+            d.session = None;
+        });
+        Ok(Vec::new())
     })
 }
 

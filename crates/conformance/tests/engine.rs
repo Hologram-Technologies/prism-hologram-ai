@@ -10147,7 +10147,31 @@ fn engine_en_51() {
 /// GP-19's fixture imported through the page's module and opened there for
 /// the forward pass: the module's answer to `decode_open`.
 fn en_52_open(fixture: &En49) -> String {
-    let kept = std::rc::Rc::new(std::cell::RefCell::new(accepting()));
+    // The stand-in of EN-33, answering decision 20 for this fixture's shapes:
+    // the codes are half a byte a weight, the scales one per block.
+    let mut base = accepting();
+    let kernel = Scripted {
+        answer: Box::new(move |request: &[u8]| {
+            if request[0] != 20 {
+                return (base.answer)(request);
+            }
+            let field = |at: usize, n: usize| {
+                request[at..at + n]
+                    .iter()
+                    .fold(0u64, |v, &b| (v << 8) | u64::from(b))
+            };
+            let (rows, columns, block) = (field(2, 4), field(6, 4), field(10, 2));
+            let groups = rows * columns.div_ceil(block);
+            let bytes = match request[1] {
+                0 => groups * block / 2,
+                1 => groups * 4,
+                _ => groups * 2,
+            };
+            bytes.to_string().into_bytes()
+        }),
+        asked: Vec::new(),
+    };
+    let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
     wasm::install_kernel(Box::new(Shared(kept)));
     let graph = &fixture.graph;
     let root = import_record("model.onnx", 0, graph).root.0;

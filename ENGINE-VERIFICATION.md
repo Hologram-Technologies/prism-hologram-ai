@@ -2785,3 +2785,27 @@ half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
 Reading the rotary parameters from the export's cache rather than taking the
 family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
 integer path takes them from its caller.
+
+## EN-52, the integer forward pass in the page's module
+
+The page's module (`crates/wasm`) carries `hologram-ai-cpu-decode`. After an
+import through `onnx_finish`, the module keeps the graph's nodes; the page
+hands it each weight's bytes once (`decode_tensor`: name length, name, element
+type, bytes, little-endian), opens the model with the config's head counts,
+rope theta, epsilon as binary32 bits and scaling (`decode_open`, JSON, which
+answers the sizes), and steps a token at a time (`decode_step`, which answers
+the greedy token and every logit as binary32 bits). `decode_clear` lets the
+weights go. A refusal of the forward pass is answered as `Decode(...)`, the
+name `DecodeError` gives it (FL-59).
+
+`engine_en_52` imports GP-19's fixture through the module natively, with
+EN-33's stand-in kernel answering decision 20 from each request's shape, hands
+it every weight, and steps the prompt and sixteen greedy tokens: every greedy
+token and every logit equals `hologram-ai-cpu-decode`'s run of the same model,
+bit for bit. With the forward pass in it the module is 1,923,970 bytes, 91 per
+cent of the 2,097,152 a page may ask for, 607,877 gzipped.
+
+| Planted defect | Result |
+| --- | --- |
+| the logits answered big-endian | rejected: `the module's logits are not the native run's, bit for bit` |
+| none | passed |
