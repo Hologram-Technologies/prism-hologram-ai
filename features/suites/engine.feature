@@ -623,5 +623,6 @@ Feature: engine
     Given the 256 entries of hologram-ai-exact's EXP2_FRACTION
     When each entry is checked against its exact criterion with integers of any width
     Then every entry meets it, which is to say it is within half a unit of 2^(30 - j/256), so it is the nearest integer
+    And exp2_neg(d) is entry d mod 256 over 2^(d div 256), rounded half to even, worked out in the test without the crate
     And exp2_neg(d) is within one unit of 2^(30 - d/256) for every d below 7936, checked as (e - 1)^256 * 2^d < 2^7680 < (e + 1)^256 * 2^d
     And exp2_neg(d) is 0 for every d from 7936, where 2^(30 - d/256) is below half a unit

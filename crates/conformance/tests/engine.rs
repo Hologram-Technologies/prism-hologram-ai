@@ -9175,6 +9175,22 @@ fn engine_en_43() {
     let target = big_shl(&big(1), 7680);
     for d in 0..7936u32 {
         let e = u64::from(exact::exp2_neg(d));
+        // The one rounding: the entry over 2^k to the nearest, a tie to even,
+        // worked as floor((2t + 2^k) / 2^(k + 1)) less one on an odd tie.
+        let (t, k) = (u64::from(table[(d & 255) as usize]), d >> 8);
+        let nearest = (2 * t + (1 << k)) >> (k + 1);
+        let tie = k > 0 && (2 * t) % (1 << (k + 1)) == 1 << k;
+        let expected = if tie && nearest % 2 == 1 {
+            nearest - 1
+        } else {
+            nearest
+        };
+        assert_eq!(
+            e,
+            expected,
+            "exp2_neg({d}) is not entry {} over 2^{k} rounded half to even",
+            d & 255
+        );
         let above = big_shl(&big_pow(&big(e + 1), 256), d);
         assert!(
             big_cmp(&target, &above).is_lt(),
