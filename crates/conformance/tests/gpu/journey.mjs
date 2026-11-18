@@ -490,6 +490,10 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first",
   const run3 = results.onnx.noblake3;
   if (run3.phase !== "failed" || !/the record names no BLAKE3 for config\.json/.test(run3.error ?? "")) fail(`onnx noblake3: expected the record refused for naming config.json no BLAKE3, saw ${run3.phase}: ${run3.error}`);
   if (run3.checks.some((c) => c.step === "import")) fail("onnx noblake3: the load went on past the record");
+  const run4 = results.onnx.q4;
+  const stop4 = stoppedAt(run4);
+  if (run4.phase !== "failed" || stop4?.step !== "precision" || stop4?.detail !== 'kernel answered "none fits"') fail(`onnx q4: expected the kernel to refuse a precision the record does not offer, stopped at ${stop4?.step} (${run4.phase}: ${run4.error})`);
+  if (run4.checks.some((c) => ["file", "kept", "import"].includes(c.step))) fail("onnx q4: the load went on past the precision");
 }
 
 // GP-25: the one call, and a task the kernel does not run.
