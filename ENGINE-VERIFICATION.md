@@ -2148,3 +2148,63 @@ above is a measurement outside it. The page's module does
 not yet expose them; that is the `int_tensor` calls agreed with the page work.
 Eight-bit and two-bit `MatMulNBits`, GGUF's types, and zero points stored as
 floats are refused, not run.
+
+## EN-36, activation schemes
+
+The one approximation in a product is putting the input on integers. EN-36
+gives four schemes (`Scheme`): eight or sixteen bits (`Width`), and one power
+of two per vector or per group of 32 inputs (`Grouping`). Each group takes the
+largest power of two that keeps it within its width's limit, each value rounded
+to the nearest, ties to even (`quantise_with`). Products under every scheme stay
+exact: sums are taken per unit, the smaller of a weight block and an input
+group, through `uor-matmul`'s `dot_ref` over `i16`, each unit at its scale's
+and its group's own powers, and each row rounded once (`q4_product_with`,
+`ternary_product_with`, `dense_product_with`). Eight bits per vector gives
+EN-34's and EN-35's bits, which the gate asserts.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_35 engine_en_36 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+
+Every code is checked to be its input's nearest at its group's step and the
+step the largest the limit allows; every output against the exact sum worked in
+the test, each term at its group's power, rounded once by a rounding written in
+the test. Run on 2026-11-18 in WSL; each defect planted alone.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| a group's step one power too coarse | `engine_en_36`: `group 0's step is not the largest` |
+| every input at the first group's power | `engine_en_36`: `block 16, row 0: 839.4297 is not the stated 262.41904` |
+| groups of 16 | `engine_en_36` |
+| a unit given its own index as its block | `engine_en_36`: `block 64, row 0: -4219.58 is not the stated 3277.7808` |
+| dense groups all at the first group's power | `engine_en_36`: `dense half true, output 0` |
+| ternary units that span several input groups | `engine_en_36`: `ternary row 0` |
+| sixteen-bit codes limited to 16,383 | `engine_en_36`: `group 0's step is not the largest` |
+| none, before and after | passed |
+
+### Measured on three models (brief step 3)
+
+Every matrix of each model, one synthetic input per matrix (roughly normal, and
+the same with 0.2% of values at 40 times), against the float product of the
+unrounded input, relative error (L2), ordinary / with outliers. 2026-11-18,
+one thread, WSL. The rows are `open` claims in `model/ledger.toml`.
+
+| Scheme | Qwen3-0.6B ONNX (196 + head) | Qwen2.5-1.5B Q4_0 (197) | Bonsai 1.7B ternary (198) |
+| --- | --- | --- | --- |
+| 8 bits per vector | 0.78% / 8.2% | 0.78% / 8.9% | 0.78% / 10.5% |
+| 8 bits per 32 | 0.76% / 1.6% | 0.76% / 1.8% | 0.77% / 1.7% |
+| 16 bits per vector | 0.0031% / 0.032% | 0.0031% / 0.035% | 0.0031% / 0.039% |
+| 16 bits per 32 | 0.0030% / 0.0062% | 0.0030% / 0.0068% | 0.0030% / 0.0064% |
+
+Sixteen bits per group of 32 is about 1,300 times closer to the float product
+than eight bits per vector with outliers, and in this scalar path it costs the
+same time: 0.9 s for Qwen3's 196 projections under every scheme, 2.9 to 3.1 s
+for Qwen2.5's 197, 4.1 to 5.1 s for Bonsai's 198. Qwen3's head gave the float
+product's top logit under every scheme. The codes are twice as wide, which a
+SIMD kernel will feel; `i32x4_dot_i16x8`, which the browser's SIMD has,
+multiplies sixteen-bit lanes directly.
+
+### What EN-36 does not establish
+
+These are errors of single products against a float product, not answers: how
+often a whole run's greedy tokens agree with the float model's needs the
+integer non-matmul stages (brief step 4), and is the measure the choice is to
+be confirmed by.

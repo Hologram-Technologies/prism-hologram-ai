@@ -10,9 +10,31 @@
 # The meta-gate proves the suite never asserts an `open` claim as established,
 # and `CM-03` proves every `some-true` row cites an authority that exists.
 #
-# The ledger is empty. A claim added here needs its level chosen first, because
-# the level decides what evidence it owes.
+# A claim added here needs its level chosen first, because the level decides
+# what evidence it owes.
 
 spec = "template/1"
 
-claim = []
+[[claim]]
+id = "OPEN-ACTIVATION-QWEN3-0.6B"
+level = "open"
+statement = "Activation schemes on Qwen3-0.6B (onnx-community/Qwen3-0.6B-ONNX@79346d3, model_q4f16.onnx), 196 MatMulNBits projections and the tied head, one synthetic input each, against the float product of the unrounded input, relative error (L2), ordinary input / 0.2% outliers at 40x: 8-bit per vector 0.78% / 8.2%; 8-bit per 32 0.76% / 1.6%; 16-bit per vector 0.0031% / 0.032%; 16-bit per 32 0.0030% / 0.0062%. The head's top logit equal to the float product's under every scheme. Inputs drawn by xorshift from seed 0x9e3779b97f4a7c15. Measured 2026-11-18, one thread, WSL. Greedy-token agreement over whole runs is not measured: the non-matmul stages are not integer yet."
+sample_size = 197
+
+[[claim]]
+id = "OPEN-ACTIVATION-QWEN2.5-1.5B"
+level = "open"
+statement = "Activation schemes on Qwen2.5-1.5B-Instruct Q4_0 (Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51, repacked to q4f16), 197 matrices, inputs by xorshift from seed 0x6a09e667f3bcc908, one synthetic input each, relative error (L2), ordinary / outliers: 8-bit per vector 0.78% / 8.9%; 8-bit per 32 0.76% / 1.8%; 16-bit per vector 0.0031% / 0.035%; 16-bit per 32 0.0030% / 0.0068%. Measured 2026-11-18, one thread, WSL. Greedy-token agreement not measured."
+sample_size = 197
+
+[[claim]]
+id = "OPEN-ACTIVATION-BONSAI-1.7B"
+level = "open"
+statement = "Activation schemes on Bonsai 1.7B ternary (HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12), 198 matrices, inputs by xorshift from seed 0x6a09e667f3bcc908, one synthetic input each, relative error (L2), ordinary / outliers: 8-bit per vector 0.78% / 10.5%; 8-bit per 32 0.77% / 1.7%; 16-bit per vector 0.0031% / 0.039%; 16-bit per 32 0.0030% / 0.0064%. Measured 2026-11-18, one thread, WSL. Greedy-token agreement not measured."
+sample_size = 198
+
+[[claim]]
+id = "AUTH-UOR-MATMUL"
+level = "some-true"
+statement = "uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34 to EN-36 check the sums against sums written out independently; the other claims of the library are not established here."
+authority = "UOR-MATMUL"
