@@ -2005,6 +2005,39 @@
       "module": "Integer",
       "name": "Integer run",
       "tag": 36
+    },
+    {
+      "asks": "Is this claimed product of one group's sum and its half scale exact?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Group sum plus 32768",
+          "value": 32769,
+          "width": 4
+        },
+        {
+          "at": 5,
+          "name": "Scale, IEEE half bits",
+          "value": 15360,
+          "width": 2
+        },
+        {
+          "at": 7,
+          "name": "Claim's sign, 1 for negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 8,
+          "name": "Claim's magnitude, in units of 2^-24",
+          "value": 16777216,
+          "width": 8
+        }
+      ],
+      "length": 16,
+      "module": "Scale",
+      "name": "Scale check",
+      "tag": 37
     }
   ],
   "request": 81

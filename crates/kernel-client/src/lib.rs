@@ -1396,6 +1396,52 @@ pub mod block_check {
     }
 }
 
+/// Decision 37: whether a claimed product is one group's sum times its half
+/// scale, exactly, in units of `2^-24`.
+pub mod scale_check {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The claim is the product.
+        Exact,
+        /// The claim is not the product.
+        Differs,
+        /// The scale is an infinity or a NaN.
+        NotFinite,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a group whose sum is `sum` and whose scale is the half
+    /// `bits`, with `claim` the product: the sum plus 32768 in four bytes,
+    /// wrapping, the half in two, then the claim's sign, 1 for negative, and
+    /// its magnitude in eight, wrapping past 64 bits.
+    #[must_use]
+    pub fn request(sum: i32, bits: u16, claim: i128) -> [u8; 16] {
+        let mut out = [0; 16];
+        out[0] = 37;
+        out[1..5].copy_from_slice(&sum.wrapping_add(32768).to_be_bytes());
+        out[5..7].copy_from_slice(&bits.to_be_bytes());
+        out[7] = u8::from(claim < 0);
+        out[8..16].copy_from_slice(&(claim.unsigned_abs() as u64).to_be_bytes());
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"exact" => Answer::Exact,
+            b"differs" => Answer::Differs,
+            b"not finite" => Answer::NotFinite,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;
