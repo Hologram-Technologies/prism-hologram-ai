@@ -84,22 +84,28 @@ hologram runtime keys it by and the engine admits it by; a kept file, a
 receipt's labels and a prefix are named the same way. One identity, so no
 reader has to know which of two is canonical.
 
-SHA-256 and Git's SHA-1 stay only where a source publishes them and the
-engine checks against what was published: Hugging Face's SHA-256 of a
-file, which the hub's record carries, and Git's blob SHA-1 of a small file.
-They are checks, never names. Content Security Policy hashes are SHA-256
-because browsers define them so.
+Set by Ilya on 2026-11-17: BLAKE3 is the only hash Hologram AI names or
+checks content by, aligned with gethologram.ai as a Hologram-native,
+decentralised Hugging Face: every tensor addressed by its UOR BLAKE3, so
+any source may serve it and any browser can check it, and a model of any
+size streams into the browser tensor by tensor. Two uses cannot move,
+because a standard outside Hologram AI fixes the hash: a page's
+Content-Security-Policy hashes (browsers define them as SHA-256) and
+WebCrypto's ECDSA signatures (SHA-256 inside the algorithm).
 
 A label is read by its prefix, never its length: `blake3:` and `sha256:`
 labels are both 71 bytes. The kernel's decisions compare labels and are the
 same for either.
 
-Where Hologram AI still names its own content by SHA-256, each to move:
+Where SHA-256 or SHA-1 is still used, and what moves it:
 
-| What | Where | Blocked on |
+| What | Where | Moves when |
 | --- | --- | --- |
-| A `.holk` container's root | `crates/download` (`Root`), `crates/model-reader/src/holk.rs` | Containers re-minted on the hub with a BLAKE3 root |
-| The deploy's file listing | `bootstrap/precache.mjs`, `site/app/index.html`, `site/sw.js` | Nothing; the listing is this repository's own |
+| A model file checked against the hub record | `site/app/engine/onnx-load.mjs` (SHA-256 for LFS files, Git's blob SHA-1 for small ones), the module's whole-file check (`onnx_start`) | The hub publishes a BLAKE3 for every file and tensor of the ONNX exports (proposed as a hub change on 2026-11-17); a model with none is then refused |
+| The hub record and index root | `hubRecord` in `site/app/engine/loader.mjs` | The hub names records by BLAKE3 in `root.json` |
+| A `.holk` container's root | `crates/download` (`Root`), `crates/model-reader/src/holk.rs`, `loadContainer` | Containers re-minted on the hub with a BLAKE3 root |
+| The frame's modules, pointer and index | `frame/`, `site/sw.js`, `bootstrap/page.mjs` | The UOR template's frame moves; these files are the template's |
+| The deploy's file listing and the kernel check | `bootstrap/precache.mjs`, `site/app/index.html`, `site/app/app.mjs` | Moved to BLAKE3 on 2026-11-17 |
 
 Per-tensor verified streaming (BLAKE3's tree, published per tensor as a Bao
 outboard) waits on the hub publishing outboards; until then a tensor is

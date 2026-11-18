@@ -425,6 +425,12 @@ suite = "gpu"
 statement = "The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read"
 
 [[id]]
+id = "GP-23"
+level = "build"
+suite = "gpu"
+statement = "The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
@@ -584,4 +590,22 @@ statement = "An ONNX export is imported through the page's module: every span, o
 id = "EN-34"
 level = "build"
 suite = "engine"
-statement = "A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code"
+statement = "A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code"
+
+[[id]]
+id = "EN-35"
+level = "build"
+suite = "engine"
+statement = "Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one"
+
+[[id]]
+id = "KN-37"
+level = "build"
+suite = "kernel"
+statement = "One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite"
+
+[[id]]
+id = "EN-36"
+level = "build"
+suite = "engine"
+statement = "Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one"

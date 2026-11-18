@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-eight decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), what integers a stored q4 byte, half, bfloat16 or binary32 holds (37) and whether a step may narrow a value with its declared width and bound (38). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-nine decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), whether one group's claimed sum times its scale is exact (37), what integers a stored q4 byte, half, bfloat16 or binary32 holds (38) and whether a step may narrow a value with its declared width and bound (39). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -60,6 +60,7 @@
       "invalid code",
       "none fits",
       "not blake3",
+      "not finite",
       "not first maximum",
       "opset above maximum",
       "opset below minimum",
@@ -209,6 +210,14 @@
     {"name": "integer_run_decides", "module": "Integer", "statement": "(((Kernel.Integer::integerRun productsExact restExact) = true) ↔ ((productsExact = 1) ∧ (restExact = 1)))"},
     {"name": "integer_run_is_everywhere", "module": "Integer", "statement": "(((Kernel.Integer::integerRun productsExact restExact) = true) ↔ ((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2))"},
     {"name": "integer_run_refuses_fixed_order_floats", "module": "Integer", "statement": "((Kernel.Integer::integerRun productsExact 0) = false)"},
+    {"name": "two_to_doubles", "module": "Scale", "statement": "((Kernel.Scale::twoTo (power + 1)) = (prim multiply 2 (Kernel.Scale::twoTo power) : Nat))"},
+    {"name": "half_subnormal_is_mantissa", "module": "Scale", "statement": "((Kernel.Scale::halfOf 0 mantissa) = mantissa)"},
+    {"name": "half_normal_is_scaled", "module": "Scale", "statement": "((Kernel.Scale::halfOf (below + 1) mantissa) = (prim multiply (1024 + mantissa) (Kernel.Scale::twoTo below) : Nat))"},
+    {"name": "sum_size_about_offset", "module": "Scale", "statement": "(((32768 <= offset) → (((Kernel.Scale::sumSize offset) + 32768) = offset)) ∧ ((offset < 32768) → (((Kernel.Scale::sumSize offset) + offset) = 32768)))"},
+    {"name": "zero_is_not_negative", "module": "Scale", "statement": "(((Kernel.Scale::scaledSize offset bits) = 0) → ((Kernel.Scale::scaledNegative offset bits) = false))"},
+    {"name": "scale_accepts_size", "module": "Scale", "statement": "(((Kernel.Scale::scaleAccepts offset bits sign size) = true) → (size = (Kernel.Scale::scaledSize offset bits)))"},
+    {"name": "scale_accepts_sign", "module": "Scale", "statement": "(((Kernel.Scale::scaleAccepts offset bits sign size) = true) → (sign = (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits))))"},
+    {"name": "scale_accepts_the_claim", "module": "Scale", "statement": "((Kernel.Scale::scaleAccepts offset bits (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits)) (Kernel.Scale::scaledSize offset bits)) = true)"},
     {"name": "codec_round_trip", "module": "Codec", "statement": "((format <= 3) → ((stored < (Kernel.Codec::codecWidth format)) → ((Kernel.Codec::codecEncode format (Kernel.Codec::codecHigh format stored) (Kernel.Codec::codecMiddle format stored) (Kernel.Codec::codecLow format stored)) = stored)))"},
     {"name": "codec_fields_fit", "module": "Codec", "statement": "(((Kernel.Codec::codecLow format stored) < (Kernel.Codec::codecLowSize format)) ∧ ((Kernel.Codec::codecMiddle format stored) < (Kernel.Codec::codecMiddleSize format)))"},
     {"name": "codec_reads_back_q4", "module": "Codec", "statement": "((low < 16) → ((middle < 16) → (((Kernel.Codec::codecLow 0 (Kernel.Codec::codecEncode 0 high middle low)) = low) ∧ (((Kernel.Codec::codecMiddle 0 (Kernel.Codec::codecEncode 0 high middle low)) = middle) ∧ ((Kernel.Codec::codecHigh 0 (Kernel.Codec::codecEncode 0 high middle low)) = high)))))"},
@@ -369,12 +378,12 @@
       "where": "crates/conformance/tests/kernel.rs"
     },
     {
-      "name": "kernel_kn_37",
+      "name": "kernel_kn_38",
       "what": "The theorems' statements and axioms, the field sizes, the request offsets, and that decision 38 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     },
     {
-      "name": "kernel_kn_38",
+      "name": "kernel_kn_39",
       "what": "The theorem's statement and axioms, the request offsets, and that decision 39 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
