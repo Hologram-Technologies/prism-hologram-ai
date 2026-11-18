@@ -20,20 +20,13 @@ definition{
   body: (prim remainder bits 1024 0 : Nat)
 }
 
-definition{
-  name: halfNegative,
-  parameters: [bits : Nat],
-  result: Bool,
-  body: (32768 <=? bits)
-}
+definition{name: halfNegative, parameters: [bits : Nat], result: Bool, body: (32768 <=? bits)}
 
 definition{
   name: twoTo,
   parameters: [power : Nat],
   result: Nat,
-  body: (match power
-    | Nat.zero => 1
-    | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat)),
+  body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat)),
   recursive_argument: power
 }
 

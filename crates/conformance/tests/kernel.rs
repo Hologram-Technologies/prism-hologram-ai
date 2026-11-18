@@ -2821,10 +2821,12 @@ fn kernel_kn_37() {
         found.contains("body: (prim remainder bits 1024 0 : Nat)"),
         "halfMantissa changed:\n{found}"
     );
-    let found = declaration(&kernel, "halfNegative");
     assert!(
-        found.contains("body: (32768 <=? bits)"),
-        "halfNegative changed:\n{found}"
+        kernel.contains(
+            "\ndefinition{name: halfNegative, parameters: [bits : Nat], result: Bool, \
+             body: (32768 <=? bits)}\n"
+        ),
+        "halfNegative changed"
     );
     let found = declaration(&kernel, "halfUnits");
     assert!(
@@ -2864,18 +2866,15 @@ fn kernel_kn_37() {
     let found = declaration(&kernel, "twoTo");
     assert!(
         found.contains(
-            "body: (match power
-    | Nat.zero => 1
-    | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat))"
+            "body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat))"
         ),
         "twoTo changed:\n{found}"
     );
     let found = declaration(&kernel, "halfOf");
     assert!(
         found.contains(
-            "body: (match exponent
-    | Nat.zero => mantissa
-    | Nat.succ below => (prim multiply (1024 + mantissa) (twoTo below) : Nat))"
+            "body: (match exponent\n    | Nat.zero => mantissa\n    \
+             | Nat.succ below => (prim multiply (1024 + mantissa) (twoTo below) : Nat))"
         ),
         "halfOf changed:\n{found}"
     );
