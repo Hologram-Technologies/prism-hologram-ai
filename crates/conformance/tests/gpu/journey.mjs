@@ -55,6 +55,9 @@ async function secondTurn(page) {
 }
 
 const onnx = buildOnnxFixture();
+// GP-24: another model's kept file, named by its BLAKE3.
+const foreign = { size: 300000 };
+foreign.name = blake3Hex(new Uint8Array(foreign.size).fill(7));
 const flippedGraph = Buffer.from(onnx.files.get(onnx.path));
 flippedGraph[Math.floor(flippedGraph.length * 0.6)] ^= 0x01;
 const onnxVariants = {
@@ -236,6 +239,47 @@ try {
     await context.close();
   }
 
+  // GP-24: a profile holding another model's file, in a browser reporting no
+  // free storage. The kernel decides what is dropped and what is not kept.
+  {
+    const context = await browser.newContext();
+    const plant = await context.newPage();
+    await plant.goto(`${origin}/app/`);
+    await plant.evaluate(async ({ name, size }) => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
+      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await w.write(new Uint8Array(size).fill(7));
+      await w.close();
+    }, { name: foreign.name, size: foreign.size });
+    await plant.close();
+    onnxVariants.kept.offline = false;
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.addInitScript(() => { StorageManager.prototype.estimate = async () => ({ quota: 1000000, usage: 1000000 }); });
+    await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/kept/index`);
+    await page.click("#load");
+    await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+    let output = null;
+    if ((await page.evaluate(() => window.__qengine.phase)) === "ready") {
+      await page.fill("#prompt", "hi");
+      await page.press("#prompt", "Enter");
+      await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
+      output = await page.evaluate(() => window.__qengine.output);
+      output.second = await secondTurn(page);
+    }
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
+    const held = await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
+      const out = [];
+      for await (const [n, h] of dir.entries()) if (h.kind === "file") out.push([n, (await h.getFile()).size]);
+      return out;
+    });
+    await page.close();
+    await context.close();
+    results.onnx["kept short"] = { ...state, output, errors, held };
+  }
+
   // A cache left by an earlier deploy (GP-07): one file that is not this
   // deploy's, and one that is. The page must remove the first, keep the
   // second, reload once, and then import the engine.
@@ -372,7 +416,7 @@ if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expect
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
 // GP-19: the ONNX export.
-for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"]]) {
+for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"], ["kept short", "webgpu"]]) {
   const run = results.onnx[name];
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
@@ -446,6 +490,14 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   if (run.held.some(([, size]) => size > 0)) fail(`kept tampered: the files this load read were not forgotten: ${JSON.stringify(run.held)}`);
   const again = said("kept again");
   if (!again || again[1] !== "0" || again[2] !== String(count)) fail(`kept again: expected every file downloaded again, saw ${kept("kept again")?.detail}`);
+
+  // GP-24: the other model's file dropped on evict, one file kept, the rest not.
+  const short = results.onnx["kept short"];
+  const room = /, (\d+) not kept for want of room, (\d+) dropped for room \((\d+) bytes\)/.exec(kept("kept short")?.detail ?? "");
+  if (!room || room[1] !== String(count - 1) || room[2] !== "1" || room[3] !== String(foreign.size)) fail(`kept short: expected the other model's file dropped and ${count - 1} files not kept, saw ${kept("kept short")?.detail}`);
+  if (short.held.some(([n]) => n === foreign.name)) fail("kept short: the other model's file was not dropped");
+  const keptShort = short.held.filter(([n, size]) => /^[0-9a-f]{64}$/.test(n) && size > 0).length;
+  if (keptShort !== 1) fail(`kept short: expected one file kept, saw ${JSON.stringify(short.held)}`);
 }
 
 if (failures.length) {

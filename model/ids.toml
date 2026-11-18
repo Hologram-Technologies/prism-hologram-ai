@@ -431,6 +431,12 @@ suite = "gpu"
 statement = "The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt"
 
 [[id]]
+id = "GP-24"
+level = "build"
+suite = "gpu"
+statement = "When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

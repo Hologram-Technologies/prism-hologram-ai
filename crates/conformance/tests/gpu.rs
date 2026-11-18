@@ -1203,7 +1203,7 @@ fn gpu_gp_21() {
     }
     let page = read("site/app/app.mjs");
     for wanted in [
-        "files = await keepFiles({ record, open: fetched(base), module });",
+        "files = await keepFiles({ record, open: fetched(base), module, kernel: ",
         "open: files ? files.open : fetched(base),",
         "if (files) await files.forget();",
     ] {
@@ -1306,6 +1306,40 @@ fn gpu_gp_23() {
         "the label asked is not the BLAKE3 of the prompt's first",
         "the second turn computed",
         "the second turn's tokens",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-24`: When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download
+#[test]
+fn gpu_gp_24() {
+    // The journey runs the short-storage visit in a browser (`just page-journey`);
+    // this test reads that the store asks the kernel's decision 26 and acts on
+    // each answer, and that the journey checks what was dropped and kept.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let kept = read("site/app/engine/files.mjs");
+    for wanted in [
+        "join(26, c ? pinned.has(c.name) : false, candidates.length - i, needed, free, freed)",
+        "if (answer === \"evict\" && c) {",
+        "if (answer === \"does not fit\") return false;",
+        "if (!(await room(file.size))) {",
+    ] {
+        assert!(
+            kept.contains(wanted),
+            "site/app/engine/files.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "kept short: expected the other model's file dropped",
+        "kept short: the other model's file was not dropped",
+        "kept short: expected one file kept",
     ] {
         assert!(
             journey.contains(wanted),
