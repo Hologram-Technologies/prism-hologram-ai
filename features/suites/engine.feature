@@ -617,3 +617,12 @@ Feature: engine
     When hologram-ai-exact places each in a row register and rounds it with round_to_binary32, and the kernel client writes decision 42's request for those bits and for those bits with the last flipped
     Then the request read as Kernel.Round reads it gives the crate's bits
     And claims.json lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
+
+  @EN-43 @build
+  Scenario: The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936
+    Given the 256 entries of hologram-ai-exact's EXP2_FRACTION
+    When each entry is checked against its exact criterion with integers of any width
+    Then every entry meets it, which is to say it is within half a unit of 2^(30 - j/256), so it is the nearest integer
+    And exp2_neg(d) is entry d mod 256 over 2^(d div 256), rounded half to even, worked out in the test without the crate
+    And exp2_neg(d) is within one unit of 2^(30 - d/256) for every d below 7936, checked as (e - 1)^256 * 2^d < 2^7680 < (e + 1)^256 * 2^d
+    And exp2_neg(d) is 0 for every d from 7936, where 2^(30 - d/256) is below half a unit
