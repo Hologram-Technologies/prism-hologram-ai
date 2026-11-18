@@ -2238,3 +2238,35 @@ Over the real export, 3,640 rows of Qwen3-0.6B were chained, none too wide, and
 the compiled guest of decision 39 answered all 26,460 links `exact` and all
 26,460 planted ones `differs` (recorded with KN-39).
 
+## EN-38, an input as decision 40's requests
+
+`requant_requests` puts an input on sixteen-bit codes per group of 32 with
+`quantise_with` and writes decision 40's 62-byte requests: five inputs a
+request, each naming its group's largest input at the group's power, and for
+each input its mantissa, direction, shift, quotient witness (half and odd) and
+code. A short last request pads with zero inputs.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_38`
+
+The test transcribes `Kernel.Requant`'s `rqPow2`, `rqDownOk`, `rqElementOk`,
+`rqLargest` and `rqDownCode` as plain functions and checks every request
+against them: the power passes `rqLargest`, every input passes `rqElementOk`,
+every code divided down is `rqDownCode`'s, and the codes in order are
+`quantise_with`'s. Inputs: ordinary values, exact ties, subnormals, zeros,
+values near the largest binary32, and spikes beside values too small to reach a
+code. Run on 2026-11-18; each defect planted alone.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| the quotient witness divided one power too far | `engine_en_38`: `input 0 of a request fails decision 40` |
+| the largest input written little-endian | `engine_en_38`: `the power is not the group's largest` |
+| each code taken from the next input | `engine_en_38`: `input 0 of a request fails decision 40` |
+| the group's last input named as its largest | `engine_en_38`: `the power is not the group's largest` |
+| none | passed |
+
+The test found one defect in decision 40 itself: an all-zero group was answered
+`not the largest power`. The fix is on branch `kn39` and recorded in
+KERNEL-VERIFICATION.md's KN-40 section. The transcription is checked by
+reading, not generated from the model; that the compiled guest answers these
+requests `exact` is not run, because building a holo needs
+`prism-code build --remote github`, which pushes.
