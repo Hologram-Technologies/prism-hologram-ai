@@ -60,6 +60,10 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-34` | `build` | A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code |
 | `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one |
 | `EN-36` | `build` | Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one |
+| `EN-37` | `build` | An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-40's bits |
+| `EN-38` | `build` | A row's exact terms are chained into decision 40's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained |
+| `EN-39` | `build` | An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's |
+| `EN-40` | `build` | A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32 |
 
 ## gpu
 
@@ -197,7 +201,8 @@ not that the test provokes the failure.
 | `FL-50` | `exact` | `ExactError::InputNotFinite` | An input to an exact product is not a finite number |
 | `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
 | `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
-| `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale stored with an exact product's weights is not a finite number |
+| `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale or weight stored for an exact product is not a finite number |
+| `FL-54` | `exact` | `ExactError::NoExactCodec` | A stored format has no exact codec, so it is refused by name instead of run approximately |
 
 ## Cited authorities
 
@@ -217,3 +222,7 @@ Never re-derived, vendored, or gated on.
 
 | ID | Level | Claim |
 | --- | --- | --- |
+| `OPEN-ACTIVATION-QWEN3-0.6B` | `open` | Activation schemes on Qwen3-0.6B (onnx-community/Qwen3-0.6B-ONNX@79346d3, model_q4f16.onnx), 196 MatMulNBits projections and the tied head, one synthetic input each, against the float product of the unrounded input, relative error (L2), ordinary input / 0.2% outliers at 40x: 8-bit per vector 0.78% / 8.2%; 8-bit per 32 0.76% / 1.6%; 16-bit per vector 0.0031% / 0.032%; 16-bit per 32 0.0030% / 0.0062%. The head's top logit equal to the float product's under every scheme. Inputs drawn by xorshift from seed 0x9e3779b97f4a7c15. Measured 2026-11-18, one thread, WSL. Greedy-token agreement over whole runs is not measured: the non-matmul stages are not integer yet. |
+| `OPEN-ACTIVATION-QWEN2.5-1.5B` | `open` | Activation schemes on Qwen2.5-1.5B-Instruct Q4_0 (Qwen/Qwen2.5-1.5B-Instruct-GGUF@91cad51, repacked to q4f16), 197 matrices, inputs by xorshift from seed 0x6a09e667f3bcc908, one synthetic input each, relative error (L2), ordinary / outliers: 8-bit per vector 0.78% / 8.9%; 8-bit per 32 0.76% / 1.8%; 16-bit per vector 0.0031% / 0.035%; 16-bit per 32 0.0030% / 0.0068%. Measured 2026-11-18, one thread, WSL. Greedy-token agreement not measured. |
+| `OPEN-ACTIVATION-BONSAI-1.7B` | `open` | Activation schemes on Bonsai 1.7B ternary (HOLOGRAMTECH/q-ternary-bonsai-1.7b@c6d6a12), 198 matrices, inputs by xorshift from seed 0x6a09e667f3bcc908, one synthetic input each, relative error (L2), ordinary / outliers: 8-bit per vector 0.78% / 10.5%; 8-bit per 32 0.77% / 1.7%; 16-bit per vector 0.0031% / 0.039%; 16-bit per 32 0.0030% / 0.0064%. Measured 2026-11-18, one thread, WSL. Greedy-token agreement not measured. |
+| `AUTH-UOR-MATMUL` | `some-true` | uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34, EN-37 and EN-40 check the sums against sums written out independently; the other claims of the library are not established here. |
