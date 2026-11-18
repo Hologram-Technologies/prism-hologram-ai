@@ -9210,3 +9210,82 @@ fn engine_en_43() {
     assert_eq!(exact::exp2_neg(0), 1 << 30, "exp2_neg(0) is not 2^30");
     assert_eq!(exact::exp2_neg(256), 1 << 29, "exp2_neg(256) is not 2^29");
 }
+
+/// Scores for EN-44: rows of every shape the attention can produce.
+fn en_44_rows() -> Vec<Vec<i64>> {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut rows = vec![vec![0], vec![5, 5], vec![i64::MIN, i64::MAX], vec![-3; 7]];
+    for &len in &[2usize, 3, 31, 32, 33, 256, 4096] {
+        for spread in [4u32, 12, 20, 44] {
+            let row: Vec<i64> = (0..len)
+                .map(|_| (next() >> (64 - spread)) as i64 - (1i64 << (spread - 1)))
+                .collect();
+            rows.push(row);
+        }
+    }
+    let mut spike = vec![0i64; 64];
+    spike[17] = 9000;
+    rows.push(spike);
+    rows
+}
+
+/// `EN-44`: Softmax is integer: for scores in units of 2^-8 of a base-two exponent, each output is exp2_neg of the largest score less its own, times 2^30, over their exact sum, rounded half to even, in units of 2^-30; the outputs sum to 2^30 within half a unit each, a common shift of the scores changes nothing, and a larger score never gets a smaller output
+#[test]
+fn engine_en_44() {
+    for row in en_44_rows() {
+        let out = exact::softmax_exp2(&row);
+        assert_eq!(out.len(), row.len());
+        let top = *row.iter().max().unwrap();
+        let weights: Vec<u128> = row
+            .iter()
+            .map(|&x| {
+                let d = u32::try_from(i128::from(top) - i128::from(x)).unwrap_or(u32::MAX);
+                u128::from(exact::exp2_neg(d))
+            })
+            .collect();
+        let sum: u128 = weights.iter().sum();
+        for (&e, &p) in weights.iter().zip(&out) {
+            let (scaled, back) = (e << 30, u128::from(p) * sum);
+            let gap = scaled.abs_diff(back);
+            assert!(
+                2 * gap <= sum,
+                "{p} is more than half a unit from {e} * 2^30 / {sum}"
+            );
+            if 2 * gap == sum {
+                assert_eq!(p % 2, 0, "a tie at {e} * 2^30 / {sum} did not go to even");
+            }
+        }
+        let total: i128 = out.iter().map(|&p| i128::from(p)).sum();
+        let slack = (row.len() as i128 + 1) / 2;
+        assert!(
+            (total - (1 << 30)).abs() <= slack,
+            "a row of {} sums to {total}",
+            row.len()
+        );
+        for shift in [1i64, -7, 1 << 40] {
+            let moved: Vec<i64> = row.iter().map(|&x| x.saturating_add(shift)).collect();
+            if moved.iter().zip(&row).all(|(m, x)| m - x == shift) {
+                assert_eq!(
+                    exact::softmax_exp2(&moved),
+                    out,
+                    "a shift by {shift} changed the outputs"
+                );
+            }
+        }
+        for a in 0..row.len().min(64) {
+            for b in 0..row.len().min(64) {
+                if row[a] > row[b] {
+                    assert!(out[a] >= out[b], "a larger score got a smaller output");
+                }
+            }
+        }
+    }
+    assert!(exact::softmax_exp2(&[]).is_empty());
+    assert_eq!(exact::softmax_exp2(&[123]), vec![1 << 30]);
+}
