@@ -7961,6 +7961,36 @@ fn engine_en_35() {
         }
     }
 
+    // Half weights below the normal range, which a half stores with no
+    // leading one, alongside normal ones of both signs.
+    let subnormal = [
+        3.0 * 2f32.powi(-24),
+        -1023.0 * 2f32.powi(-24),
+        2f32.powi(-14),
+        -5.0 * 2f32.powi(-24),
+        0.75,
+    ];
+    let stored: Vec<u8> = subnormal
+        .iter()
+        .flat_map(|&v| half_bits(v).to_le_bytes())
+        .collect();
+    let input: Vec<f32> = vec![1.5, -0.25, 3.0, 0.125, -2.0];
+    let quantised = exact::quantise(&bits(&input)).expect("finite");
+    let codes: Vec<i64> = quantised.codes().iter().map(|&c| i64::from(c)).collect();
+    let values: Vec<f64> = subnormal.iter().map(|&v| f64::from(v)).collect();
+    let stated = exact_reference(&codes, &values, quantised.exponent());
+    assert_eq!(
+        exact::dense_product(
+            &bits(&input),
+            exact::Dense::F16(&stored),
+            exact::DenseLayout::InputMajor,
+            5,
+            1
+        ),
+        Ok(vec![stated.to_bits()]),
+        "half weights below the normal range are not read exactly"
+    );
+
     // Rows whose weights lie too far apart to share one 62-bit integer form
     // are placed weight by weight, and are still exact: 2^100, -2^100 and
     // 2^-100 times equal codes cancel to 2^-100, and 2^100 with 2^-100 rounds
