@@ -8399,3 +8399,109 @@ fn engine_en_36() {
         }
     }
 }
+
+/// Decision 39's signed number at `at`: a sign byte, then 8 bytes.
+fn link_number(request: &[u8], at: usize) -> i128 {
+    let magnitude = u64::from_be_bytes(request[at + 1..at + 9].try_into().expect("8 bytes"));
+    if request[at] == 1 {
+        -i128::from(magnitude)
+    } else {
+        i128::from(magnitude)
+    }
+}
+
+/// `EN-37`: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
+#[test]
+fn engine_en_37() {
+    let mut draw = Draw(0xbb67_ae85_84ca_a73b);
+    let mut chained = 0;
+    for scheme in SCHEMES {
+        for &block in exact::Q4_BLOCKS.iter() {
+            let case = nbits_case(&mut draw, 3, 2 * block + 9, block, true, true);
+            let mut input: Vec<f32> = (0..case.columns).map(|_| draw.unit() * 2.0).collect();
+            input[case.columns / 2] = 150.0;
+            let matrix = nbits_matrix(&case);
+            let rows = exact::q4_product_with(&bits(&input), &matrix, scheme).expect("well formed");
+            let terms = exact::q4_row_terms(&bits(&input), &matrix, scheme).expect("well formed");
+            for (row, row_terms) in terms.iter().enumerate() {
+                let (links, last, power) = exact::row_links(row_terms).expect("these rows fit");
+                assert_eq!(links.len(), row_terms.len().div_ceil(exact::LINK_TERMS));
+                let mut partial = 0i128;
+                for (link, chunk) in links.iter().zip(row_terms.chunks(exact::LINK_TERMS)) {
+                    assert_eq!(link.len(), exact::LINK_BYTES);
+                    assert_eq!(link[0], 39, "a link is not a decision-39 request");
+                    assert_eq!(
+                        link_number(link, 1),
+                        partial,
+                        "a link does not start at the partial before it"
+                    );
+                    // The terms as the decision reads them, summed here.
+                    let mut next = partial;
+                    for i in 0..exact::LINK_TERMS {
+                        let b = 19 + 10 * i;
+                        let s = i128::from(u32::from_be_bytes(
+                            link[b + 1..b + 5].try_into().expect("4 bytes"),
+                        ));
+                        let m = i128::from(u32::from_be_bytes(
+                            link[b + 5..b + 9].try_into().expect("4 bytes"),
+                        ));
+                        let value = (s * m) << link[b + 9];
+                        next += if link[b] == 1 { -value } else { value };
+                        if i >= chunk.len() {
+                            assert_eq!(&link[b..b + 10], &[0u8; 10], "an unused term is not zero");
+                        }
+                    }
+                    assert_eq!(
+                        link_number(link, 10),
+                        next,
+                        "a link's claimed partial is not its partial plus its terms"
+                    );
+                    partial = next;
+                }
+                assert_eq!(partial, last);
+                assert_eq!(
+                    exact::round_exact(last, power),
+                    rows[row],
+                    "{scheme:?}, block {block}, row {row}: the chain's row is not the fast path's"
+                );
+                chained += 1;
+            }
+        }
+    }
+    assert_eq!(chained, 4 * 5 * 3);
+
+    // A term that could pass 2^58 at the chain's power is too wide to chain.
+    let wide = [
+        exact::RowTerm {
+            sum: 3,
+            mantissa: 1,
+            exponent: 0,
+        },
+        exact::RowTerm {
+            sum: 1 << 20,
+            mantissa: 1 << 20,
+            exponent: 30,
+        },
+    ];
+    assert!(
+        exact::row_links(&wide).is_none(),
+        "a term past 2^58 was chained"
+    );
+    // And one at the edge is chained.
+    let edge = [
+        exact::RowTerm {
+            sum: 3,
+            mantissa: 1,
+            exponent: 0,
+        },
+        exact::RowTerm {
+            sum: 1,
+            mantissa: 1,
+            exponent: 57,
+        },
+    ];
+    assert!(
+        exact::row_links(&edge).is_some(),
+        "a term below 2^58 was refused"
+    );
+}

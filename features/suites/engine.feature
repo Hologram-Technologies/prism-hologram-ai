@@ -577,3 +577,12 @@ Feature: engine
     Then every code is its input rounded to the nearest at its group's step, the largest step within the width's limit, and a spike sets the step only for its own group
     And every output's bits are the exact sum of each code times its weight and scale at its group's power, worked in the test and rounded once there
     And eight bits per vector gives the same bits as EN-34's and EN-35's products
+
+  @EN-37 @build
+  Scenario: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
+    Given MatMulNBits matrices at every block, under each activation scheme, with inputs that have a spike
+    When each row's terms are taken by q4_row_terms and chained by row_links
+    Then every request is 79 bytes, starts with decision 39, and holds each link's partials and terms as decision 39 reads them
+    And each link's next partial is its partial plus its terms, and the first partial is zero
+    And the last partial, rounded once at the chain's power, gives the bits q4_product_with gives
+    And a term whose value could reach 2^58 at the chain's power makes the row too wide

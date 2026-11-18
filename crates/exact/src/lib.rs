@@ -1269,6 +1269,128 @@ pub fn ternary_product_with(
         .collect()
 }
 
+/// One term of a row's exact recombination: a unit sum times a scale's
+/// mantissa, at the scale's power less the input group's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowTerm {
+    /// The unit's exact sum of products.
+    pub sum: i64,
+    /// The scale's mantissa, odd or zero.
+    pub mantissa: i128,
+    /// The power of two the product stands at.
+    pub exponent: i32,
+}
+
+/// Terms per link of decision 39.
+pub const LINK_TERMS: usize = 6;
+
+/// Bytes of one decision-39 request.
+pub const LINK_BYTES: usize = 79;
+
+/// Each row's terms for a q4 matrix times `input` under `scheme`: the terms
+/// [`q4_product_with`] places, in the order it places them.
+pub fn q4_row_terms(
+    input: &[u32],
+    matrix: &Q4Matrix<'_>,
+    scheme: Scheme,
+) -> Result<Vec<Vec<RowTerm>>, ExactError> {
+    let activations = quantise_with(input, scheme)?;
+    let sums = q4_unit_sums(&activations, matrix)?;
+    let unit = matrix.block.min(activations.group);
+    let units = matrix.columns.div_ceil(unit);
+    let blocks = matrix.blocks();
+    (0..matrix.rows)
+        .map(|row| {
+            (0..units)
+                .map(|u| {
+                    let scale = matrix.scales.at(row * blocks + u * unit / matrix.block)?;
+                    Ok(RowTerm {
+                        sum: sums[row * units + u],
+                        mantissa: scale.mantissa,
+                        exponent: scale.exponent - activations.exponent_at(u * unit),
+                    })
+                })
+                .collect::<Result<Vec<RowTerm>, ExactError>>()
+        })
+        .collect()
+}
+
+/// One signed number as decision 39 reads it: a sign byte, then the
+/// magnitude in `width` bytes, most significant first.
+fn put_signed(out: &mut Vec<u8>, negative: bool, magnitude: u128, width: usize) {
+    out.push(u8::from(negative));
+    out.extend_from_slice(&magnitude.to_be_bytes()[16 - width..]);
+}
+
+/// A row's terms as decision 39's chain: the requests, each the partial so
+/// far, up to [`LINK_TERMS`] terms and the partial after them, and the exact
+/// row it reaches, as an integer and the power it stands at. `None` when a
+/// term or a partial is too wide for the guest's 64-bit numbers: a partial at
+/// or past `2^62`, or a term whose sum or mantissa reaches `2^24` or whose
+/// value reaches `2^58` at the chain's lowest power.
+#[must_use]
+pub fn row_links(terms: &[RowTerm]) -> Option<(Vec<[u8; LINK_BYTES]>, i128, i32)> {
+    let base = terms
+        .iter()
+        .filter(|t| t.sum != 0 && t.mantissa != 0)
+        .map(|t| t.exponent)
+        .min()
+        .unwrap_or(0);
+    let mut links = Vec::new();
+    let mut partial: i128 = 0;
+    for chunk in terms.chunks(LINK_TERMS) {
+        let mut request = Vec::with_capacity(LINK_BYTES);
+        request.push(39);
+        let mut next = partial;
+        let mut fields = Vec::with_capacity(10 * LINK_TERMS);
+        for t in chunk {
+            let (s, m) = (t.sum.unsigned_abs(), t.mantissa.unsigned_abs());
+            let zero = s == 0 || m == 0;
+            let shift = if zero {
+                0
+            } else {
+                u32::try_from(t.exponent - base).ok()?
+            };
+            if s >= 1 << 24
+                || m >= 1 << 24
+                || shift > 58
+                || u128::from(s) * m >= 1u128 << (58 - shift)
+            {
+                return None;
+            }
+            let value = (u128::from(s) * m) << shift;
+            let negative = !zero && ((t.sum < 0) != (t.mantissa < 0));
+            next += if negative {
+                -(value as i128)
+            } else {
+                value as i128
+            };
+            fields.push(u8::from(negative));
+            fields.extend_from_slice(&(s as u32).to_be_bytes());
+            fields.extend_from_slice(&(m as u32).to_be_bytes());
+            fields.push(shift as u8);
+        }
+        fields.resize(10 * LINK_TERMS, 0);
+        if partial.unsigned_abs() >= 1 << 62 || next.unsigned_abs() >= 1 << 62 {
+            return None;
+        }
+        put_signed(&mut request, partial < 0, partial.unsigned_abs(), 8);
+        put_signed(&mut request, next < 0, next.unsigned_abs(), 8);
+        request.extend_from_slice(&fields);
+        links.push(request.try_into().ok()?);
+        partial = next;
+    }
+    Some((links, partial, base))
+}
+
+/// The binary32 bit pattern nearest `value * 2^power`, ties to even.
+#[must_use]
+pub fn round_exact(value: i128, power: i32) -> u32 {
+    let mut row = Row::ZERO;
+    row.add_scaled(value.unsigned_abs(), power, value < 0);
+    round_to_binary32(&row)
+}
+
 /// An ONNX initializer of `data_type` as dense weights, or
 /// [`ExactError::NoExactCodec`]: binary32 (1), half (10) and bfloat16 (16) have
 /// exact codecs; no other type does yet.

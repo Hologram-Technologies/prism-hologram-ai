@@ -567,3 +567,9 @@ id = "EN-36"
 level = "build"
 suite = "engine"
 statement = "An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits"
+
+[[id]]
+id = "EN-37"
+level = "build"
+suite = "engine"
+statement = "A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained"
