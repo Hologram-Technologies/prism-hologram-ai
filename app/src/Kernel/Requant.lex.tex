@@ -10,9 +10,7 @@ definition{
   name: rqPow2,
   parameters: [power : Nat],
   result: Nat,
-  body: (match power
-    | Nat.zero => 1
-    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),
+  body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),
   recursive_argument: power
 }
 
