@@ -455,6 +455,12 @@ suite = "gpu"
 statement = "The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1"
 
 [[id]]
+id = "GP-27"
+level = "build"
+suite = "gpu"
+statement = "The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is proven by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"

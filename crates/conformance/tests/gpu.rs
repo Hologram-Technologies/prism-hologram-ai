@@ -1465,3 +1465,133 @@ fn gpu_gp_26() {
         );
     }
 }
+
+/// `GP-27`: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is proven by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+#[test]
+fn gpu_gp_27() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The vendored files are the hub's, byte for byte, at the BLAKE3 VENDOR.md names.
+    let blake3 = |path: &str| {
+        let bytes = std::fs::read(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let mut arriving = hologram_ai_download::Arriving::new();
+        arriving.take(&bytes);
+        arriving.label().to_hex()
+    };
+    let vendor = read("site/app/engine/hub/VENDOR.md");
+    for (path, pinned) in [
+        (
+            "site/app/engine/hub/hub-client.mjs",
+            "cdcc05c1c331a8fc2f5b6748ae84891ec13d82a627a2844c094588c8da8ba49a",
+        ),
+        (
+            "site/app/engine/hub/sigstore.mjs",
+            "0f25ca52fed3967f36d291179b35b36f10ed39f60c46be948b94037a369f3afa",
+        ),
+    ] {
+        assert_eq!(blake3(path), pinned, "{path} is not the hub's file");
+        assert!(
+            vendor.contains(pinned),
+            "VENDOR.md does not name {path}'s BLAKE3"
+        );
+    }
+    let client = read("site/app/engine/hub/hub-client.mjs");
+    assert!(
+        client.contains(&format!(
+            "export const SIGSTORE_BLAKE3 = \"{}\";",
+            blake3("site/app/engine/hub/sigstore.mjs")
+        )),
+        "hub-client.mjs pins another sigstore.mjs"
+    );
+    // The policy is the hub model's screen 3 trust.policy, pinned here.
+    let policy: serde_json::Value = serde_json::from_str(&read("site/app/engine/hub/policy.json"))
+        .expect("policy.json is JSON");
+    assert_eq!(
+        policy["identity"],
+        "https://github.com/Hologram-Technologies/hub/.github/workflows/pages.yml@refs/heads/main"
+    );
+    assert_eq!(
+        policy["issuer"],
+        "https://token.actions.githubusercontent.com"
+    );
+    assert_eq!(
+        policy["indexPredicateType"],
+        "https://hologram.foundation/hub/index/v1"
+    );
+    assert_eq!(
+        policy["rekorLogId"],
+        "c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d"
+    );
+    for key in ["fulcioIntermediate", "rekorKey"] {
+        assert!(
+            policy[key].as_str().is_some_and(|v| v.len() > 64),
+            "policy.json has no {key}"
+        );
+    }
+    assert!(
+        vendor.contains(&blake3("site/app/engine/hub/policy.json")),
+        "VENDOR.md does not name policy.json's BLAKE3"
+    );
+
+    // The client, driven in Node through a chain minted for the test.
+    let result = node("crates/conformance/tests/gpu/hub-check.mjs", &[]);
+    assert_eq!(
+        result["good"]["code"], "ok",
+        "the minted chain was not proven: {result}"
+    );
+    assert_eq!(result["good"]["repo"], "fixture-owner/fixture-model");
+    for (case, code, failed) in [
+        ("foreignKey", "RootUnverified", Some(vec!["chain", "log"])),
+        ("foreignLog", "RootUnverified", Some(vec!["log"])),
+        ("otherIdentity", "RootUnverified", Some(vec!["identity"])),
+        ("changedRoot", "RootUnverified", Some(vec!["subject"])),
+        ("pinnedPolicy", "RootUnverified", Some(vec!["chain", "log"])),
+        ("noBundle", "RootUnreachable", None),
+        ("unknownRepo", "RecordUnknown", None),
+        ("changedRecord", "RecordMismatch", None),
+        ("unaddressedRecord", "RecordUnaddressed", None),
+        ("unreachableRecord", "RecordUnreachable", None),
+        ("changedFile", "FileMismatch", None),
+        ("shortFile", "FileMismatch", None),
+        ("unaddressedFile", "FileUnaddressed", None),
+    ] {
+        assert_eq!(result[case]["code"], code, "{case}: {result}");
+        if let Some(failed) = failed {
+            assert_eq!(
+                result[case]["failed"],
+                serde_json::json!(failed),
+                "{case} failed other checks"
+            );
+        }
+    }
+
+    // The page asks the client, and nothing in it skips the signature.
+    let loader = read("site/app/engine/loader.mjs");
+    for wanted in [
+        "from \"./hub/hub-client.mjs\";",
+        "const index = await openIndex(base, policy, { hash });",
+        "const record = await readRecord(index, repo);",
+        "new URL(\"./hub/policy.json\", import.meta.url)",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/loader.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !loader.contains("waits on the hub's client module"),
+        "the page still leaves the index root's signature unchecked"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "good: the index root's signature was not checked",
+        "foreign: expected to stop at the index root signature",
+        "if (path === \"/app/engine/hub/policy.json\")",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
