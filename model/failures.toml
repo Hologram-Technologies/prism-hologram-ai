@@ -423,3 +423,35 @@ type = "CallError"
 variant = "Import"
 suite = "engine"
 condition = "The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure"
+
+[[failure]]
+id = "FL-50"
+crate = "exact"
+type = "ExactError"
+variant = "InputNotFinite"
+suite = "engine"
+condition = "An input to an exact product is not a finite number"
+
+[[failure]]
+id = "FL-51"
+crate = "exact"
+type = "ExactError"
+variant = "GroupMisaligned"
+suite = "engine"
+condition = "An exact product's row length is not a whole number of scale groups"
+
+[[failure]]
+id = "FL-52"
+crate = "exact"
+type = "ExactError"
+variant = "LengthMismatch"
+suite = "engine"
+condition = "A buffer handed to an exact product is not the length its shape implies"
+
+[[failure]]
+id = "FL-53"
+crate = "exact"
+type = "ExactError"
+variant = "ScaleNotFinite"
+suite = "engine"
+condition = "A scale stored with an exact product's weights is not a finite number"

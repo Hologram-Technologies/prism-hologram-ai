@@ -26,6 +26,7 @@ hologram-ai-kernel-client = { version = "0.1.0", path = "crates/kernel-client" }
 hologram-ai-model-reader = { version = "0.1.0", path = "crates/model-reader" }
 hologram-ai-chat = { version = "0.1.0", path = "crates/chat" }
 hologram-ai-download = { version = "0.1.0", path = "crates/download" }
+hologram-ai-exact = { version = "0.1.0", path = "crates/exact" }
 hologram-ai-onnx-preflight = { version = "0.1.0", path = "crates/onnx-preflight" }
 hologram-ai-tokenizer = { version = "0.1.0", path = "crates/tokenizer" }
 hologram-ai-wasm = { version = "0.1.0", path = "crates/wasm" }
@@ -43,6 +44,10 @@ serde_json = "1.0"
 # reads (crates/tokenizer/Cargo.toml).
 unicode_categories = "0.1.1"
 unicode-normalization-alignments = "0.1.12"
+# The UOR Foundation's exact matrix arithmetic, which the exact CPU products
+# sum their groups with. Cited in `model/authorities.toml`; checked in the gate
+# against a sum written out in `i64` (R2).
+uor-matmul = "0.1.0"
 
 [workspace.lints.rust]
 missing_docs = "deny"

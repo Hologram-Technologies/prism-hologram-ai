@@ -1,0 +1,25 @@
+\begin{lexlean}{Kernel.Integer}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\importmodule{Kernel.Determinism}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: integerRun,
+  parameters: [productsExact : Nat, restExact : Nat],
+  result: Bool,
+  body: ((Kernel.Determinism::classCode productsExact restExact 0) =? 2)
+}
+
+definition{
+  name: integerAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? 3) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? 1)) then (if (integerRun (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode "integer" : Bytes) else (prim utf8_encode "refused: not integer" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

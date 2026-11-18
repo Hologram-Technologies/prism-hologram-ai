@@ -58,6 +58,9 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the BLAKE3 its record gives |
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
 | `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
+| `EN-34` | `build` | A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code |
+| `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one |
+| `EN-36` | `build` | Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one |
 
 ## gpu
 
@@ -127,6 +130,10 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-31` | `build` | A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable |
 | `KN-32` | `build` | A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range |
 | `KN-33` | `build` | A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable |
+| `KN-34` | `build` | One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise |
+| `KN-35` | `build` | A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3 |
+| `KN-36` | `build` | A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions |
+| `KN-37` | `build` | One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite |
 
 ## Public failures
 
@@ -185,6 +192,10 @@ not that the test provokes the failure.
 | `FL-47` | `model-reader` | `ImportError::WeightRefused` | A 4-bit weight's codes or scales are not the length the kernel gives for its shape |
 | `FL-48` | `model-reader` | `ImportError::DataMissing` | A tensor's data lies in a file the import is not given, or past the end of the one it is |
 | `FL-49` | `wasm` | `CallError::Import` | The ONNX importer refused while the page's module was importing, and the page is told the importer's own failure |
+| `FL-50` | `exact` | `ExactError::InputNotFinite` | An input to an exact product is not a finite number |
+| `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
+| `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
+| `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale stored with an exact product's weights is not a finite number |
 
 ## Cited authorities
 
@@ -198,6 +209,7 @@ Never re-derived, vendored, or gated on.
 | `SHA-256` | NIST FIPS 180-4, `Secure Hash Standard`, August 2015, Appendix B: the one-block message `abc`, the two-block message `abcdbcde...nopq`, and the message of one million `a`, each with its digest. The implementation is the `sha2` crate, a locked crates.io release (R6). | `EN-24` |
 | `HOLK-BONSAI` | HOLOGRAMTECH/q-ternary-bonsai-1.7b on huggingface.co at revision c6d6a12384ecc52ae7e006bef263bfedf5e7496c, the file q-ternary-bonsai-1.7b.v1.holo, bytes 0 to 98,313, vendored at model/authorities/holk-bonsai-header.bin. The file itself is 424,013,749 bytes and is not vendored; these are the bytes a reader has to get right before it can ask for any of the rest. | `EN-25` |
 | `QWEN25-GGUF` | Qwen/Qwen2.5-1.5B-Instruct-GGUF on huggingface.co at revision 91cad51, the file qwen2.5-1.5b-instruct-q4_0.gguf, bytes 0 to 5,950,495, vendored at model/authorities/qwen25-header.bin. The whole file is 1,066,227,232 bytes with sha256 dcd819ff094852c38faba6873d8ff0c9d51eadb2844539e52042ae5d647bbfdb, which is the digest the hub publishes for it and the digest of the copy these bytes were cut from; the file itself is not vendored. | `EN-21`, `EN-22`, `EN-27` |
+| `UOR-MATMUL` | UOR-Foundation/uor-matmul, the crates uor-matmul, uor-matmul-core and uor-matmul-codec 0.1.0 as published on crates.io (2026-08-14), Apache-2.0. Its `dot_ref` sums products of `i8` values in an `i128` accumulator, wide enough for every length a machine can address, and its `Grid` codec decodes a code through a table. | `EN-34` |
 
 ## Claims that are not conformance IDs
 

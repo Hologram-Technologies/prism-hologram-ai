@@ -75,6 +75,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a1f896587b6f2c069c73d2f0913e2d590c3990285cd2f0b6aa02b786b4c679c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
+
+[[package]]
 name = "castaway"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,6 +365,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hologram-ai-exact"
+version = "0.1.0"
+dependencies = [
+ "uor-matmul",
+]
+
+[[package]]
 name = "hologram-ai-kernel-client"
 version = "0.1.0"
 
@@ -382,6 +409,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hologram-ai-download",
+ "hologram-ai-exact",
  "hologram-ai-model-reader",
  "hologram-ai-tokenizer",
  "serde_json",
@@ -636,6 +664,7 @@ version = "0.1.0"
 dependencies = [
  "hologram-ai-chat",
  "hologram-ai-download",
+ "hologram-ai-exact",
  "hologram-ai-kernel-client",
  "hologram-ai-model-reader",
  "hologram-ai-onnx-preflight",
@@ -913,6 +942,59 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "uor-matmul"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8df8cee8a547a9eb4790b64d438e7eaf1743a37b17d619f0e98318dd30aa6ae"
+dependencies = [
+ "uor-matmul-codec",
+ "uor-matmul-core",
+ "uor-matmul-gemm",
+ "uor-matmul-kernels",
+]
+
+[[package]]
+name = "uor-matmul-codec"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f697ccc923a0d6999e73464d8b10b1045ee04195901e640bfb78bed0f1c9449"
+dependencies = [
+ "bytemuck",
+ "uor-matmul-core",
+]
+
+[[package]]
+name = "uor-matmul-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e564c8e10b5eab17fcdd673261fe3871f56f59742dd4ab3d5b877a4b7caff1f7"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "uor-matmul-gemm"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5c494b35354024289414a71f3829195d6311994368e5dbd2e38ed9a0f28e1ce"
+dependencies = [
+ "bytemuck",
+ "uor-matmul-codec",
+ "uor-matmul-core",
+ "uor-matmul-kernels",
+]
+
+[[package]]
+name = "uor-matmul-kernels"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b26926a2e87a245e82ffa98c43ae1794cc602d0c47a676d704855541fe03ca7c"
+dependencies = [
+ "bytemuck",
+ "uor-matmul-core",
+]
 
 [[package]]
 name = "version_check"
