@@ -533,6 +533,12 @@ suite = "kernel"
 statement = "A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions"
 
 [[id]]
+id = "KN-45"
+level = "build"
+suite = "kernel"
+statement = "The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"

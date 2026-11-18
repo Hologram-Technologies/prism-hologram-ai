@@ -280,3 +280,11 @@ Feature: kernel
     When the Lean kernel checks integer_run_decides, integer_run_is_everywhere and integer_run_refuses_fixed_order_floats during lexlean verify in the gate
     Then a run is admitted exactly when its products and every other stage are exact, which is decision 30's class everywhere for any order of reductions
     And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
+
+  @KN-45 @build
+  Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
+    Given the engine session in app/src/Engine/Session.lex.tex, built on decisions 35 and 36, and its proofs in app/src/Proofs/Session.lex.tex
+    When the Lean kernel checks the six session theorems during lexlean verify in the gate
+    Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
+    And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
+    And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
