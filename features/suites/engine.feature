@@ -611,6 +611,13 @@ Feature: engine
     And every output's bits are the exact sum worked from each scale's or weight's own bits, rounded once to binary32, ties to even
     And zero points stored as eights give the same bits as zero points left out, and block 32 with none gives EN-34's q4 bits
 
+  @EN-41 @build
+  Scenario: Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits
+    Given values that are exact, ties broken both ways, the largest finite value and the carry past it, overflow, subnormals, underflow to a signed zero, full 64-bit magnitudes, zero, and draws
+    When hologram-ai-exact places each in a row register and rounds it with round_to_binary32, and the kernel client writes decision 42's request for those bits and for those bits with the last flipped
+    Then the request read as Kernel.Round reads it gives the crate's bits
+    And claims.json lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
+
   @EN-42 @build
   Scenario: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
     Given an ONNX graph and its data file, and records giving each file's BLAKE3

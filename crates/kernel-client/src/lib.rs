@@ -1396,6 +1396,49 @@ pub mod block_check {
     }
 }
 
+/// Decision 42: whether a claimed binary32 is the nearest, ties to even, to an
+/// exact value `magnitude * 2^exponent`.
+pub mod round_check {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The claim is the nearest binary32.
+        Exact,
+        /// The claim is not.
+        Differs,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for the value `magnitude * 2^exponent`, negative or not,
+    /// with `claimed` the binary32 bits said to be nearest: the sign in one
+    /// byte, the magnitude in eight, the exponent plus 32768 in two, wrapping,
+    /// and the claimed bits in four.
+    #[must_use]
+    pub fn request(negative: bool, magnitude: u64, exponent: i32, claimed: u32) -> [u8; 16] {
+        let mut out = [0; 16];
+        out[0] = 42;
+        out[1] = u8::from(negative);
+        out[2..10].copy_from_slice(&magnitude.to_be_bytes());
+        out[10..12].copy_from_slice(&(exponent.wrapping_add(32768) as u16).to_be_bytes());
+        out[12..16].copy_from_slice(&claimed.to_be_bytes());
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"exact" => Answer::Exact,
+            b"differs" => Answer::Differs,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 /// Decision 37: whether a claimed product is one group's sum times its half
 /// scale, exactly, in units of `2^-24`.
 pub mod scale_check {

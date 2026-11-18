@@ -3173,7 +3173,7 @@ fn kernel_kn_41() {
     );
     let found = declaration(&kernel, "rqPow2");
     assert!(
-        found.contains("body: (match power\n    | Nat.zero => 1\n    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
+        found.contains("body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
         "rqPow2 changed:\n{found}"
     );
     let found = declaration(&kernel, "rqDownOk");
@@ -3222,4 +3222,143 @@ fn kernel_kn_41() {
         "rqAnswer changed:\n{found}"
     );
     assert_routed(41, "Kernel.Requant::rqAnswer");
+}
+
+/// `KN-42`: A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude
+#[test]
+fn kernel_kn_42() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Round.lex.tex");
+    let proofs = model("app/src/Proofs/Round.lex.tex");
+    assert_pinned(
+        &proofs,
+        "round_zero_is_zero",
+        "((Kernel.Round::roundResult sign 0 offset) = 0)",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "round_shift_past_word",
+        "((64 <= count) -> ((Kernel.Round::roundShift value count) = 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "round_up_at_most_one",
+        "((Kernel.Round::roundUp value offset) <= 1)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "round_no_guard_no_change",
+        "(((Kernel.Round::roundGuard value offset) = 0) -> ((Kernel.Round::roundUp value offset) = 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "round_accepts_decides",
+        "(((Kernel.Round::roundAccepts claimed sign value offset) = true) <-> (claimed = (Kernel.Round::roundResult sign value offset)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "round_past_largest_is_infinite",
+        "((0 < value) -> ((32895 < (Kernel.Round::roundTop value offset)) -> ((Kernel.Round::roundResult sign value offset) = ((prim multiply sign 2147483648 : Nat) + 2139095040))))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "roundBits");
+    assert!(
+        found.contains("body: (match fuel\n    | Nat.zero => 0\n    | Nat.succ rest => (if (value =? 0) then 0 else (1 + (roundBits (prim quotient value 2 0 : Nat) rest))))"),
+        "roundBits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundShift");
+    assert!(
+        found.contains("body: (if (64 <=? count) then 0 else (prim quotient value (Kernel.Scale::twoTo count) 0 : Nat))"),
+        "roundShift changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundBit");
+    assert!(
+        found.contains("body: (if (64 <=? count) then 0 else (prim remainder (prim quotient value (Kernel.Scale::twoTo count) 0 : Nat) 2 0 : Nat))"),
+        "roundBit changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundAny");
+    assert!(
+        found.contains("body: (if (64 <=? count) then (0 <? value) else (0 <? (prim remainder value (Kernel.Scale::twoTo count) 0 : Nat)))"),
+        "roundAny changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundTop");
+    assert!(
+        found.contains("body: (prim subtract (offset + (roundBits value 64)) 1 : Nat)"),
+        "roundTop changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundUnit");
+    assert!(
+        found.contains("body: (if (32642 <=? (roundTop value offset)) then (prim subtract (roundTop value offset) 23 : Nat) else 32619)"),
+        "roundUnit changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundDropped");
+    assert!(
+        found.contains("body: (prim subtract (roundUnit value offset) offset : Nat)"),
+        "roundDropped changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundKept");
+    assert!(
+        found.contains("body: (if (offset <=? (roundUnit value offset)) then (roundShift value (roundDropped value offset)) else (prim multiply value (Kernel.Scale::twoTo (prim subtract offset (roundUnit value offset) : Nat)) : Nat))"),
+        "roundKept changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundGuard");
+    assert!(
+        found.contains("body: (if ((offset <=? (roundUnit value offset)) && (1 <=? (roundDropped value offset))) then (roundBit value (prim subtract (roundDropped value offset) 1 : Nat)) else 0)"),
+        "roundGuard changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundSticky");
+    assert!(
+        found.contains("body: (((offset <=? (roundUnit value offset)) && (2 <=? (roundDropped value offset))) && (roundAny value (prim subtract (roundDropped value offset) 1 : Nat)))"),
+        "roundSticky changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundUp");
+    assert!(
+        found.contains("body: (if (((roundGuard value offset) =? 1) && ((roundSticky value offset) || ((prim remainder (roundKept value offset) 2 0 : Nat) =? 1))) then 1 else 0)"),
+        "roundUp changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundField");
+    assert!(
+        found.contains("body: ((prim multiply (prim subtract (roundUnit value offset) 32619 : Nat) 8388608 : Nat) + ((roundKept value offset) + (roundUp value offset)))"),
+        "roundField changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundResult");
+    assert!(
+        found.contains("body: (if (value =? 0) then 0 else (if ((32895 <? (roundTop value offset)) || (2139095040 <=? (roundField value offset))) then ((prim multiply sign 2147483648 : Nat) + 2139095040) else ((prim multiply sign 2147483648 : Nat) + (roundField value offset))))"),
+        "roundResult changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundAccepts");
+    assert!(
+        found.contains("body: (claimed =? (roundResult sign value offset))"),
+        "roundAccepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "roundAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 16) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (roundAccepts (Kernel.Wire::fieldAt value 12 4) (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 2)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "roundAnswer changed:\n{found}"
+    );
+    assert_routed(42, "Kernel.Round::roundAnswer");
+    // The claims the crates make of decision 42 cover every answer; the app
+    // recipe replays them in the guest.
+    let claims =
+        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("the claims the crates make of the kernel");
+    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let answers: Vec<&str> = claims["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .filter(|one| one["request"].as_str().is_some_and(|r| r.starts_with("2a")))
+        .filter_map(|one| one["answer"].as_str())
+        .collect();
+    for answer in ["exact", "differs", "invalid request"] {
+        assert!(
+            answers.contains(&answer),
+            "no decision-42 claim is answered `{answer}`"
+        );
+    }
 }

@@ -31,7 +31,15 @@ theorem{
 
 theorem{
   name: rq_down_one_code,
-  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, one : Nat, other : Nat],
+  parameters: [
+    value : Nat,
+    step : Nat,
+    half : Nat,
+    odd : Nat,
+    product : Nat,
+    one : Nat,
+    other : Nat
+  ],
   statement: (((Kernel.Requant::rqDownOk value step half odd product one) = true) -> (((Kernel.Requant::rqDownOk value step half odd product other) = true) -> (one = other))),
   proof: linear_arithmetic{definitions: [Kernel.Requant::rqDownOk]},
   axioms: [Quot.sound, propext]

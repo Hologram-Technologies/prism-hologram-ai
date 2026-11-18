@@ -318,3 +318,11 @@ Feature: kernel
     Then a code below the step is within half a step of its input, a tie gives an even code, and at most one code is accepted for an input and its quotient
     And a power is accepted for the group only when its largest input is within 32767 at it and past 32767 at the next power
     And the answer to decision 41 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62
+
+  @KN-42 @build
+  Scenario: A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude
+    Given a request of the tag 42, a sign byte, a magnitude in eight bytes, an exponent plus 32768 in two and claimed binary32 bits in four
+    When the kernel finds the magnitude's leading bit, keeps 24 bits from it or fewer below 2^-126, and reads the guard bit and whether any bit below it is set
+    Then the answer is exact exactly when the claim is those bits rounded to the nearest, ties to even, infinity past the largest finite value, and zero for a zero magnitude
+    And no power of two the kernel forms reaches 2^64, so a shift of 64 or more is its own case
+    And the theorems of Proofs.Round state these and are pinned with their axioms

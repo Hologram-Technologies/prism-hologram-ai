@@ -8938,6 +8938,147 @@ fn scale_reading(request: &[u8; 16]) -> Option<(i128, i128)> {
     Some((claim, if negative { -size } else { size }))
 }
 
+/// `EN-41`: Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits
+#[test]
+fn engine_en_41() {
+    use hologram_ai_kernel_client::round_check;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    for (name, negative, magnitude, exponent) in en_41_values() {
+        // The crate's own rounding of the value, from a row register.
+        let mut row = exact::Row::ZERO;
+        row.add_scaled(u128::from(magnitude), exponent, negative);
+        let bits = exact::round_to_binary32(&row);
+
+        // What decision 42 computes, read as Kernel.Round reads it.
+        assert_eq!(
+            round_reading(negative, magnitude, exponent),
+            bits,
+            "{name}: the kernel rounds to other bits"
+        );
+        let request = round_check::request(negative, magnitude, exponent, bits);
+        let off = round_check::request(negative, magnitude, exponent, bits ^ 1);
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let claim = (
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                answer.to_string(),
+            );
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 42:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The values EN-41 rounds, as (name, negative, magnitude, exponent): exact
+/// ones, ties broken both ways, the largest finite value and the carry past
+/// it, overflow, the subnormal range and its floor, underflow to a signed
+/// zero, magnitudes that fill 64 bits, zero, and values drawn at random.
+fn en_41_values() -> Vec<(String, bool, u64, i32)> {
+    let mut out: Vec<(String, bool, u64, i32)> = [
+        ("one", false, 1, 0),
+        ("minus three halves", true, 3, -1),
+        (
+            "2^24 + 1, a tie broken down to even",
+            false,
+            (1 << 24) + 1,
+            0,
+        ),
+        ("2^24 + 3, a tie broken up to even", false, (1 << 24) + 3, 0),
+        ("2^25 + 3, above a tie", false, (1 << 25) + 3, 0),
+        ("the largest finite value", false, 0x00ff_ffff, 104),
+        (
+            "a carry past the largest finite value",
+            false,
+            0x01ff_ffff,
+            103,
+        ),
+        ("2^128", false, 1, 128),
+        ("minus 2^200", true, 1, 200),
+        ("the smallest subnormal", false, 1, -149),
+        ("half the smallest subnormal, a tie to zero", false, 1, -150),
+        ("three quarters of the smallest subnormal", false, 3, -151),
+        ("a negative value below every subnormal", true, 1, -160),
+        ("the largest subnormal", false, 0x007f_ffff, -149),
+        ("the smallest normal", false, 1, -126),
+        ("a full 64-bit magnitude", false, u64::MAX, -40),
+        (
+            "a full 64-bit magnitude at the register's floor",
+            true,
+            u64::MAX,
+            -320,
+        ),
+        ("zero", false, 0, 5),
+        ("zero, negative", true, 0, 5),
+    ]
+    .into_iter()
+    .map(|(name, negative, magnitude, exponent)| (name.to_string(), negative, magnitude, exponent))
+    .collect();
+    let mut draw = Draw(0x2545_f491_4f6c_dd1d);
+    for case in 0..6 {
+        let magnitude = draw.next() >> draw.below(64);
+        let exponent = draw.below(300) as i32 - 200;
+        out.push((
+            format!("drawn value {case}"),
+            draw.below(2) == 1,
+            magnitude,
+            exponent,
+        ));
+    }
+    out
+}
+
+/// The binary32 bits `Kernel.Round::roundResult` gives for a value, computed
+/// here in `u128` from the same steps: the leading bit fixes the top power,
+/// the last kept bit is 23 below it or at 2^-149, the guard bit and whether
+/// any bit below it is set decide the one rounding, and a field at or past
+/// infinity's is infinity.
+fn round_reading(negative: bool, magnitude: u64, exponent: i32) -> u32 {
+    if magnitude == 0 {
+        return 0;
+    }
+    let sign = if negative { 1u32 << 31 } else { 0 };
+    let infinity = sign | 0x7f80_0000;
+    let top = exponent + 63 - magnitude.leading_zeros() as i32;
+    if top > 127 {
+        return infinity;
+    }
+    let unit = (top - 23).max(-149);
+    let m = u128::from(magnitude);
+    let (kept, guard, sticky) = if exponent <= unit {
+        let k = (unit - exponent) as u32;
+        let kept = if k >= 128 { 0 } else { m >> k };
+        let guard = (1..=128).contains(&k) && (m >> (k - 1)) & 1 == 1;
+        let sticky = k >= 2
+            && if k > 128 {
+                m != 0
+            } else {
+                m & ((1u128 << (k - 1)) - 1) != 0
+            };
+        (kept, guard, sticky)
+    } else {
+        (m << (exponent - unit) as u32, false, false)
+    };
+    let up = u128::from(guard && (sticky || kept % 2 == 1));
+    let field = (((unit + 149) as u128) << 23) + kept + up;
+    if field >= 0x7f80_0000 {
+        infinity
+    } else {
+        sign | field as u32
+    }
+}
+
 /// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
 #[test]
 fn engine_en_42() {
