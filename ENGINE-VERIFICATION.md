@@ -2554,3 +2554,42 @@ about 0.14%, and `sigma` by at most a quarter of that.
 | the exponent truncated instead of rounded | rejected: `silu(-947377) = -1 is more than half a unit from ...` |
 | `sigma` for `x < 0` taken as for `x >= 0` | rejected: `silu(-1048576) = -1048576 is more than half a unit from ...` |
 | none | passed |
+
+## EN-47, RMSNorm in integers
+
+`rms_norm` takes a row of values `x` and weights `g` in units of `2^-16`, below
+`2^31` in size and at most `2^16` long, and `epsilon` in units of `2^-32`. The
+sum of squares plus `n epsilon` is exact, in `u128`. The root `r` is the
+largest integer with `n r^2 <= (that sum) 2^32`, which is KN-43's integer
+square root of the floored mean times `2^32`: the floor root of a floored
+mean is the floor root of the mean, so there is one narrowing, not two. Each
+output is `x g 2^16 / r` rounded half to even, in units of `2^-16`. A row past
+the bounds, or whose root is 0, is refused.
+
+A first draft also rounded the mean half to even before the root. A planted
+truncation of that mean passed every row, since the floor root almost never
+sees the difference, so the step was taken out rather than kept untested.
+
+What the test establishes, on rows of 1 to 8,192 values drawn up to `2^31`,
+one spike, all equal, and `epsilon` from 0 to `2^32 - 1`:
+
+- `n r^2 <= v 2^32 < n (r + 1)^2`, with `r` found in the test by bisection;
+- every output meets `2 |x g 2^16 - y r| <= r`, a tie at even;
+- every output is within `|y| / 2^20` plus one unit of `x g / sqrt(mean(x^2) + epsilon)`,
+  a yardstick in floating point, in the test only;
+- a zero root, an empty row, mismatched lengths, a value or weight at `2^31`
+  and an `epsilon` at `2^32` are refused.
+
+Kernel re-checks: decision 43 bounds its value below `2^62` and its root below
+`2^31`; RMSNorm's `q` reaches `2^94`, so a wider decision is needed to re-check
+it, as for EN-44.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_47`
+
+| Planted defect | Result |
+| --- | --- |
+| the root one too high | rejected: `y = 160001 is more than half a unit from 1547340349440 / 9670786` |
+| `epsilon` left out of the sum | rejected: `y = 2147483647 is more than half a unit from ...` |
+| the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
+| values and weights not bounded | rejected: `a value at 2^31 was not refused` |
+| none | passed |

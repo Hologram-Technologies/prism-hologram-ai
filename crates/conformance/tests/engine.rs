@@ -9657,7 +9657,7 @@ fn en_47_root(q: u128) -> u128 {
     low
 }
 
-/// `EN-47`: RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, its mean times 2^32 is rounded half to even to q, the root r is the integer square root of q, r^2 <= q < (r + 1)^2, as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused
+/// `EN-47`: RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused
 #[test]
 fn engine_en_47() {
     for (values, weights, epsilon) in en_47_rows() {
@@ -9669,16 +9669,10 @@ fn engine_en_47() {
             .map(|&x| x.unsigned_abs() as u128 * x.unsigned_abs() as u128)
             .sum::<u128>()
             + n * u128::from(epsilon);
-        let (whole, rest) = ((v << 32) / n, (v << 32) % n);
-        let q = whole + u128::from(2 * rest > n || (2 * rest == n && whole & 1 == 1));
+        let r = en_47_root((v << 32) / n);
         assert!(
-            2 * (v << 32).abs_diff(q * n) <= n,
-            "q is not the mean rounded"
-        );
-        let r = en_47_root(q);
-        assert!(
-            r * r <= q && q < (r + 1) * (r + 1),
-            "the root is not the integer square root"
+            n * r * r <= v << 32 && v << 32 < n * (r + 1) * (r + 1),
+            "the root is not the largest with n r^2 <= v 2^32"
         );
         let rms = ((values
             .iter()
