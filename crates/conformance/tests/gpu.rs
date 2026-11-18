@@ -1115,7 +1115,7 @@ fn gpu_gp_19() {
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
         "is not the file the record names",
-        "crypto.subtle.digest(\"SHA-1\", blob)",
+        "const digest = blake3(bytes);",
     ] {
         assert!(
             loader.contains(wanted),
@@ -1130,8 +1130,7 @@ fn gpu_gp_19() {
         "onnx ${name}: ran on ${run.device}, expected ${device}",
         "onnx flip: expected the kernel to refuse the graph file",
         "onnx tokenizer: expected to stop at tokenizer.json",
-        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
-        "onnx gitwrong: expected to stop at generation_config.json",
+        "onnx good: config.json was not checked by its BLAKE3",
     ] {
         assert!(
             journey.contains(wanted),
@@ -1194,7 +1193,7 @@ fn gpu_gp_20() {
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
-/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
 #[test]
 fn gpu_gp_21() {
     // The journey runs the four visits in a browser (`just page-journey`, as
@@ -1209,7 +1208,7 @@ fn gpu_gp_21() {
         "if (digest() !== local.named) controller.error(",
         "return bytes.size === file.size ? { named, bytes } : null;",
         "else await handle.move(named);",
-        "else await dir.removeEntry(t.dir);",
+        "await dir.removeEntry(t.dir);",
     ] {
         assert!(
             kept.contains(wanted),
@@ -1409,6 +1408,56 @@ fn gpu_gp_25() {
         "pipeline: the call's tokens",
         "pipeline task: expected the kernel to refuse feature-extraction",
         "pipeline task: the call went on past the task",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-26`: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1
+#[test]
+fn gpu_gp_26() {
+    // The journey runs the loads in a browser (`just page-journey`); this test
+    // reads that the loader and the store name files by the record's BLAKE3
+    // and nothing by SHA-256 or SHA-1.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let loader = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "throw new Error(`the record names no BLAKE3 for ${p}`);",
+        "const ok = digest === file.blake3 && bytes.length === file.size;",
+        "m.callWith(\"onnx_start\", unhex(graph.blake3),",
+        "m.callWith(\"onnx_data_start\", unhex(file.blake3),",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let kept = read("site/app/engine/files.mjs");
+    assert!(
+        kept.contains("return file && HEX.test(file.blake3 ?? \"\") ? file : null;"),
+        "site/app/engine/files.mjs no longer keeps files by the record's BLAKE3"
+    );
+    for (path, text) in [
+        ("site/app/engine/onnx-load.mjs", &loader),
+        ("site/app/engine/files.mjs", &kept),
+    ] {
+        for gone in ["file.sha256", "gitSha1", "\"SHA-256\"", "\"SHA-1\""] {
+            assert!(
+                !text.contains(gone),
+                "{path} still checks a file by `{gone}`"
+            );
+        }
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "onnx good: config.json was not checked by its BLAKE3",
+        "onnx good: a file was checked by SHA-256 or SHA-1",
+        "onnx noblake3: expected the record refused for naming config.json no BLAKE3",
     ] {
         assert!(
             journey.contains(wanted),

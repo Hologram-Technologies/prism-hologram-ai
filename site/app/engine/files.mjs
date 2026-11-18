@@ -2,26 +2,23 @@
 // Hologram AI names everything by, so a second visit reads them from here
 // instead of the network.
 //
-// The hub's record names a file by the hash its source publishes (Hugging
-// Face's SHA-256), so beside each kept file is a pointer from that hash to the
-// file's BLAKE3. Neither is trusted. A kept file's BLAKE3 is derived again
-// from its bytes as they are read, and a file that is not its name stops the
-// load; and the bytes go to the same loader a download goes to, which checks
-// them against the record: the small files by their SHA-256 and length, the
-// graph and data files through the module's importer with the kernel asked
-// about each one. A load that fails forgets every file and pointer it read or
-// kept, so the next load downloads them again.
+// The hub's record names each file by its BLAKE3, and a kept file is held
+// under that name. The name is not trusted: a kept file's BLAKE3 is derived
+// again from its bytes as they are read, and a file that is not its name stops
+// the load; and the bytes go to the same loader a download goes to, which
+// checks them against the record: the small files by their BLAKE3 and length,
+// the graph and data files through the module's importer with the kernel asked
+// about each one. A load that fails forgets every file it read or kept, so the
+// next load downloads them again.
 //
 // Room is the kernel's decision 26. Before a downloaded file is kept, each
 // file kept here is offered to the kernel, oldest first, with the files this
 // load reads or keeps pinned: one is dropped only on evict, and the offers
 // stop at enough. On does not fit the file is not kept, and the load reads it
-// from the download as before. A pointer to a dropped file is left; it reads
-// as not held.
+// from the download as before.
 //
-// Files the record names no SHA-256 for (the small files Git stores itself)
-// are not kept; they are fetched each time. The browser's private file system
-// (OPFS) is per origin and may be cleared under storage pressure.
+// The browser's private file system (OPFS) is per origin and may be cleared
+// under storage pressure.
 
 const HEX = /^[0-9a-f]{64}$/;
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -29,7 +26,6 @@ const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0"))
 export async function keepFiles({ record, open, module: m, kernel, root, name = "hologram-files" }) {
   const base = root ?? (await navigator.storage.getDirectory());
   const dir = await base.getDirectoryHandle(name, { create: true });
-  const names = await base.getDirectoryHandle(`${name}-names`, { create: true });
   const counts = { read: 0, readBytes: 0, fetched: 0, fetchedBytes: 0, notKept: 0, dropped: 0, droppedBytes: 0 };
   const touched = [];
   const writing = [];
@@ -37,9 +33,8 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
 
   const recorded = (path) => {
     const file = record.files.find((f) => f.path === path);
-    return file && HEX.test(file.sha256 ?? "") ? file : null;
+    return file && HEX.test(file.blake3 ?? "") ? file : null;
   };
-  const pointer = (file) => `sha256-${file.sha256}`;
   const missing = (e) => e && e.name === "NotFoundError";
 
   // The bytes' BLAKE3, taken in the module as a stream passes through.
@@ -58,12 +53,11 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
     return { stream, digest: () => done };
   };
 
-  // The BLAKE3 a pointer names and the kept file under it, when both are held
-  // and the file is the record's length.
+  // The kept file under the BLAKE3 the record names, when it is held and is
+  // the record's length.
   const held = async (file) => {
     try {
-      const named = (await (await (await names.getFileHandle(pointer(file))).getFile()).text()).trim();
-      if (!HEX.test(named)) return null;
+      const named = file.blake3;
       const bytes = await (await dir.getFileHandle(named)).getFile();
       return bytes.size === file.size ? { named, bytes } : null;
     } catch (e) {
@@ -79,7 +73,6 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
   async function openKept(path) {
     const file = recorded(path);
     if (!file) return open(path);
-    touched.push({ names: pointer(file) });
     const local = await held(file);
     if (local) {
       touched.push({ dir: local.named });
@@ -107,13 +100,15 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
     writing.push(
       keep.pipeThrough(stream).pipeTo(await handle.createWritable()).then(async () => {
         const named = digest();
-        // The same bytes kept already, under another record's name: keep one.
+        // Bytes that are not the record's are not kept: the loader refuses them.
+        if (named !== file.blake3) {
+          await dir.removeEntry(partial);
+          return;
+        }
+        // The same bytes kept already, for another model: keep one.
         if (await dir.getFileHandle(named).then(() => true, (e) => (missing(e) ? false : Promise.reject(e)))) await dir.removeEntry(partial);
         else await handle.move(named);
         touched.push({ dir: named });
-        const w = await (await names.getFileHandle(pointer(file), { create: true })).createWritable();
-        await w.write(named);
-        await w.close();
         kept.push({ path, address: `blake3:${named}` });
       }),
     );
@@ -167,14 +162,13 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
   // Once the writes this load started have ended.
   const settled = () => Promise.allSettled(writing);
 
-  // Remove every file and pointer this load read or kept: called when the
-  // load failed, since one of them may be what was not the record's.
+  // Remove every file this load read or kept: called when the load failed,
+  // since one of them may be what was not the record's.
   async function forget() {
     await settled();
     for (const t of touched) {
       try {
-        if (t.names) await names.removeEntry(t.names);
-        else await dir.removeEntry(t.dir);
+        await dir.removeEntry(t.dir);
       } catch (e) {
         if (!missing(e)) throw e;
       }

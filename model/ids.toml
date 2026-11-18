@@ -281,6 +281,12 @@ suite = "engine"
 statement = "The page is published with the engine it loads, built from this workspace and under the size it is allowed"
 
 [[id]]
+id = "EN-42"
+level = "build"
+suite = "engine"
+statement = "The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused"
+
+[[id]]
 id = "GP-01"
 level = "build"
 suite = "gpu"
@@ -416,7 +422,7 @@ statement = "The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B
 id = "GP-21"
 level = "build"
 suite = "gpu"
-statement = "The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again"
+statement = "The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again"
 
 [[id]]
 id = "GP-22"
@@ -441,6 +447,12 @@ id = "GP-25"
 level = "build"
 suite = "gpu"
 statement = "One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24"
+
+[[id]]
+id = "GP-26"
+level = "build"
+suite = "gpu"
+statement = "The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1"
 
 [[id]]
 id = "KN-18"
@@ -596,7 +608,7 @@ statement = "Each request the engine writes for decisions 18 to 28 puts every fi
 id = "EN-31"
 level = "build"
 suite = "engine"
-statement = "An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives"
+statement = "An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the BLAKE3 its record gives"
 
 [[id]]
 id = "EN-32"

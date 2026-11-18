@@ -61,19 +61,19 @@ foreign.name = blake3Hex(new Uint8Array(foreign.size).fill(7));
 const flippedGraph = Buffer.from(onnx.files.get(onnx.path));
 flippedGraph[Math.floor(flippedGraph.length * 0.6)] ^= 0x01;
 const onnxVariants = {
-  good: { files: onnx.files, sha256: {} },
-  cpu: { files: onnx.files, sha256: {}, noGpu: true },
-  flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), sha256: { [onnx.path]: onnx.sha(onnx.files.get(onnx.path)) } },
-  tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
+  good: { files: onnx.files },
+  cpu: { files: onnx.files, noGpu: true },
+  flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), blake3: { [onnx.path]: onnx.b3(onnx.files.get(onnx.path)) } },
+  tokenizer: { files: onnx.files, blake3: { "tokenizer.json": "e".repeat(64) } },
   // GP-22: a precision the record does not offer.
-  q4: { files: onnx.files, sha256: {}, precision: "q4" },
+  q4: { files: onnx.files, precision: "q4" },
   // As the live hub's records are: the files Git holds itself named by their
   // Git blob SHA-1 alone; and one of those naming another blob.
   // GP-21: visits in one browser profile; with offline set, the origin
   // serves the record but none of the files.
-  kept: { files: onnx.files, sha256: {}, offline: false },
-  gitblob: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"] },
-  gitwrong: { files: onnx.files, sha256: {}, gitOnly: ["config.json", "generation_config.json", "tokenizer_config.json"], gitSha1: { "generation_config.json": "a".repeat(40) } },
+  kept: { files: onnx.files, offline: false },
+  // GP-26: a record that names config.json no BLAKE3.
+  noblake3: { files: onnx.files, noBlake3: ["config.json"] },
 };
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
@@ -101,7 +101,7 @@ const server = http.createServer(async (request, response) => {
   const onnxRoute = path.match(/^\/onnx\/(\w+)\/(.*)$/);
   if (onnxRoute && onnxVariants[onnxRoute[1]]) {
     const v = onnxVariants[onnxRoute[1]];
-    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, sha256: v.sha256, gitOnly: v.gitOnly, gitSha1: v.gitSha1 });
+    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, blake3: v.blake3, noBlake3: v.noBlake3 });
     const rest = onnxRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
     if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
@@ -247,15 +247,13 @@ try {
     results.onnx["kept offline"] = await visit(true);
     const tamper = await context.newPage();
     await tamper.goto(`${origin}/app/`);
-    await tamper.evaluate(async ({ sha256, bytes }) => {
+    await tamper.evaluate(async ({ name, bytes }) => {
       const root = await navigator.storage.getDirectory();
-      const names = await root.getDirectoryHandle("hologram-files-names");
-      const name = (await (await (await names.getFileHandle(`sha256-${sha256}`)).getFile()).text()).trim();
       const dir = await root.getDirectoryHandle("hologram-files");
       const w = await (await dir.getFileHandle(name)).createWritable();
       await w.write(new Uint8Array(bytes));
       await w.close();
-    }, { sha256: onnx.sha(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
+    }, { name: onnx.b3(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
     await tamper.close();
     results.onnx["kept tampered"] = await visit(true);
     results.onnx["kept again"] = await visit(false);
@@ -439,7 +437,7 @@ if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expect
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
 // GP-19: the ONNX export.
-for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "webgpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"], ["kept short", "webgpu"]]) {
+for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"], ["kept short", "webgpu"]]) {
   const run = results.onnx[name];
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
@@ -484,15 +482,14 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   const run2 = results.onnx.tokenizer;
   const stop = stoppedAt(run2);
   if (run2.phase !== "failed" || stop?.subject !== "tokenizer.json is the record's") fail(`onnx tokenizer: expected to stop at tokenizer.json, stopped at ${stop?.subject} (${run2.phase}: ${run2.error})`);
-  const blob = results.onnx.gitblob.checks.find((c) => c.subject === "config.json is the record's");
-  if (!/^\d+ bytes, git blob sha1 [0-9a-f]{40} \(the record gives no SHA-256\)$/.test(blob?.detail ?? "")) fail(`onnx gitblob: config.json was not checked by its Git blob SHA-1: ${blob?.detail}`);
-  const run4 = results.onnx.q4;
-  const stop4 = stoppedAt(run4);
-  if (run4.phase !== "failed" || stop4?.step !== "precision" || stop4?.detail !== 'kernel answered "none fits"') fail(`onnx q4: expected the kernel to refuse a precision the record does not offer, stopped at ${stop4?.step} (${run4.phase}: ${run4.error})`);
-  if (run4.checks.some((c) => ["file", "kept", "import"].includes(c.step))) fail("onnx q4: the load went on past the precision");
-  const run3 = results.onnx.gitwrong;
-  const stop3 = stoppedAt(run3);
-  if (run3.phase !== "failed" || stop3?.subject !== "generation_config.json is the record's") fail(`onnx gitwrong: expected to stop at generation_config.json, stopped at ${stop3?.subject} (${run3.phase}: ${run3.error})`);
+  // GP-26: every file checked by its BLAKE3, and a record naming a file no
+  // BLAKE3 refused by name, nothing checked by SHA-256 or SHA-1.
+  const config = results.onnx.good.checks.find((c) => c.subject === "config.json is the record's");
+  if (config?.detail !== `${onnx.files.get("config.json").length} bytes, blake3 ${onnx.b3(onnx.files.get("config.json"))}`) fail(`onnx good: config.json was not checked by its BLAKE3: ${config?.detail}`);
+  if (results.onnx.good.checks.some((c) => /sha256|sha1/i.test(c.detail ?? "") && c.step === "file")) fail("onnx good: a file was checked by SHA-256 or SHA-1");
+  const run3 = results.onnx.noblake3;
+  if (run3.phase !== "failed" || !/the record names no BLAKE3 for config\.json/.test(run3.error ?? "")) fail(`onnx noblake3: expected the record refused for naming config.json no BLAKE3, saw ${run3.phase}: ${run3.error}`);
+  if (run3.checks.some((c) => c.step === "import")) fail("onnx noblake3: the load went on past the record");
 }
 
 // GP-25: the one call, and a task the kernel does not run.

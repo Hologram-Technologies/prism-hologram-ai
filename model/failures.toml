@@ -390,7 +390,7 @@ crate = "model-reader"
 type = "ImportError"
 variant = "FileRefused"
 suite = "engine"
-condition = "The kernel refuses a whole file against the SHA-256 and length its record gives"
+condition = "The kernel refuses a whole file against the BLAKE3 and length its record gives"
 
 [[failure]]
 id = "FL-46"
