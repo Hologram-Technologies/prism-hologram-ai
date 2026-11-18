@@ -74,6 +74,8 @@ The inherited gates and their own planted defects are in
 | That a value recomputed for an exact replay equals the value that produced the answer | follows from the class only if decision 30's flags are true of the run | not proved |
 | `KN-33`: a prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a comparable run | `shareable_decides`, checked by the Lean kernel | proved |
 | `KN-34`: every product of a 32-wide block lies in exactly one of the positive and negative parts, by the signs of its weight code and activation; a block is `exact` exactly when the claim plus the negative part equals the positive part plus 32768; at most one claim is exact | `parts_cover_every_product` (by induction over the places), the four sign theorems `agrees_when_both_positive`, `agrees_when_both_negative`, `differs_when_weight_positive` and `differs_when_weight_negative`, `weight_size_about_eight`, `activation_size_about_zero`, `accepts_decides` and `accepts_one_claim`, checked by the Lean kernel | proved |
+| `KN-35`: a content label is admitted as an address exactly when its first seven bytes are `blake3:`; `sha256:` is refused | `address_blake3_decides` and `address_sha256_refused`, checked by the Lean kernel | proved |
+| `KN-36`: a run may start exactly when its products and every other stage are exact, which is decision 30's class `everywhere` whatever the order of reductions; a run with a floating-point stage is refused | `integer_run_decides`, `integer_run_is_everywhere` and `integer_run_refuses_fixed_order_floats`, checked by the Lean kernel | proved |
 | The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
@@ -896,6 +898,56 @@ exit 143), at main `dc1ba4f` and here, alone on the machine and at
 `LEXLEAN_VERIFY_WIDTH=1`. An earlier form of this change failed sooner, in the
 guest's build, which is how the 64-bit limit above was found. That the guest
 builds and replays with decision 34 is left to the gate on CI.
+
+## KN-35 and KN-36, BLAKE3 addresses and integer runs
+
+Set by Ilya on 2026-11-17: BLAKE3 is the only hash Hologram AI names content
+by, and its inference uses integers only. Decision 35 makes the first a verdict
+the page asks before it admits any address: a label's first seven bytes,
+`blake3:` or not. Decision 36 makes the second a verdict asked before a run
+starts: the run's products and its other stages each exact or not, read
+through decision 30's own class, so integer-only is decision 30's
+`everywhere` and nothing is restated. Decision 30 still classifies a float
+run with fixed-order reductions as `same hardware`; decision 36 refuses it.
+
+Which formats have an exact integer codec is not decided here: those codecs
+are being built, and a list written before them would claim what does not
+run.
+
+### The pinned tests: `kernel_kn_35` and `kernel_kn_36`
+
+Each pins its theorems' statements and axioms, every definition the answer
+reads, the answer's length and offsets, and the route; `kernel_kn_35` also
+checks that its numbers are `blake3:` and `sha256:` read as fields of 4, 2
+and 1 bytes: the page's form has fields of 1, 2, 4, 8 and 32 bytes only, and
+a first form reading the seven bytes as one field failed `engine_en_14`.
+Planted on 2026-11-17, each test run alone with `cargo test -p
+repo-conformance --test kernel`:
+
+| Planted | Result |
+| --- | --- |
+| decision 35 answering `refused` where it answers `not blake3` | rejected: `kernel_kn_35`, `addressAnswer changed` |
+| tags 35 and 36 routed to each other's answer | rejected: `kernel_kn_36`, `decision 36 must be routed to Kernel.Integer::integerAnswer` |
+| none | 7 passed |
+
+### The proof gate: `lexlean verify src/Proofs/Address.lex.tex src/Proofs/Integer.lex.tex`
+
+Run in the SDK image `prismpm.lock` pins
+(`prismpm-sdk-candidate@sha256:cd3b47d7…`), WSL, 2026-11-17:
+
+| Planted | Result |
+| --- | --- |
+| `addressBlake3` testing its first four bytes for `sha2` | rejected: Lean, `HologramAi.Proofs.Address`, omega could not prove the goal |
+| `integerRun` reading decision 30's class with fixed-order reductions and admitting any class, `same hardware` among them (`classCode … 1 <=? 2`) | rejected: Lean, `HologramAi.Proofs.Integer`, omega could not prove the goal |
+| none | `verified 7 modules`, attestation `f4c4c772a30775b09600d0de8efe94879b64058348c6acc0f98b188e03157993` |
+
+`lexlean fmt --all --check` (76 modules canonical) and `lexlean lock
+--check` passed. The holo was not built here: on this machine the
+leanchecker replay of `HologramAi.Kernel` stops at the SDK's 300-second
+limit, as recorded for KN-34, so that the guest builds and replays with
+decisions 35 and 36 is left to the gate on CI. `site/og.png` was not redrawn
+here (the pinned Pillow wheel does not match this machine's Python); the
+deploy draws it.
 
 ## The examples in the compiled guest
 

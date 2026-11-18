@@ -419,6 +419,12 @@ suite = "gpu"
 statement = "The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again"
 
 [[id]]
+id = "GP-22"
+level = "build"
+suite = "gpu"
+statement = "The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
@@ -519,6 +525,18 @@ id = "KN-34"
 level = "build"
 suite = "kernel"
 statement = "One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise"
+
+[[id]]
+id = "KN-35"
+level = "build"
+suite = "kernel"
+statement = "A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3"
+
+[[id]]
+id = "KN-36"
+level = "build"
+suite = "kernel"
+statement = "A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions"
 
 [[id]]
 id = "EN-29"

@@ -1,0 +1,39 @@
+\begin{lexlean}{Proofs.Integer}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Integer}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: integer_run_decides,
+  parameters: [productsExact : Nat, restExact : Nat],
+  statement: (((Kernel.Integer::integerRun productsExact restExact) = true) <-> ((productsExact = 1) /\ (restExact = 1))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Determinism::classCode, Kernel.Integer::integerRun]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: integer_run_is_everywhere,
+  parameters: [productsExact : Nat, restExact : Nat, fixedOrder : Nat],
+  statement: (((Kernel.Integer::integerRun productsExact restExact) = true) <-> ((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Determinism::classCode, Kernel.Integer::integerRun]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: integer_run_refuses_fixed_order_floats,
+  parameters: [productsExact : Nat],
+  statement: ((Kernel.Integer::integerRun productsExact 0) = false),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Determinism::classCode, Kernel.Integer::integerRun]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
