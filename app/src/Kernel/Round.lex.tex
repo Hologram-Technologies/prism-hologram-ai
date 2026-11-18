@@ -1,0 +1,119 @@
+\begin{lexlean}{Kernel.Round}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Scale}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: roundBits,
+  parameters: [value : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => 0
+    | Nat.succ rest => (if (value =? 0) then 0 else (1 + (roundBits (prim quotient value 2 0 : Nat) rest)))),
+  recursive_argument: fuel
+}
+
+definition{
+  name: roundShift,
+  parameters: [value : Nat, count : Nat],
+  result: Nat,
+  body: (if (64 <=? count) then 0 else (prim quotient value (Kernel.Scale::twoTo count) 0 : Nat))
+}
+
+definition{
+  name: roundBit,
+  parameters: [value : Nat, count : Nat],
+  result: Nat,
+  body: (if (64 <=? count) then 0 else (prim remainder (prim quotient value (Kernel.Scale::twoTo count) 0 : Nat) 2 0 : Nat))
+}
+
+definition{
+  name: roundAny,
+  parameters: [value : Nat, count : Nat],
+  result: Bool,
+  body: (if (64 <=? count) then (0 <? value) else (0 <? (prim remainder value (Kernel.Scale::twoTo count) 0 : Nat)))
+}
+
+definition{
+  name: roundTop,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (prim subtract (offset + (roundBits value 64)) 1 : Nat)
+}
+
+definition{
+  name: roundUnit,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (if (32642 <=? (roundTop value offset)) then (prim subtract (roundTop value offset) 23 : Nat) else 32619)
+}
+
+definition{
+  name: roundDropped,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (prim subtract (roundUnit value offset) offset : Nat)
+}
+
+definition{
+  name: roundKept,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (if (offset <=? (roundUnit value offset)) then (roundShift value (roundDropped value offset)) else (prim multiply value (Kernel.Scale::twoTo (prim subtract offset (roundUnit value offset) : Nat)) : Nat))
+}
+
+definition{
+  name: roundGuard,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (if ((offset <=? (roundUnit value offset)) && (1 <=? (roundDropped value offset))) then (roundBit value (prim subtract (roundDropped value offset) 1 : Nat)) else 0)
+}
+
+definition{
+  name: roundSticky,
+  parameters: [value : Nat, offset : Nat],
+  result: Bool,
+  body: (((offset <=? (roundUnit value offset)) && (2 <=? (roundDropped value offset))) && (roundAny value (prim subtract (roundDropped value offset) 1 : Nat)))
+}
+
+definition{
+  name: roundUp,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: (if (((roundGuard value offset) =? 1) && ((roundSticky value offset) || ((prim remainder (roundKept value offset) 2 0 : Nat) =? 1))) then 1 else 0)
+}
+
+definition{
+  name: roundField,
+  parameters: [value : Nat, offset : Nat],
+  result: Nat,
+  body: ((prim multiply (prim subtract (roundUnit value offset) 32619 : Nat) 8388608 : Nat) + ((roundKept value offset) + (roundUp value offset)))
+}
+
+definition{
+  name: roundResult,
+  parameters: [sign : Nat, value : Nat, offset : Nat],
+  result: Nat,
+  body: (if (value =? 0) then 0 else (if ((32895 <? (roundTop value offset)) || (2139095040 <=? (roundField value offset))) then ((prim multiply sign 2147483648 : Nat) + 2139095040) else ((prim multiply sign 2147483648 : Nat) + (roundField value offset))))
+}
+
+definition{
+  name: roundAccepts,
+  parameters: [claimed : Nat, sign : Nat, value : Nat, offset : Nat],
+  result: Bool,
+  body: (claimed =? (roundResult sign value offset))
+}
+
+definition{
+  name: roundAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 16) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (roundAccepts (Kernel.Wire::fieldAt value 12 4) (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 2)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

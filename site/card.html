@@ -44,8 +44,9 @@
     <option value="38">39. Declared narrowing</option>
     <option value="39">40. Row recombination</option>
     <option value="40">41. Requantised inputs</option>
-    <option value="41">43. Square root</option>
-    <option value="42">44. Rounded quotient</option>
+    <option value="41">42. Round check</option>
+    <option value="42">43. Square root</option>
+    <option value="43">44. Rounded quotient</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2770,6 +2771,39 @@
       "module": "Requant",
       "name": "Requantised inputs",
       "tag": 41
+    },
+    {
+      "asks": "Is this claimed binary32 the nearest to the exact value?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Sign, 1 for negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Magnitude",
+          "value": 1,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Exponent plus 32768",
+          "value": 32768,
+          "width": 2
+        },
+        {
+          "at": 12,
+          "name": "Claimed binary32 bits",
+          "value": 1065353216,
+          "width": 4
+        }
+      ],
+      "length": 16,
+      "module": "Round",
+      "name": "Round check",
+      "tag": 42
     },
     {
       "asks": "Is this the floor square root of this value?",
