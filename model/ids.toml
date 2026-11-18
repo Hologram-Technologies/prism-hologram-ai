@@ -664,3 +664,15 @@ id = "EN-40"
 level = "build"
 suite = "engine"
 statement = "A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32"
+
+[[id]]
+id = "KN-42"
+level = "build"
+suite = "kernel"
+statement = "A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude"
+
+[[id]]
+id = "EN-41"
+level = "build"
+suite = "engine"
+statement = "Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits"
