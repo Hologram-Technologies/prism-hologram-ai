@@ -7720,7 +7720,13 @@ fn engine_fl_53() {
     );
     let nan = f32::NAN.to_le_bytes();
     assert_eq!(
-        exact::dense_product(&bits(&[1.0]), exact::Dense::F32(&nan), 1, 1),
+        exact::dense_product(
+            &bits(&[1.0]),
+            exact::Dense::F32(&nan),
+            exact::DenseLayout::InputMajor,
+            1,
+            1
+        ),
         Err(exact::ExactError::ScaleNotFinite)
     );
 }
@@ -7912,7 +7918,36 @@ fn engine_en_35() {
         .expect("an exact codec");
         let input: Vec<f32> = (0..k).map(|_| draw.unit() * 2.0).collect();
         let quantised = exact::quantise(&bits(&input)).expect("finite");
-        let out = exact::dense_product(&bits(&input), weights, k, n).expect("well formed");
+        let out =
+            exact::dense_product(&bits(&input), weights, exact::DenseLayout::InputMajor, k, n)
+                .expect("well formed");
+        // The same values stored output-major, as an embedding table is.
+        let mut transposed = vec![0u8; stored.len()];
+        let width = stored.len() / (k * n);
+        for row in 0..k {
+            for column in 0..n {
+                let from = (row * n + column) * width;
+                let to = (column * k + row) * width;
+                transposed[to..to + width].copy_from_slice(&stored[from..from + width]);
+            }
+        }
+        let weights_t = match format {
+            "f32" => exact::Dense::F32(&transposed),
+            "f16" => exact::Dense::F16(&transposed),
+            _ => exact::Dense::Bf16(&transposed),
+        };
+        assert_eq!(
+            exact::dense_product(
+                &bits(&input),
+                weights_t,
+                exact::DenseLayout::OutputMajor,
+                k,
+                n
+            )
+            .expect("well formed"),
+            out,
+            "{format}: the output-major layout gives other bits"
+        );
         for column in 0..n {
             let codes: Vec<i64> = quantised.codes().iter().map(|&c| i64::from(c)).collect();
             let column_values: Vec<f64> = (0..k).map(|row| values[row * n + column]).collect();

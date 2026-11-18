@@ -748,12 +748,26 @@ impl Dense<'_> {
     }
 }
 
-/// `input` times a dense weight matrix: output `n` is the sum over `k` of
-/// input `k` times weight `(k, n)`, each product an input code times the
-/// weight's exact value, held in the complete register and rounded once.
+/// How a dense matrix's values lie in its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DenseLayout {
+    /// As ONNX `MatMul` stores its second input: `K` rows of `N`, so weight
+    /// `(k, n)` is value `k * N + n`.
+    InputMajor,
+    /// `N` rows of `K`, as an embedding table is stored and as `MatMul` reads
+    /// it through a `Transpose`: weight `(k, n)` is value `n * K + k`. Read in
+    /// place, with no transposed copy.
+    OutputMajor,
+}
+
+/// `input` times a dense weight matrix of `columns` (`K`) inputs and `rows`
+/// (`N`) outputs: output `n` is the sum over `k` of input `k` times weight
+/// `(k, n)`, each product an input code times the weight's exact value, held
+/// in the complete register and rounded once.
 pub fn dense_product(
     input: &[u32],
     weights: Dense<'_>,
+    layout: DenseLayout,
     columns: usize,
     rows: usize,
 ) -> Result<Vec<u32>, ExactError> {
@@ -768,7 +782,10 @@ pub fn dense_product(
         .map(|n| {
             let mut row = Row::ZERO;
             for (k, &code) in quantised.codes.iter().enumerate() {
-                let weight = weights.at(k * rows + n)?;
+                let weight = weights.at(match layout {
+                    DenseLayout::InputMajor => k * rows + n,
+                    DenseLayout::OutputMajor => n * columns + k,
+                })?;
                 let product = i128::from(code) * weight.mantissa;
                 row.add_scaled(
                     product.unsigned_abs(),
