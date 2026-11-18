@@ -346,12 +346,16 @@ fn gpu_gp_06() {
     let justfile = read("Justfile");
     assert!(justfile.contains(
         "node bootstrap/precache.mjs \"$site\"
+      node bootstrap/listing-blake3.mjs \"$site\"
     fi"
     ));
     let pages = read(".github/workflows/pages.yml");
     let listed = pages
-        .find("node bootstrap/precache.mjs site")
-        .expect("pages.yml writes precache.json");
+        .find(
+            "node bootstrap/precache.mjs site
+          node bootstrap/listing-blake3.mjs site",
+        )
+        .expect("pages.yml writes precache.json and names its files by BLAKE3");
     let journey_step = pages
         .find("just page-journey site")
         .expect("pages.yml runs the journey");
@@ -420,10 +424,12 @@ fn gpu_gp_07() {
         !page.contains("SHA-256"),
         "site/app/index.html compares cached files by SHA-256"
     );
-    let listing = read("bootstrap/precache.mjs");
+    // The listing is the frame's (pinned by frame.lock); this repository adds
+    // each file's BLAKE3 to it, and the page reads only that.
+    let listing = read("bootstrap/listing-blake3.mjs");
     assert!(
-        listing.contains("blake3: blake3Hex(bytes),") && !listing.contains("createHash"),
-        "bootstrap/precache.mjs no longer lists each file by its BLAKE3 alone"
+        listing.contains("file.blake3 = blake3Hex(await readFile(join(site, file.path)));"),
+        "bootstrap/listing-blake3.mjs no longer names each listed file by its BLAKE3"
     );
     for wanted in [
         "const held = blake3Hex(new Uint8Array(await (await cache.match(request)).arrayBuffer()));",
