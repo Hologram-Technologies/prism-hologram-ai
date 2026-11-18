@@ -425,6 +425,12 @@ suite = "gpu"
 statement = "The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read"
 
 [[id]]
+id = "GP-23"
+level = "build"
+suite = "gpu"
+statement = "The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
