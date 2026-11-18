@@ -246,6 +246,8 @@ Playwright covers the three engines on every push. Each named phone is measured 
 
 Set by Ilya on 2026-11-16. The engine page becomes the equivalent of Hugging Face's transformers.js for text models: a user on a desktop or a phone names a supported open text model on the hub, and it is imported, checked and run in the browser. Browser first and serverless: no server of ours is in the path, and no model is repacked before it runs. Text generation first, then embeddings and classification; no vision or audio. ONNX exports first, read from the hub's own files; GGUF and safetensors import follow in milestone 3.
 
+What this milestone gives a person, promise by promise, is specified in LexLean in `experience/src/HologramAiExperience.lex.tex`.
+
 Studied on 2026-11-16: transformers.js 4.3.2, Hologram-Technologies/hologram-ai at `d5337ec`, Hologram-Technologies/hologram at `6888878`.
 
 ### How ONNX is run
