@@ -162,22 +162,25 @@ export function buildOnnxFixture() {
     ["onnx/model_q4f16.onnx", Buffer.from(graph)],
   ]);
   const sha = (b) => createHash("sha256").update(b).digest("hex");
-  return { model, files, sha, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40) };
+  const b3 = (b) => blake3Hex(b);
+  return { model, files, sha, b3, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40) };
 }
 
-// The hub's record for the ONNX fixture, with a whole-file SHA-256 for each
-// file (the graph's may be given wrong), and the index root that names it.
-const gitBlob = (bytes) => createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex");
-
-export function onnxHubFiles(fixture, { resolve, sha256 = {}, gitOnly = [], gitSha1 = {} }) {
+// The hub's record for the ONNX fixture: each file's BLAKE3 (one may be given
+// wrong, or left out), beside the SHA-256 Hugging Face publishes, which the
+// engine does not check; and the index root that names the record.
+export function onnxHubFiles(fixture, { resolve, blake3 = {}, noBlake3 = [] }) {
   const record = Buffer.from(JSON.stringify({
     format: "hologram.hub.release/v4",
     repo: fixture.repo,
     revision: fixture.revision,
     origin: { kind: "fixture", resolve },
-    files: [...fixture.files].map(([path, bytes]) => gitOnly.includes(path)
-      ? { path, size: bytes.length, gitSha1: gitSha1[path] ?? gitBlob(bytes) }
-      : { path, size: bytes.length, gitSha1: "0".repeat(40), sha256: sha256[path] ?? fixture.sha(bytes) }),
+    files: [...fixture.files].map(([path, bytes]) => ({
+      path,
+      size: bytes.length,
+      sha256: fixture.sha(bytes),
+      ...(noBlake3.includes(path) ? {} : { blake3: blake3[path] ?? fixture.b3(bytes) }),
+    })),
     sources: [],
     witnesses: [],
   }));
