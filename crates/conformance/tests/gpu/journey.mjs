@@ -51,6 +51,8 @@ const onnxVariants = {
   cpu: { files: onnx.files, sha256: {}, noGpu: true },
   flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), sha256: { [onnx.path]: onnx.sha(onnx.files.get(onnx.path)) } },
   tokenizer: { files: onnx.files, sha256: { "tokenizer.json": "e".repeat(64) } },
+  // GP-22: a precision the record does not offer.
+  q4: { files: onnx.files, sha256: {}, precision: "q4" },
   // As the live hub's records are: the files Git holds itself named by their
   // Git blob SHA-1 alone; and one of those naming another blob.
   // GP-21: visits in one browser profile; with offline set, the origin
@@ -155,7 +157,7 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
     if (onnxVariants[name].noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined }));
-    await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/${name}/index`);
+    await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/${name}/index${onnxVariants[name].precision ? `&precision=${onnxVariants[name].precision}` : ""}`);
     await page.click("#load");
     await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
     let output = null;
@@ -356,6 +358,11 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   for (const step of ["record", "file", "template", "import", "roles", "stop"]) {
     if (!run.checks.some((c) => c.step === step && c.verdict === "pass")) fail(`onnx ${name}: no passing ${step} check`);
   }
+  // GP-22: the precision, the file and the device are the kernel's answers.
+  const said = (step) => /^kernel answered "(.*)"$/.exec(run.checks.find((c) => c.step === step && c.verdict === "pass")?.detail ?? "")?.[1];
+  if (said("precision") !== "q4f16") fail(`onnx ${name}: the precision was not the kernel's q4f16: ${said("precision")}`);
+  if (said("source") !== onnx.path) fail(`onnx ${name}: the graph's file was not the kernel's ${onnx.path}: ${said("source")}`);
+  if (said("device") !== device) fail(`onnx ${name}: the device was not the kernel's ${device}: ${said("device")}`);
   const imported = run.checks.find((c) => c.step === "import");
   if (!/^\d+ tensors named by their BLAKE3, [1-9]\d* questions to the kernel/.test(imported?.detail ?? "")) fail(`onnx ${name}: the import did not ask the kernel: ${imported?.detail}`);
   if (!run.output) fail(`onnx ${name}: no answer`);
@@ -374,6 +381,10 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   if (run2.phase !== "failed" || stop?.subject !== "tokenizer.json is the record's") fail(`onnx tokenizer: expected to stop at tokenizer.json, stopped at ${stop?.subject} (${run2.phase}: ${run2.error})`);
   const blob = results.onnx.gitblob.checks.find((c) => c.subject === "config.json is the record's");
   if (!/^\d+ bytes, git blob sha1 [0-9a-f]{40} \(the record gives no SHA-256\)$/.test(blob?.detail ?? "")) fail(`onnx gitblob: config.json was not checked by its Git blob SHA-1: ${blob?.detail}`);
+  const run4 = results.onnx.q4;
+  const stop4 = stoppedAt(run4);
+  if (run4.phase !== "failed" || stop4?.step !== "precision" || stop4?.detail !== 'kernel answered "none fits"') fail(`onnx q4: expected the kernel to refuse a precision the record does not offer, stopped at ${stop4?.step} (${run4.phase}: ${run4.error})`);
+  if (run4.checks.some((c) => ["file", "kept", "import"].includes(c.step))) fail("onnx q4: the load went on past the precision");
   const run3 = results.onnx.gitwrong;
   const stop3 = stoppedAt(run3);
   if (run3.phase !== "failed" || stop3?.subject !== "generation_config.json is the record's") fail(`onnx gitwrong: expected to stop at generation_config.json, stopped at ${stop3?.subject} (${run3.phase}: ${run3.error})`);

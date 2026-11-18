@@ -2681,3 +2681,78 @@ fn kernel_kn_34() {
     );
     assert_routed(34, "Kernel.Block::blockCheckAnswer");
 }
+
+/// `KN-35`: A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3
+#[test]
+fn kernel_kn_35() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Address.lex.tex");
+    let proofs = model("app/src/Proofs/Address.lex.tex");
+    assert_pinned(
+        &proofs,
+        "address_blake3_decides",
+        "(((Kernel.Address::addressBlake3 head middle tail) = true) <-> ((head = 1651269995) /\\ ((middle = 25907) /\\ (tail = 58))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "address_sha256_refused",
+        "((Kernel.Address::addressBlake3 1936220466 13622 58) = false)",
+        "Quot.sound, propext",
+    );
+    // The numbers are "blake3:" and "sha256:" read as fields of 4, 2 and 1
+    // bytes, the widths the wire format has.
+    assert_eq!(u32::from_be_bytes(*b"blak"), 1651269995);
+    assert_eq!(u16::from_be_bytes(*b"e3"), 25907);
+    assert_eq!(u32::from_be_bytes(*b"sha2"), 1936220466);
+    assert_eq!(u16::from_be_bytes(*b"56"), 13622);
+    assert_eq!(b':', 58);
+    let found = declaration(&kernel, "addressBlake3");
+    assert!(
+        found.contains("body: (((head =? 1651269995) && (middle =? 25907)) && (tail =? 58))"),
+        "addressBlake3 changed:\n{found}"
+    );
+    let found = declaration(&kernel, "addressAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 8) then (if (addressBlake3 (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1)) then (prim utf8_encode \"blake3\" : Bytes) else (prim utf8_encode \"not blake3\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "addressAnswer changed:\n{found}"
+    );
+    assert_routed(35, "Kernel.Address::addressAnswer");
+}
+
+/// `KN-36`: A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions
+#[test]
+fn kernel_kn_36() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Integer.lex.tex");
+    let proofs = model("app/src/Proofs/Integer.lex.tex");
+    assert_pinned(
+        &proofs,
+        "integer_run_decides",
+        "(((Kernel.Integer::integerRun productsExact restExact) = true) <-> ((productsExact = 1) /\\ (restExact = 1)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "integer_run_is_everywhere",
+        "(((Kernel.Integer::integerRun productsExact restExact) = true) <-> ((Kernel.Determinism::classCode productsExact restExact fixedOrder) = 2))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "integer_run_refuses_fixed_order_floats",
+        "((Kernel.Integer::integerRun productsExact 0) = false)",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "integerRun");
+    assert!(
+        found.contains("body: ((Kernel.Determinism::classCode productsExact restExact 0) =? 2)"),
+        "integerRun changed:\n{found}"
+    );
+    let found = declaration(&kernel, "integerAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 3) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? 1)) then (if (integerRun (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode \"integer\" : Bytes) else (prim utf8_encode \"refused: not integer\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "integerAnswer changed:\n{found}"
+    );
+    assert_routed(36, "Kernel.Integer::integerAnswer");
+}

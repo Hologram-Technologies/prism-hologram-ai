@@ -84,6 +84,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-19` | `build` | The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's |
 | `GP-20` | `build` | The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name |
 | `GP-21` | `build` | The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again |
+| `GP-22` | `build` | The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read |
 
 ## kernel
 
@@ -123,6 +124,8 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-32` | `build` | A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range |
 | `KN-33` | `build` | A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable |
 | `KN-34` | `build` | One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise |
+| `KN-35` | `build` | A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3 |
+| `KN-36` | `build` | A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions |
 
 ## Public failures
 

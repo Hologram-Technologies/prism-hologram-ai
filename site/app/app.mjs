@@ -20,16 +20,22 @@ const MODEL = {
   indexBase: asked.get("index") ?? "https://hologram-technologies.github.io/hub/data/index",
   fallback: asked.get("repo") ? null : "https://huggingface.co/HOLOGRAMTECH/q-ternary-bonsai-1.7b/resolve/c6d6a12384ecc52ae7e006bef263bfedf5e7496c/",
   onnx: asked.get("onnx"),
-  precision: asked.get("precision") ?? "q4f16",
+  precision: asked.get("precision"),
 };
-// The file of each precision, as onnx-community names them.
-const ONNX_FILES = { q4f16: "onnx/model_q4f16.onnx", q4: "onnx/model_q4.onnx" };
+// The precisions this engine runs, in the kernel's code for decision 24. A
+// link may name one; otherwise each is offered and the kernel chooses.
+const PRECISIONS = { q4f16: 0, q4: 1 };
+// What the kernel's choice of precision and device is weighed against. No
+// browser reports how much memory a GPU has, so its budget is a stated 4 GiB;
+// the CPU engine, single-threaded on a static host, takes models up to 1 GiB.
+const GPU_BUDGET = 4 * 2 ** 30;
+const CPU_CEILING = 2 ** 30;
 const CAPACITY = 2048;
 
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
 if (asked.get("repo")) $("model-name").textContent = `${MODEL.repo}, file ${MODEL.path}, from the index at ${MODEL.indexBase}.`;
-if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
+if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
 const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
 window.__qengine = state;
 
@@ -183,16 +189,30 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
 
   status("Reading the model's record…");
   const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.onnx, checks });
-  const path = ONNX_FILES[MODEL.precision];
-  if (!path) throw new Error(`precision ${MODEL.precision}: this page reads q4f16 and q4 exports`);
-  // Which file a precision is, is the kernel's decision 24; the page names it
-  // by the export's convention until it asks.
-  checks.add("source", `the ${MODEL.precision} file`, "not checked", `${path}, by the export's naming; decision 24 is not asked here yet`);
+  // What each precision's graph is called is the kernel's decision 24, and
+  // which precision is read its decision 21, weighed on what the record offers.
+  const named = MODEL.precision ? [MODEL.precision] : Object.keys(PRECISIONS);
+  if (named.some((n) => !(n in PRECISIONS))) throw new Error(`precision ${MODEL.precision}: this page reads q4f16 and q4 exports`);
+  const sizes = {};
+  for (const name of named) {
+    const graphPath = await ask("source", `the ${name} graph's file`, new Uint8Array([24, 0, PRECISIONS[name], 0, 0]), (a) => a.startsWith("onnx/"));
+    const parts = record.files.filter((f) => f.path === graphPath || f.path.startsWith(`${graphPath}_data`));
+    if (parts.some((f) => f.path === graphPath)) sizes[name] = { path: graphPath, bytes: parts.reduce((n, f) => n + f.size, 0), data: parts.length - 1 };
+  }
+  const offer = (name) => join(new Uint8Array([sizes[name] ? 1 : 0]));
+  const amount = (name) => be(sizes[name]?.bytes ?? 0, 8);
+  const chosen = await ask("precision", "precision to read", join(new Uint8Array([21]), offer("q4f16"), offer("q4"), new Uint8Array([0]), be(device ? GPU_BUDGET : CPU_CEILING, 8), amount("q4f16"), amount("q4"), be(0, 8)), (a) => a in sizes);
+  const path = sizes[chosen].path;
+  state.precision = chosen;
+  // Each data file the record lists beside the graph is one the kernel names.
+  const folder = path.slice(0, path.lastIndexOf("/") + 1);
+  for (let part = 1; part <= sizes[chosen].data; part++) {
+    await ask("source", `the ${chosen} data file ${part}`, new Uint8Array([24, 0, PRECISIONS[chosen], sizes[chosen].data, part]), (a) => record.files.some((f) => f.path === a && a.startsWith(folder)));
+  }
   const base = record.origin?.resolve;
   if (!base) throw new Error("the record names no origin");
   const graph = record.files.find((f) => f.path === path);
   if (!graph) throw new Error(`the record names no ${path}`);
-  if (!device) checks.add("device", "the CPU path, with no WebGPU adapter", "not checked", "the kernel's device decision (22) is not asked here yet");
 
   const module = await openModule("./engine/engine.wasm");
   // The files kept from an earlier visit are read from this browser and
@@ -206,6 +226,7 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   }
   status("Downloading and checking every tensor…");
   $("progress").hidden = false;
+  let on = null;
   const loading = loadOnnx({
     record,
     path,
@@ -215,8 +236,17 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
     checks,
     onProgress: (file, done) => { if (file === 0) $("progress").value = done / graph.size; },
     build: async (dims, tensors) => {
-      status(device ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return device ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
+      // The device is the kernel's decision 22, on the largest buffer the GPU
+      // engine would bind: a dense embedding or head is tiled by rows, so one
+      // row; a 4-bit weight binds its codes and its scales apart.
+      const bound = (t) => (t.fmt === "f32" || t.fmt === "f16") && t.K ? t.K * (t.fmt === "f32" ? 4 : 2)
+        : t.parts ? Math.max(...t.parts.map((b) => b.byteLength))
+        : t.fmt?.startsWith("q4") ? (t.N * t.K) / 2 : t.bytes.byteLength;
+      const largest = Math.max(...[...tensors.values()].map(bound));
+      const limit = device ? Math.min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize) : 0;
+      on = await ask("device", "device to run on", join(new Uint8Array([22, device ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => a === "webgpu" || a === "cpu");
+      status(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
+      return on === "webgpu" ? createEngine({ device, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
     },
   });
   // A failed load forgets every file it read or kept here, since one of them
@@ -233,9 +263,9 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   }
   session = { engine, module, kernel, ask, stops, chat };
   state.phase = "ready";
-  state.device = device ? "webgpu" : "cpu";
+  state.device = on;
   state.loadSeconds = (performance.now() - started) / 1000;
-  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${device ? `${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
+  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${on === "webgpu" ? `${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
   $("send").disabled = false;
 }
 
