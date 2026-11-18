@@ -2759,3 +2759,29 @@ The one difference is at a near tie: the float model's best two logits are
 than Qwen3's because this export runs every activation in half precision in
 ONNX Runtime. About 52 s for each prompt of about 30 tokens and 2.3 s per
 token after, one thread. The ledger's `OPEN-GREEDY-QWEN2.5-1.5B-INTEGER`.
+
+### Run over Llama 3.2 1B Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` and `model_q4f16.onnx_data` of
+onnx-community/Llama-3.2-1B-Instruct-ONNX at `82ac693` (each BLAKE3 equal to
+the hub record's), with its own `tokenizer.json` and `config.json`. That
+config names no rope scaling, but the export's own cos and sin cache is Llama
+3's at factor 32, low 1, high 4, original 8192 (GPU-VERIFICATION.md, read
+2026-11-16), so the run takes those parameters, as the page's loader does
+after confirming them against the cache. The yardstick is ONNX Runtime 1.26.0
+on the same files with graph optimisation off.
+
+| Prompt (Llama 3.2's template) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is Paris. | 8 | 8 / 8 | 8 | 0.36 |
+| Write one sentence about the sea. | The vast expanse of the ocean, with its diverse marine life and intricate underwater ecosystems, continues to captivate and inspire people from all over the world. | 32 | 32 / 32 | 32 | 0.32 |
+| What is 12 times 7? | To find the answer, I'll multiply 12 by 7. 12 * 7 = 84 The answer is 84. | 29 | 29 / 29 | 29 | 0.50 |
+
+The gaps include ONNX Runtime's half-precision activations and its
+half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
+1.9 s per token after, one thread. The ledger's
+`OPEN-GREEDY-LLAMA-3.2-1B-INTEGER`.
+
+Reading the rotary parameters from the export's cache rather than taking the
+family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
+integer path takes them from its caller.
