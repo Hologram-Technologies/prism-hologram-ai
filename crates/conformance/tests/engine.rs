@@ -17,8 +17,8 @@ use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
 
 use hologram_ai_kernel_client::{
-    admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
-    INVALID_REQUEST,
+    admission, block_check, bucket, generation, journey, operators, plan, preflight, range, shape,
+    tier, trim, INVALID_REQUEST,
 };
 
 fn root() -> PathBuf {
@@ -222,6 +222,20 @@ fn rewritten(request: &[u8]) -> Option<Vec<u8>> {
         (9, 25) => generation::request(word(r, 1), word(r, 9), word(r, 17)).to_vec(),
         (10, 33) => operators::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
         (11, 33) => shape::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
+        (34, 53) => {
+            // The inverse of the layout `block_check::request` documents.
+            let mut codes = [0; 16];
+            let mut activations = [0; 32];
+            for g in 0..32 {
+                let (h, i) = (g / 16, g % 16);
+                let byte = r[8 * h + 8 - i / 2];
+                let code = if i % 2 == 0 { byte >> 4 } else { byte & 0x0f };
+                codes[g / 2] |= code << (4 * (g % 2));
+                activations[g] = r[16 * h + 32 - i] as i8;
+            }
+            let claim = u32::from_be_bytes(r[49..53].try_into().ok()?).wrapping_sub(32768) as i32;
+            block_check::request(&codes, &activations, claim).to_vec()
+        }
         _ => return None,
     })
 }
@@ -252,6 +266,7 @@ fn read(tag: u8, answer: &[u8]) -> Option<(String, Option<u64>)> {
             shape::Answer::Size(n) => ("Size".into(), Some(n)),
             other => (format!("{other:?}"), None),
         }),
+        34 => plain(format!("{:?}", block_check::answer(answer))),
         _ => None,
     }
 }
@@ -298,6 +313,7 @@ fn vocabulary() -> BTreeMap<u8, BTreeSet<&'static str>> {
             ]),
         ),
         (4, BTreeSet::from(["Int8", "Int4", "Int8Paged", "Invalid"])),
+        (34, BTreeSet::from(["Exact", "Differs", "Invalid"])),
         (5, BTreeSet::from(["Admit", "Refuse", "Invalid"])),
         (6, BTreeSet::from(["Accept", "Reject", "Invalid"])),
         (
@@ -7526,4 +7542,128 @@ fn engine_fl_52() {
         exact::request_product(&huge, exact::Layout::Ternary),
         Err(exact::ExactError::LengthMismatch)
     );
+}
+
+/// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: decision 34 carries the crate's own sums of engine-stored blocks as examples answered exact, and each sum plus one as an example answered differs
+#[test]
+fn engine_en_35() {
+    use hologram_ai_kernel_client::block_check;
+
+    let kernel = std::fs::read_to_string(root().join("app/src/Kernel.lex.tex"))
+        .expect("the kernel's entry module");
+    let mut missing = Vec::new();
+    for (name, codes, activations) in en_35_blocks() {
+        // The crate's own sum, from its own path: the input quantised by the
+        // crate, the codes read as the engine stores them.
+        let input: Vec<f32> = activations.iter().map(|&a| f32::from(a)).collect();
+        let quantised = exact::quantise(&input).expect("a finite input quantises");
+        assert_eq!(
+            quantised.codes(),
+            activations.as_slice(),
+            "{name}: the codes are the activations"
+        );
+        let sums = exact::q4_group_sums(&quantised, &codes, 1, 32).expect("one block sums");
+        let sum = i32::try_from(sums[0]).expect("a block's sum fits 32 bits");
+
+        // What decision 34 recomputes from the request, read as Kernel.Block
+        // reads it: the guest's replay of the examples is the gate, this is
+        // the same reading here so a wrong layout fails before CI.
+        let request = block_check::request(&codes, &activations, sum);
+        assert_eq!(
+            block_reading(&request),
+            (sum, sum),
+            "{name}: the kernel reads another block"
+        );
+        let off = block_check::request(&codes, &activations, sum + 1);
+        assert_eq!(
+            block_reading(&off),
+            (sum + 1, sum),
+            "{name}: the claim is not read plus one"
+        );
+
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let example = format!(
+                "request := 0x{}, response := 0x{}}}",
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                hex(answer)
+            );
+            if !kernel.contains(&example) {
+                missing.push(example);
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "decision 34 lacks {} examples the crate gives:
+{}",
+        missing.len(),
+        missing.join(
+            "
+"
+        )
+    );
+}
+
+/// The blocks EN-35 hands the kernel, each with an activation of magnitude
+/// 127 so the crate quantises the activations to themselves: the sums at both
+/// ends of the range, every weight zero, and blocks drawn at random.
+fn en_35_blocks() -> Vec<(String, [u8; 16], [i8; 32])> {
+    let mut out = vec![
+        (
+            "every weight -8, activations -127".to_string(),
+            [0x00; 16],
+            [-127; 32],
+        ),
+        (
+            "every weight -8, activations 127".to_string(),
+            [0x00; 16],
+            [127; 32],
+        ),
+        (
+            "every weight 7, activations 127".to_string(),
+            [0xff; 16],
+            [127; 32],
+        ),
+        ("every weight 0".to_string(), [0x88; 16], {
+            let mut a = [5; 32];
+            a[31] = -127;
+            a
+        }),
+    ];
+    let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
+    for case in 0..4 {
+        let mut codes = [0; 16];
+        for c in &mut codes {
+            *c = draw.below(256) as u8;
+        }
+        let mut activations = [0; 32];
+        for a in &mut activations {
+            *a = (draw.below(255) as i16 - 127) as i8;
+        }
+        activations[draw.below(32) as usize] = if case % 2 == 0 { 127 } else { -127 };
+        out.push((format!("drawn block {case}"), codes, activations));
+    }
+    out
+}
+
+/// A decision-34 request read as `Kernel.Block` reads it: the claim less
+/// 32768, and the sum of `positiveFrom` less `negativeFrom` over its four
+/// halves, which `parts_cover_every_product` and the size theorems make the
+/// signed sum of each code less eight times each byte as an `i8`.
+fn block_reading(request: &[u8; 53]) -> (i32, i32) {
+    let mut sum = 0;
+    for (weights, activations, base) in [(1, 25, 0), (1, 17, 8), (9, 41, 0), (9, 33, 8)] {
+        for rest in 0..8 {
+            let index = base + rest;
+            let byte = request[weights + 7 - index / 2];
+            let code = if index % 2 == 1 { byte % 16 } else { byte / 16 };
+            let activation = i32::from(request[activations + 7 - rest] as i8);
+            sum += (i32::from(code) - 8) * activation;
+        }
+    }
+    let claim = u32::from_be_bytes(request[49..53].try_into().expect("four bytes"));
+    (claim.wrapping_sub(32768) as i32, sum)
 }
