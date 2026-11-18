@@ -3255,3 +3255,33 @@ fn kernel_kn_43() {
     );
     assert_routed(43, "Kernel.Root::rootAnswer");
 }
+
+/// `KN-44`: A claimed quotient of a value below 2^62 by a divisor below 2^31, rounded half to even to a code of at most 32767, is confirmed exactly when it passes KN-41's rounding rule with the divisor as the step, so a norm and a softmax divide by one rule
+#[test]
+fn kernel_kn_44() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Quotient.lex.tex");
+    let proofs = model("app/src/Proofs/Quotient.lex.tex");
+    assert_pinned(
+        &proofs,
+        "quotient_is_requant_rule",
+        "((Kernel.Quotient::quotientOk value divisor half odd code) = (Kernel.Requant::rqDownOk value divisor half odd (Kernel.Quotient::quotientProduct half odd divisor) code))",
+        "propext",
+    );
+    let found = declaration(&kernel, "quotientProduct");
+    assert!(
+        found.contains("body: (prim multiply ((half + half) + odd) divisor : Nat)"),
+        "quotientProduct changed:\n{found}"
+    );
+    let found = declaration(&kernel, "quotientOk");
+    assert!(
+        found.contains("body: (Kernel.Requant::rqDownOk value divisor half odd (quotientProduct half odd divisor) code)"),
+        "quotientOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "quotientAnswer");
+    assert!(
+        found.contains("body: (if ((((((Foundation.Bytes::byteLength value) =? 20) && ((Kernel.Wire::fieldAt value 1 8) <? 4611686018427387904)) && ((0 <? (Kernel.Wire::fieldAt value 9 4)) && ((Kernel.Wire::fieldAt value 9 4) <? 2147483648))) && ((Kernel.Wire::fieldAt value 13 4) <? 1073741824)) && ((Kernel.Wire::fieldAt value 17 1) <=? 1)) then (if (quotientOk (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 2)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "quotientAnswer changed:\n{found}"
+    );
+    assert_routed(44, "Kernel.Quotient::quotientAnswer");
+}
