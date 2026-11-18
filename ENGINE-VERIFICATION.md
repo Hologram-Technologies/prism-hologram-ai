@@ -2690,3 +2690,25 @@ measured 1.66e-3), and a second run gives the same bits.
 FL-55 to FL-58 each have a negative test: a graph without layer 0's query
 norm, a 4-bit matrix with a block of 8, an epsilon past EN-47's bound, and a
 token id equal to the vocabulary.
+
+### Run over the published export
+
+On 2026-11-18 the path was run over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen3-0.6B-ONNX at `79346d3` (BLAKE3 equal to the hub record's),
+read whole from disk by a local probe, with the model's own `tokenizer.json`
+(BLAKE3 equal to the record's), `rope_theta` 1,000,000 and `rms_norm_eps`
+1e-6 from its `config.json`. The probe is not part of the gate, which has no
+network and no 570 MB file, and is not committed. The float yardstick is
+ONNX Runtime 1.26.0 on the CPU running the same file.
+
+| Prompt (Qwen3's chat template, thinking off) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is **Paris**. | 10 | 10 / 10 | 10 | 0.046 |
+| Write one sentence about the sea. | The sea whispers stories of the past, carrying the memories of those who once called it home. | 20 | 20 / 20 | 20 | 0.049 |
+| What is 12 times 7? | To calculate 12 multiplied by 7: ... 12 \times 7 = 84 ... (cut at 32 tokens) | 32 | 32 / 32 | 32 | 0.051 |
+
+The logit gaps include ONNX Runtime's own half-precision activations. The
+integer path took about 23 s for each prompt of about 20 tokens and 1.2 s per
+token after, one thread, release build: the exact products are not yet the
+fast path (step 8 of the plan). The measurement is the ledger's
+`OPEN-GREEDY-QWEN3-0.6B-INTEGER`.
