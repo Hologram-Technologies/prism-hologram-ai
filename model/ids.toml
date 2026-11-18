@@ -736,3 +736,9 @@ id = "EN-51"
 level = "build"
 suite = "engine"
 statement = "The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"
+
+[[id]]
+id = "EN-52"
+level = "build"
+suite = "engine"
+statement = "The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name"

@@ -10143,3 +10143,137 @@ fn engine_en_50() {
 fn engine_en_51() {
     en_49_check("llama");
 }
+
+/// GP-19's fixture imported through the page's module and opened there for
+/// the forward pass: the module's answer to `decode_open`.
+fn en_52_open(fixture: &En49) -> String {
+    let kept = std::rc::Rc::new(std::cell::RefCell::new(accepting()));
+    wasm::install_kernel(Box::new(Shared(kept)));
+    let graph = &fixture.graph;
+    let root = import_record("model.onnx", 0, graph).root.0;
+    let at = wasm::given(&root);
+    assert_eq!(
+        wasm::onnx_start(at, 32, graph.len() as u64, 0),
+        0,
+        "onnx_start"
+    );
+    wasm::release(at);
+    for chunk in graph.chunks(1 << 16) {
+        let at = wasm::given(chunk);
+        let status = wasm::onnx_take(at, chunk.len() as u32);
+        wasm::release(at);
+        assert_eq!(
+            status,
+            0,
+            "onnx_take: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+    }
+    assert_eq!(
+        wasm::onnx_graph_finish(),
+        0,
+        "{}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    assert_eq!(
+        wasm::onnx_finish(),
+        0,
+        "{}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    let (_, initializers) = en_49_graph(graph);
+    for (name, init) in &initializers {
+        let mut given = (name.len() as u32).to_le_bytes().to_vec();
+        given.extend_from_slice(name.as_bytes());
+        given.extend_from_slice(&(init.data_type as u32).to_le_bytes());
+        given.extend_from_slice(init.bytes);
+        let at = wasm::given(&given);
+        assert_eq!(
+            wasm::decode_tensor(at, given.len() as u32),
+            0,
+            "decode_tensor {name}"
+        );
+        wasm::release(at);
+    }
+    let c = en_49_config(fixture);
+    let config = serde_json::json!({
+        "heads": c.heads, "kv_heads": c.kv_heads, "rope_theta": c.rope_theta,
+        "rms_norm_eps": c.rms_norm_eps, "scaling": null,
+    })
+    .to_string();
+    let at = wasm::given(config.as_bytes());
+    let status = wasm::decode_open(at, config.len() as u32);
+    wasm::release(at);
+    assert_eq!(
+        status,
+        0,
+        "decode_open: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    String::from_utf8(wasm::last_answer()).expect("the sizes are JSON")
+}
+
+/// `EN-52`: The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name
+#[test]
+fn engine_en_52() {
+    let fixture = en_49_fixture("qwen3");
+    let sizes = en_52_open(&fixture);
+    assert!(
+        sizes.contains("\"vocab\":320"),
+        "the module opened another model: {sizes}"
+    );
+    // The module's run: the greedy token and the logits of each step.
+    let step = |token: u32| {
+        assert_eq!(
+            wasm::decode_step(token),
+            0,
+            "decode_step: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+        let said = wasm::last_answer();
+        let words: Vec<u32> = said
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        (words[0], words[1..].to_vec())
+    };
+    let mut last = (0, Vec::new());
+    for &id in &fixture.prompt {
+        last = step(id);
+    }
+    let (mut tokens, mut logits) = (Vec::new(), Vec::new());
+    for _ in 0..16 {
+        tokens.push(last.0);
+        logits.push(last.1.clone());
+        last = step(last.0);
+    }
+    // The same model run natively.
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let (native_tokens, native_logits) = en_49_run(&model, &fixture.prompt);
+    assert_eq!(
+        tokens, native_tokens,
+        "the module's tokens are not the native run's"
+    );
+    assert_eq!(
+        logits, native_logits,
+        "the module's logits are not the native run's, bit for bit"
+    );
+    assert_eq!(wasm::decode_clear(), 0);
+}
+
+/// `FL-59`: The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it
+#[test]
+fn engine_fl_59() {
+    let fixture = en_49_fixture("qwen3");
+    en_52_open(&fixture);
+    assert_eq!(
+        wasm::decode_step(320),
+        1,
+        "a token past the vocabulary was stepped"
+    );
+    assert_eq!(wasm::last_answer(), b"Decode(TokenOutOfRange)");
+    let _ = wasm::CallError::Decode(hologram_ai_cpu_decode::DecodeError::TokenOutOfRange);
+    assert_eq!(wasm::decode_clear(), 0);
+}

@@ -710,3 +710,15 @@ Feature: engine
     Given a Llama-shaped model written as Llama's fused q4f16 export with Llama 3 rope scaling in its config, and the float reference's tokens and logits after its prompt
     When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
     Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
+  @EN-52 @build
+  Scenario: The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name
+    Given GP-19's Qwen3-shaped export imported through the page's module, and each of its weights handed to decode_tensor
+    When decode_open is given its config and decode_step is called for the prompt and sixteen greedy tokens
+    Then every step's greedy token and logits are hologram-ai-cpu-decode's for the same model, bit for bit
+
+  @FL-59 @build
+  Scenario: The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it
+    Given GP-19's Qwen3-shaped export opened in the page's module
+    When decode_step is called with a token id equal to the vocabulary
+    Then the call answers no, and the module's answer is Decode(TokenOutOfRange)
