@@ -569,32 +569,32 @@ Feature: engine
     When their codec is asked for, or a product at a block of 24
     Then each returns ExactError::NoExactCodec
 
-  @EN-36 @build
-  Scenario: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits
+  @EN-37 @build
+  Scenario: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-40's bits
     Given inputs of 1 to 256 values with one spike among small ones, and the four schemes: eight or sixteen bits, per vector or per group of 32
     When each is put on integers by quantise_with, and multiplied by MatMulNBits matrices at every block, dense half and binary32 weights, and a ternary matrix
     Then every code is its input rounded to the nearest at its group's step, the largest step within the width's limit, and a spike sets the step only for its own group
     And every output's bits are the exact sum of each code times its weight and scale at its group's power, worked in the test and rounded once there
-    And eight bits per vector gives the same bits as EN-34's and EN-39's products
+    And eight bits per vector gives the same bits as EN-34's and EN-40's products
 
-  @EN-37 @build
-  Scenario: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
+  @EN-38 @build
+  Scenario: A row's exact terms are chained into decision 40's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
     Given MatMulNBits matrices at every block, under each activation scheme, with inputs that have a spike
     When each row's terms are taken by q4_row_terms and chained by row_links
-    Then every request is 79 bytes, starts with decision 39, and holds each link's partials and terms as decision 39 reads them
+    Then every request is 79 bytes, starts with decision 40, and holds each link's partials and terms as decision 40 reads them
     And each link's next partial is its partial plus its terms, and the first partial is zero
     And the last partial, rounded once at the chain's power, gives the bits q4_product_with gives
     And a term whose value could reach 2^58 at the chain's power makes the row too wide
 
-  @EN-38 @build
-  Scenario: An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
+  @EN-39 @build
+  Scenario: An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
     Given inputs that are ordinary, exactly halfway between codes, below the normal range, zero, near the largest binary32, and spikes beside values too small to reach a code
     When each is put on sixteen-bit codes per group of 32 and written by requant_requests
-    Then every request is 62 bytes and decision 40's, and names its group's largest input at the group's power
+    Then every request is 62 bytes and decision 41's, and names its group's largest input at the group's power
     And every input in it passes rqElementOk and the power passes rqLargest, as transcribed in the test from Kernel.Requant
     And every code is rqDownCode's for its input and step, and the codes are quantise_with's, in order
 
-  @EN-39 @build
+  @EN-40 @build
   Scenario: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
     Given MatMulNBits matrices at blocks of 16, 32, 64, 128 and 256, with a whole number of blocks and with the last block padded, half and binary32 scales of either sign, and zero points left out or packed four bits to a block
     And dense MatMul weights stored as binary32, half and bfloat16

@@ -1281,10 +1281,10 @@ pub struct RowTerm {
     pub exponent: i32,
 }
 
-/// Terms per link of decision 39.
+/// Terms per link of decision 40.
 pub const LINK_TERMS: usize = 6;
 
-/// Bytes of one decision-39 request.
+/// Bytes of one decision-40 request.
 pub const LINK_BYTES: usize = 79;
 
 /// Each row's terms for a q4 matrix times `input` under `scheme`: the terms
@@ -1315,14 +1315,14 @@ pub fn q4_row_terms(
         .collect()
 }
 
-/// One signed number as decision 39 reads it: a sign byte, then the
+/// One signed number as decision 40 reads it: a sign byte, then the
 /// magnitude in `width` bytes, most significant first.
 fn put_signed(out: &mut Vec<u8>, negative: bool, magnitude: u128, width: usize) {
     out.push(u8::from(negative));
     out.extend_from_slice(&magnitude.to_be_bytes()[16 - width..]);
 }
 
-/// A row's terms as decision 39's chain: the requests, each the partial so
+/// A row's terms as decision 40's chain: the requests, each the partial so
 /// far, up to [`LINK_TERMS`] terms and the partial after them, and the exact
 /// row it reaches, as an integer and the power it stands at. `None` when a
 /// term or a partial is too wide for the guest's 64-bit numbers: a partial at
@@ -1340,7 +1340,7 @@ pub fn row_links(terms: &[RowTerm]) -> Option<(Vec<[u8; LINK_BYTES]>, i128, i32)
     let mut partial: i128 = 0;
     for chunk in terms.chunks(LINK_TERMS) {
         let mut request = Vec::with_capacity(LINK_BYTES);
-        request.push(39);
+        request.push(40);
         let mut next = partial;
         let mut fields = Vec::with_capacity(10 * LINK_TERMS);
         for t in chunk {
@@ -1391,13 +1391,13 @@ pub fn round_exact(value: i128, power: i32) -> u32 {
     round_to_binary32(&row)
 }
 
-/// Bytes of one decision-40 request.
+/// Bytes of one decision-41 request.
 pub const REQUANT_BYTES: usize = 62;
 
-/// Inputs per decision-40 request.
+/// Inputs per decision-41 request.
 pub const REQUANT_INPUTS: usize = 5;
 
-/// One input's magnitude as decision 40 reads it: its mantissa, whether its
+/// One input's magnitude as decision 41 reads it: its mantissa, whether its
 /// group's power multiplies it up (1) or divides it down (0), and by how many
 /// powers of two.
 fn requant_place(value: Dyadic, exponent: i32) -> (u32, u8, u32) {
@@ -1410,7 +1410,7 @@ fn requant_place(value: Dyadic, exponent: i32) -> (u32, u8, u32) {
     }
 }
 
-/// Decision 40's requests for `input` put on sixteen-bit codes per group of
+/// Decision 41's requests for `input` put on sixteen-bit codes per group of
 /// [`ACTIVATION_GROUP`]: each request names its group's largest input, then up
 /// to [`REQUANT_INPUTS`] of the group's inputs, each with its quotient witness
 /// (`2 * half + odd`, the input divided down and rounded toward zero) and its
@@ -1439,7 +1439,7 @@ pub fn requant_requests(input: &[u32]) -> Result<Vec<[u8; REQUANT_BYTES]>, Exact
         let start = g * ACTIVATION_GROUP;
         for (c, chunk) in group.chunks(REQUANT_INPUTS).enumerate() {
             let mut request = Vec::with_capacity(REQUANT_BYTES);
-            request.push(40);
+            request.push(41);
             request.extend_from_slice(&lm.to_be_bytes());
             request.push(ld);
             request.push(u8::try_from(ls).unwrap_or(u8::MAX));
@@ -1463,7 +1463,7 @@ pub fn requant_requests(input: &[u32]) -> Result<Vec<[u8; REQUANT_BYTES]>, Exact
                 request.extend_from_slice(&code.to_be_bytes());
             }
             // A short last request repeats nothing: its unused inputs are
-            // zero, which decision 40 reads as code 0 for value 0.
+            // zero, which decision 41 reads as code 0 for value 0.
             request.resize(REQUANT_BYTES, 0);
             requests.push(request.try_into().map_err(|_| ExactError::LengthMismatch)?);
         }

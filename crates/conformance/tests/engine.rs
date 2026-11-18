@@ -7822,9 +7822,9 @@ fn nbits_matrix(case: &NbitsCase) -> exact::Q4Matrix<'_> {
     }
 }
 
-/// `EN-39`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
+/// `EN-40`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
 #[test]
-fn engine_en_39() {
+fn engine_en_40() {
     let mut draw = Draw(0x51_7cc1_b727_220a);
     let mut checked = 0;
     for &block in exact::Q4_BLOCKS.iter() {
@@ -8169,11 +8169,11 @@ const SCHEMES: [exact::Scheme; 4] = [
     },
 ];
 
-/// `EN-36`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits
+/// `EN-37`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-40's bits
 #[test]
 // Rows and outputs are indexed together with the weights and scales they read.
 #[allow(clippy::needless_range_loop)]
-fn engine_en_36() {
+fn engine_en_37() {
     let mut draw = Draw(0x6a09_e667_f3bc_c908);
     let spiky = |draw: &mut Draw, n: usize| -> Vec<f32> {
         let mut v: Vec<f32> = (0..n).map(|_| draw.unit() * 2.0).collect();
@@ -8255,7 +8255,7 @@ fn engine_en_36() {
         "the spike's own group has another step"
     );
 
-    // Per vector at eight bits is EN-34's and EN-39's input: the same bits.
+    // Per vector at eight bits is EN-34's and EN-40's input: the same bits.
     let vector8 = SCHEMES[0];
     for &block in exact::Q4_BLOCKS.iter() {
         let case = nbits_case(&mut draw, 3, 2 * block + block / 2 + 1, block, true, true);
@@ -8263,7 +8263,7 @@ fn engine_en_36() {
         assert_eq!(
             exact::q4_product_with(&bits(&input), &nbits_matrix(&case), vector8),
             exact::q4_product(&bits(&input), &nbits_matrix(&case)),
-            "block {block}: the eight-bit vector scheme is not EN-39's q4 product"
+            "block {block}: the eight-bit vector scheme is not EN-40's q4 product"
         );
     }
 
@@ -8354,7 +8354,7 @@ fn engine_en_36() {
                         n
                     )
                     .expect("well formed"),
-                    "the eight-bit vector scheme is not EN-39's dense product"
+                    "the eight-bit vector scheme is not EN-40's dense product"
                 );
             }
         }
@@ -8400,7 +8400,7 @@ fn engine_en_36() {
     }
 }
 
-/// Decision 39's signed number at `at`: a sign byte, then 8 bytes.
+/// Decision 40's signed number at `at`: a sign byte, then 8 bytes.
 fn link_number(request: &[u8], at: usize) -> i128 {
     let magnitude = u64::from_be_bytes(request[at + 1..at + 9].try_into().expect("8 bytes"));
     if request[at] == 1 {
@@ -8410,9 +8410,9 @@ fn link_number(request: &[u8], at: usize) -> i128 {
     }
 }
 
-/// `EN-37`: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
+/// `EN-38`: A row's exact terms are chained into decision 40's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
 #[test]
-fn engine_en_37() {
+fn engine_en_38() {
     let mut draw = Draw(0xbb67_ae85_84ca_a73b);
     let mut chained = 0;
     for scheme in SCHEMES {
@@ -8429,7 +8429,7 @@ fn engine_en_37() {
                 let mut partial = 0i128;
                 for (link, chunk) in links.iter().zip(row_terms.chunks(exact::LINK_TERMS)) {
                     assert_eq!(link.len(), exact::LINK_BYTES);
-                    assert_eq!(link[0], 39, "a link is not a decision-39 request");
+                    assert_eq!(link[0], 40, "a link is not a decision-40 request");
                     assert_eq!(
                         link_number(link, 1),
                         partial,
@@ -8506,8 +8506,8 @@ fn engine_en_37() {
     );
 }
 
-/// Decision 40's definitions, transcribed from `app/src/Kernel/Requant.lex.tex`
-/// for EN-38: each a plain function over the request's numbers.
+/// Decision 41's definitions, transcribed from `app/src/Kernel/Requant.lex.tex`
+/// for EN-39: each a plain function over the request's numbers.
 mod requant_definition {
     pub fn pow2(power: u64) -> u128 {
         1u128 << power
@@ -8577,9 +8577,9 @@ mod requant_definition {
     }
 }
 
-/// `EN-38`: An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
+/// `EN-39`: An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
 #[test]
-fn engine_en_38() {
+fn engine_en_39() {
     use requant_definition as d;
     let mut draw = Draw(0x510e_527f_ade6_82d1);
     let mut inputs: Vec<Vec<f32>> = Vec::new();
@@ -8628,7 +8628,7 @@ fn engine_en_38() {
         let mut codes = Vec::new();
         for request in &requests {
             assert_eq!(request.len(), exact::REQUANT_BYTES);
-            assert_eq!(request[0], 40, "a request that is not decision 40's");
+            assert_eq!(request[0], 40, "a request that is not decision 41's");
             let n = |at: usize, width: usize| {
                 request[at..at + width]
                     .iter()
@@ -8645,7 +8645,7 @@ fn engine_en_38() {
                 let (half, odd, code) = (n(b + 6, 2), n(b + 8, 1), n(b + 9, 2));
                 assert!(
                     d::element_ok(value, direction, shift, half, odd, code),
-                    "input {i} of a request fails decision 40: {:?}",
+                    "input {i} of a request fails decision 41: {:?}",
                     &request[b..b + 11]
                 );
                 if direction == 0 && shift <= 39 {
