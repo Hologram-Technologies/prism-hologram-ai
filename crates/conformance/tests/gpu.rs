@@ -1211,3 +1211,52 @@ fn gpu_gp_21() {
         );
     }
 }
+
+/// `GP-22`: The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read
+#[test]
+fn gpu_gp_22() {
+    // The journey runs the loads in a browser (`just page-journey`); this test
+    // reads that the page asks the kernel's decisions 21, 24 and 22 and acts on
+    // their answers, and that the journey checks each answer was the one used.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "new Uint8Array([24, 0, PRECISIONS[name], 0, 0])",
+        "new Uint8Array([24, 0, PRECISIONS[chosen], sizes[chosen].data, part])",
+        "join(new Uint8Array([21]), offer(\"q4f16\"), offer(\"q4\"),",
+        "const path = sizes[chosen].path;",
+        "join(new Uint8Array([22, device ? 1 : 0]),",
+        "return on === \"webgpu\" ? createEngine(",
+        "state.device = on;",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    for gone in [
+        "ONNX_FILES",
+        "decision 24 is not asked here yet",
+        "(22) is not asked here yet",
+    ] {
+        assert!(
+            !page.contains(gone),
+            "site/app/app.mjs still names its own choice: `{gone}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "the precision was not the kernel's q4f16",
+        "the graph's file was not the kernel's",
+        "the device was not the kernel's",
+        "onnx q4: expected the kernel to refuse a precision the record does not offer",
+        "onnx q4: the load went on past the precision",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
