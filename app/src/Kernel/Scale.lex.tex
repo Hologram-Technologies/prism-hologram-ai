@@ -1,0 +1,99 @@
+\begin{lexlean}{Kernel.Scale}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: halfExponent,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient bits 1024 0 : Nat) 32 0 : Nat)
+}
+
+definition{
+  name: halfMantissa,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim remainder bits 1024 0 : Nat)
+}
+
+definition{
+  name: halfNegative,
+  parameters: [bits : Nat],
+  result: Bool,
+  body: (32768 <=? bits)
+}
+
+definition{
+  name: twoTo,
+  parameters: [power : Nat],
+  result: Nat,
+  body: (match power
+    | Nat.zero => 1
+    | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat)),
+  recursive_argument: power
+}
+
+definition{
+  name: halfOf,
+  parameters: [exponent : Nat, mantissa : Nat],
+  result: Nat,
+  body: (match exponent
+    | Nat.zero => mantissa
+    | Nat.succ below => (prim multiply (1024 + mantissa) (twoTo below) : Nat))
+}
+
+definition{
+  name: halfUnits,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (halfOf (halfExponent bits) (halfMantissa bits))
+}
+
+definition{
+  name: sumSize,
+  parameters: [offset : Nat],
+  result: Nat,
+  body: (if (32768 <=? offset) then (prim subtract offset 32768 : Nat) else (prim subtract 32768 offset : Nat))
+}
+
+definition{
+  name: scaledSize,
+  parameters: [offset : Nat, bits : Nat],
+  result: Nat,
+  body: (prim multiply (sumSize offset) (halfUnits bits) : Nat)
+}
+
+definition{
+  name: scaledNegative,
+  parameters: [offset : Nat, bits : Nat],
+  result: Bool,
+  body: ((0 <? (scaledSize offset bits)) && (if (halfNegative bits) then (32768 <=? offset) else (offset <? 32768)))
+}
+
+definition{
+  name: signCode,
+  parameters: [negative : Bool],
+  result: Nat,
+  body: (if negative then 1 else 0)
+}
+
+definition{
+  name: scaleAccepts,
+  parameters: [offset : Nat, bits : Nat, sign : Nat, size : Nat],
+  result: Bool,
+  body: ((size =? (scaledSize offset bits)) && (sign =? (signCode (scaledNegative offset bits))))
+}
+
+definition{
+  name: scaleAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? 16) && ((Kernel.Wire::fieldAt value 1 4) <=? 65536)) && ((Kernel.Wire::fieldAt value 7 1) <=? 1)) then (if ((halfExponent (Kernel.Wire::fieldAt value 5 2)) =? 31) then (prim utf8_encode "not finite" : Bytes) else (if (scaleAccepts (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1) (Kernel.Wire::fieldAt value 8 8)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

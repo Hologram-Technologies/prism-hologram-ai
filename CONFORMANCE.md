@@ -59,6 +59,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
 | `EN-34` | `build` | A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code |
 | `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one |
+| `EN-36` | `build` | Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one |
 
 ## gpu
 
@@ -127,6 +128,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-34` | `build` | One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise |
 | `KN-35` | `build` | A content label is admitted as an address exactly when its first seven bytes are blake3:, and any other axis, sha256: among them, is refused as not blake3 |
 | `KN-36` | `build` | A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions |
+| `KN-37` | `build` | One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite |
 
 ## Public failures
 

@@ -86,6 +86,7 @@ runtime's crates are not published there.
 | `EN-32`: a WordPiece `tokenizer.json` in BERT's shape gives the ids HuggingFace's own `tokenizers` gives, and a WordPiece file asking for another step is refused by the step | `engine_en_32`, over 2,135 texts and five files, the unknown token reached 13,820 times; eleven refusals | tested against the authority |
 | `EN-33`: an ONNX export is imported through the page's module, every question put to the kernel the page runs through one import exactly as the importer asks natively, and the model handed back as the nodes, tensors and places the role map reads | `engine_en_33`, EN-31's model in pieces of 7, 4096 and the whole graph; and once, locally, Qwen3-0.6B's real q4f16 export through the release module and the published kernel | tested; real export measured |
 | `EN-35`: every group sum `hologram-ai-exact` takes of a q4 block is one the compiled guest answers `exact` for decision 34 | `engine_en_35`, eight blocks and 17 claims; `replay.mjs` in the `app` recipe | tested here; replayed in main's published guest; replayed in this holo's guest on CI |
+| `EN-36`: every group sum `hologram-ai-exact` scales by an IEEE half is one the compiled guest answers `exact` for decision 37 | `engine_en_36`, nine groups and 20 claims; `replay.mjs` in the `app` recipe | tested here; replayed in this holo's guest on CI |
 | `FL-49`: the importer's refusal reaches the page as the importer's own failure | `engine_fl_49` | tested |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
@@ -2097,3 +2098,46 @@ published one. The gate covers the group sum only: the crate's quantisation of
 the input and its recombination of the sums with the scales are still
 floating point with no LexLean definition, which the engine's rule does not
 allow in a shipped path.
+
+## EN-36, the crate's scaled sums confirmed by the kernel
+
+`hologram-ai-exact` reads each IEEE half scale as an exact `Dyadic`, a
+mantissa times a power of two no lower than 2^-24 (EN-34, #52), and a row
+combines each group's sum times that mantissa at that exponent. `Kernel.Scale`
+(KN-37) defines one such product as a count of 2^-24, which is the sum times
+the mantissa shifted up by the exponent's distance from -24. Nine groups, the
+sums at both ends of a block's range and zero, times halves that are one, the
+largest, the smallest subnormal, the smallest normal, negative and negative
+zero, give 18 claims from the crate's `Dyadic::from_binary16`, each product
+`exact` and each product plus one `differs`, with one `not finite` and one
+`invalid request`. They join `crates/conformance/tests/kernel/claims.json`,
+which the `app` recipe replays through the guest it builds.
+
+The first form of this change added its own `half_units` to the crate; #52
+reached main first with `Dyadic`, so the gate holds `Dyadic` to the kernel
+instead, and the 18 claims computed from `half_units` were unchanged when
+computed from `Dyadic`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_36`
+
+Run on 2026-11-18 in WSL with the pinned toolchain. Each defect was planted
+alone in `hologram-ai-exact` or the client and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| a normal half's exponent read one too high | the kernel reads another group |
+| a half's sign dropped | the kernel reads another group |
+| a subnormal half read with the hidden bit | the kernel reads another group |
+| the half's exponent bias taken as 16 | the kernel reads another group |
+| the client writes the sign of a positive claim | the kernel reads another group |
+| the client writes the half little-endian | the kernel reads another group |
+| an `exact` claim listed as `differs` | the claims lack 1 |
+| none | passed |
+
+### What EN-36 does not establish
+
+The kernel checks one group's product at a time; summing a row's products in
+the complete register and rounding the row to binary32 are not yet defined in
+LexLean, and the input's quantisation is not either. Only the published
+guest, which has no decision 37, could be run locally; this holo's guest runs
+the decision-37 claims on CI.
