@@ -71,7 +71,7 @@ let session = null;
 // app.holo from its cache, and a cache from an earlier deploy can outlive it
 // (UOR-Foundation/template#83): an old kernel then refuses requests it never
 // knew, and its refusal would read as a verdict. precache.json is written at
-// deploy with every served file's SHA-256 and the worker never answers it, so
+// deploy with every served file's BLAKE3 and the worker never answers it, so
 // it is the one listing the cache cannot serve stale.
 const HOLO = "../app.holo";
 const fetchBytes = async (url) => {
@@ -85,16 +85,16 @@ async function deployedKernel() {
   if (!response.ok) throw new Error(`precache.json: HTTP ${response.status}`);
   const entry = (await response.json()).files.find((f) => f.path === "./app.holo");
   if (!entry) throw new Error("precache.json lists no app.holo");
-  return entry.sha256;
+  return entry.blake3;
 }
 async function sameKernel(holo, listed) {
   const subject = "kernel is the one this deploy lists";
-  const hex = (buffer) => Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, "0")).join("");
-  const held = hex(await crypto.subtle.digest("SHA-256", holo));
+  const { blake3Hex } = await import("../vendor/prism-code/src/blake3.mjs");
+  const held = blake3Hex(holo);
   // A page served outside a deploy (a local preview) has no listing to compare.
-  if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held sha256 ${held}`);
-  if (held === listed) return checks.add("kernel", subject, "pass", `sha256 ${held}`);
-  checks.add("kernel", subject, "fail", `deployed sha256 ${listed}, held sha256 ${held}`);
+  if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held blake3 ${held}`);
+  if (held === listed) return checks.add("kernel", subject, "pass", `blake3 ${held}`);
+  checks.add("kernel", subject, "fail", `deployed blake3 ${listed}, held blake3 ${held}`);
   // Remove the stale copy so the next load fetches this deploy's kernel.
   for (const name of globalThis.caches ? await caches.keys() : []) {
     if (name.startsWith("prism-")) await (await caches.open(name)).delete(new URL(HOLO, location.href).href, { ignoreSearch: true });
@@ -300,6 +300,24 @@ async function send(event) {
   $("send").disabled = false;
 }
 
+// How many ids two prompts open with in common.
+const opening = (a, b) => {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n++;
+  return n;
+};
+// The BLAKE3 of token ids, four bytes each, little-endian, by the module.
+const label = (ids) => {
+  const m = session.module;
+  const bytes = new Uint8Array(4 * ids.length);
+  const view = new DataView(bytes.buffer);
+  ids.forEach((id, i) => view.setUint32(4 * i, id, true));
+  const id = new DataView(m.call("hash_start").slice().buffer).getUint32(0, true);
+  m.callWith("hash_take", bytes, id);
+  return m.call("hash_finish", id).slice();
+};
+const hexOf = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
 async function answer() {
   const { engine, ask } = session;
   // An empty box asks the example its placeholder shows.
@@ -307,10 +325,10 @@ async function answer() {
   // An ONNX export's turn is written by its own chat template (Qwen3's with
   // thinking off, as the page answers directly); a weight container's by the
   // frame above.
-  const framed = session.chat
-    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content: text }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
-    : frame(text);
-  const prompt = encode(framed);
+  const framing = (content) => session.chat
+    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
+    : frame(content);
+  const prompt = encode(framing(text));
   // The model stops on the id its own file names (EN-28); a file naming none
   // runs to the turn's budget.
   // An ONNX export names them in its generation_config.json, read at load.
@@ -320,19 +338,40 @@ async function answer() {
   const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(256, 8)), (a) => /^\d+$/.test(a)));
   const t0 = performance.now();
   let firstAt = t0;
-  const out = await engine.run(prompt, budget, {
+  // The frame's head, the ids every turn opens with, is computed once and kept
+  // under the BLAKE3 of those ids. A later turn asks the kernel (decision 27)
+  // whether the held label is the label of its own opening ids, so a turn whose
+  // text merges into the head, or a template whose head changed (a date), is
+  // computed from the start.
+  session.head ??= opening(encode(framing("a")), encode(framing("b")));
+  let from = 0;
+  let reuse = null;
+  if (session.held) {
+    const { length, label: held } = session.held;
+    const asked = label(prompt.slice(0, length));
+    const verdict = await ask("reuse", "computed prefix to reuse", join(new Uint8Array([27]), asked, held, be(length, 4), be(prompt.length, 4)), (a) => a === "reuse" || a === "recompute");
+    reuse = { length, asked: hexOf(asked), held: hexOf(held), verdict };
+    if (verdict === "reuse") {
+      engine.restoreState(session.held.state);
+      from = length;
+    }
+  }
+  const out = await engine.run(prompt.slice(from), budget, {
     stops,
     onFirst: () => { firstAt = performance.now(); },
     onToken: (ids) => { $("answer").textContent = decode(ids); },
   });
   const end = performance.now();
-  state.output = { prompt: text, promptIds: prompt, promptTokens: prompt.length, tokens: out, text: decode(out) };
+  if (!session.held && session.head > 0 && session.head < prompt.length) {
+    session.held = { length: session.head, label: label(prompt.slice(0, session.head)), state: engine.saveState(session.head) };
+  }
+  state.output = { prompt: text, promptIds: prompt, promptTokens: prompt.length, tokens: out, text: decode(out), reuse, computed: prompt.length - from };
   state.stats = {
     timeToFirstToken: (firstAt - t0) / 1000,
     tokensPerSecond: out.length > 1 ? (out.length - 1) / ((end - firstAt) / 1000) : 0,
     generated: out.length,
   };
-  $("stats").textContent = `${out.length} tokens · first token ${state.stats.timeToFirstToken.toFixed(2)} s · ${state.stats.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)`;
+  $("stats").textContent = `${out.length} tokens · first token ${state.stats.timeToFirstToken.toFixed(2)} s · ${state.stats.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${from ? ` · ${from} of ${prompt.length} prompt positions reused` : ""}`;
 }
 
 $("load").addEventListener("click", load);

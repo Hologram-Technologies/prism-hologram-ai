@@ -447,3 +447,11 @@ type = "ExactError"
 variant = "LengthMismatch"
 suite = "engine"
 condition = "A buffer handed to an exact product is not the length its shape implies"
+
+[[failure]]
+id = "FL-53"
+crate = "exact"
+type = "ExactError"
+variant = "ScaleNotFinite"
+suite = "engine"
+condition = "A scale stored with an exact product's weights is not a finite number"

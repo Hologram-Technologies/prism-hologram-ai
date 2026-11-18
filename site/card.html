@@ -39,10 +39,11 @@
     <option value="33">34. Block check</option>
     <option value="34">35. Address axis</option>
     <option value="35">36. Integer run</option>
-    <option value="36">37. Stored bits as integers</option>
-    <option value="37">38. Declared narrowing</option>
-    <option value="38">39. Row recombination</option>
-    <option value="39">40. Requantised inputs</option>
+    <option value="36">37. Scale check</option>
+    <option value="37">38. Stored bits as integers</option>
+    <option value="38">39. Declared narrowing</option>
+    <option value="39">40. Row recombination</option>
+    <option value="40">41. Requantised inputs</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2058,6 +2059,39 @@
       "tag": 36
     },
     {
+      "asks": "Is this claimed product of one group's sum and its half scale exact?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Group sum plus 32768",
+          "value": 32769,
+          "width": 4
+        },
+        {
+          "at": 5,
+          "name": "Scale, IEEE half bits",
+          "value": 15360,
+          "width": 2
+        },
+        {
+          "at": 7,
+          "name": "Claim's sign, 1 for negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 8,
+          "name": "Claim's magnitude, in units of 2^-24",
+          "value": 16777216,
+          "width": 8
+        }
+      ],
+      "length": 16,
+      "module": "Scale",
+      "name": "Scale check",
+      "tag": 37
+    },
+    {
       "asks": "What integers do these stored bits hold?",
       "fields": [
         {
@@ -2094,7 +2128,7 @@
       "length": 6,
       "module": "Codec",
       "name": "Stored bits as integers",
-      "tag": 37
+      "tag": 38
     },
     {
       "asks": "May this step narrow a value, with this width and bound?",
@@ -2159,7 +2193,7 @@
       "length": 12,
       "module": "Narrow",
       "name": "Declared narrowing",
-      "tag": 38
+      "tag": 39
     },
     {
       "asks": "Is this the exact partial sum after these terms?",
@@ -2416,7 +2450,7 @@
       "length": 79,
       "module": "Rows",
       "name": "Row recombination",
-      "tag": 39
+      "tag": 40
     },
     {
       "asks": "Are these sixteen-bit codes the inputs at the group's largest power?",
@@ -2733,7 +2767,7 @@
       "length": 62,
       "module": "Requant",
       "name": "Requantised inputs",
-      "tag": 40
+      "tag": 41
     }
   ],
   "request": 81

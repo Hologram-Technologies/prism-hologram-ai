@@ -324,6 +324,10 @@ fn gpu_gp_06() {
             .unwrap_or_else(|| panic!("app.mjs no longer has: {needle}"))
     };
     assert!(page.contains("fetch(\"../precache.json\", { cache: \"no-store\" })"));
+    assert!(
+        page.contains("const held = blake3Hex(holo);") && page.contains("return entry.blake3;"),
+        "the kernel is no longer compared with the listing by BLAKE3"
+    );
     let load = at("async function load()");
     let compare = load
         + page[load..]
@@ -359,7 +363,7 @@ fn gpu_gp_06() {
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
         "stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true }",
-        "f.sha256 = \"0\".repeat(64)",
+        "f.blake3 = \"0\".repeat(64)",
         "staleStop?.subject !== \"kernel is the one this deploy lists\"",
         "!/^stale kernel/.test(stale.error ?? \"\")",
         "the page went on past the kernel",
@@ -410,7 +414,19 @@ fn gpu_gp_07() {
         !page.contains("src=\"./app.mjs\""),
         "the engine must not be loaded by a script tag, which runs whatever the cache holds"
     );
+    // Cached files and the listing are compared by BLAKE3, the one address
+    // Hologram AI names its own files by.
+    assert!(
+        !page.contains("SHA-256"),
+        "site/app/index.html compares cached files by SHA-256"
+    );
+    let listing = read("bootstrap/precache.mjs");
+    assert!(
+        listing.contains("blake3: blake3Hex(bytes),") && !listing.contains("createHash"),
+        "bootstrap/precache.mjs no longer lists each file by its BLAKE3 alone"
+    );
     for wanted in [
+        "const held = blake3Hex(new Uint8Array(await (await cache.match(request)).arrayBuffer()));",
         "if (held !== want) {",
         "await cache.delete(request);",
         "location.reload();",
@@ -1160,7 +1176,7 @@ fn gpu_gp_20() {
         "the template is not compiled"
     );
     let page = read("site/app/app.mjs");
-    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
+    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
 /// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
@@ -1253,6 +1269,43 @@ fn gpu_gp_22() {
         "the device was not the kernel's",
         "onnx q4: expected the kernel to refuse a precision the record does not offer",
         "onnx q4: the load went on past the precision",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-23`: The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt
+#[test]
+fn gpu_gp_23() {
+    // The journey runs two turns in a browser (`just page-journey`); this test
+    // reads that the page asks the kernel's decision 27 with the label of the
+    // prompt's own opening ids, and computes only what follows a reused head.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "const asked = label(prompt.slice(0, length));",
+        "join(new Uint8Array([27]), asked, held, be(length, 4), be(prompt.length, 4))",
+        "engine.restoreState(session.held.state);",
+        "const out = await engine.run(prompt.slice(from), budget, {",
+        "label: label(prompt.slice(0, session.head)), state: engine.saveState(session.head)",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "the first turn asked to reuse a prefix",
+        "the second turn did not ask the kernel to reuse the head",
+        "the label asked is not the BLAKE3 of the prompt's first",
+        "the second turn computed",
+        "the second turn's tokens",
     ] {
         assert!(
             journey.contains(wanted),

@@ -2756,9 +2756,152 @@ fn kernel_kn_36() {
     );
     assert_routed(36, "Kernel.Integer::integerAnswer");
 }
-/// `KN-37`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+
+/// `KN-37`: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
 #[test]
 fn kernel_kn_37() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Scale.lex.tex");
+    let proofs = model("app/src/Proofs/Scale.lex.tex");
+    assert_pinned(
+        &proofs,
+        "two_to_doubles",
+        "((Kernel.Scale::twoTo (power + 1)) = (prim multiply 2 (Kernel.Scale::twoTo power) : Nat))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "half_subnormal_is_mantissa",
+        "((Kernel.Scale::halfOf 0 mantissa) = mantissa)",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "half_normal_is_scaled",
+        "((Kernel.Scale::halfOf (below + 1) mantissa) = (prim multiply (1024 + mantissa) (Kernel.Scale::twoTo below) : Nat))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "sum_size_about_offset",
+        "(((32768 <= offset) -> (((Kernel.Scale::sumSize offset) + 32768) = offset)) /\\ ((offset < 32768) -> (((Kernel.Scale::sumSize offset) + offset) = 32768)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "zero_is_not_negative",
+        "(((Kernel.Scale::scaledSize offset bits) = 0) -> ((Kernel.Scale::scaledNegative offset bits) = false))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "scale_accepts_size",
+        "(((Kernel.Scale::scaleAccepts offset bits sign size) = true) -> (size = (Kernel.Scale::scaledSize offset bits)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "scale_accepts_sign",
+        "(((Kernel.Scale::scaleAccepts offset bits sign size) = true) -> (sign = (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "scale_accepts_the_claim",
+        "((Kernel.Scale::scaleAccepts offset bits (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits)) (Kernel.Scale::scaledSize offset bits)) = true)",
+        "propext",
+    );
+    let found = declaration(&kernel, "halfExponent");
+    assert!(
+        found.contains("body: (prim remainder (prim quotient bits 1024 0 : Nat) 32 0 : Nat)"),
+        "halfExponent changed:\n{found}"
+    );
+    let found = declaration(&kernel, "halfMantissa");
+    assert!(
+        found.contains("body: (prim remainder bits 1024 0 : Nat)"),
+        "halfMantissa changed:\n{found}"
+    );
+    assert!(
+        kernel.contains(
+            "\ndefinition{name: halfNegative, parameters: [bits : Nat], result: Bool, \
+             body: (32768 <=? bits)}\n"
+        ),
+        "halfNegative changed"
+    );
+    let found = declaration(&kernel, "halfUnits");
+    assert!(
+        found.contains("body: (halfOf (halfExponent bits) (halfMantissa bits))"),
+        "halfUnits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sumSize");
+    assert!(
+        found.contains("body: (if (32768 <=? offset) then (prim subtract offset 32768 : Nat) else (prim subtract 32768 offset : Nat))"),
+        "sumSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "scaledSize");
+    assert!(
+        found.contains("body: (prim multiply (sumSize offset) (halfUnits bits) : Nat)"),
+        "scaledSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "scaledNegative");
+    assert!(
+        found.contains("body: ((0 <? (scaledSize offset bits)) && (if (halfNegative bits) then (32768 <=? offset) else (offset <? 32768)))"),
+        "scaledNegative changed:\n{found}"
+    );
+    let found = declaration(&kernel, "signCode");
+    assert!(
+        found.contains("body: (if negative then 1 else 0)"),
+        "signCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "scaleAccepts");
+    assert!(
+        found.contains("body: ((size =? (scaledSize offset bits)) && (sign =? (signCode (scaledNegative offset bits))))"),
+        "scaleAccepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "scaleAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 16) && ((Kernel.Wire::fieldAt value 1 4) <=? 65536)) && ((Kernel.Wire::fieldAt value 7 1) <=? 1)) then (if ((halfExponent (Kernel.Wire::fieldAt value 5 2)) =? 31) then (prim utf8_encode \"not finite\" : Bytes) else (if (scaleAccepts (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1) (Kernel.Wire::fieldAt value 8 8)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "scaleAnswer changed:\n{found}"
+    );
+    let found = declaration(&kernel, "twoTo");
+    assert!(
+        found.contains(
+            "body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (twoTo rest) : Nat))"
+        ),
+        "twoTo changed:\n{found}"
+    );
+    let found = declaration(&kernel, "halfOf");
+    assert!(
+        found.contains(
+            "body: (match exponent\n    | Nat.zero => mantissa\n    \
+             | Nat.succ below => (prim multiply (1024 + mantissa) (twoTo below) : Nat))"
+        ),
+        "halfOf changed:\n{found}"
+    );
+    assert_routed(37, "Kernel.Scale::scaleAnswer");
+    // The claims the crates make of decision 37 cover every answer, a scale
+    // that is not finite included; the app recipe replays them in the guest.
+    let claims =
+        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("the claims the crates make of the kernel");
+    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let answers: Vec<&str> = claims["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .filter(|one| one["request"].as_str().is_some_and(|r| r.starts_with("25")))
+        .filter_map(|one| one["answer"].as_str())
+        .collect();
+    for answer in ["exact", "differs", "not finite", "invalid request"] {
+        assert!(
+            answers.contains(&answer),
+            "no decision-37 claim is answered `{answer}`"
+        );
+    }
+}
+/// `KN-38`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+#[test]
+fn kernel_kn_38() {
     assert_proofs_are_gated();
     let kernel = model("app/src/Kernel/Codec.lex.tex");
     let proofs = model("app/src/Proofs/Codec.lex.tex");
@@ -2845,11 +2988,11 @@ fn kernel_kn_37() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "codecAnswer changed:\n{found}"
     );
-    assert_routed(37, "Kernel.Codec::codecAnswer");
+    assert_routed(38, "Kernel.Codec::codecAnswer");
 }
-/// `KN-38`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
+/// `KN-39`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
 #[test]
-fn kernel_kn_38() {
+fn kernel_kn_39() {
     assert_proofs_are_gated();
     let kernel = model("app/src/Kernel/Narrow.lex.tex");
     let proofs = model("app/src/Proofs/Narrow.lex.tex");
@@ -2869,7 +3012,7 @@ fn kernel_kn_38() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"refuse\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "narrowAnswer changed:\n{found}"
     );
-    assert_routed(38, "Kernel.Narrow::narrowAnswer");
+    assert_routed(39, "Kernel.Narrow::narrowAnswer");
 }
 /// `KN-40`: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
 #[test]

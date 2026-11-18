@@ -282,19 +282,26 @@ Feature: kernel
     And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
 
   @KN-37 @build
+  Scenario: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
+    Given a request of the tag 37, a group sum plus 32768 in four bytes, an IEEE half in two, a sign byte and a magnitude in eight
+    When the kernel reads the half as its fraction when its exponent field is zero and as 1024 plus its fraction times 2 to the field less one otherwise, and multiplies the sum's magnitude by it
+    Then the answer is exact exactly when the magnitude is that product and the sign is 1 just when the product is nonzero and the two signs differ
+    And a zero product is never negative, a half whose exponent field is 31 is answered not finite, and a request of another length is answered invalid request
+    And the theorems of Proofs.Scale state each of these and are pinned with their axioms
+  @KN-38 @build
   Scenario: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
     Given the codec model in app/src/Kernel/Codec.lex.tex and its proofs in app/src/Proofs/Codec.lex.tex
     When the Lean kernel checks codec_round_trip, codec_fields_fit and the four codec_reads_back theorems during lexlean verify in the gate
     Then every stored value narrower than its format encodes back from its fields to exactly the stored bits
     And every field lies within its width, and fields within their widths read back unchanged from their encoding
-    And the answer to decision 37 is the fields in decimal, and invalid request for an unknown format or a value wider than it
+    And the answer to decision 38 is the fields in decimal, and invalid request for an unknown format or a value wider than it
 
-  @KN-38 @build
+  @KN-39 @build
   Scenario: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
     Given the narrowing model in app/src/Kernel/Narrow.lex.tex and its proofs in app/src/Proofs/Narrow.lex.tex
     When the Lean kernel checks narrow_accepted_decides during lexlean verify in the gate
     Then a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits, its output 1 to 32 bits, and its certified error at most its declared bound
-    And the answer to decision 38 is accept or refuse, and invalid request for an unknown step or any length but 12
+    And the answer to decision 39 is accept or refuse, and invalid request for an unknown step or any length but 12
 
   @KN-40 @build
   Scenario: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum

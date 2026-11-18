@@ -79,10 +79,13 @@ The inherited gates and their own planted defects are in
 | The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
+| `KN-37`: one group's sum times its IEEE half is `exact` exactly when the claimed magnitude is the sum's magnitude times `halfUnits` and the claimed sign is 1 just when that product is nonzero and the signs differ; a zero product is never negative; a half with exponent field 31 is `not finite` | `scale_accepts_size`, `scale_accepts_sign`, `scale_accepts_the_claim`, `zero_is_not_negative`, `sum_size_about_offset`, and `halfOf` by `half_subnormal_is_mantissa`, `half_normal_is_scaled` and `two_to_doubles`; checked by the Lean kernel | proved |
+| That `halfUnits` is the half's value in units of 2^-24 | argued from the two `halfOf` theorems and `two_to_doubles`: a subnormal is its fraction, a normal half of field `e` is `(1024 + fraction) * 2^(e-1)`; the value itself is not stated, because the proof language's arithmetic is linear | not proved |
+| Decision 37 answers the crate's claims in the compiled guest | `replay.mjs` in the `app` recipe, over the decision-37 claims in `crates/conformance/tests/kernel/claims.json` | tested on CI |
 | Decisions 29 to 34 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
-| `KN-37`: a stored q4 byte, half, bfloat16 or binary32 is read into integer fields that encode back to exactly the stored bits; every field lies within its width; fields within their widths read back unchanged | `codec_round_trip`, `codec_fields_fit` and `codec_reads_back_q4`, `_half`, `_bfloat16`, `_binary32`, checked by the Lean kernel | proved |
+| `KN-38`: a stored q4 byte, half, bfloat16 or binary32 is read into integer fields that encode back to exactly the stored bits; every field lies within its width; fields within their widths read back unchanged | `codec_round_trip`, `codec_fields_fit` and `codec_reads_back_q4`, `_half`, `_bfloat16`, `_binary32`, checked by the Lean kernel | proved |
 | The fields of a half, bfloat16 or binary32 stand for the IEEE 754 value `(-1)^sign * fraction-with-leading-bit * 2^(exponent - bias)` | the reading in `crates/exact` (`Dyadic`), tested against Rust's own conversions in `EN-34` on the cases drawn | tested, not proved |
-| `KN-38`: a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits (a table of at most 65,536 entries), its output 1 to 32 bits, and its certified error within its declared bound | `narrow_accepted_decides`, checked by the Lean kernel | proved |
+| `KN-39`: a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits (a table of at most 65,536 entries), its output 1 to 32 bits, and its certified error within its declared bound | `narrow_accepted_decides`, checked by the Lean kernel | proved |
 | The certified error of a narrowing's table is its true worst error | the table generator's, to be checked when each table is built; no table exists yet | not proved |
 | `KN-40`: one link of a row's exact recombination is `exact` exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part; a part counts on one side only, by its sign; two exact links compose into one, so a chain confirms the plain sum of every term in it; at most one claim is exact | `rows_accepts_decides`, `rows_part_splits`, `rows_part_one_side`, `rows_links_compose` and `rows_one_claim`, checked by the Lean kernel | proved |
 | A chain of any length confirms the plain sum | follows from `rows_links_compose` by induction on the number of links; no theorem states the induction, because the request holds one link | argued, not proved |
@@ -96,7 +99,7 @@ The inherited gates and their own planted defects are in
 | `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; EN-39 (branch `exact-codecs`) checks, for every input it writes, that the code is `rqDownCode`'s, passes the transcribed `rqElementOk`, and is `quantise_with`'s | tested, not proved |
 | No number decision 41 computes passes 64 bits | the guards in `rqElementOk` and `rqLargest` (mantissa below `2^24`, quotient at most 32767, a down shift at most 39 and an up shift at most 15, each inside an `if` so no product is formed before them), pinned by `kernel_kn_41` | tested, not proved |
 | Decision 41 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
-| Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
+| Decisions 38 and 39 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
@@ -966,13 +969,59 @@ decisions 35 and 36 is left to the gate on CI. `site/og.png` was not redrawn
 here (the pinned Pillow wheel does not match this machine's Python); the
 deploy draws it.
 
-## KN-37 and KN-38, lossless reading and declared narrowing
+## KN-37, scale check
+
+Decision 37 checks one group's sum times its scale, the step after decision
+34 in a q4f16 product. A half is an integer times a power of two, so the
+product is exact in units of 2^-24, the smallest positive half: a subnormal
+half is its 10-bit fraction, and a normal half of exponent field `e` is
+`(1024 + fraction) * 2^(e-1)`, at most `2047 * 2^29`. The request is 16
+bytes: the tag, the group sum plus 32768 in four bytes, the half in two, the
+claim's sign in one and its magnitude in eight. The sum's magnitude is at most
+32768, so the product is below 2^56 and fits the guest's 64-bit naturals.
+The kernel works in natural numbers: the sum's magnitude and sign, the half's
+magnitude and sign, and a product that is negative only when it is nonzero
+and the two signs differ, so zero has one form.
+
+The answer is `exact`, `differs`, `not finite` for a half whose exponent field
+is 31, or `invalid request`.
+
+The first form of `halfOf` was a 31-way chain of literal powers. Lean rejected
+its theorems: `omega` treats the chain as one opaque number, and `simplify`
+left `Nat.beq 0 0` unreduced. A second form, `if exponent = 0 then mantissa
+else (1024 + mantissa) * twoTo (exponent - 1)`, failed one theorem on
+`below + 1 - 1`. The third matches on the exponent and passed.
+
+The axioms each theorem declares are the ones Lean observed: the hosted
+prover refuses any other set (`LLV7005: violates its exact axiom policy`),
+one theorem per run, so each was learned from its own run.
+
+### The pinned test: `kernel_kn_35`
+
+Run on 2026-11-18 in WSL with the pinned toolchain. Each defect was planted
+alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| `halfOf` adds 1023 | rejected: `halfOf changed` |
+| a zero product may be negative (`0 <=?`) | rejected: `scaledNegative changed` |
+| a theorem declares `Classical.choice` it does not use | rejected: `must rest on` |
+| the `not finite` claim dropped | rejected: no decision-37 claim is answered `not finite` |
+| none | passed |
+
+### The proof gate
+
+Checked on the hosted LexLean prover (`prism-app` profile) on 2026-11-18,
+with `Kernel.Scale`, `Kernel.Wire` and the parts of `Foundation.Bytes` it
+reads. That is a diagnostic, not the locked SDK's verdict; `lexlean verify
+src/Proofs/*.lex.tex` in the `app` recipe on CI is.
+## KN-38 and KN-39, lossless reading and declared narrowing
 
 The requirement: no floating point from the stored bytes to the token ids, and
 lossless where lossless exists. Lossless is held to three parts:
 
 - (a) Reading a stored weight or scale loses nothing: its integer fields encode
-  back to exactly the stored bits. `KN-37` proves this over natural numbers for
+  back to exactly the stored bits. `KN-38` proves this over natural numbers for
   q4 bytes, IEEE halves, bfloat16 and binary32. It is also where a format with
   no exact codec will be refused by name as codecs are added.
 - (b) Every matrix sum is exact and cannot overflow: `KN-29` (widths) and
@@ -980,7 +1029,7 @@ lossless where lossless exists. Lossless is held to three parts:
 - (c) A step that narrows a value is named, integer and bounded, and is never
   called lossless. Exp in softmax, square root in normalisation, sine and cosine
   in rotary encoding, SiLU, GELU and requantising activations have no exact
-  result in finite integers, and float engines round them too. `KN-38` admits
+  result in finite integers, and float engines round them too. `KN-39` admits
   such a step only with a finite table domain, a declared output width, and a
   certified error within its declared bound. Each step's bound, and each
   model's quality against its float reference, are to be reported per model;
@@ -997,7 +1046,7 @@ address is `KN-35`, recorded above.
 | a 17-bit table domain accepted | rejected: `narrowAccepted changed` |
 | a half's exponent field taken as 31 wide | rejected: `codecMiddleSize changed` |
 | a binary32 fraction taken as 22 bits | rejected: `codecLowSize changed` |
-| decision 38 routed to decision 37's answer | rejected: `decision 38 must be routed to Kernel.Narrow::narrowAnswer` |
+| decision 39 routed to decision 38's answer | rejected: `decision 39 must be routed to Kernel.Narrow::narrowAnswer` |
 | a value one wider than its format answered | rejected: `codecAnswer changed` |
 | `narrow_accepted_decides` declares fewer axioms | rejected: `narrow_accepted_decides must rest on [Classical.choice, Quot.sound, propext]` |
 | none, before and after | passed |
