@@ -50,6 +50,20 @@ definition{
 }
 
 definition{
+  name: rowsNextSign,
+  parameters: [positive : Nat, negative : Nat],
+  result: Nat,
+  body: (if (negative <=? positive) then 0 else 1)
+}
+
+definition{
+  name: rowsNextSize,
+  parameters: [positive : Nat, negative : Nat],
+  result: Nat,
+  body: (if (negative <=? positive) then (prim subtract positive negative : Nat) else (prim subtract negative positive : Nat))
+}
+
+definition{
   name: rowsAnswer,
   parameters: [value : Bytes],
   result: Bytes,

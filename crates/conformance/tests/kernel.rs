@@ -2907,6 +2907,30 @@ fn kernel_kn_39() {
         "(((Kernel.Rows::rowsAccepts positive negative onePositive oneNegative) = true) -> (((Kernel.Rows::rowsAccepts positive negative otherPositive otherNegative) = true) -> ((onePositive + otherNegative) = (otherPositive + oneNegative))))",
         "Quot.sound, propext",
     );
+    assert_pinned(
+        &proofs,
+        "rows_next_accepted",
+        "((Kernel.Rows::rowsAccepts positive negative (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 0) (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 1)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_accepts_only_next_positive",
+        "(((Kernel.Rows::rowsAccepts positive negative size 0) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 0))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_accepts_only_next_negative",
+        "(((Kernel.Rows::rowsAccepts positive negative 0 size) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 1))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_term_fits_bounds",
+        "(((Kernel.Rows::rowsTermFits sum mantissa shift) = true) -> ((shift <= 58) /\\ ((sum < 16777216) /\\ (mantissa < 16777216))))",
+        "Classical.choice, Quot.sound, propext",
+    );
     let found = declaration(&kernel, "rowsPow2");
     assert!(
         found.contains("body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rowsPow2 rest) : Nat)),\n  recursive_argument: power"),
@@ -2938,6 +2962,16 @@ fn kernel_kn_39() {
     assert!(
         found.contains("body: ((positive + claimedNegative) =? (negative + claimedPositive))"),
         "rowsAccepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsNextSign");
+    assert!(
+        found.contains("body: (if (negative <=? positive) then 0 else 1)"),
+        "rowsNextSign changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsNextSize");
+    assert!(
+        found.contains("body: (if (negative <=? positive) then (prim subtract positive negative : Nat) else (prim subtract negative positive : Nat))"),
+        "rowsNextSize changed:\n{found}"
     );
     let found = declaration(&kernel, "rowsAnswer");
     assert!(
