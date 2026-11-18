@@ -1,0 +1,6 @@
+name = "HologramAiExperience"
+version = "0.1.0"
+defaultTargets = ["HologramAiExperience"]
+
+[[lean_lib]]
+name = "HologramAiExperience"
