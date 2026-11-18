@@ -581,6 +581,12 @@ suite = "kernel"
 statement = "Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero"
 
 [[id]]
+id = "KN-43"
+level = "build"
+suite = "kernel"
+statement = "A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"

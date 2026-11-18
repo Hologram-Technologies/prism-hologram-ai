@@ -45,6 +45,7 @@
     <option value="39">40. Row recombination</option>
     <option value="40">41. Requantised inputs</option>
     <option value="41">42. Round check</option>
+    <option value="42">43. Square root</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2802,6 +2803,27 @@
       "module": "Round",
       "name": "Round check",
       "tag": 42
+    },
+    {
+      "asks": "Is this the floor square root of this value?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Value",
+          "value": 1000000,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Claimed root",
+          "value": 1000,
+          "width": 4
+        }
+      ],
+      "length": 13,
+      "module": "Root",
+      "name": "Square root",
+      "tag": 43
     }
   ],
   "request": 81
