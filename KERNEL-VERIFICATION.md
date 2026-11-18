@@ -90,6 +90,12 @@ The inherited gates and their own planted defects are in
 | A term that fits has its shift at most 58, and its sum and mantissa below `2^24` | `rows_term_fits_bounds`, checked by Lean on the hosted verifier | proved (hosted verifier) |
 | No number decision 39 computes passes 64 bits: partials below `2^62`, and each term's `sum * mantissa * 2^shift` below `2^58` | the guard in `rowsAnswer`, pinned by `kernel_kn_39` and exercised at its edges in the compiled guest; the product bound is not stated as a theorem, because it is not linear | tested, not proved |
 | The compiled guest answers decision 39 as its definition does | 52,920 links from 3,640 real Qwen3-0.6B rows (half planted one too high) and 12 crafted edge requests, each answered as expected by the guest of a holo built from this branch; a measurement across this branch and `crates/exact`, not yet a test in the suite | measured |
+| `KN-40`: an input divided down to its code is within half a step of it (`2v <= 2p + s` for the lower code, `s + 2p <= 2v` for the upper), a tie gives the even code, and one input with one quotient witness has at most one code; an input multiplied up is its code exactly, within 32767 | `rq_down_witness`, `rq_down_half_step`, `rq_down_tie_even`, `rq_down_one_code` and `rq_up_exact`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| `KN-40`: a group's power is accepted only when its largest input is within 32767 at it and past it at the next power up | `rq_largest_down_decides` and `rq_largest_up_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| The quotient witness is the input's quotient by the step | the guest checks `q * step <= value < q * step + step`, so a wrong witness is refused; that this pins `q` uniquely is the division algorithm, not stated as a theorem, because the product is not linear | argued, not proved |
+| `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; to be gated by test against `crates/exact`'s `quantise_with` | not proved |
+| No number decision 40 computes passes 64 bits | the guards in `rqElementOk` and `rqLargest` (mantissa below `2^24`, quotient at most 32767, a down shift at most 39 and an up shift at most 15, each inside an `if` so no product is formed before them), pinned by `kernel_kn_40` | tested, not proved |
+| Decision 40 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
 | Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
@@ -1089,6 +1095,47 @@ suite where `crates/exact` and decision 39 are in one tree.
 
 Run on 2026-11-18 in the pinned SDK image; `lexlean verify` exited 1 on each
 rejection.
+
+## KN-40, requantising inputs to sixteen bits
+
+EN-36 measured that sixteen-bit codes with one power of two per group of 32
+inputs bring products about 1,300 times closer to the float result than eight
+bits per vector. Decision 40 checks that narrowing for up to five inputs of one
+group in a 62-byte request: the group's largest input (mantissa, and whether its
+power multiplies up or divides down, and by how many), then each input's
+mantissa, direction and power, a quotient witness (half of it, two bytes, and
+whether it is odd, one byte) and its code (two bytes). The answer is `exact`,
+`differs`, `not the largest power`, or `invalid request`.
+
+Nothing a proof reads holds an `if` or a remainder: the first form did, and two
+of its theorems could not be proved, because `linear_arithmetic` splits an `if`
+only in the goal and `prim remainder` brings one with it. The quotient comes
+as `2 * half + odd`, and rounding is three exclusive linear cases on `2r`
+against the step: above it the code is `q + 1`, below it `q`, on a tie
+`q + odd`, which is even.
+
+Proved on 2026-11-18 on the hosted LexLean verifier (`mcp.uor.foundation`,
+profile `prism-app`), the hosted verifier's diagnostic and not the locked SDK's
+verdict: the whole of `Kernel.Requant` with `rqAnswer`, and all seven theorems,
+`verified`.
+
+### The pinned test: `kernel_kn_40`
+
+| Planted defect | Result |
+| --- | --- |
+| a tie rounded up | rejected: `rqDownOk changed` |
+| a down shift of 40 computed, past the 64-bit guard | rejected: `rqElementOk changed` |
+| a quotient of 32768 admitted | rejected: `rqElementOk changed` |
+| a power one too small accepted as the largest | rejected: `rqLargestUp changed` |
+| decision 40 routed to decision 39's answer | rejected: `decision 40 must be routed to Kernel.Requant::rqAnswer` |
+| none | passed |
+
+### The proof gate, on the hosted verifier
+
+| Planted defect | Result |
+| --- | --- |
+| an input just past half a step counted down to `q + 1` and the up case widened to `<=` | rejected: `Lean rejected ... Proofs.Requant (error): omega could not prove the goal`, in `rq_down_half_step` and `rq_down_one_code` |
+| the largest-power check made `<=` | rejected: the same, in `rq_largest_down_decides` |
 
 ## The examples in the compiled guest
 
