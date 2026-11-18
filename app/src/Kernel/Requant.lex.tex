@@ -1,0 +1,83 @@
+\begin{lexlean}{Kernel.Requant}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: rqPow2,
+  parameters: [power : Nat],
+  result: Nat,
+  body: (match power
+    | Nat.zero => 1
+    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),
+  recursive_argument: power
+}
+
+definition{
+  name: rqDownOk,
+  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, code : Nat],
+  result: Bool,
+  body: ((((product <=? value) && (value <? (product + step))) && (code <=? 32767)) && ((((step + (product + product)) <? (value + value)) && (code =? (((half + half) + odd) + 1))) || ((((value + value) <? (step + (product + product))) && (code =? ((half + half) + odd))) || (((value + value) =? (step + (product + product))) && (code =? (((half + half) + odd) + odd))))))
+}
+
+definition{
+  name: rqUpOk,
+  parameters: [product : Nat, code : Nat],
+  result: Bool,
+  body: ((code <=? 32767) && (code =? product))
+}
+
+definition{
+  name: rqElementOk,
+  parameters: [value : Nat, direction : Nat, shift : Nat, half : Nat, odd : Nat, code : Nat],
+  result: Bool,
+  body: (if ((value <? 16777216) && (half <=? 16383)) then (if (direction =? 1) then (if (shift <=? 15) then (rqUpOk (prim multiply value (rqPow2 shift) : Nat) code) else false) else (if (shift <=? 39) then (rqDownOk value (rqPow2 shift) half odd (prim multiply ((half + half) + odd) (rqPow2 shift) : Nat) code) else (((code =? 0) && (half =? 0)) && (odd =? 0)))) else false)
+}
+
+definition{
+  name: rqLimitTimes,
+  parameters: [step : Nat],
+  result: Nat,
+  body: (prim multiply 32767 step : Nat)
+}
+
+definition{
+  name: rqLargestDown,
+  parameters: [largest : Nat, step : Nat],
+  result: Bool,
+  body: ((largest <=? (rqLimitTimes step)) && ((rqLimitTimes step) <? (largest + largest)))
+}
+
+definition{
+  name: rqLargestUp,
+  parameters: [scaled : Nat],
+  result: Bool,
+  body: ((scaled <=? 32767) && (32767 <? (scaled + scaled)))
+}
+
+definition{
+  name: rqLargest,
+  parameters: [largest : Nat, direction : Nat, shift : Nat],
+  result: Bool,
+  body: (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false)
+}
+
+definition{
+  name: rqDownCode,
+  parameters: [value : Nat, step : Nat],
+  result: Nat,
+  body: ((prim quotient value step 0 : Nat) + (if ((step <? (prim multiply 2 (prim remainder value step 0 : Nat) : Nat)) || (((prim multiply 2 (prim remainder value step 0 : Nat) : Nat) =? step) && ((prim remainder (prim quotient value step 0 : Nat) 2 0 : Nat) =? 1))) then 1 else 0))
+}
+
+definition{
+  name: rqAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((((((Foundation.Bytes::byteLength value) =? 62) && ((Kernel.Wire::fieldAt value 5 1) <=? 1)) && (((Kernel.Wire::fieldAt value 11 1) <=? 1) && ((Kernel.Wire::fieldAt value 15 1) <=? 1))) && (((Kernel.Wire::fieldAt value 22 1) <=? 1) && ((Kernel.Wire::fieldAt value 26 1) <=? 1))) && (((Kernel.Wire::fieldAt value 33 1) <=? 1) && ((Kernel.Wire::fieldAt value 37 1) <=? 1))) && (((Kernel.Wire::fieldAt value 44 1) <=? 1) && ((Kernel.Wire::fieldAt value 48 1) <=? 1))) && (((Kernel.Wire::fieldAt value 55 1) <=? 1) && ((Kernel.Wire::fieldAt value 59 1) <=? 1))) then (if (rqLargest (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 1) (Kernel.Wire::fieldAt value 6 1)) then (if (((((rqElementOk (Kernel.Wire::fieldAt value 7 4) (Kernel.Wire::fieldAt value 11 1) (Kernel.Wire::fieldAt value 12 1) (Kernel.Wire::fieldAt value 13 2) (Kernel.Wire::fieldAt value 15 1) (Kernel.Wire::fieldAt value 16 2)) && (rqElementOk (Kernel.Wire::fieldAt value 18 4) (Kernel.Wire::fieldAt value 22 1) (Kernel.Wire::fieldAt value 23 1) (Kernel.Wire::fieldAt value 24 2) (Kernel.Wire::fieldAt value 26 1) (Kernel.Wire::fieldAt value 27 2))) && (rqElementOk (Kernel.Wire::fieldAt value 29 4) (Kernel.Wire::fieldAt value 33 1) (Kernel.Wire::fieldAt value 34 1) (Kernel.Wire::fieldAt value 35 2) (Kernel.Wire::fieldAt value 37 1) (Kernel.Wire::fieldAt value 38 2))) && (rqElementOk (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 1) (Kernel.Wire::fieldAt value 45 1) (Kernel.Wire::fieldAt value 46 2) (Kernel.Wire::fieldAt value 48 1) (Kernel.Wire::fieldAt value 49 2))) && (rqElementOk (Kernel.Wire::fieldAt value 51 4) (Kernel.Wire::fieldAt value 55 1) (Kernel.Wire::fieldAt value 56 1) (Kernel.Wire::fieldAt value 57 2) (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 2))) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "not the largest power" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

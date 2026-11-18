@@ -2980,3 +2980,103 @@ fn kernel_kn_39() {
     );
     assert_routed(39, "Kernel.Rows::rowsAnswer");
 }
+/// `KN-40`: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
+#[test]
+fn kernel_kn_40() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Requant.lex.tex");
+    let proofs = model("app/src/Proofs/Requant.lex.tex");
+    assert_pinned(
+        &proofs,
+        "rq_down_witness",
+        "(((Kernel.Requant::rqDownOk value step half odd product code) = true) -> ((product <= value) /\\ ((value < (product + step)) /\\ (code <= 32767))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_half_step",
+        "(((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((code = ((half + half) + odd)) -> ((value + value) <= ((product + product) + step))) /\\ ((code = (((half + half) + odd) + 1)) -> ((step + (product + product)) <= (value + value)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_tie_even",
+        "((odd <= 1) -> (((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((value + value) = (step + (product + product))) -> (code = ((half + odd) + (half + odd))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_one_code",
+        "(((Kernel.Requant::rqDownOk value step half odd product one) = true) -> (((Kernel.Requant::rqDownOk value step half odd product other) = true) -> (one = other)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_up_exact",
+        "(((Kernel.Requant::rqUpOk product code) = true) <-> ((code = product) /\\ (code <= 32767)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_largest_down_decides",
+        "(((Kernel.Requant::rqLargestDown largest step) = true) <-> ((largest <= (Kernel.Requant::rqLimitTimes step)) /\\ ((Kernel.Requant::rqLimitTimes step) < (largest + largest))))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_largest_up_decides",
+        "(((Kernel.Requant::rqLargestUp scaled) = true) <-> ((scaled <= 32767) /\\ (32767 < (scaled + scaled))))",
+        "propext",
+    );
+    let found = declaration(&kernel, "rqPow2");
+    assert!(
+        found.contains("body: (match power\n    | Nat.zero => 1\n    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
+        "rqPow2 changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqDownOk");
+    assert!(
+        found.contains("body: ((((product <=? value) && (value <? (product + step))) && (code <=? 32767)) && ((((step + (product + product)) <? (value + value)) && (code =? (((half + half) + odd) + 1))) || ((((value + value) <? (step + (product + product))) && (code =? ((half + half) + odd))) || (((value + value) =? (step + (product + product))) && (code =? (((half + half) + odd) + odd))))))"),
+        "rqDownOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqUpOk");
+    assert!(
+        found.contains("body: ((code <=? 32767) && (code =? product))"),
+        "rqUpOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqElementOk");
+    assert!(
+        found.contains("body: (if ((value <? 16777216) && (half <=? 16383)) then (if (direction =? 1) then (if (shift <=? 15) then (rqUpOk (prim multiply value (rqPow2 shift) : Nat) code) else false) else (if (shift <=? 39) then (rqDownOk value (rqPow2 shift) half odd (prim multiply ((half + half) + odd) (rqPow2 shift) : Nat) code) else (((code =? 0) && (half =? 0)) && (odd =? 0)))) else false)"),
+        "rqElementOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLimitTimes");
+    assert!(
+        found.contains("body: (prim multiply 32767 step : Nat)"),
+        "rqLimitTimes changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargestDown");
+    assert!(
+        found.contains("body: ((largest <=? (rqLimitTimes step)) && ((rqLimitTimes step) <? (largest + largest)))"),
+        "rqLargestDown changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargestUp");
+    assert!(
+        found.contains("body: ((scaled <=? 32767) && (32767 <? (scaled + scaled)))"),
+        "rqLargestUp changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargest");
+    assert!(
+        found.contains("body: (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false)"),
+        "rqLargest changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqDownCode");
+    assert!(
+        found.contains("body: ((prim quotient value step 0 : Nat) + (if ((step <? (prim multiply 2 (prim remainder value step 0 : Nat) : Nat)) || (((prim multiply 2 (prim remainder value step 0 : Nat) : Nat) =? step) && ((prim remainder (prim quotient value step 0 : Nat) 2 0 : Nat) =? 1))) then 1 else 0))"),
+        "rqDownCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqAnswer");
+    assert!(
+        found.contains("body: (if ((((((((Foundation.Bytes::byteLength value) =? 62) && ((Kernel.Wire::fieldAt value 5 1) <=? 1)) && (((Kernel.Wire::fieldAt value 11 1) <=? 1) && ((Kernel.Wire::fieldAt value 15 1) <=? 1))) && (((Kernel.Wire::fieldAt value 22 1) <=? 1) && ((Kernel.Wire::fieldAt value 26 1) <=? 1))) && (((Kernel.Wire::fieldAt value 33 1) <=? 1) && ((Kernel.Wire::fieldAt value 37 1) <=? 1))) && (((Kernel.Wire::fieldAt value 44 1) <=? 1) && ((Kernel.Wire::fieldAt value 48 1) <=? 1))) && (((Kernel.Wire::fieldAt value 55 1) <=? 1) && ((Kernel.Wire::fieldAt value 59 1) <=? 1))) then (if (rqLargest (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 1) (Kernel.Wire::fieldAt value 6 1)) then (if (((((rqElementOk (Kernel.Wire::fieldAt value 7 4) (Kernel.Wire::fieldAt value 11 1) (Kernel.Wire::fieldAt value 12 1) (Kernel.Wire::fieldAt value 13 2) (Kernel.Wire::fieldAt value 15 1) (Kernel.Wire::fieldAt value 16 2)) && (rqElementOk (Kernel.Wire::fieldAt value 18 4) (Kernel.Wire::fieldAt value 22 1) (Kernel.Wire::fieldAt value 23 1) (Kernel.Wire::fieldAt value 24 2) (Kernel.Wire::fieldAt value 26 1) (Kernel.Wire::fieldAt value 27 2))) && (rqElementOk (Kernel.Wire::fieldAt value 29 4) (Kernel.Wire::fieldAt value 33 1) (Kernel.Wire::fieldAt value 34 1) (Kernel.Wire::fieldAt value 35 2) (Kernel.Wire::fieldAt value 37 1) (Kernel.Wire::fieldAt value 38 2))) && (rqElementOk (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 1) (Kernel.Wire::fieldAt value 45 1) (Kernel.Wire::fieldAt value 46 2) (Kernel.Wire::fieldAt value 48 1) (Kernel.Wire::fieldAt value 49 2))) && (rqElementOk (Kernel.Wire::fieldAt value 51 4) (Kernel.Wire::fieldAt value 55 1) (Kernel.Wire::fieldAt value 56 1) (Kernel.Wire::fieldAt value 57 2) (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 2))) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"not the largest power\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "rqAnswer changed:\n{found}"
+    );
+    assert_routed(40, "Kernel.Requant::rqAnswer");
+}

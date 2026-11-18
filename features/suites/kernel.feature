@@ -303,3 +303,11 @@ Feature: kernel
     Then a link is exact exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part
     And two exact links compose into one, so a chain of links confirms the plain sum of every term in it
     And the answer to decision 39 is exact, differs, too wide when a partial reaches 2^62 or a term could reach 2^58, and invalid request for a sign above 1 or any length but 79
+
+  @KN-40 @build
+  Scenario: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
+    Given the requantising model in app/src/Kernel/Requant.lex.tex and its proofs in app/src/Proofs/Requant.lex.tex
+    When the Lean kernel checks rq_down_witness, rq_down_half_step, rq_down_tie_even, rq_down_one_code, rq_up_exact, rq_largest_down_decides and rq_largest_up_decides
+    Then a code below the step is within half a step of its input, a tie gives an even code, and at most one code is accepted for an input and its quotient
+    And a power is accepted for the group only when its largest input is within 32767 at it and past 32767 at the next power
+    And the answer to decision 40 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62

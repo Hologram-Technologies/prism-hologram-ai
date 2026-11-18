@@ -1599,6 +1599,254 @@
           "value": 0
         }
       }
+    },
+    "40": {
+      "name": "Requantised inputs",
+      "asks": "Are these sixteen-bit codes the inputs at the group's largest power?",
+      "fields": {
+        "1": {
+          "name": "Largest input of the group, mantissa",
+          "value": 32767
+        },
+        "5": {
+          "name": "Its power, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "6": {
+          "name": "Its power of two",
+          "value": 0
+        },
+        "7": {
+          "name": "Input 1, mantissa",
+          "value": 0
+        },
+        "11": {
+          "name": "Input 1, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "12": {
+          "name": "Input 1, power of two",
+          "value": 0
+        },
+        "13": {
+          "name": "Input 1, half its quotient",
+          "value": 0
+        },
+        "15": {
+          "name": "Input 1, quotient odd",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "16": {
+          "name": "Input 1, code",
+          "value": 0
+        },
+        "18": {
+          "name": "Input 2, mantissa",
+          "value": 0
+        },
+        "22": {
+          "name": "Input 2, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "23": {
+          "name": "Input 2, power of two",
+          "value": 0
+        },
+        "24": {
+          "name": "Input 2, half its quotient",
+          "value": 0
+        },
+        "26": {
+          "name": "Input 2, quotient odd",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "27": {
+          "name": "Input 2, code",
+          "value": 0
+        },
+        "29": {
+          "name": "Input 3, mantissa",
+          "value": 0
+        },
+        "33": {
+          "name": "Input 3, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "34": {
+          "name": "Input 3, power of two",
+          "value": 0
+        },
+        "35": {
+          "name": "Input 3, half its quotient",
+          "value": 0
+        },
+        "37": {
+          "name": "Input 3, quotient odd",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "38": {
+          "name": "Input 3, code",
+          "value": 0
+        },
+        "40": {
+          "name": "Input 4, mantissa",
+          "value": 0
+        },
+        "44": {
+          "name": "Input 4, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "45": {
+          "name": "Input 4, power of two",
+          "value": 0
+        },
+        "46": {
+          "name": "Input 4, half its quotient",
+          "value": 0
+        },
+        "48": {
+          "name": "Input 4, quotient odd",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "49": {
+          "name": "Input 4, code",
+          "value": 0
+        },
+        "51": {
+          "name": "Input 5, mantissa",
+          "value": 0
+        },
+        "55": {
+          "name": "Input 5, multiplied up",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "56": {
+          "name": "Input 5, power of two",
+          "value": 0
+        },
+        "57": {
+          "name": "Input 5, half its quotient",
+          "value": 0
+        },
+        "59": {
+          "name": "Input 5, quotient odd",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "60": {
+          "name": "Input 5, code",
+          "value": 0
+        }
+      }
     }
   }
 }
