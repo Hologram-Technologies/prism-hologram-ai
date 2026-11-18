@@ -132,3 +132,45 @@ tie.
 | `in` on a mapping always false | the same | rejected: Llama differs in its 2 tool-call conversations |
 | A template's last newline kept, as first written | the same | found by the whitespace template: all 20 differed by that newline; fixed, as jinja2's keep_trailing_newline is off |
 | none | all twenty, and the journey | pass |
+
+## GP-27, the index root checked by its signature
+
+The page reads a model's record with the hub's own client, vendored at
+`site/app/engine/hub/` (VENDOR.md): `openIndex` checks the index root by its
+Sigstore bundle against `policy.json`, the hub model's trust anchors pinned
+here, and `readRecord` checks the record by the BLAKE3 the root names. Until
+this, the page checked the record against the root by SHA-256 and showed the
+root's signature as not checked.
+
+The tests cannot ask the live hub to sign the fixtures' roots, so
+`crates/conformance/tests/gpu/hub-sign.mjs` mints a chain of the same shape:
+a P-384 intermediate, a P-256 leaf carrying the policy's identity and issuer,
+a P-256 log key signing the entry timestamp, and a DSSE envelope naming the
+root's SHA-256. A policy naming that chain's keys, otherwise the pinned one,
+is what the journey serves the page; the verifier is the hub's, unchanged,
+and the page has no flag that skips it.
+
+`hub-check.mjs` drives the client in Node, and `just page-journey` drives the
+page:
+
+| Case | Refused as |
+| --- | --- |
+| root signed through a foreign intermediate and log key | `RootUnverified`, chain and log |
+| the policy's intermediate, a foreign log key | `RootUnverified`, log |
+| another workflow's identity | `RootUnverified`, identity |
+| the root changed after signing | `RootUnverified`, subject |
+| the test chain under the hub's own pinned policy | `RootUnverified`, chain and log |
+| no bundle | `RootUnreachable` |
+| a repository the root does not name; a changed, unaddressed or unreachable record | `RecordUnknown`, `RecordMismatch`, `RecordUnaddressed`, `RecordUnreachable` |
+| a changed or short file; a file its record gives no BLAKE3 | `FileMismatch`, `FileUnaddressed` |
+| the journey's `foreign` hub | the page stops at "index root signature", before any record is read |
+
+### The gate: `cargo test -p repo-conformance --test gpu -- gpu_gp_27`
+
+| Planted defect | Result |
+| --- | --- |
+| one byte of the vendored `sigstore.mjs` changed | rejected: `site/app/engine/hub/sigstore.mjs is not the hub's file` |
+| the policy's `rekorLogId` changed | rejected: `assertion failed` on `policy["rekorLogId"]` |
+| the verifier's chain fact forced true | rejected: `sigstore.mjs is not the hub's file`; with that pin and `SIGSTORE_BLAKE3`'s taken out too, rejected: `foreignKey failed other checks` |
+| `hubRecord` reading the root without `openIndex` | rejected: the loader no longer has `index = await openIndex(base, policy, { hash });` |
+| none | passed |

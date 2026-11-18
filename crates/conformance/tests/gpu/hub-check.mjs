@@ -1,5 +1,5 @@
 // GP-27, without a browser: the hub's own client, vendored at
-// site/app/engine/hub/, proves an index root by its Sigstore signature against
+// site/app/engine/hub/, checks an index root by its Sigstore signature against
 // a policy, a record by the BLAKE3 the root names, and a file by the BLAKE3
 // and size its record names, and refuses each failure by its code. The chain
 // is minted by hub-sign.mjs. Prints one JSON line.

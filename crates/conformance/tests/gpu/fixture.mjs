@@ -95,7 +95,8 @@ export function buildFixture() {
   return { model, container, sha256, dir, path: "tiny.holk", repo: "fixture/tiny", revision: "0".repeat(40) };
 }
 
-// The hub's record for the fixture and the index root that names the record.
+// The hub's record for the fixture and the index root that names the record
+// by its BLAKE3.
 export function hubFiles(fixture, { resolve, sha256 = fixture.sha256 }) {
   const record = Buffer.from(JSON.stringify({
     format: "hologram.hub.release/v4",
@@ -108,7 +109,7 @@ export function hubFiles(fixture, { resolve, sha256 = fixture.sha256 }) {
   }));
   const root = Buffer.from(JSON.stringify({
     format: "hologram.hub.index/v2",
-    records: [{ repo: fixture.repo, revision: fixture.revision, sha256: createHash("sha256").update(record).digest("hex") }],
+    records: [{ repo: fixture.repo, revision: fixture.revision, blake3: blake3Hex(record) }],
   }));
   return { record, root };
 }
@@ -186,7 +187,7 @@ export function onnxHubFiles(fixture, { resolve, blake3 = {}, noBlake3 = [] }) {
   }));
   const root = Buffer.from(JSON.stringify({
     format: "hologram.hub.index/v2",
-    records: [{ repo: fixture.repo, revision: fixture.revision, sha256: createHash("sha256").update(record).digest("hex") }],
+    records: [{ repo: fixture.repo, revision: fixture.revision, blake3: blake3Hex(record) }],
   }));
   return { record, root };
 }

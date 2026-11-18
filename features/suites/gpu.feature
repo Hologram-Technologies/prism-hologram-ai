@@ -209,10 +209,10 @@ Feature: gpu
     And no file check names SHA-256 or SHA-1
 
   @GP-27 @build
-  Scenario: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is proven by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+  Scenario: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
     Given a Sigstore-shaped chain minted for the test, an intermediate, a log key and the policy naming them, and the fixture hubs' index roots signed through it
     When hub-check.mjs drives the vendored client in Node, and `just page-journey` opens the engine page on hubs signed through the chain and through a foreign one
-    Then the root, the record and a file are proven, and the page shows the index root signature checked
+    Then the root, the record and a file are checked, and the page shows the index root signature checked
     And a root signed through a foreign intermediate and log key fails chain and log, another log key fails log, another identity fails identity and a changed root fails subject, each refused as RootUnverified
     And the page stops at the index root signature on the foreign hub, before any record is read
     And a missing bundle, an unknown or changed or unaddressed or unreachable record, and a changed or unaddressed file are refused by their codes

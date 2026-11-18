@@ -1466,7 +1466,7 @@ fn gpu_gp_26() {
     }
 }
 
-/// `GP-27`: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is proven by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+/// `GP-27`: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
 #[test]
 fn gpu_gp_27() {
     let read = |path: &str| {
@@ -1570,7 +1570,7 @@ fn gpu_gp_27() {
     let loader = read("site/app/engine/loader.mjs");
     for wanted in [
         "from \"./hub/hub-client.mjs\";",
-        "const index = await openIndex(base, policy, { hash });",
+        "index = await openIndex(base, policy, { hash });",
         "const record = await readRecord(index, repo);",
         "new URL(\"./hub/policy.json\", import.meta.url)",
     ] {

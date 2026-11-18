@@ -13,6 +13,7 @@ import { extname, join, normalize } from "node:path";
 import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles } from "./fixture.mjs";
 import { referenceModel } from "./reference.mjs";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
+import { mintTrust, signRoot } from "./hub-sign.mjs";
 
 const site = process.argv[2];
 const playwright = process.env.PRISM_PLAYWRIGHT ?? "/opt/prismpm/oracles/node_modules/playwright/index.mjs";
@@ -24,6 +25,19 @@ try {
   console.error(`journey: no Playwright at ${playwright} (set PRISM_PLAYWRIGHT): ${error.message}`);
   process.exit(1);
 }
+
+// GP-27: the page proves each index root by its signature against the policy
+// it pins. The journey serves it a policy naming a chain minted here, and
+// signs each fixture hub's root through that chain; the foreign hub's root is
+// signed through another chain, which the policy does not name.
+const trust = await mintTrust();
+const foreignTrust = await mintTrust();
+const bundles = new Map();
+const bundleFor = async (root, through = trust) => {
+  const key = `${through === trust ? "t" : "f"}:${blake3Hex(root)}`;
+  if (!bundles.has(key)) bundles.set(key, await signRoot(through, root));
+  return bundles.get(key);
+};
 
 const fixture = buildFixture();
 // One byte inside a block the loader takes after many others: its label no
@@ -39,6 +53,8 @@ const variants = {
   // The deploy lists a kernel other than the one the browser holds, as when the
   // service worker serves app.holo from an earlier deploy's cache.
   stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true },
+  // GP-27: the index root signed by a key the page's policy does not name.
+  foreign: { container: fixture.container, sha256: fixture.sha256, foreignKey: true },
 };
 
 // GP-19: an ONNX export read from its own files. A byte of the graph flipped
@@ -86,6 +102,7 @@ const server = http.createServer(async (request, response) => {
     const rest = fixtureRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
     if (rest === `index/models/${fixture.repo}.json`) return response.end(hub.record);
+    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root, v.foreignKey ? foreignTrust : trust));
     if (rest === fixture.path) {
       const range = /bytes=(\d+)-(\d+)?/.exec(request.headers.range ?? "");
       if (!range) return response.end(v.container);
@@ -105,10 +122,16 @@ const server = http.createServer(async (request, response) => {
     const rest = onnxRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
     if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
+    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root));
     const served = rest.startsWith("files/") && !v.offline ? v.files.get(rest.slice(6)) : null;
     if (served) return response.end(served);
     response.statusCode = 404;
     return response.end();
+  }
+  // The page's pinned policy, as a deploy pinning this test's chain would carry it.
+  if (path === "/app/engine/hub/policy.json") {
+    response.setHeader("content-type", "application/json");
+    return response.end(JSON.stringify(trust.policy));
   }
   const file = path.endsWith("/") ? `${path}index.html` : path;
   try {
@@ -416,6 +439,14 @@ if (flip.checks.some((c) => c.subject === "download → compile")) fail("flip: t
 const root = results.root;
 const rootStop = stoppedAt(root);
 if (root.phase !== "failed" || rootStop?.step !== "root") fail(`root: expected to stop at the whole-file root, stopped at ${rootStop?.step}: ${rootStop?.subject} (${root.phase})`);
+
+const signature = (r) => r.checks.find((c) => c.subject === "index root signature");
+if (signature(good)?.verdict !== "pass") fail("good: the index root's signature was not checked");
+const foreign = results.foreign;
+const foreignStop = stoppedAt(foreign);
+if (foreign.phase !== "failed" || foreignStop?.subject !== "index root signature" || !/^RootUnverified: .*chain/.test(foreignStop?.detail ?? ""))
+  fail(`foreign: expected to stop at the index root signature as RootUnverified, chain failed; stopped at ${foreignStop?.step}: ${foreignStop?.subject} (${foreignStop?.detail})`);
+if (foreign.checks.some((c) => c.subject === "hub record matches the index root")) fail("foreign: the page read a record under a root it could not prove");
 
 const stale = results.stale;
 const staleStop = stoppedAt(stale);
