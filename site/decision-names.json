@@ -1318,7 +1318,7 @@
         }
       }
     },
-    "37": {
+    "38": {
       "name": "Stored bits as integers",
       "asks": "What integers do these stored bits hold?",
       "fields": {
@@ -1350,7 +1350,7 @@
         }
       }
     },
-    "38": {
+    "39": {
       "name": "Declared narrowing",
       "asks": "May this step narrow a value, with this width and bound?",
       "fields": {
@@ -1402,7 +1402,7 @@
         }
       }
     },
-    "39": {
+    "40": {
       "name": "Row recombination",
       "asks": "Is this the exact partial sum after these terms?",
       "fields": {
@@ -1600,7 +1600,7 @@
         }
       }
     },
-    "40": {
+    "41": {
       "name": "Requantised inputs",
       "asks": "Are these sixteen-bit codes the inputs at the group's largest power?",
       "fields": {
