@@ -1,0 +1,56 @@
+\begin{lexlean}{Proofs.Round}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Round}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: round_zero_is_zero,
+  parameters: [sign : Nat, offset : Nat],
+  statement: ((Kernel.Round::roundResult sign 0 offset) = 0),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundResult]},
+  axioms: [propext]
+}
+
+theorem{
+  name: round_shift_past_word,
+  parameters: [value : Nat, count : Nat],
+  statement: ((64 <= count) -> ((Kernel.Round::roundShift value count) = 0)),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundShift]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: round_up_at_most_one,
+  parameters: [value : Nat, offset : Nat],
+  statement: ((Kernel.Round::roundUp value offset) <= 1),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundUp]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: round_no_guard_no_change,
+  parameters: [value : Nat, offset : Nat],
+  statement: (((Kernel.Round::roundGuard value offset) = 0) -> ((Kernel.Round::roundUp value offset) = 0)),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundUp]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: round_accepts_decides,
+  parameters: [claimed : Nat, sign : Nat, value : Nat, offset : Nat],
+  statement: (((Kernel.Round::roundAccepts claimed sign value offset) = true) <-> (claimed = (Kernel.Round::roundResult sign value offset))),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundAccepts]},
+  axioms: [propext]
+}
+
+theorem{
+  name: round_past_largest_is_infinite,
+  parameters: [sign : Nat, value : Nat, offset : Nat],
+  statement: ((0 < value) -> ((32895 < (Kernel.Round::roundTop value offset)) -> ((Kernel.Round::roundResult sign value offset) = ((prim multiply sign 2147483648 : Nat) + 2139095040)))),
+  proof: linear_arithmetic{definitions: [Kernel.Round::roundResult]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

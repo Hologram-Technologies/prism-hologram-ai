@@ -93,6 +93,7 @@ runtime's crates are not published there.
 | That BLAKE3 is what its paper says it is | cited, never established here: the hash is the authority's own implementation, checked against the authority's own vectors | not proved |
 | `EN-12`: reading an ONNX model costs time in proportion to its nodes, and fifty thousand are read in under a second | `engine_en_12`, timing 25,000 nodes and 50,000 and comparing | tested |
 | `EN-13`: sixteen megabytes are labelled at no less than two hundred megabytes a second | `engine_en_13` | tested |
+| `EN-41`: every binary32 `hologram-ai-exact` rounds a row to is one the compiled guest answers `exact` for decision 42 | `engine_en_37`, 25 values and 51 claims; `replay.mjs` in the `app` recipe | tested here; replayed in this holo's guest on CI |
 | How long any of this takes on the machine a reader has | not established: the numbers recorded here are this machine's, and the gates are floors far below them |
 | A config names a model that will in fact run | not tested, and not this crate's to say: the counts go to the kernel, which answers | not tested |
 
@@ -2371,3 +2372,38 @@ the complete register and rounding the row to binary32 are not yet defined in
 LexLean, and the input's quantisation is not either. Only the published
 guest, which has no decision 37, could be run locally; this holo's guest runs
 the decision-37 claims on CI.
+
+## EN-41, the crate's rounding confirmed by the kernel
+
+`hologram-ai-exact` rounds a row's exact value once, to the nearest binary32,
+ties to even (`round_to_binary32`, EN-34). `Kernel.Round` (KN-42) defines that
+rounding for values whose magnitude fits 64 bits. Twenty-five values, each
+placed in a row register and rounded by the crate's own function, give 50
+claims, the crate's bits `exact` and those bits with the last flipped
+`differs`, with one 15-byte request `invalid request`: exact values, ties
+broken both ways, the largest finite value and the carry past it, 2^128 and
+-2^200, the smallest and largest subnormals, half the smallest subnormal (a
+tie to zero), a negative value below every subnormal (to -0), the smallest
+normal, full 64-bit magnitudes at -40 and at the register's floor, zero with
+either sign, and six drawn values. `engine_en_37` also computes each answer as
+`Kernel.Round` does, in `u128`, independently of the crate.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_37`
+
+Run on 2026-11-18 in WSL with the pinned toolchain. Each defect was planted
+alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| the crate rounds ties away from zero | the kernel rounds to other bits |
+| the crate keeps 25 bits | the kernel rounds to other bits |
+| the crate's subnormal floor at 2^-148 | the kernel rounds to other bits |
+| the client writes the magnitude little-endian | the claims lack 42 |
+| none | passed |
+
+### What EN-41 does not establish
+
+A row whose exact value needs more than 64 bits of magnitude is outside
+decision 42; the crate's register holds wider ones. The row's sum of scaled
+groups in the register, and the input's quantisation, have no LexLean
+definition yet.

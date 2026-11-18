@@ -319,6 +319,14 @@ Feature: kernel
     And a power is accepted for the group only when its largest input is within 32767 at it and past 32767 at the next power
     And the answer to decision 41 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62
 
+  @KN-42 @build
+  Scenario: A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude
+    Given a request of the tag 42, a sign byte, a magnitude in eight bytes, an exponent plus 32768 in two and claimed binary32 bits in four
+    When the kernel finds the magnitude's leading bit, keeps 24 bits from it or fewer below 2^-126, and reads the guard bit and whether any bit below it is set
+    Then the answer is exact exactly when the claim is those bits rounded to the nearest, ties to even, infinity past the largest finite value, and zero for a zero magnitude
+    And no power of two the kernel forms reaches 2^64, so a shift of 64 or more is its own case
+    And the theorems of Proofs.Round state these and are pinned with their axioms
+
   @KN-45 @build
   Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
     Given the engine session in app/src/Engine/Session.lex.tex, built on decisions 35 and 36, and its proofs in app/src/Proofs/Session.lex.tex

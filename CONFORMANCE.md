@@ -64,6 +64,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-38` | `build` | A row's exact terms are chained into decision 40's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained |
 | `EN-39` | `build` | An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's |
 | `EN-40` | `build` | A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32 |
+| `EN-41` | `build` | Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits |
 
 ## gpu
 
@@ -141,6 +142,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-41` | `build` | Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero |
 | `KN-45` | `build` | The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended |
 | `KN-37` | `build` | One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite |
+| `KN-42` | `build` | A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude |
 
 ## Public failures
 
