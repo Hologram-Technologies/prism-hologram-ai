@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Thirty-nine decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), whether one group's claimed sum times its scale is exact (37), what integers a stored q4 byte, half, bfloat16 or binary32 holds (38) and whether a step may narrow a value with its declared width and bound (39). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Forty-one decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), whether one group's claimed sum times its scale is exact (37), what integers a stored q4 byte, half, bfloat16 or binary32 holds (38), whether a step may narrow a value with its declared width and bound (39), whether a partial sum of a row is exact after its next terms (40) and whether inputs are put on sixteen-bit codes at their group's largest power (41). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -59,6 +59,7 @@
       "incomplete",
       "invalid code",
       "none fits",
+      "not the largest power",
       "not blake3",
       "not finite",
       "not first maximum",
@@ -73,6 +74,7 @@
       "rejected:*",
       "stage does not fit",
       "stage too small",
+      "too wide",
       "stages do not cover",
       "stop:*",
       "too long",
@@ -224,7 +226,23 @@
     {"name": "codec_reads_back_half", "module": "Codec", "statement": "((low < 1024) → ((middle < 32) → (((Kernel.Codec::codecLow 1 (Kernel.Codec::codecEncode 1 high middle low)) = low) ∧ (((Kernel.Codec::codecMiddle 1 (Kernel.Codec::codecEncode 1 high middle low)) = middle) ∧ ((Kernel.Codec::codecHigh 1 (Kernel.Codec::codecEncode 1 high middle low)) = high)))))"},
     {"name": "codec_reads_back_bfloat16", "module": "Codec", "statement": "((low < 128) → ((middle < 256) → (((Kernel.Codec::codecLow 2 (Kernel.Codec::codecEncode 2 high middle low)) = low) ∧ (((Kernel.Codec::codecMiddle 2 (Kernel.Codec::codecEncode 2 high middle low)) = middle) ∧ ((Kernel.Codec::codecHigh 2 (Kernel.Codec::codecEncode 2 high middle low)) = high)))))"},
     {"name": "codec_reads_back_binary32", "module": "Codec", "statement": "((low < 8388608) → ((middle < 256) → (((Kernel.Codec::codecLow 3 (Kernel.Codec::codecEncode 3 high middle low)) = low) ∧ (((Kernel.Codec::codecMiddle 3 (Kernel.Codec::codecEncode 3 high middle low)) = middle) ∧ ((Kernel.Codec::codecHigh 3 (Kernel.Codec::codecEncode 3 high middle low)) = high)))))"},
-    {"name": "narrow_accepted_decides", "module": "Narrow", "statement": "(((Kernel.Narrow::narrowAccepted step inputBits outputBits bound certified) = true) ↔ ((step <= 5) ∧ ((1 <= inputBits) ∧ ((inputBits <= 16) ∧ ((1 <= outputBits) ∧ ((outputBits <= 32) ∧ (certified <= bound)))))))"}
+    {"name": "narrow_accepted_decides", "module": "Narrow", "statement": "(((Kernel.Narrow::narrowAccepted step inputBits outputBits bound certified) = true) ↔ ((step <= 5) ∧ ((1 <= inputBits) ∧ ((inputBits <= 16) ∧ ((1 <= outputBits) ∧ ((outputBits <= 32) ∧ (certified <= bound)))))))"},
+    {"name": "rows_accepts_decides", "module": "Rows", "statement": "(((Kernel.Rows::rowsAccepts positive negative claimedPositive claimedNegative) = true) ↔ ((positive + claimedNegative) = (negative + claimedPositive)))"},
+    {"name": "rows_part_splits", "module": "Rows", "statement": "((sign <= 1) → (((Kernel.Rows::rowsPart sign size 0) + (Kernel.Rows::rowsPart sign size 1)) = size))"},
+    {"name": "rows_part_one_side", "module": "Rows", "statement": "(((sign = 0) → ((Kernel.Rows::rowsPart sign size 1) = 0)) ∧ ((sign = 1) → ((Kernel.Rows::rowsPart sign size 0) = 0)))"},
+    {"name": "rows_links_compose", "module": "Rows", "statement": "(((Kernel.Rows::rowsAccepts (startPositive + firstPositive) (startNegative + firstNegative) middlePositive middleNegative) = true) → (((Kernel.Rows::rowsAccepts (middlePositive + secondPositive) (middleNegative + secondNegative) endPositive endNegative) = true) → ((Kernel.Rows::rowsAccepts (startPositive + (firstPositive + secondPositive)) (startNegative + (firstNegative + secondNegative)) endPositive endNegative) = true)))"},
+    {"name": "rows_one_claim", "module": "Rows", "statement": "(((Kernel.Rows::rowsAccepts positive negative onePositive oneNegative) = true) → (((Kernel.Rows::rowsAccepts positive negative otherPositive otherNegative) = true) → ((onePositive + otherNegative) = (otherPositive + oneNegative))))"},
+    {"name": "rows_next_accepted", "module": "Rows", "statement": "((Kernel.Rows::rowsAccepts positive negative (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 0) (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 1)) = true)"},
+    {"name": "rows_accepts_only_next_positive", "module": "Rows", "statement": "(((Kernel.Rows::rowsAccepts positive negative size 0) = true) → ((size = (Kernel.Rows::rowsNextSize positive negative)) ∧ (((size = 0) → (1 = 0)) → ((Kernel.Rows::rowsNextSign positive negative) = 0))))"},
+    {"name": "rows_accepts_only_next_negative", "module": "Rows", "statement": "(((Kernel.Rows::rowsAccepts positive negative 0 size) = true) → ((size = (Kernel.Rows::rowsNextSize positive negative)) ∧ (((size = 0) → (1 = 0)) → ((Kernel.Rows::rowsNextSign positive negative) = 1))))"},
+    {"name": "rows_term_fits_bounds", "module": "Rows", "statement": "(((Kernel.Rows::rowsTermFits sum mantissa shift) = true) → ((shift <= 58) ∧ ((sum < 16777216) ∧ (mantissa < 16777216))))"},
+    {"name": "rq_down_witness", "module": "Requant", "statement": "(((Kernel.Requant::rqDownOk value step half odd product code) = true) → ((product <= value) ∧ ((value < (product + step)) ∧ (code <= 32767))))"},
+    {"name": "rq_down_half_step", "module": "Requant", "statement": "(((Kernel.Requant::rqDownOk value step half odd product code) = true) → (((code = ((half + half) + odd)) → ((value + value) <= ((product + product) + step))) ∧ ((code = (((half + half) + odd) + 1)) → ((step + (product + product)) <= (value + value)))))"},
+    {"name": "rq_down_tie_even", "module": "Requant", "statement": "((odd <= 1) → (((Kernel.Requant::rqDownOk value step half odd product code) = true) → (((value + value) = (step + (product + product))) → (code = ((half + odd) + (half + odd))))))"},
+    {"name": "rq_down_one_code", "module": "Requant", "statement": "(((Kernel.Requant::rqDownOk value step half odd product one) = true) → (((Kernel.Requant::rqDownOk value step half odd product other) = true) → (one = other)))"},
+    {"name": "rq_up_exact", "module": "Requant", "statement": "(((Kernel.Requant::rqUpOk product code) = true) ↔ ((code = product) ∧ (code <= 32767)))"},
+    {"name": "rq_largest_down_decides", "module": "Requant", "statement": "(((Kernel.Requant::rqLargestDown largest step) = true) ↔ ((largest <= (Kernel.Requant::rqLimitTimes step)) ∧ ((Kernel.Requant::rqLimitTimes step) < (largest + largest))))"},
+    {"name": "rq_largest_up_decides", "module": "Requant", "statement": "(((Kernel.Requant::rqLargestUp scaled) = true) ↔ ((scaled <= 32767) ∧ (32767 < (scaled + scaled))))"}
   ],
   "pinned": [
     {
@@ -385,6 +403,16 @@
     {
       "name": "kernel_kn_39",
       "what": "The theorem's statement and axioms, the request offsets, and that decision 39 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_40",
+      "what": "The theorems' statements and axioms, every term's offsets and bounds, and that decision 40 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_41",
+      "what": "The theorems' statements and axioms, every input's offsets and guards, and that decision 41 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],
