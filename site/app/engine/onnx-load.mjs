@@ -1,5 +1,6 @@
-// Load an ONNX export from its own files, as the hub's record names them: the
-// small files checked against the record's SHA-256, the graph and any data
+// Load an ONNX export from its own files, as the hub's record names them, each
+// by its BLAKE3, the one address Hologram AI names content by: the small files
+// checked against the record's BLAKE3 in the module, the graph and any data
 // files streamed through the module's importer with the kernel asked about
 // every span, operator, file and 4-bit weight, every weight placed by the
 // node that reads it, and the engine built from the bytes as they arrived.
@@ -12,7 +13,7 @@ import { confirmRope, engineTensors, ropeCandidates, roles } from "./onnx-roles.
 const text = new TextDecoder();
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 const unhex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
-const sha256 = async (bytes) => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+const HEX = /^[0-9a-f]{64}$/;
 const half = (h) => {
   const e = (h >> 10) & 31;
   const m = h & 1023;
@@ -46,40 +47,28 @@ async function whole(stream) {
 }
 
 export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, onProgress = () => {} }) {
-  // A file the record names, with a SHA-256 when one is needed: the kernel
-  // admits a model file against it.
-  const entry = (p, needsSha256 = true) => {
+  // A file the record names, with its BLAKE3. A record that gives a file no
+  // BLAKE3 is refused: Hugging Face's SHA-256 and Git's SHA-1 are not checked.
+  const entry = (p) => {
     const file = record.files.find((f) => f.path === p);
-    if (!file || (needsSha256 && !file.sha256)) throw new Error(`the record names no SHA-256 for ${p}`);
+    if (!file || !HEX.test(file.blake3 ?? "")) throw new Error(`the record names no BLAKE3 for ${p}`);
     return file;
   };
-  // A small file of the repository, checked against the record before use:
-  // by its SHA-256 where the record gives one (a file Git LFS stores), and
-  // otherwise by its Git blob SHA-1, which is how Git names a file it holds
-  // itself. SHA-1 is the weaker of the two, and the check says which it was.
+  // The BLAKE3 of bytes, taken in the module.
+  const blake3 = (bytes) => {
+    const id = new DataView(m.call("hash_start").slice().buffer).getUint32(0, true);
+    m.callWith("hash_take", bytes, id);
+    return hex(m.call("hash_finish", id));
+  };
+  // A small file of the repository, checked against the record's BLAKE3 and
+  // length before use.
   const small = async (p, optional = false) => {
     if (optional && !record.files.some((f) => f.path === p)) return null;
-    const file = entry(p, false);
+    const file = entry(p);
     const bytes = await whole(await open(p));
-    let ok;
-    let detail;
-    if (file.sha256) {
-      const digest = await sha256(bytes);
-      ok = digest === file.sha256;
-      detail = `sha256 ${digest}`;
-    } else if (file.gitSha1) {
-      const head = new TextEncoder().encode(`blob ${bytes.length}\0`);
-      const blob = new Uint8Array(head.length + bytes.length);
-      blob.set(head);
-      blob.set(bytes, head.length);
-      const digest = hex(new Uint8Array(await crypto.subtle.digest("SHA-1", blob)));
-      ok = digest === file.gitSha1;
-      detail = `git blob sha1 ${digest} (the record gives no SHA-256)`;
-    } else {
-      throw new Error(`the record names no hash for ${p}`);
-    }
-    ok = ok && bytes.length === file.size;
-    checks.add("file", `${p} is the record's`, ok ? "pass" : "fail", `${bytes.length} bytes, ${detail}`);
+    const digest = blake3(bytes);
+    const ok = digest === file.blake3 && bytes.length === file.size;
+    checks.add("file", `${p} is the record's`, ok ? "pass" : "fail", `${bytes.length} bytes, blake3 ${digest}`);
     if (!ok) throw new Error(`${p} is not the file the record names`);
     return bytes;
   };
@@ -127,12 +116,12 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   const graph = entry(path);
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
   const declared = record.files.filter((f) => f.path.startsWith(`${path}_data`)).length;
-  m.callWith("onnx_start", unhex(graph.sha256), BigInt(graph.size), declared);
+  m.callWith("onnx_start", unhex(graph.blake3), BigInt(graph.size), declared);
   await stream(0, path, (chunk) => m.callWith("onnx_take", chunk));
   const dataFiles = text.decode(m.call("onnx_graph_finish")).split("\n").filter(Boolean);
   for (const [i, name] of dataFiles.entries()) {
     const file = entry(folder + name);
-    m.callWith("onnx_data_start", unhex(file.sha256), i + 1, BigInt(file.size));
+    m.callWith("onnx_data_start", unhex(file.blake3), i + 1, BigInt(file.size));
     await stream(i + 1, folder + name, (chunk) => m.callWith("onnx_data_take", chunk));
     m.call("onnx_data_finish");
   }
