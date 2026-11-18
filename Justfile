@@ -79,6 +79,9 @@ app:
     sed -n 's/^verified attestation: \([0-9a-f]\{64\}\)$/\1/p' .prism-proof.log > .prism-proof/attestation
     rm -f .prism-proof.log
     test -s .prism-proof/attestation
+    holos=( app/.prism/build/*/*.holo )
+    [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
+    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims.json
 
 # The engine the page loads: this repository's crates as one WebAssembly
 # module, built for the browser and put where the page asks for it. Release,
@@ -127,6 +130,7 @@ page-journey assembled="":
       rm -rf "$site/vendor/prism-code/fixtures"
       node bootstrap/page.mjs "$site"
       node bootstrap/precache.mjs "$site"
+      node bootstrap/listing-blake3.mjs "$site"
     fi
     [[ -f $site/app.holo ]] || { echo "$site has no holo: run just app" >&2; exit 64; }
     [[ -f $site/app/engine/engine.wasm ]] || { echo "$site has no engine: run just engine" >&2; exit 64; }

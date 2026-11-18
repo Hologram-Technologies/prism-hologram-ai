@@ -1,0 +1,24 @@
+\begin{lexlean}{Kernel.Narrow}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: narrowAccepted,
+  parameters: [step : Nat, inputBits : Nat, outputBits : Nat, bound : Nat, certified : Nat],
+  result: Bool,
+  body: ((((step <=? 5) && ((1 <=? inputBits) && (inputBits <=? 16))) && ((1 <=? outputBits) && (outputBits <=? 32))) && (certified <=? bound))
+}
+
+definition{
+  name: narrowAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode "accept" : Bytes) else (prim utf8_encode "refuse" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -1,0 +1,72 @@
+\begin{lexlean}{Proofs.Scale}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Scale}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: two_to_doubles,
+  parameters: [power : Nat],
+  statement: ((Kernel.Scale::twoTo (power + 1)) = (prim multiply 2 (Kernel.Scale::twoTo power) : Nat)),
+  proof: simplify{definitions: [Kernel.Scale::twoTo]},
+  axioms: [propext]
+}
+
+theorem{
+  name: half_subnormal_is_mantissa,
+  parameters: [mantissa : Nat],
+  statement: ((Kernel.Scale::halfOf 0 mantissa) = mantissa),
+  proof: simplify{definitions: [Kernel.Scale::halfOf]},
+  axioms: [propext]
+}
+
+theorem{
+  name: half_normal_is_scaled,
+  parameters: [below : Nat, mantissa : Nat],
+  statement: ((Kernel.Scale::halfOf (below + 1) mantissa) = (prim multiply (1024 + mantissa) (Kernel.Scale::twoTo below) : Nat)),
+  proof: simplify{definitions: [Kernel.Scale::halfOf]},
+  axioms: [propext]
+}
+
+theorem{
+  name: sum_size_about_offset,
+  parameters: [offset : Nat],
+  statement: (((32768 <= offset) -> (((Kernel.Scale::sumSize offset) + 32768) = offset)) /\ ((offset < 32768) -> (((Kernel.Scale::sumSize offset) + offset) = 32768))),
+  proof: linear_arithmetic{definitions: [Kernel.Scale::sumSize]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: zero_is_not_negative,
+  parameters: [offset : Nat, bits : Nat],
+  statement: (((Kernel.Scale::scaledSize offset bits) = 0) -> ((Kernel.Scale::scaledNegative offset bits) = false)),
+  proof: linear_arithmetic{definitions: [Kernel.Scale::scaledNegative]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scale_accepts_size,
+  parameters: [offset : Nat, bits : Nat, sign : Nat, size : Nat],
+  statement: (((Kernel.Scale::scaleAccepts offset bits sign size) = true) -> (size = (Kernel.Scale::scaledSize offset bits))),
+  proof: linear_arithmetic{definitions: [Kernel.Scale::scaleAccepts]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scale_accepts_sign,
+  parameters: [offset : Nat, bits : Nat, sign : Nat, size : Nat],
+  statement: (((Kernel.Scale::scaleAccepts offset bits sign size) = true) -> (sign = (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits)))),
+  proof: linear_arithmetic{definitions: [Kernel.Scale::scaleAccepts]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scale_accepts_the_claim,
+  parameters: [offset : Nat, bits : Nat],
+  statement: ((Kernel.Scale::scaleAccepts offset bits (Kernel.Scale::signCode (Kernel.Scale::scaledNegative offset bits)) (Kernel.Scale::scaledSize offset bits)) = true),
+  proof: linear_arithmetic{definitions: [Kernel.Scale::scaleAccepts]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

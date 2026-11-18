@@ -324,6 +324,10 @@ fn gpu_gp_06() {
             .unwrap_or_else(|| panic!("app.mjs no longer has: {needle}"))
     };
     assert!(page.contains("fetch(\"../precache.json\", { cache: \"no-store\" })"));
+    assert!(
+        page.contains("const held = blake3Hex(holo);") && page.contains("return entry.blake3;"),
+        "the kernel is no longer compared with the listing by BLAKE3"
+    );
     let load = at("async function load()");
     let compare = load
         + page[load..]
@@ -342,12 +346,16 @@ fn gpu_gp_06() {
     let justfile = read("Justfile");
     assert!(justfile.contains(
         "node bootstrap/precache.mjs \"$site\"
+      node bootstrap/listing-blake3.mjs \"$site\"
     fi"
     ));
     let pages = read(".github/workflows/pages.yml");
     let listed = pages
-        .find("node bootstrap/precache.mjs site")
-        .expect("pages.yml writes precache.json");
+        .find(
+            "node bootstrap/precache.mjs site
+          node bootstrap/listing-blake3.mjs site",
+        )
+        .expect("pages.yml writes precache.json and names its files by BLAKE3");
     let journey_step = pages
         .find("just page-journey site")
         .expect("pages.yml runs the journey");
@@ -359,7 +367,7 @@ fn gpu_gp_06() {
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
         "stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true }",
-        "f.sha256 = \"0\".repeat(64)",
+        "f.blake3 = \"0\".repeat(64)",
         "staleStop?.subject !== \"kernel is the one this deploy lists\"",
         "!/^stale kernel/.test(stale.error ?? \"\")",
         "the page went on past the kernel",
@@ -410,7 +418,21 @@ fn gpu_gp_07() {
         !page.contains("src=\"./app.mjs\""),
         "the engine must not be loaded by a script tag, which runs whatever the cache holds"
     );
+    // Cached files and the listing are compared by BLAKE3, the one address
+    // Hologram AI names its own files by.
+    assert!(
+        !page.contains("SHA-256"),
+        "site/app/index.html compares cached files by SHA-256"
+    );
+    // The listing is the frame's (pinned by frame.lock); this repository adds
+    // each file's BLAKE3 to it, and the page reads only that.
+    let listing = read("bootstrap/listing-blake3.mjs");
+    assert!(
+        listing.contains("file.blake3 = blake3Hex(await readFile(join(site, file.path)));"),
+        "bootstrap/listing-blake3.mjs no longer names each listed file by its BLAKE3"
+    );
     for wanted in [
+        "const held = blake3Hex(new Uint8Array(await (await cache.match(request)).arrayBuffer()));",
         "if (held !== want) {",
         "await cache.delete(request);",
         "location.reload();",
@@ -1068,13 +1090,22 @@ fn gpu_gp_19() {
     for wanted in [
         "onnx: asked.get(\"onnx\")",
         "await loadOnnxModel({ kernel, ask, device, started });",
+        "const generate = await pipeline(\"text-generation\", MODEL.onnx, {",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let module = read("site/app/engine/pipeline.mjs");
+    for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
         "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(
-            page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            module.contains(wanted),
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     let loader = read("site/app/engine/onnx-load.mjs");
@@ -1159,8 +1190,8 @@ fn gpu_gp_20() {
         loader.contains("render: compileTemplate(source)"),
         "the template is not compiled"
     );
-    let page = read("site/app/app.mjs");
-    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content: text }], add_generation_prompt: true"), "the page does not frame a turn with the template");
+    let page = read("site/app/engine/pipeline.mjs");
+    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
 /// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
@@ -1185,15 +1216,15 @@ fn gpu_gp_21() {
             "site/app/engine/files.mjs no longer has `{wanted}`"
         );
     }
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "files = await keepFiles({ record, open: fetched(base), module });",
+        "files = await keepFiles({ record, open: fetched(base), module, kernel: ",
         "open: files ? files.open : fetched(base),",
         "if (files) await files.forget();",
     ] {
         assert!(
             page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
@@ -1221,19 +1252,19 @@ fn gpu_gp_22() {
     let read = |path: &str| {
         std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
     };
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "new Uint8Array([24, 0, PRECISIONS[name], 0, 0])",
-        "new Uint8Array([24, 0, PRECISIONS[chosen], sizes[chosen].data, part])",
+        "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
+        "new Uint8Array([24, code, PRECISIONS[chosen], sizes[chosen].data, part])",
         "join(new Uint8Array([21]), offer(\"q4f16\"), offer(\"q4\"),",
         "const path = sizes[chosen].path;",
-        "join(new Uint8Array([22, device ? 1 : 0]),",
+        "join(new Uint8Array([22, gpu ? 1 : 0]),",
         "return on === \"webgpu\" ? createEngine(",
-        "state.device = on;",
+        "return Object.assign(generate, { task, model, dtype: chosen, device: on,",
     ] {
         assert!(
             page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     for gone in [
@@ -1243,7 +1274,7 @@ fn gpu_gp_22() {
     ] {
         assert!(
             !page.contains(gone),
-            "site/app/app.mjs still names its own choice: `{gone}`"
+            "site/app/engine/pipeline.mjs still names its own choice: `{gone}`"
         );
     }
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
@@ -1253,6 +1284,131 @@ fn gpu_gp_22() {
         "the device was not the kernel's",
         "onnx q4: expected the kernel to refuse a precision the record does not offer",
         "onnx q4: the load went on past the precision",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-23`: The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt
+#[test]
+fn gpu_gp_23() {
+    // The journey runs two turns in a browser (`just page-journey`); this test
+    // reads that the page asks the kernel's decision 27 with the label of the
+    // prompt's own opening ids, and computes only what follows a reused head.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let page = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "const asked = label(prompt.slice(0, held.length));",
+        "join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))",
+        "engine.restoreState(held.state);",
+        "const tokens = await engine.run(prompt.slice(from), budget, {",
+        "held = { length: head, label: label(prompt.slice(0, head)), state: engine.saveState(head) };",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "the first turn asked to reuse a prefix",
+        "the second turn did not ask the kernel to reuse the head",
+        "the label asked is not the BLAKE3 of the prompt's first",
+        "the second turn computed",
+        "the second turn's tokens",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-24`: When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download
+#[test]
+fn gpu_gp_24() {
+    // The journey runs the short-storage visit in a browser (`just page-journey`);
+    // this test reads that the store asks the kernel's decision 26 and acts on
+    // each answer, and that the journey checks what was dropped and kept.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let kept = read("site/app/engine/files.mjs");
+    for wanted in [
+        "join(26, c ? pinned.has(c.name) : false, candidates.length - i, needed, free, freed)",
+        "if (answer === \"evict\" && c) {",
+        "if (answer === \"does not fit\") return false;",
+        "if (!(await room(file.size))) {",
+    ] {
+        assert!(
+            kept.contains(wanted),
+            "site/app/engine/files.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "kept short: expected the other model's file dropped",
+        "kept short: the other model's file was not dropped",
+        "kept short: expected one file kept",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-25`: One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24
+#[test]
+fn gpu_gp_25() {
+    // The journey calls the module on a page with no page code in between
+    // (`just page-journey`); this test reads that the module asks the task
+    // through decision 24, that the page loads through it, and that the
+    // journey checks the call and the refusal.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let module = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "export async function pipeline(task, model, options = {}) {",
+        "const code = TASKS[task] ?? 255;",
+        "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
+        "const generate = turner({ engine, module, ask, stops, chat });",
+        "export function turner(session) {",
+    ] {
+        assert!(
+            module.contains(wanted),
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "import { CAPACITY, be, join, pipeline, turner } from \"./engine/pipeline.mjs\";",
+        "session = { generate: turner({ engine, module, ask }) };",
+        "const out = await session.generate(text, {",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    for gone in ["loadOnnx(", "keepFiles(", "engine.run("] {
+        assert!(
+            !page.contains(gone),
+            "site/app/app.mjs runs `{gone}` itself instead of through the module"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "const { pipeline } = await import(\"./engine/pipeline.mjs\");",
+        "pipeline: the call's tokens",
+        "pipeline task: expected the kernel to refuse feature-extraction",
+        "pipeline task: the call went on past the task",
     ] {
         assert!(
             journey.contains(wanted),

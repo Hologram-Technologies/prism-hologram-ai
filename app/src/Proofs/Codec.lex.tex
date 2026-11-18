@@ -1,0 +1,109 @@
+\begin{lexlean}{Proofs.Codec}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Codec}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: codec_round_trip,
+  parameters: [format : Nat, stored : Nat],
+  statement: ((format <= 3) -> ((stored < (Kernel.Codec::codecWidth format)) -> ((Kernel.Codec::codecEncode format (Kernel.Codec::codecHigh format stored) (Kernel.Codec::codecMiddle format stored) (Kernel.Codec::codecLow format stored)) = stored))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecEncode,
+      Kernel.Codec::codecHigh,
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize,
+      Kernel.Codec::codecWidth
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: codec_fields_fit,
+  parameters: [format : Nat, stored : Nat],
+  statement: (((Kernel.Codec::codecLow format stored) < (Kernel.Codec::codecLowSize format)) /\ ((Kernel.Codec::codecMiddle format stored) < (Kernel.Codec::codecMiddleSize format))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: codec_reads_back_q4,
+  parameters: [high : Nat, middle : Nat, low : Nat],
+  statement: ((low < 16) -> ((middle < 16) -> (((Kernel.Codec::codecLow 0 (Kernel.Codec::codecEncode 0 high middle low)) = low) /\ (((Kernel.Codec::codecMiddle 0 (Kernel.Codec::codecEncode 0 high middle low)) = middle) /\ ((Kernel.Codec::codecHigh 0 (Kernel.Codec::codecEncode 0 high middle low)) = high))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecEncode,
+      Kernel.Codec::codecHigh,
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: codec_reads_back_half,
+  parameters: [high : Nat, middle : Nat, low : Nat],
+  statement: ((low < 1024) -> ((middle < 32) -> (((Kernel.Codec::codecLow 1 (Kernel.Codec::codecEncode 1 high middle low)) = low) /\ (((Kernel.Codec::codecMiddle 1 (Kernel.Codec::codecEncode 1 high middle low)) = middle) /\ ((Kernel.Codec::codecHigh 1 (Kernel.Codec::codecEncode 1 high middle low)) = high))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecEncode,
+      Kernel.Codec::codecHigh,
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: codec_reads_back_bfloat16,
+  parameters: [high : Nat, middle : Nat, low : Nat],
+  statement: ((low < 128) -> ((middle < 256) -> (((Kernel.Codec::codecLow 2 (Kernel.Codec::codecEncode 2 high middle low)) = low) /\ (((Kernel.Codec::codecMiddle 2 (Kernel.Codec::codecEncode 2 high middle low)) = middle) /\ ((Kernel.Codec::codecHigh 2 (Kernel.Codec::codecEncode 2 high middle low)) = high))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecEncode,
+      Kernel.Codec::codecHigh,
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: codec_reads_back_binary32,
+  parameters: [high : Nat, middle : Nat, low : Nat],
+  statement: ((low < 8388608) -> ((middle < 256) -> (((Kernel.Codec::codecLow 3 (Kernel.Codec::codecEncode 3 high middle low)) = low) /\ (((Kernel.Codec::codecMiddle 3 (Kernel.Codec::codecEncode 3 high middle low)) = middle) /\ ((Kernel.Codec::codecHigh 3 (Kernel.Codec::codecEncode 3 high middle low)) = high))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Kernel.Codec::codecEncode,
+      Kernel.Codec::codecHigh,
+      Kernel.Codec::codecLow,
+      Kernel.Codec::codecLowSize,
+      Kernel.Codec::codecMiddle,
+      Kernel.Codec::codecMiddleSize
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -425,6 +425,24 @@ suite = "gpu"
 statement = "The engine page asks the kernel which precision of an ONNX export to read (decision 21), what each of its files is called (decision 24) and which device runs it (decision 22), and reads, names and runs exactly what the kernel answers; a precision the hub's record does not offer is refused by the kernel before any file is read"
 
 [[id]]
+id = "GP-23"
+level = "build"
+suite = "gpu"
+statement = "The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt"
+
+[[id]]
+id = "GP-24"
+level = "build"
+suite = "gpu"
+statement = "When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download"
+
+[[id]]
+id = "GP-25"
+level = "build"
+suite = "gpu"
+statement = "One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
@@ -539,6 +557,30 @@ suite = "kernel"
 statement = "A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions"
 
 [[id]]
+id = "KN-38"
+level = "build"
+suite = "kernel"
+statement = "A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged"
+
+[[id]]
+id = "KN-39"
+level = "build"
+suite = "kernel"
+statement = "A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound"
+
+[[id]]
+id = "KN-40"
+level = "build"
+suite = "kernel"
+statement = "One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum"
+
+[[id]]
+id = "KN-41"
+level = "build"
+suite = "kernel"
+statement = "Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero"
+
+[[id]]
 id = "KN-45"
 level = "build"
 suite = "kernel"
@@ -578,4 +620,47 @@ statement = "An ONNX export is imported through the page's module: every span, o
 id = "EN-34"
 level = "build"
 suite = "engine"
-statement = "A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code"
+statement = "A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code"
+
+[[id]]
+id = "EN-35"
+level = "build"
+suite = "engine"
+statement = "Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one"
+
+[[id]]
+id = "KN-37"
+level = "build"
+suite = "kernel"
+statement = "One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite"
+
+[[id]]
+id = "EN-36"
+level = "build"
+suite = "engine"
+statement = "Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one"
+
+
+[[id]]
+id = "EN-37"
+level = "build"
+suite = "engine"
+statement = "An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-40's bits"
+
+[[id]]
+id = "EN-38"
+level = "build"
+suite = "engine"
+statement = "A row's exact terms are chained into decision 40's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained"
+
+[[id]]
+id = "EN-39"
+level = "build"
+suite = "engine"
+statement = "An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's"
+
+[[id]]
+id = "EN-40"
+level = "build"
+suite = "engine"
+statement = "A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32"

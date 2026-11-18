@@ -80,7 +80,27 @@ The inherited gates and their own planted defects are in
 | The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
+| `KN-37`: one group's sum times its IEEE half is `exact` exactly when the claimed magnitude is the sum's magnitude times `halfUnits` and the claimed sign is 1 just when that product is nonzero and the signs differ; a zero product is never negative; a half with exponent field 31 is `not finite` | `scale_accepts_size`, `scale_accepts_sign`, `scale_accepts_the_claim`, `zero_is_not_negative`, `sum_size_about_offset`, and `halfOf` by `half_subnormal_is_mantissa`, `half_normal_is_scaled` and `two_to_doubles`; checked by the Lean kernel | proved |
+| That `halfUnits` is the half's value in units of 2^-24 | argued from the two `halfOf` theorems and `two_to_doubles`: a subnormal is its fraction, a normal half of field `e` is `(1024 + fraction) * 2^(e-1)`; the value itself is not stated, because the proof language's arithmetic is linear | not proved |
+| Decision 37 answers the crate's claims in the compiled guest | `replay.mjs` in the `app` recipe, over the decision-37 claims in `crates/conformance/tests/kernel/claims.json` | tested on CI |
 | Decisions 29 to 34 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
+| `KN-38`: a stored q4 byte, half, bfloat16 or binary32 is read into integer fields that encode back to exactly the stored bits; every field lies within its width; fields within their widths read back unchanged | `codec_round_trip`, `codec_fields_fit` and `codec_reads_back_q4`, `_half`, `_bfloat16`, `_binary32`, checked by the Lean kernel | proved |
+| The fields of a half, bfloat16 or binary32 stand for the IEEE 754 value `(-1)^sign * fraction-with-leading-bit * 2^(exponent - bias)` | the reading in `crates/exact` (`Dyadic`), tested against Rust's own conversions in `EN-34` on the cases drawn | tested, not proved |
+| `KN-39`: a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits (a table of at most 65,536 entries), its output 1 to 32 bits, and its certified error within its declared bound | `narrow_accepted_decides`, checked by the Lean kernel | proved |
+| The certified error of a narrowing's table is its true worst error | the table generator's, to be checked when each table is built; no table exists yet | not proved |
+| `KN-40`: one link of a row's exact recombination is `exact` exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part; a part counts on one side only, by its sign; two exact links compose into one, so a chain confirms the plain sum of every term in it; at most one claim is exact | `rows_accepts_decides`, `rows_part_splits`, `rows_part_one_side`, `rows_links_compose` and `rows_one_claim`, checked by the Lean kernel | proved |
+| A chain of any length confirms the plain sum | follows from `rows_links_compose` by induction on the number of links; no theorem states the induction, because the request holds one link | argued, not proved |
+| `KN-40`: the next partial is a function, `rowsNextSign` and `rowsNextSize` of the positive and negative totals; the check accepts it, and any claim it accepts has that size, and that sign unless the size is zero | `rows_next_accepted`, `rows_accepts_only_next_positive` and `rows_accepts_only_next_negative`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| A term that fits has its shift at most 58, and its sum and mantissa below `2^24` | `rows_term_fits_bounds`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| No number decision 40 computes passes 64 bits: partials below `2^62`, and each term's `sum * mantissa * 2^shift` below `2^58` | the guard in `rowsAnswer`, pinned by `kernel_kn_40` and exercised at its edges in the compiled guest; the product bound is not stated as a theorem, because it is not linear | tested, not proved |
+| The compiled guest answers decision 40 as its definition does | 52,920 links from 3,640 real Qwen3-0.6B rows (half planted one too high) and 12 crafted edge requests, each answered as expected by the guest of a holo built from this branch; a measurement across this branch and `crates/exact`, not yet a test in the suite | measured |
+| `KN-41`: an input divided down to its code is within half a step of it (`2v <= 2p + s` for the lower code, `s + 2p <= 2v` for the upper), a tie gives the even code, and one input with one quotient witness has at most one code; an input multiplied up is its code exactly, within 32767 | `rq_down_witness`, `rq_down_half_step`, `rq_down_tie_even`, `rq_down_one_code` and `rq_up_exact`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| `KN-41`: a group's power is accepted only when its largest input is within 32767 at it and past it at the next power up | `rq_largest_down_decides` and `rq_largest_up_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| The quotient witness is the input's quotient by the step | the guest checks `q * step <= value < q * step + step`, so a wrong witness is refused; that this pins `q` uniquely is the division algorithm, not stated as a theorem, because the product is not linear | argued, not proved |
+| `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; EN-39 (branch `exact-codecs`) checks, for every input it writes, that the code is `rqDownCode`'s, passes the transcribed `rqElementOk`, and is `quantise_with`'s | tested, not proved |
+| No number decision 41 computes passes 64 bits | the guards in `rqElementOk` and `rqLargest` (mantissa below `2^24`, quotient at most 32767, a down shift at most 39 and an up shift at most 15, each inside an `if` so no product is formed before them), pinned by `kernel_kn_41` | tested, not proved |
+| Decision 41 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
+| Decisions 38 and 39 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
@@ -949,6 +969,231 @@ limit, as recorded for KN-34, so that the guest builds and replays with
 decisions 35 and 36 is left to the gate on CI. `site/og.png` was not redrawn
 here (the pinned Pillow wheel does not match this machine's Python); the
 deploy draws it.
+
+## KN-37, scale check
+
+Decision 37 checks one group's sum times its scale, the step after decision
+34 in a q4f16 product. A half is an integer times a power of two, so the
+product is exact in units of 2^-24, the smallest positive half: a subnormal
+half is its 10-bit fraction, and a normal half of exponent field `e` is
+`(1024 + fraction) * 2^(e-1)`, at most `2047 * 2^29`. The request is 16
+bytes: the tag, the group sum plus 32768 in four bytes, the half in two, the
+claim's sign in one and its magnitude in eight. The sum's magnitude is at most
+32768, so the product is below 2^56 and fits the guest's 64-bit naturals.
+The kernel works in natural numbers: the sum's magnitude and sign, the half's
+magnitude and sign, and a product that is negative only when it is nonzero
+and the two signs differ, so zero has one form.
+
+The answer is `exact`, `differs`, `not finite` for a half whose exponent field
+is 31, or `invalid request`.
+
+The first form of `halfOf` was a 31-way chain of literal powers. Lean rejected
+its theorems: `omega` treats the chain as one opaque number, and `simplify`
+left `Nat.beq 0 0` unreduced. A second form, `if exponent = 0 then mantissa
+else (1024 + mantissa) * twoTo (exponent - 1)`, failed one theorem on
+`below + 1 - 1`. The third matches on the exponent and passed.
+
+The axioms each theorem declares are the ones Lean observed: the hosted
+prover refuses any other set (`LLV7005: violates its exact axiom policy`),
+one theorem per run, so each was learned from its own run.
+
+### The pinned test: `kernel_kn_35`
+
+Run on 2026-11-18 in WSL with the pinned toolchain. Each defect was planted
+alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| `halfOf` adds 1023 | rejected: `halfOf changed` |
+| a zero product may be negative (`0 <=?`) | rejected: `scaledNegative changed` |
+| a theorem declares `Classical.choice` it does not use | rejected: `must rest on` |
+| the `not finite` claim dropped | rejected: no decision-37 claim is answered `not finite` |
+| none | passed |
+
+### The proof gate
+
+Checked on the hosted LexLean prover (`prism-app` profile) on 2026-11-18,
+with `Kernel.Scale`, `Kernel.Wire` and the parts of `Foundation.Bytes` it
+reads. That is a diagnostic, not the locked SDK's verdict; `lexlean verify
+src/Proofs/*.lex.tex` in the `app` recipe on CI is.
+## KN-38 and KN-39, lossless reading and declared narrowing
+
+The requirement: no floating point from the stored bytes to the token ids, and
+lossless where lossless exists. Lossless is held to three parts:
+
+- (a) Reading a stored weight or scale loses nothing: its integer fields encode
+  back to exactly the stored bits. `KN-38` proves this over natural numbers for
+  q4 bytes, IEEE halves, bfloat16 and binary32. It is also where a format with
+  no exact codec will be refused by name as codecs are added.
+- (b) Every matrix sum is exact and cannot overflow: `KN-29` (widths) and
+  `KN-34` (one block re-checked).
+- (c) A step that narrows a value is named, integer and bounded, and is never
+  called lossless. Exp in softmax, square root in normalisation, sine and cosine
+  in rotary encoding, SiLU, GELU and requantising activations have no exact
+  result in finite integers, and float engines round them too. `KN-39` admits
+  such a step only with a finite table domain, a declared output width, and a
+  certified error within its declared bound. Each step's bound, and each
+  model's quality against its float reference, are to be reported per model;
+  none is yet, because no table exists.
+
+Whether a run is integer at all is `KN-36`, and whether a label is a BLAKE3
+address is `KN-35`, recorded above.
+
+### The pinned tests: `kernel_kn_37` and `kernel_kn_38`
+
+| Planted defect | Result |
+| --- | --- |
+| a narrowing accepted when its error exceeds its bound | rejected: `narrowAccepted changed` |
+| a 17-bit table domain accepted | rejected: `narrowAccepted changed` |
+| a half's exponent field taken as 31 wide | rejected: `codecMiddleSize changed` |
+| a binary32 fraction taken as 22 bits | rejected: `codecLowSize changed` |
+| decision 39 routed to decision 38's answer | rejected: `decision 39 must be routed to Kernel.Narrow::narrowAnswer` |
+| a value one wider than its format answered | rejected: `codecAnswer changed` |
+| `narrow_accepted_decides` declares fewer axioms | rejected: `narrow_accepted_decides must rest on [Classical.choice, Quot.sound, propext]` |
+| none, before and after | passed |
+
+### The proof gate: `lexlean verify src/Proofs/Narrow.lex.tex src/Proofs/Codec.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a narrowing accepted when its error exceeds its bound | rejected: `Lean rejected HologramAi.Proofs.Narrow (error): omega could not prove the goal` |
+| a 17-bit table domain accepted | rejected: the same |
+| a half's exponent field taken as 31 wide | rejected: `Lean rejected HologramAi.Proofs.Codec` |
+| a binary32 fraction taken as 22 bits | rejected: the same |
+| a value one wider than its format answered | not rejected: `verified 6 modules`. No theorem states which requests are valid; `kernel_kn_37` rejects it |
+| none | `verified 6 modules` |
+
+Run on 2026-11-17 in the pinned SDK image; `lexlean verify` exited 1 on each
+rejection.
+
+## KN-40, row recombination
+
+A row of a product is the sum of its units' sums times their scales, each at its
+own power of two. The guest checks one row as a chain of links, because a request
+holds at most 81 bytes and a row has 32 to 280 units. A link is 79 bytes: the
+exact partial so far (a sign byte and eight bytes), the claimed partial after it,
+and up to six terms of a sign, a unit sum (four bytes), a scale mantissa (four
+bytes) and a power of two (one byte) above the chain's lowest power. The page
+carries the partial from one link to the next. A link whose partial reaches
+`2^62`, or whose term's `sum * mantissa` reaches `2^(58 - shift)`, is `too wide`:
+the guest's numbers are 64 bits, and the Lean model's are unbounded.
+
+### The pinned test: `kernel_kn_40`
+
+| Planted defect | Result |
+| --- | --- |
+| a link accepted with the claim on the wrong side | rejected: `rowsAccepts changed` |
+| a part counted whatever its sign | rejected: `rowsPart changed` |
+| a shift of 59 admitted | rejected: `rowsTermFits changed` |
+| decision 40 routed to decision 39's answer | rejected: `decision 40 must be routed to Kernel.Rows::rowsAnswer` |
+| the third term's sum read from its mantissa | rejected: `rowsAnswer changed` |
+| none | passed |
+
+### The proof gate: `lexlean verify src/Proofs/Rows.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a link accepted with the claim on the wrong side | rejected: `Lean rejected HologramAi.Proofs.Rows (error): omega could not prove the goal` |
+| a part counted whatever its sign | rejected: the same |
+| a shift of 59 admitted | not rejected in this first run: the bound was outside every theorem. Since `rows_term_fits_bounds`, rejected (below) |
+| none | `verified 4 modules` |
+
+### Added after the first run: the function and the bounds, on the hosted verifier
+
+On 2026-11-18 this machine stopped running the SDK image, and Ilya chose the
+hosted LexLean verifier (`mcp.uor.foundation`, profile `prism-app`) for proving.
+Its results are the hosted verifier's diagnostic, not the locked SDK's verdict;
+the locked SDK checks the same modules on CI.
+
+- `Kernel.Rows` gained `rowsNextSign` and `rowsNextSize`: the partial a link
+  computes, as a function a stateful guest can call.
+- `Proofs.Rows` gained `rows_next_accepted`, `rows_accepts_only_next_positive`,
+  `rows_accepts_only_next_negative` and `rows_term_fits_bounds`. The first
+  attempt at the claim theorem took a signed claim through `rowsPart`, whose
+  `if` stayed in a hypothesis `linear_arithmetic` does not split; it is stated
+  once per sign instead.
+- The whole of `Kernel.Rows` with `rowsAnswer`, and all nine theorems, with
+  `Kernel.Wire` and `Foundation.Bytes`: `verified` on the hosted verifier.
+
+| Planted defect | Hosted verifier |
+| --- | --- |
+| the next size computed the wrong way round | rejected: `Lean rejected ... Proofs.Rows (error): omega could not prove the goal`, in `rows_accepts_only_next_positive` |
+| a shift of 59 admitted | rejected: the same, in `rows_term_fits_bounds` |
+
+A chain of any length is still argued from `rows_links_compose`, not stated:
+the request holds one link, and a theorem over a list of links has no request
+it would describe.
+
+### The compiled guest against the fast path
+
+A holo built from this branch with `prismpm --project app build` (2026-11-18,
+96 s, published `23a1c162…`), its guest run by the vendored `prism-code`
+(`loadArchive`, then `dispatch`) under Node:
+
+| Requests | Expected | Answered as expected |
+| --- | --- | --- |
+| 26,460 links of 3,640 rows of Qwen3-0.6B's 196 projections (every 97th row, sixteen-bit inputs per group of 32, 0.2% outliers), built by `crates/exact`'s `row_links` from the terms `q4_product_with` places | `exact` | 26,460 |
+| the same links with the claimed partial one too high | `differs` | 26,460 |
+| the largest sums the bounds admit, all-negative terms, cancellation, crossing zero, a zero term at shift 58 | `exact` (5), `differs` (1) | 6 |
+| a term of exactly `2^58`, a sum of `2^24`, a partial of `2^62`, a shift of 59 | `too wide` | 4 |
+| a sign of 2; a 78-byte request | `invalid request` | 2 |
+
+No row of the 3,640 was too wide. The chain's last partial, rounded once,
+equals the fast path's output for every row (asserted while the links were
+built). This is a measurement across two branches; it becomes a test in the
+suite where `crates/exact` and decision 40 are in one tree.
+
+Run on 2026-11-18 in the pinned SDK image; `lexlean verify` exited 1 on each
+rejection.
+
+## KN-41, requantising inputs to sixteen bits
+
+EN-37 measured that sixteen-bit codes with one power of two per group of 32
+inputs bring products about 1,300 times closer to the float result than eight
+bits per vector. Decision 41 checks that narrowing for up to five inputs of one
+group in a 62-byte request: the group's largest input (mantissa, and whether its
+power multiplies up or divides down, and by how many), then each input's
+mantissa, direction and power, a quotient witness (half of it, two bytes, and
+whether it is odd, one byte) and its code (two bytes). The answer is `exact`,
+`differs`, `not the largest power`, or `invalid request`.
+
+Nothing a proof reads holds an `if` or a remainder: the first form did, and two
+of its theorems could not be proved, because `linear_arithmetic` splits an `if`
+only in the goal and `prim remainder` brings one with it. The quotient comes
+as `2 * half + odd`, and rounding is three exclusive linear cases on `2r`
+against the step: above it the code is `q + 1`, below it `q`, on a tie
+`q + odd`, which is even.
+
+Proved on 2026-11-18 on the hosted LexLean verifier (`mcp.uor.foundation`,
+profile `prism-app`), the hosted verifier's diagnostic and not the locked SDK's
+verdict: the whole of `Kernel.Requant` with `rqAnswer`, and all seven theorems,
+`verified`.
+
+An all-zero group has no power: its largest input is 0, and no power makes 0
+reach 32767. EN-39 found that `rqLargest` answered such a group `not the largest
+power`. It now accepts a largest input of 0 first; every input of that group
+is then 0, and `rqElementOk` accepts only code 0 for it. Re-verified the same
+day on the hosted verifier, the whole of `Kernel.Requant` and `Proofs.Requant`,
+`verified`.
+
+### The pinned test: `kernel_kn_41`
+
+| Planted defect | Result |
+| --- | --- |
+| a tie rounded up | rejected: `rqDownOk changed` |
+| a down shift of 40 computed, past the 64-bit guard | rejected: `rqElementOk changed` |
+| a quotient of 32768 admitted | rejected: `rqElementOk changed` |
+| a power one too small accepted as the largest | rejected: `rqLargestUp changed` |
+| decision 41 routed to decision 40's answer | rejected: `decision 41 must be routed to Kernel.Requant::rqAnswer` |
+| an all-zero group refused again | rejected: `rqLargest changed` |
+| none | passed |
+
+### The proof gate, on the hosted verifier
+
+| Planted defect | Result |
+| --- | --- |
+| an input just past half a step counted down to `q + 1` and the up case widened to `<=` | rejected: `Lean rejected ... Proofs.Requant (error): omega could not prove the goal`, in `rq_down_half_step` and `rq_down_one_code` |
+| the largest-power check made `<=` | rejected: the same, in `rq_largest_down_decides` |
 
 ## KN-45, the engine session
 

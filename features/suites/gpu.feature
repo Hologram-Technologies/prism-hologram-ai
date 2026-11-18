@@ -36,7 +36,7 @@ Feature: gpu
   @GP-06 @build
   Scenario: The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists
     Given the assembled site, with the precache.json the deploy writes, and the journey's container
-    When the deploy's listing names a different SHA-256 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
+    When the deploy's listing names a different BLAKE3 for app.holo than the kernel the browser was handed, as when the service worker serves an earlier deploy's kernel from its cache
     Then the page stops at "kernel is the one this deploy lists" with an error beginning "stale kernel", naming both, before it reads the record or asks the kernel any question
     And with the listing matching, the comparison passes and the load goes on
 
@@ -52,7 +52,7 @@ Feature: gpu
   Scenario: A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page
     Given the assembled site, with the precache.json the deploy writes, and a cache named as the service worker names its own that holds one file of an earlier deploy and one of this deploy
     When the engine page is opened, which the worker always fetches from the network
-    Then before importing the engine the page compares every cached file the listing names with the SHA-256 listed, removes the one that differs, keeps the one that matches, and reloads once
+    Then before importing the engine the page compares every cached file the listing names with the BLAKE3 listed, removes the one that differs, keeps the one that matches, and reloads once
     And after the reload it says files from an earlier deploy were replaced and imports the engine
     And when a reload has already been spent and a cached file still differs, it stops with "Stopped: stale page", disables Load and does not import the engine
 
@@ -176,3 +176,26 @@ Feature: gpu
     When `just page-journey` opens the engine page with ?onnx= naming it, with WebGPU and with navigator.gpu taken away, and once more asking for ?precision=q4
     Then each load asks the kernel for the precision and is answered q4f16, asks it for the graph's file and reads the file it names, and asks it for the device and runs on the one it names: WebGPU, then the CPU
     And the load asking for q4 stops at the precision, the kernel answering none fits, with no file read
+
+  @GP-23 @build
+  Scenario: The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt
+    Given GP-19's Qwen3-shaped ONNX export, whose chat template opens every turn with the same system line
+    When `just page-journey` loads it on WebGPU and on the CPU and sends a first turn, then a second whose text opens with another letter
+    Then the first turn computes the whole prompt and asks nothing about reuse
+    And the second asks the kernel with the label of its own opening ids, which the journey derives again from those ids, is answered reuse, computes only the positions after the head, and gives the reference's tokens for the whole prompt
+
+  @GP-24 @build
+  Scenario: When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download
+    Given a browser profile holding one 300,000-byte file kept for another model, named by its BLAKE3, and a browser reporting no free storage
+    When `just page-journey` opens the engine page with ?onnx= naming GP-19's export
+    Then the kernel answers evict for the other model's file and enough after it, and the first file downloaded is kept
+    And for every later file the kernel answers keep for the pinned file and does not fit, and the file is not kept
+    And the page answers with the reference's tokens
+
+  @GP-25 @build
+  Scenario: One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24
+    Given GP-19's Qwen3-shaped ONNX export and its hub record
+    When `just page-journey` imports site/app/engine/pipeline.mjs on a page and calls pipeline("text-generation", the export, { index }) with no page code in between, then calls the function it answers with "hi"
+    Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
+    And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
+    And the engine page's own visits load and answer through the same call

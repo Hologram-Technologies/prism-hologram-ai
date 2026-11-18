@@ -281,6 +281,44 @@ Feature: kernel
     Then a run is admitted exactly when its products and every other stage are exact, which is decision 30's class everywhere for any order of reductions
     And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
 
+  @KN-37 @build
+  Scenario: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
+    Given a request of the tag 37, a group sum plus 32768 in four bytes, an IEEE half in two, a sign byte and a magnitude in eight
+    When the kernel reads the half as its fraction when its exponent field is zero and as 1024 plus its fraction times 2 to the field less one otherwise, and multiplies the sum's magnitude by it
+    Then the answer is exact exactly when the magnitude is that product and the sign is 1 just when the product is nonzero and the two signs differ
+    And a zero product is never negative, a half whose exponent field is 31 is answered not finite, and a request of another length is answered invalid request
+    And the theorems of Proofs.Scale state each of these and are pinned with their axioms
+  @KN-38 @build
+  Scenario: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+    Given the codec model in app/src/Kernel/Codec.lex.tex and its proofs in app/src/Proofs/Codec.lex.tex
+    When the Lean kernel checks codec_round_trip, codec_fields_fit and the four codec_reads_back theorems during lexlean verify in the gate
+    Then every stored value narrower than its format encodes back from its fields to exactly the stored bits
+    And every field lies within its width, and fields within their widths read back unchanged from their encoding
+    And the answer to decision 38 is the fields in decimal, and invalid request for an unknown format or a value wider than it
+
+  @KN-39 @build
+  Scenario: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
+    Given the narrowing model in app/src/Kernel/Narrow.lex.tex and its proofs in app/src/Proofs/Narrow.lex.tex
+    When the Lean kernel checks narrow_accepted_decides during lexlean verify in the gate
+    Then a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits, its output 1 to 32 bits, and its certified error at most its declared bound
+    And the answer to decision 39 is accept or refuse, and invalid request for an unknown step or any length but 12
+
+  @KN-40 @build
+  Scenario: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
+    Given the row model in app/src/Kernel/Rows.lex.tex and its proofs in app/src/Proofs/Rows.lex.tex
+    When the Lean kernel checks rows_accepts_decides, rows_part_splits, rows_part_one_side, rows_links_compose and rows_one_claim during lexlean verify in the gate
+    Then a link is exact exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part
+    And two exact links compose into one, so a chain of links confirms the plain sum of every term in it
+    And the answer to decision 40 is exact, differs, too wide when a partial reaches 2^62 or a term could reach 2^58, and invalid request for a sign above 1 or any length but 79
+
+  @KN-41 @build
+  Scenario: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
+    Given the requantising model in app/src/Kernel/Requant.lex.tex and its proofs in app/src/Proofs/Requant.lex.tex
+    When the Lean kernel checks rq_down_witness, rq_down_half_step, rq_down_tie_even, rq_down_one_code, rq_up_exact, rq_largest_down_decides and rq_largest_up_decides
+    Then a code below the step is within half a step of its input, a tie gives an even code, and at most one code is accepted for an input and its quotient
+    And a power is accepted for the group only when its largest input is within 32767 at it and past 32767 at the next power
+    And the answer to decision 41 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62
+
   @KN-45 @build
   Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
     Given the engine session in app/src/Engine/Session.lex.tex, built on decisions 35 and 36, and its proofs in app/src/Proofs/Session.lex.tex

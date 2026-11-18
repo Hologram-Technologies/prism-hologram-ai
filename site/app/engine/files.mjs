@@ -12,6 +12,13 @@
 // about each one. A load that fails forgets every file and pointer it read or
 // kept, so the next load downloads them again.
 //
+// Room is the kernel's decision 26. Before a downloaded file is kept, each
+// file kept here is offered to the kernel, oldest first, with the files this
+// load reads or keeps pinned: one is dropped only on evict, and the offers
+// stop at enough. On does not fit the file is not kept, and the load reads it
+// from the download as before. A pointer to a dropped file is left; it reads
+// as not held.
+//
 // Files the record names no SHA-256 for (the small files Git stores itself)
 // are not kept; they are fetched each time. The browser's private file system
 // (OPFS) is per origin and may be cleared under storage pressure.
@@ -19,11 +26,11 @@
 const HEX = /^[0-9a-f]{64}$/;
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
-export async function keepFiles({ record, open, module: m, root, name = "hologram-files" }) {
+export async function keepFiles({ record, open, module: m, kernel, root, name = "hologram-files" }) {
   const base = root ?? (await navigator.storage.getDirectory());
   const dir = await base.getDirectoryHandle(name, { create: true });
   const names = await base.getDirectoryHandle(`${name}-names`, { create: true });
-  const counts = { read: 0, readBytes: 0, fetched: 0, fetchedBytes: 0 };
+  const counts = { read: 0, readBytes: 0, fetched: 0, fetchedBytes: 0, notKept: 0, dropped: 0, droppedBytes: 0 };
   const touched = [];
   const writing = [];
   const kept = [];
@@ -88,6 +95,10 @@ export async function keepFiles({ record, open, module: m, root, name = "hologra
       return local.bytes.stream().pipeThrough(stream).pipeThrough(check);
     }
     const body = await open(path);
+    if (!(await room(file.size))) {
+      counts.notKept++;
+      return body;
+    }
     const [mine, keep] = body.tee();
     const partial = `partial-${crypto.randomUUID()}`;
     touched.push({ dir: partial });
@@ -109,6 +120,48 @@ export async function keepFiles({ record, open, module: m, root, name = "hologra
     counts.fetched++;
     counts.fetchedBytes += file.size;
     return mine;
+  }
+
+  // Decision 26's request: pinned, candidates left, bytes needed, free and freed.
+  const join = (tag, pinned, remaining, needed, free, freed) => {
+    const out = new Uint8Array(30);
+    const view = new DataView(out.buffer);
+    out[0] = tag;
+    out[1] = pinned ? 1 : 0;
+    view.setUint32(2, remaining);
+    view.setBigUint64(6, BigInt(needed));
+    view.setBigUint64(14, BigInt(free));
+    view.setBigUint64(22, BigInt(freed));
+    return out;
+  };
+  // Whether there is room to keep `needed` bytes, dropping what the kernel says.
+  async function room(needed) {
+    const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+    const free = Math.max(0, quota - usage);
+    const pinned = new Set(touched.map((t) => t.dir).filter(Boolean));
+    const candidates = [];
+    for await (const [n, h] of dir.entries()) {
+      if (h.kind !== "file" || !HEX.test(n)) continue;
+      const f = await h.getFile();
+      candidates.push({ name: n, size: f.size, at: f.lastModified });
+    }
+    candidates.sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
+    let freed = 0;
+    for (let i = 0; ; i++) {
+      const c = candidates[i];
+      const answer = await kernel(join(26, c ? pinned.has(c.name) : false, candidates.length - i, needed, free, freed));
+      if (answer === "enough") return true;
+      if (answer === "does not fit") return false;
+      if (answer === "evict" && c) {
+        await dir.removeEntry(c.name);
+        freed += c.size;
+        counts.dropped++;
+        counts.droppedBytes += c.size;
+        continue;
+      }
+      if (answer === "keep" && c) continue;
+      throw new Error(`room for ${needed} bytes: the kernel answered "${answer}"`);
+    }
   }
 
   // Once the writes this load started have ended.
