@@ -698,3 +698,15 @@ Feature: engine
     Given the fixture model
     When a token id equal to its vocabulary is stepped
     Then the step is refused as DecodeError::TokenOutOfRange
+
+  @EN-50 @build
+  Scenario: The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Qwen2-shaped model with biases written as Qwen2.5's decomposed q4f16 export, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph with the config's head counts and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
+  @EN-51 @build
+  Scenario: The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Llama-shaped model written as Llama's fused q4f16 export with Llama 3 rope scaling in its config, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits

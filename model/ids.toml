@@ -724,3 +724,15 @@ id = "EN-49"
 level = "build"
 suite = "engine"
 statement = "The CPU path is integer from token ids to logits: hologram-ai-cpu-decode reads a Qwen3-shaped model from its fused q4f16 ONNX export by the nodes that read each weight, holds the residual stream as binary32 bit patterns touched only by integer code, and runs every stage on the exact products and the integer stages EN-43 to EN-48, each result rounded once, half to even; on GP-19's fixture its greedy tokens after the prompt are the float reference's sixteen, every logit within 2^-7 of the reference's, and a second run gives the same bits"
+
+[[id]]
+id = "EN-50"
+level = "build"
+suite = "engine"
+statement = "The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"
+
+[[id]]
+id = "EN-51"
+level = "build"
+suite = "engine"
+statement = "The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"
