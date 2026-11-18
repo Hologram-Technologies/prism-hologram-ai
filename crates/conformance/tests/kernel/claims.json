@@ -1,0 +1,73 @@
+{
+  "comment": "Requests the engine's crates make of the kernel, with the answer each must get. The Rust suites check that each request is the crate's own, and crates/conformance/tests/kernel/replay.mjs runs each through the compiled guest of the holo the app recipe builds. They are not the holo's examples: a closed list of examples longer than about 108 does not build (KERNEL-VERIFICATION.md, The limit on examples).",
+  "claims": [
+    {
+      "request": "220000000000000000000000000000000081818181818181818181818181818181818181818181818181818181818181810000ff00",
+      "answer": "exact"
+    },
+    {
+      "request": "220000000000000000000000000000000081818181818181818181818181818181818181818181818181818181818181810000ff01",
+      "answer": "differs"
+    },
+    {
+      "request": "22000000000000000000000000000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f00000100",
+      "answer": "exact"
+    },
+    {
+      "request": "22000000000000000000000000000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f00000101",
+      "answer": "differs"
+    },
+    {
+      "request": "22ffffffffffffffffffffffffffffffff7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f0000ef20",
+      "answer": "exact"
+    },
+    {
+      "request": "22ffffffffffffffffffffffffffffffff7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f0000ef21",
+      "answer": "differs"
+    },
+    {
+      "request": "2288888888888888888888888888888888050505050505050505050505050505058105050505050505050505050505050500008000",
+      "answer": "exact"
+    },
+    {
+      "request": "2288888888888888888888888888888888050505050505050505050505050505058105050505050505050505050505050500008001",
+      "answer": "differs"
+    },
+    {
+      "request": "22aefc97ce476367dafff1e9df3051e8b852fe42c5f7011eb1293369323736fb3f423274ea29d77fcbb58fa83002103149000086a6",
+      "answer": "exact"
+    },
+    {
+      "request": "22aefc97ce476367dafff1e9df3051e8b852fe42c5f7011eb1293369323736fb3f423274ea29d77fcbb58fa83002103149000086a7",
+      "answer": "differs"
+    },
+    {
+      "request": "226a620121629df5ce3754718c3e6cfa971339e71c942883ba4bf892cf4e3b1bab819df2a70f302a96a27370c68e00839e00008385",
+      "answer": "exact"
+    },
+    {
+      "request": "226a620121629df5ce3754718c3e6cfa971339e71c942883ba4bf892cf4e3b1bab819df2a70f302a96a27370c68e00839e00008386",
+      "answer": "differs"
+    },
+    {
+      "request": "22f2954d5d70b4ea7fbc302ad9b60d79d4a26221d7d26a3068ed45657f0a26868f5f20c761743de32c0bed1a9193e850d1000082f2",
+      "answer": "exact"
+    },
+    {
+      "request": "22f2954d5d70b4ea7fbc302ad9b60d79d4a26221d7d26a3068ed45657f0a26868f5f20c761743de32c0bed1a9193e850d1000082f3",
+      "answer": "differs"
+    },
+    {
+      "request": "22bf764f78f39012507f1734ab9f6ebc2b2f6b5f3f57815ae16fdf03a741fefde826b396593fb9a8a27c215a749e68d14a00008183",
+      "answer": "exact"
+    },
+    {
+      "request": "22bf764f78f39012507f1734ab9f6ebc2b2f6b5f3f57815ae16fdf03a741fefde826b396593fb9a8a27c215a749e68d14a00008184",
+      "answer": "differs"
+    },
+    {
+      "request": "220000000000000000000000000000000081818181818181818181818181818181818181818181818181818181818181810000ff",
+      "answer": "invalid request"
+    }
+  ]
+}
