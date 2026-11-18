@@ -104,8 +104,8 @@ Where SHA-256 or SHA-1 is still used, and what moves it:
 | A model file checked against the hub record | `site/app/engine/onnx-load.mjs` (SHA-256 for LFS files, Git's blob SHA-1 for small ones), the module's whole-file check (`onnx_start`) | The hub publishes a BLAKE3 for every file and tensor of the ONNX exports (proposed as a hub change on 2026-11-17); a model with none is then refused |
 | The hub record and index root | `hubRecord` in `site/app/engine/loader.mjs` | The hub names records by BLAKE3 in `root.json` |
 | A `.holk` container's root | `crates/download` (`Root`), `crates/model-reader/src/holk.rs`, `loadContainer` | Containers re-minted on the hub with a BLAKE3 root |
-| The frame's modules, pointer and index | `frame/`, `site/sw.js`, `bootstrap/page.mjs` | The UOR template's frame moves; these files are the template's |
-| The deploy's file listing and the kernel check | `bootstrap/precache.mjs`, `site/app/index.html`, `site/app/app.mjs` | Moved to BLAKE3 on 2026-11-17 |
+| The frame's modules, pointer and index, and the deploy listing's own SHA-256 and version | `frame/`, `site/sw.js`, `bootstrap/page.mjs`, `bootstrap/precache.mjs` | The UOR template's frame moves; these files are the template's, pinned by `frame.lock` |
+| The kernel check and the cached-file check | `bootstrap/listing-blake3.mjs` (adds each file's BLAKE3 to the frame's listing), `site/app/index.html`, `site/app/app.mjs` | Moved to BLAKE3 on 2026-11-17 |
 
 Per-tensor verified streaming (BLAKE3's tree, published per tensor as a Bao
 outboard) waits on the hub publishing outboards; until then a tensor is

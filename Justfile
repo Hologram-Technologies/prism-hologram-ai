@@ -130,6 +130,7 @@ page-journey assembled="":
       rm -rf "$site/vendor/prism-code/fixtures"
       node bootstrap/page.mjs "$site"
       node bootstrap/precache.mjs "$site"
+      node bootstrap/listing-blake3.mjs "$site"
     fi
     [[ -f $site/app.holo ]] || { echo "$site has no holo: run just app" >&2; exit 64; }
     [[ -f $site/app/engine/engine.wasm ]] || { echo "$site has no engine: run just engine" >&2; exit 64; }

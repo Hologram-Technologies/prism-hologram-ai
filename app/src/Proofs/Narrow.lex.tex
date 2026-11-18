@@ -1,0 +1,16 @@
+\begin{lexlean}{Proofs.Narrow}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Narrow}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: narrow_accepted_decides,
+  parameters: [step : Nat, inputBits : Nat, outputBits : Nat, bound : Nat, certified : Nat],
+  statement: (((Kernel.Narrow::narrowAccepted step inputBits outputBits bound certified) = true) <-> ((step <= 5) /\ ((1 <= inputBits) /\ ((inputBits <= 16) /\ ((1 <= outputBits) /\ ((outputBits <= 32) /\ (certified <= bound))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Narrow::narrowAccepted]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

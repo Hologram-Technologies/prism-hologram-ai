@@ -1,0 +1,74 @@
+\begin{lexlean}{Kernel.Rows}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: rowsPow2,
+  parameters: [power : Nat],
+  result: Nat,
+  body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rowsPow2 rest) : Nat)),
+  recursive_argument: power
+}
+
+definition{
+  name: rowsTermSize,
+  parameters: [sum : Nat, mantissa : Nat, shift : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply sum mantissa : Nat) (rowsPow2 shift) : Nat)
+}
+
+definition{
+  name: rowsTermFits,
+  parameters: [sum : Nat, mantissa : Nat, shift : Nat],
+  result: Bool,
+  body: (((sum <? 16777216) && (mantissa <? 16777216)) && ((shift <=? 58) && ((prim multiply sum mantissa : Nat) <? (rowsPow2 (prim subtract 58 shift : Nat)))))
+}
+
+definition{
+  name: rowsPart,
+  parameters: [sign : Nat, size : Nat, want : Nat],
+  result: Nat,
+  body: (if (sign =? want) then size else 0)
+}
+
+definition{
+  name: rowsTermPart,
+  parameters: [sign : Nat, sum : Nat, mantissa : Nat, shift : Nat, want : Nat],
+  result: Nat,
+  body: (rowsPart sign (rowsTermSize sum mantissa shift) want)
+}
+
+definition{
+  name: rowsAccepts,
+  parameters: [positive : Nat, negative : Nat, claimedPositive : Nat, claimedNegative : Nat],
+  result: Bool,
+  body: ((positive + claimedNegative) =? (negative + claimedPositive))
+}
+
+definition{
+  name: rowsNextSign,
+  parameters: [positive : Nat, negative : Nat],
+  result: Nat,
+  body: (if (negative <=? positive) then 0 else 1)
+}
+
+definition{
+  name: rowsNextSize,
+  parameters: [positive : Nat, negative : Nat],
+  result: Nat,
+  body: (if (negative <=? positive) then (prim subtract positive negative : Nat) else (prim subtract negative positive : Nat))
+}
+
+definition{
+  name: rowsAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 79) && (((((((((Kernel.Wire::fieldAt value 1 1) <=? 1) && ((Kernel.Wire::fieldAt value 10 1) <=? 1)) && ((Kernel.Wire::fieldAt value 19 1) <=? 1)) && ((Kernel.Wire::fieldAt value 29 1) <=? 1)) && ((Kernel.Wire::fieldAt value 39 1) <=? 1)) && ((Kernel.Wire::fieldAt value 49 1) <=? 1)) && ((Kernel.Wire::fieldAt value 59 1) <=? 1)) && ((Kernel.Wire::fieldAt value 69 1) <=? 1))) then (if (((((((((Kernel.Wire::fieldAt value 2 8) <? 4611686018427387904) && ((Kernel.Wire::fieldAt value 11 8) <? 4611686018427387904)) && (rowsTermFits (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1))) then (if (rowsAccepts (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 0) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 0)) (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 1) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 1)) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 0) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 1)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "too wide" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
