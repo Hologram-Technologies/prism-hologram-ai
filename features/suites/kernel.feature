@@ -295,3 +295,11 @@ Feature: kernel
     When the Lean kernel checks narrow_accepted_decides during lexlean verify in the gate
     Then a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits, its output 1 to 32 bits, and its certified error at most its declared bound
     And the answer to decision 38 is accept or refuse, and invalid request for an unknown step or any length but 12
+
+  @KN-39 @build
+  Scenario: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
+    Given the row model in app/src/Kernel/Rows.lex.tex and its proofs in app/src/Proofs/Rows.lex.tex
+    When the Lean kernel checks rows_accepts_decides, rows_part_splits, rows_part_one_side, rows_links_compose and rows_one_claim during lexlean verify in the gate
+    Then a link is exact exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part
+    And two exact links compose into one, so a chain of links confirms the plain sum of every term in it
+    And the answer to decision 39 is exact, differs, too wide when a partial reaches 2^62 or a term could reach 2^58, and invalid request for a sign above 1 or any length but 79

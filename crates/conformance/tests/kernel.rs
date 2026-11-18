@@ -2871,3 +2871,78 @@ fn kernel_kn_38() {
     );
     assert_routed(38, "Kernel.Narrow::narrowAnswer");
 }
+/// `KN-39`: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
+#[test]
+fn kernel_kn_39() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Rows.lex.tex");
+    let proofs = model("app/src/Proofs/Rows.lex.tex");
+    assert_pinned(
+        &proofs,
+        "rows_accepts_decides",
+        "(((Kernel.Rows::rowsAccepts positive negative claimedPositive claimedNegative) = true) <-> ((positive + claimedNegative) = (negative + claimedPositive)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_part_splits",
+        "((sign <= 1) -> (((Kernel.Rows::rowsPart sign size 0) + (Kernel.Rows::rowsPart sign size 1)) = size))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_part_one_side",
+        "(((sign = 0) -> ((Kernel.Rows::rowsPart sign size 1) = 0)) /\\ ((sign = 1) -> ((Kernel.Rows::rowsPart sign size 0) = 0)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_links_compose",
+        "(((Kernel.Rows::rowsAccepts (startPositive + firstPositive) (startNegative + firstNegative) middlePositive middleNegative) = true) -> (((Kernel.Rows::rowsAccepts (middlePositive + secondPositive) (middleNegative + secondNegative) endPositive endNegative) = true) -> ((Kernel.Rows::rowsAccepts (startPositive + (firstPositive + secondPositive)) (startNegative + (firstNegative + secondNegative)) endPositive endNegative) = true)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_one_claim",
+        "(((Kernel.Rows::rowsAccepts positive negative onePositive oneNegative) = true) -> (((Kernel.Rows::rowsAccepts positive negative otherPositive otherNegative) = true) -> ((onePositive + otherNegative) = (otherPositive + oneNegative))))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "rowsPow2");
+    assert!(
+        found.contains("body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rowsPow2 rest) : Nat)),\n  recursive_argument: power"),
+        "rowsPow2 changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermSize");
+    assert!(
+        found.contains(
+            "body: (prim multiply (prim multiply sum mantissa : Nat) (rowsPow2 shift) : Nat)"
+        ),
+        "rowsTermSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermFits");
+    assert!(
+        found.contains("body: (((sum <? 16777216) && (mantissa <? 16777216)) && ((shift <=? 58) && ((prim multiply sum mantissa : Nat) <? (rowsPow2 (prim subtract 58 shift : Nat)))))"),
+        "rowsTermFits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsPart");
+    assert!(
+        found.contains("body: (if (sign =? want) then size else 0)"),
+        "rowsPart changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermPart");
+    assert!(
+        found.contains("body: (rowsPart sign (rowsTermSize sum mantissa shift) want)"),
+        "rowsTermPart changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsAccepts");
+    assert!(
+        found.contains("body: ((positive + claimedNegative) =? (negative + claimedPositive))"),
+        "rowsAccepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 79) && (((((((((Kernel.Wire::fieldAt value 1 1) <=? 1) && ((Kernel.Wire::fieldAt value 10 1) <=? 1)) && ((Kernel.Wire::fieldAt value 19 1) <=? 1)) && ((Kernel.Wire::fieldAt value 29 1) <=? 1)) && ((Kernel.Wire::fieldAt value 39 1) <=? 1)) && ((Kernel.Wire::fieldAt value 49 1) <=? 1)) && ((Kernel.Wire::fieldAt value 59 1) <=? 1)) && ((Kernel.Wire::fieldAt value 69 1) <=? 1))) then (if (((((((((Kernel.Wire::fieldAt value 2 8) <? 4611686018427387904) && ((Kernel.Wire::fieldAt value 11 8) <? 4611686018427387904)) && (rowsTermFits (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1))) then (if (rowsAccepts (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 0) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 0)) (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 1) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 1)) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 0) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 1)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"too wide\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "rowsAnswer changed:\n{found}"
+    );
+    assert_routed(39, "Kernel.Rows::rowsAnswer");
+}

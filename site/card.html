@@ -41,6 +41,7 @@
     <option value="35">36. Integer run</option>
     <option value="36">37. Stored bits as integers</option>
     <option value="37">38. Declared narrowing</option>
+    <option value="38">39. Row recombination</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2158,6 +2159,263 @@
       "module": "Narrow",
       "name": "Declared narrowing",
       "tag": 38
+    },
+    {
+      "asks": "Is this the exact partial sum after these terms?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Partial so far, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Partial so far",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Claimed next partial, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 11,
+          "name": "Claimed next partial",
+          "value": 6,
+          "width": 8
+        },
+        {
+          "at": 19,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 1, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 20,
+          "name": "Term 1, unit sum",
+          "value": 3,
+          "width": 4
+        },
+        {
+          "at": 24,
+          "name": "Term 1, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 28,
+          "name": "Term 1, power of two",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 29,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 2, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 30,
+          "name": "Term 2, unit sum",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 34,
+          "name": "Term 2, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 38,
+          "name": "Term 2, power of two",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 39,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 3, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 40,
+          "name": "Term 3, unit sum",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 44,
+          "name": "Term 3, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 48,
+          "name": "Term 3, power of two",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 49,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 4, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 50,
+          "name": "Term 4, unit sum",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 54,
+          "name": "Term 4, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 58,
+          "name": "Term 4, power of two",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 59,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 5, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 60,
+          "name": "Term 5, unit sum",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 64,
+          "name": "Term 5, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 68,
+          "name": "Term 5, power of two",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 69,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Term 6, negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 70,
+          "name": "Term 6, unit sum",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 74,
+          "name": "Term 6, scale mantissa",
+          "value": 1,
+          "width": 4
+        },
+        {
+          "at": 78,
+          "name": "Term 6, power of two",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 79,
+      "module": "Rows",
+      "name": "Row recombination",
+      "tag": 39
     }
   ],
   "request": 81

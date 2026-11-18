@@ -1,0 +1,66 @@
+\begin{lexlean}{Proofs.Rows}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Rows}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: rows_accepts_decides,
+  parameters: [positive : Nat, negative : Nat, claimedPositive : Nat, claimedNegative : Nat],
+  statement: (((Kernel.Rows::rowsAccepts positive negative claimedPositive claimedNegative) = true) <-> ((positive + claimedNegative) = (negative + claimedPositive))),
+  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts]},
+  axioms: [propext]
+}
+
+theorem{
+  name: rows_part_splits,
+  parameters: [sign : Nat, size : Nat],
+  statement: ((sign <= 1) -> (((Kernel.Rows::rowsPart sign size 0) + (Kernel.Rows::rowsPart sign size 1)) = size)),
+  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsPart]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rows_part_one_side,
+  parameters: [sign : Nat, size : Nat],
+  statement: (((sign = 0) -> ((Kernel.Rows::rowsPart sign size 1) = 0)) /\ ((sign = 1) -> ((Kernel.Rows::rowsPart sign size 0) = 0))),
+  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsPart]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: rows_links_compose,
+  parameters: [
+    startPositive : Nat,
+    startNegative : Nat,
+    middlePositive : Nat,
+    middleNegative : Nat,
+    endPositive : Nat,
+    endNegative : Nat,
+    firstPositive : Nat,
+    firstNegative : Nat,
+    secondPositive : Nat,
+    secondNegative : Nat
+  ],
+  statement: (((Kernel.Rows::rowsAccepts (startPositive + firstPositive) (startNegative + firstNegative) middlePositive middleNegative) = true) -> (((Kernel.Rows::rowsAccepts (middlePositive + secondPositive) (middleNegative + secondNegative) endPositive endNegative) = true) -> ((Kernel.Rows::rowsAccepts (startPositive + (firstPositive + secondPositive)) (startNegative + (firstNegative + secondNegative)) endPositive endNegative) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rows_one_claim,
+  parameters: [
+    positive : Nat,
+    negative : Nat,
+    onePositive : Nat,
+    oneNegative : Nat,
+    otherPositive : Nat,
+    otherNegative : Nat
+  ],
+  statement: (((Kernel.Rows::rowsAccepts positive negative onePositive oneNegative) = true) -> (((Kernel.Rows::rowsAccepts positive negative otherPositive otherNegative) = true) -> ((onePositive + otherNegative) = (otherPositive + oneNegative)))),
+  proof: linear_arithmetic{definitions: [Kernel.Rows::rowsAccepts]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
