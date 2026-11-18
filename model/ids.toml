@@ -573,3 +573,9 @@ id = "EN-37"
 level = "build"
 suite = "engine"
 statement = "A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained"
+
+[[id]]
+id = "EN-38"
+level = "build"
+suite = "engine"
+statement = "An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's"

@@ -1391,6 +1391,86 @@ pub fn round_exact(value: i128, power: i32) -> u32 {
     round_to_binary32(&row)
 }
 
+/// Bytes of one decision-40 request.
+pub const REQUANT_BYTES: usize = 62;
+
+/// Inputs per decision-40 request.
+pub const REQUANT_INPUTS: usize = 5;
+
+/// One input's magnitude as decision 40 reads it: its mantissa, whether its
+/// group's power multiplies it up (1) or divides it down (0), and by how many
+/// powers of two.
+fn requant_place(value: Dyadic, exponent: i32) -> (u32, u8, u32) {
+    let mantissa = value.mantissa.unsigned_abs() as u32;
+    let shift = value.exponent + exponent;
+    if shift >= 0 {
+        (mantissa, 1, shift as u32)
+    } else {
+        (mantissa, 0, shift.unsigned_abs())
+    }
+}
+
+/// Decision 40's requests for `input` put on sixteen-bit codes per group of
+/// [`ACTIVATION_GROUP`]: each request names its group's largest input, then up
+/// to [`REQUANT_INPUTS`] of the group's inputs, each with its quotient witness
+/// (`2 * half + odd`, the input divided down and rounded toward zero) and its
+/// code's magnitude. The codes are [`quantise_with`]'s.
+pub fn requant_requests(input: &[u32]) -> Result<Vec<[u8; REQUANT_BYTES]>, ExactError> {
+    let scheme = Scheme {
+        width: Width::Sixteen,
+        grouping: Grouping::Groups,
+    };
+    let activations = quantise_with(input, scheme)?;
+    let read: Vec<Dyadic> = input
+        .iter()
+        .map(|&bits| Dyadic::from_binary32(bits).ok_or(ExactError::InputNotFinite))
+        .collect::<Result<Vec<Dyadic>, ExactError>>()?;
+    let zero = Dyadic {
+        mantissa: 0,
+        exponent: 0,
+    };
+    let mut requests = Vec::new();
+    for (g, group) in read.chunks(ACTIVATION_GROUP).enumerate() {
+        let exponent = activations.exponents[g];
+        let largest = group
+            .iter()
+            .fold(zero, |m, &x| if larger(x, m) { x } else { m });
+        let (lm, ld, ls) = requant_place(largest, exponent);
+        let start = g * ACTIVATION_GROUP;
+        for (c, chunk) in group.chunks(REQUANT_INPUTS).enumerate() {
+            let mut request = Vec::with_capacity(REQUANT_BYTES);
+            request.push(40);
+            request.extend_from_slice(&lm.to_be_bytes());
+            request.push(ld);
+            request.push(u8::try_from(ls).unwrap_or(u8::MAX));
+            for (i, &x) in chunk.iter().enumerate() {
+                let (m, d, s) = requant_place(x, exponent);
+                let code = activations.codes[start + c * REQUANT_INPUTS + i].unsigned_abs();
+                let quotient = if d == 1 || s > 39 {
+                    0
+                } else {
+                    u64::from(m) >> s
+                };
+                request.extend_from_slice(&m.to_be_bytes());
+                request.push(d);
+                request.push(u8::try_from(s).unwrap_or(u8::MAX));
+                request.extend_from_slice(
+                    &u16::try_from(quotient / 2)
+                        .unwrap_or(u16::MAX)
+                        .to_be_bytes(),
+                );
+                request.push((quotient % 2) as u8);
+                request.extend_from_slice(&code.to_be_bytes());
+            }
+            // A short last request repeats nothing: its unused inputs are
+            // zero, which decision 40 reads as code 0 for value 0.
+            request.resize(REQUANT_BYTES, 0);
+            requests.push(request.try_into().map_err(|_| ExactError::LengthMismatch)?);
+        }
+    }
+    Ok(requests)
+}
+
 /// An ONNX initializer of `data_type` as dense weights, or
 /// [`ExactError::NoExactCodec`]: binary32 (1), half (10) and bfloat16 (16) have
 /// exact codecs; no other type does yet.

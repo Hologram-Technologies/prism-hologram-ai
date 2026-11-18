@@ -586,3 +586,11 @@ Feature: engine
     And each link's next partial is its partial plus its terms, and the first partial is zero
     And the last partial, rounded once at the chain's power, gives the bits q4_product_with gives
     And a term whose value could reach 2^58 at the chain's power makes the row too wide
+
+  @EN-38 @build
+  Scenario: An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
+    Given inputs that are ordinary, exactly halfway between codes, below the normal range, zero, near the largest binary32, and spikes beside values too small to reach a code
+    When each is put on sixteen-bit codes per group of 32 and written by requant_requests
+    Then every request is 62 bytes and decision 40's, and names its group's largest input at the group's power
+    And every input in it passes rqElementOk and the power passes rqLargest, as transcribed in the test from Kernel.Requant
+    And every code is rqDownCode's for its input and step, and the codes are quantise_with's, in order

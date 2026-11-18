@@ -8505,3 +8505,178 @@ fn engine_en_37() {
         "a term below 2^58 was refused"
     );
 }
+
+/// Decision 40's definitions, transcribed from `app/src/Kernel/Requant.lex.tex`
+/// for EN-38: each a plain function over the request's numbers.
+mod requant_definition {
+    pub fn pow2(power: u64) -> u128 {
+        1u128 << power
+    }
+    pub fn down_ok(
+        value: u128,
+        step: u128,
+        half: u128,
+        odd: u128,
+        product: u128,
+        code: u128,
+    ) -> bool {
+        let q = half + half + odd;
+        product <= value
+            && value < product + step
+            && code <= 32767
+            && ((step + 2 * product < 2 * value && code == q + 1)
+                || (2 * value < step + 2 * product && code == q)
+                || (2 * value == step + 2 * product && code == q + odd))
+    }
+    pub fn element_ok(
+        value: u128,
+        direction: u128,
+        shift: u64,
+        half: u128,
+        odd: u128,
+        code: u128,
+    ) -> bool {
+        if value < 16_777_216 && half <= 16383 {
+            if direction == 1 {
+                shift <= 15 && code <= 32767 && code == value * pow2(shift)
+            } else if shift <= 39 {
+                down_ok(
+                    value,
+                    pow2(shift),
+                    half,
+                    odd,
+                    (half + half + odd) * pow2(shift),
+                    code,
+                )
+            } else {
+                code == 0 && half == 0 && odd == 0
+            }
+        } else {
+            false
+        }
+    }
+    pub fn largest(value: u128, direction: u128, shift: u64) -> bool {
+        if value == 0 {
+            return true;
+        }
+        if value >= 16_777_216 {
+            return false;
+        }
+        if direction == 1 {
+            shift <= 15 && {
+                let scaled = value * pow2(shift);
+                scaled <= 32767 && 32767 < 2 * scaled
+            }
+        } else {
+            shift <= 39 && value <= 32767 * pow2(shift) && 32767 * pow2(shift) < 2 * value
+        }
+    }
+    pub fn down_code(value: u128, step: u128) -> u128 {
+        let (q, r) = (value / step, value % step);
+        q + u128::from(step < 2 * r || (2 * r == step && q % 2 == 1))
+    }
+}
+
+/// `EN-38`: An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's
+#[test]
+fn engine_en_38() {
+    use requant_definition as d;
+    let mut draw = Draw(0x510e_527f_ade6_82d1);
+    let mut inputs: Vec<Vec<f32>> = Vec::new();
+    inputs.push((0..96).map(|_| draw.unit() * 3.0).collect());
+    // Exactly halfway between codes: a group whose largest is 1.0 is at 2^14,
+    // so (2n + 1) / 2^15 lands on a tie.
+    let mut ties: Vec<f32> = (0..32).map(|n| (2 * n + 1) as f32 / 32768.0).collect();
+    ties[0] = 1.0;
+    inputs.push(ties);
+    inputs.push(
+        (0..40)
+            .map(|i| f32::from_bits(1 + i as u32 * 977))
+            .collect(),
+    );
+    inputs.push(vec![0.0; 37]);
+    inputs.push(
+        (0..32)
+            .map(|i| if i % 2 == 0 { 3.0e38 } else { -1.0e30 })
+            .collect(),
+    );
+    let mut spike: Vec<f32> = (0..64).map(|_| draw.unit() * 1.0e-20).collect();
+    spike[5] = 7000.0;
+    spike[40] = -0.5;
+    inputs.push(spike);
+    let mut checked = 0usize;
+    for input in &inputs {
+        let bits = bits(input);
+        let a = exact::quantise_with(
+            &bits,
+            exact::Scheme {
+                width: exact::Width::Sixteen,
+                grouping: exact::Grouping::Groups,
+            },
+        )
+        .expect("finite");
+        let requests = exact::requant_requests(&bits).expect("finite");
+        let groups = input.len().div_ceil(32);
+        let expected: usize = (0..groups)
+            .map(|g| (input.len() - 32 * g).min(32).div_ceil(5))
+            .sum();
+        assert_eq!(
+            requests.len(),
+            expected,
+            "one request for every five inputs of a group"
+        );
+        let mut codes = Vec::new();
+        for request in &requests {
+            assert_eq!(request.len(), exact::REQUANT_BYTES);
+            assert_eq!(request[0], 40, "a request that is not decision 40's");
+            let n = |at: usize, width: usize| {
+                request[at..at + width]
+                    .iter()
+                    .fold(0u128, |v, &b| v * 256 + u128::from(b))
+            };
+            assert!(
+                d::largest(n(1, 4), n(5, 1), n(6, 1) as u64),
+                "the power is not the group's largest: {:?}",
+                &request[..7]
+            );
+            for i in 0..exact::REQUANT_INPUTS {
+                let b = 7 + 11 * i;
+                let (value, direction, shift) = (n(b, 4), n(b + 4, 1), n(b + 5, 1) as u64);
+                let (half, odd, code) = (n(b + 6, 2), n(b + 8, 1), n(b + 9, 2));
+                assert!(
+                    d::element_ok(value, direction, shift, half, odd, code),
+                    "input {i} of a request fails decision 40: {:?}",
+                    &request[b..b + 11]
+                );
+                if direction == 0 && shift <= 39 {
+                    assert_eq!(
+                        code,
+                        d::down_code(value, d::pow2(shift)),
+                        "a code is not rqDownCode's"
+                    );
+                }
+                codes.push(code);
+                checked += 1;
+            }
+        }
+        // The requests' codes, in order, are quantise_with's magnitudes; a
+        // short last request in a group pads with zero inputs.
+        let mut at = 0;
+        for g in 0..groups {
+            let len = (input.len() - 32 * g).min(32);
+            for i in 0..len.div_ceil(5) * 5 {
+                let want = if i < len {
+                    u128::from(a.codes()[32 * g + i].unsigned_abs())
+                } else {
+                    0
+                };
+                assert_eq!(
+                    codes[at], want,
+                    "group {g}, input {i}: the request's code is not quantise_with's"
+                );
+                at += 1;
+            }
+        }
+    }
+    assert!(checked > 300, "only {checked} inputs checked");
+}
