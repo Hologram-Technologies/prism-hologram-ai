@@ -677,7 +677,7 @@ Feature: engine
 
   @FL-55 @build
   Scenario: The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs
-    Given the fixture's graph without its layer 0 query norm node
+    Given the fixture's graph with layer 0's query norm and without layer 1's
     When it is read
     Then the read is refused as DecodeError::Unrecognised(Role::QueryNorm)
 

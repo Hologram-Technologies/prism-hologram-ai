@@ -10071,7 +10071,7 @@ fn engine_fl_55() {
     use hologram_ai_cpu_decode::{DecodeError, Role};
     let fixture = en_49_fixture("qwen3");
     let (mut nodes, initializers) = en_49_graph(&fixture.graph);
-    nodes.retain(|n| n.name != "/model/layers.0/attn/q_norm/SimplifiedLayerNormalization");
+    nodes.retain(|n| n.name != "/model/layers.1/attn/q_norm/SimplifiedLayerNormalization");
     let read = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture));
     assert_eq!(read.err(), Some(DecodeError::Unrecognised(Role::QueryNorm)));
 }
