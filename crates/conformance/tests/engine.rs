@@ -9600,3 +9600,128 @@ fn engine_en_46() {
     assert_eq!(exact::silu(32 << 16), 32 << 16, "silu of 32 is not 32");
     assert_eq!(exact::silu(-(32 << 16)), 0, "silu of -32 is not 0");
 }
+
+/// EN-47's rows: (values, weights, epsilon).
+fn en_47_rows() -> Vec<(Vec<i64>, Vec<i64>, u64)> {
+    let mut state = 0x0123_4567_89ab_cdefu64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut rows = vec![
+        (vec![1 << 16], vec![1 << 16], 0),
+        (vec![-(1i64 << 16); 64], vec![3 << 15; 64], 0),
+        (
+            vec![(1i64 << 31) - 1, -((1i64 << 31) - 1)],
+            vec![(1i64 << 31) - 1; 2],
+            u64::from(u32::MAX),
+        ),
+        (vec![1], vec![1 << 16], 1),
+    ];
+    let mut spike = vec![0i64; 1536];
+    spike[700] = 40 << 16;
+    rows.push((spike, vec![1 << 16; 1536], 4295));
+    for &len in &[2usize, 3, 31, 32, 896, 1536, 2048, 8192] {
+        for width in [8u32, 16, 24, 31] {
+            let mut draw = |w: u32| {
+                let v = next();
+                let magnitude = ((v >> 20) & ((1u64 << w) - 1)) as i64;
+                if v & 1 == 0 {
+                    magnitude
+                } else {
+                    -magnitude
+                }
+            };
+            let values: Vec<i64> = (0..len).map(|_| draw(width)).collect();
+            let weights: Vec<i64> = (0..len).map(|_| draw(17)).collect();
+            let epsilon = next() >> (32 + (next() % 32));
+            rows.push((values, weights, epsilon));
+        }
+    }
+    rows
+}
+
+/// The integer square root by bisection, written here apart from the crate.
+fn en_47_root(q: u128) -> u128 {
+    let (mut low, mut high) = (0u128, 1u128 << 64);
+    while high - low > 1 {
+        let middle = (low + high) / 2;
+        if middle.checked_mul(middle).is_some_and(|square| square <= q) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+/// `EN-47`: RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused
+#[test]
+fn engine_en_47() {
+    for (values, weights, epsilon) in en_47_rows() {
+        let out = exact::rms_norm(&values, &weights, epsilon).expect("the row is within bounds");
+        assert_eq!(out.len(), values.len());
+        let n = values.len() as u128;
+        let v: u128 = values
+            .iter()
+            .map(|&x| x.unsigned_abs() as u128 * x.unsigned_abs() as u128)
+            .sum::<u128>()
+            + n * u128::from(epsilon);
+        let r = en_47_root((v << 32) / n);
+        assert!(
+            n * r * r <= v << 32 && v << 32 < n * (r + 1) * (r + 1),
+            "the root is not the largest with n r^2 <= v 2^32"
+        );
+        let rms = ((values
+            .iter()
+            .map(|&x| (x as f64 / 65536.0).powi(2))
+            .sum::<f64>()
+            + n as f64 * epsilon as f64 / 4_294_967_296.0)
+            / n as f64)
+            .sqrt();
+        for ((&x, &g), &y) in values.iter().zip(&weights).zip(&out) {
+            let numerator = i128::from(x) * i128::from(g) * (1i128 << 16);
+            let gap = (numerator - i128::from(y) * r as i128).unsigned_abs();
+            assert!(
+                2 * gap <= r,
+                "y = {y} is more than half a unit from {numerator} / {r}"
+            );
+            if 2 * gap == r {
+                assert_eq!(y % 2, 0, "a tie at {numerator} / {r} did not go to even");
+            }
+            // The yardstick, in the test only.
+            let real = (x as f64 / 65536.0) * (g as f64 / 65536.0) / rms * 65536.0;
+            let bound = y.unsigned_abs() as f64 / 1_048_576.0 + 1.0;
+            assert!(
+                (y as f64 - real).abs() <= bound,
+                "y = {y} is more than {bound} from {real}"
+            );
+        }
+    }
+    assert!(
+        exact::rms_norm(&[0, 0, 0], &[1, 1, 1], 0).is_none(),
+        "a zero root was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[], &[], 1).is_none(),
+        "an empty row was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1, 2], &[1], 1).is_none(),
+        "weights of another length were not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1i64 << 31], &[1], 1).is_none(),
+        "a value at 2^31 was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1], &[-(1i64 << 31)], 1).is_none(),
+        "a weight at 2^31 was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1], &[1], 1u64 << 32).is_none(),
+        "an epsilon at 2^32 was not refused"
+    );
+}

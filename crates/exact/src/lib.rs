@@ -1768,3 +1768,73 @@ pub fn silu(x: i64) -> i64 {
         -magnitude
     }
 }
+
+/// `n / d` rounded half to even, for `d > 0`: the rule of every narrowing.
+fn divide_even(n: u128, d: u128) -> u128 {
+    let (quotient, rest) = (n / d, n % d);
+    quotient + u128::from(2 * rest > d || (2 * rest == d && quotient & 1 == 1))
+}
+
+/// The integer square root, `r^2 <= value < (r + 1)^2`, as decision 43 decides it,
+/// digit by digit.
+fn integer_root(value: u128) -> u128 {
+    let (mut rest, mut root, mut bit) = (value, 0u128, 1u128 << 126);
+    while bit > value {
+        bit >>= 2;
+    }
+    while bit != 0 {
+        if rest >= root + bit {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    root
+}
+
+/// RMSNorm in integers. Values and weights are in units of `2^-16`, below
+/// `2^31` in size, at most `2^16` of them; `epsilon` is in units of `2^-32`,
+/// below `2^32`. The sum of squares plus `n epsilon` is exact; `r` is the
+/// largest integer with `n r^2 <= (that sum) 2^32`; each output is `x g 2^16 / r` rounded half to even, in units of
+/// `2^-16`. `None` for a row past the bounds or whose root is 0.
+pub fn rms_norm(values: &[i64], weights: &[i64], epsilon: u64) -> Option<Vec<i64>> {
+    let limit = 1u64 << 31;
+    if values.is_empty()
+        || values.len() > 1 << 16
+        || values.len() != weights.len()
+        || epsilon >= 1 << 32
+        || values
+            .iter()
+            .chain(weights)
+            .any(|v| v.unsigned_abs() >= limit)
+    {
+        return None;
+    }
+    let n = values.len() as u128;
+    let squares: u128 = values
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs()).pow(2))
+        .sum();
+    // The floor root of the floored mean is the floor root of the mean: one narrowing.
+    let r = integer_root(((squares + n * u128::from(epsilon)) << 32) / n);
+    if r == 0 {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .zip(weights)
+            .map(|(&x, &g)| {
+                let numerator = i128::from(x) * i128::from(g) * (1i128 << 16);
+                let magnitude = divide_even(numerator.unsigned_abs(), r) as i64;
+                if numerator < 0 {
+                    -magnitude
+                } else {
+                    magnitude
+                }
+            })
+            .collect(),
+    )
+}

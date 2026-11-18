@@ -650,3 +650,11 @@ Feature: engine
     Then LOG2_E meets (2L - 1) ln 2 < 2^33 < (2L + 1) ln 2, with ln 2 worked out in the test in integers of any width
     And every output p meets 2 |n - p D| <= D for the numerator n and the denominator D worked out in the test, and an exact tie gives the even p
     And silu(x) - silu(-x) is x within one unit, and silu is within |x| / 2048 plus one unit of x / (1 + e^-x)
+
+  @EN-47 @build
+  Scenario: RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused
+    Given rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1
+    When each row is put through hologram-ai-exact's rms_norm
+    Then r meets n r^2 <= v 2^32 < n (r + 1)^2 for v the sum of x^2 plus n epsilon, worked out in the test by bisection
+    And every output y meets 2 |x g 2^16 - y r| <= r, an exact tie giving the even y, and is within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon)
+    And a row of zeros with epsilon 0, an empty row, a row and weights of different lengths, and a value at 2^31 are refused
