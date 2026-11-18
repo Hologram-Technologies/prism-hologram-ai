@@ -2107,11 +2107,39 @@ Every weight the export stores has an exact codec here; none is refused. The
 relative errors are the input's eight-bit rounding with one scale per vector
 (brief step 3), not the codecs.
 
-The head is too slow to generate with: each of its 155 million products is
-placed in the 12-limb register on its own. A half's mantissa has 11 bits and a
-row's exponents span few powers of two, so a row can be re-encoded once,
-losslessly, as integers at the row's smallest exponent, held under a derived
-address, and summed in `i64`; that is the next measurement.
+### Exact and fast
+
+The first form placed each of the head's 155 million products in the 12-limb
+register on its own: 8.1 to 8.3 s for one input. Two changes keep every value
+and every bit and drop the per-product register work:
+
+- A half is exactly an integer times `2^-24`, below `2^40` in magnitude
+  (`half_fixed`). A dense half row is summed in `i64` chunks of 4,096 products
+  (each below `2^47`) into `i128`, then placed once (`half_row`).
+- Any other dense row, and every row of group sums, is summed in `i128` at the
+  row's smallest exponent when every shifted term fits with room for the
+  carries, and placed once; a row that does not fit is placed term by term,
+  as before (`wide_row`, `exact_row`).
+
+Measured on 2026-11-18 on the same export and machine:
+
+| Product | Before | After | Bits |
+| --- | --- | --- | --- |
+| The head, 151,936 by 1,024 half, one input | 8.1 to 8.3 s | 0.2 to 0.3 s | all 151,936 outputs equal to the term-by-term register, checked in the run |
+| All 196 projections | 1.4 to 1.5 s | 1.1 s | no block sum wrong, no row past its bound |
+
+Planted against the fast paths, each alone, with the seven exact tests:
+
+| Planted defect | Rejected by |
+| --- | --- |
+| a half below the normal range read at twice its value | `engine_en_35`: `half weights below the normal range are not read exactly` (a case added after a first run did not reject it) |
+| half weights placed one power too high | `engine_en_35`: `f16 output 0: 23.129883 is not the stated 11.564941` |
+| a normal half read at twice its value | `engine_en_35`: the same |
+| a negative half weight read as positive | `engine_en_35`: `22.057617 is not the stated 11.564941` |
+| a row of group sums too wide for `i128` summed there anyway | `engine_en_35`: `attempt to shift left with overflow` |
+| a dense row too wide for `i128` summed there anyway | `engine_en_35`: the same |
+| a row's total placed at the wrong power | `engine_en_35` and `engine_en_34` |
+| none, before and after | passed |
 
 ### What EN-35 does not establish
 
