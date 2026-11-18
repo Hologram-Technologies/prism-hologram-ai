@@ -9509,3 +9509,94 @@ fn engine_en_45() {
         );
     }
 }
+
+/// `2^256 ln 2`, cut down: `2 atanh(1/3)`, the sum of `2 / ((2k + 1) 3^(2k + 1))`.
+fn en_46_ln2() -> Vec<u32> {
+    let mut power = big_div_small(&big_shl(&big(2), EN_45_SCALE), 3);
+    let mut sum = Vec::new();
+    let mut k = 0u32;
+    while !power.is_empty() {
+        sum = big_add(&sum, &big_div_small(&power, 2 * k + 1));
+        power = big_div_small(&power, 9);
+        k += 1;
+    }
+    sum
+}
+
+/// `EN-46`'s inputs: a dense run around zero, where SiLU bends, and wide values.
+fn en_46_inputs() -> Vec<i64> {
+    let mut inputs: Vec<i64> = (-(1i64 << 20)..=(1i64 << 20)).step_by(7).collect();
+    inputs.extend([
+        0,
+        1,
+        -1,
+        1 << 46,
+        -(1i64 << 46),
+        (1i64 << 47) - 1,
+        -((1i64 << 47) - 1),
+    ]);
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for _ in 0..20_000 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let width = 1 + (state % 47) as u32;
+        let magnitude = ((state >> 17) & ((1u64 << width) - 1)) as i64;
+        inputs.push(if state & 1 == 0 {
+            magnitude
+        } else {
+            -magnitude
+        });
+    }
+    inputs
+}
+
+/// `EN-46`: SiLU is integer: for x in units of 2^-16 below 2^47 in size, the exponent |x| log2(e) is taken in units of 2^-8 with log2(e) as the integer nearest 2^32 log2(e), certified exactly, rounded half to even; w is exp2_neg of it, and silu(x) is x 2^30 / (2^30 + w) for x at or above 0 and x w / (2^30 + w) below, rounded half to even, so silu(x) - silu(-x) is x within one unit, and it is within |x| / 2048 plus one unit of x / (1 + e^-x)
+#[test]
+fn engine_en_46() {
+    // The constant: (2L - 1) ln 2 < 2^33 < (2L + 1) ln 2, with ln 2 in the test's own slack.
+    let ln2 = en_46_ln2();
+    let slack = big(EN_45_SLACK);
+    let l = exact::LOG2_E;
+    let target = big_shl(&big(1), 33 + EN_45_SCALE);
+    let below = big_mul(&big(2 * l - 1), &big_add(&ln2, &slack));
+    let above = big_mul(&big(2 * l + 1), &big_sub(&ln2, &slack));
+    assert!(
+        big_cmp(&below, &target).is_lt() && big_cmp(&target, &above).is_lt(),
+        "LOG2_E = {l} is not the integer nearest 2^32 log2(e)"
+    );
+
+    for x in en_46_inputs() {
+        let out = exact::silu(x);
+        // The exponent in units of 2^-8, rounded half to even, written here apart from the crate.
+        let scaled = u128::from(x.unsigned_abs()) * u128::from(l);
+        let (whole, rest, half) = (scaled >> 40, scaled & ((1u128 << 40) - 1), 1u128 << 39);
+        let d = whole + u128::from(rest > half || (rest == half && whole & 1 == 1));
+        let w = i128::from(exact::exp2_neg(u32::try_from(d).unwrap_or(u32::MAX)));
+        let denominator = (1i128 << 30) + w;
+        let numerator = i128::from(x) * if x >= 0 { 1i128 << 30 } else { w };
+        let gap = (numerator - i128::from(out) * denominator).abs();
+        assert!(
+            2 * gap <= denominator,
+            "silu({x}) = {out} is more than half a unit from {numerator} / {denominator}"
+        );
+        if 2 * gap == denominator {
+            assert_eq!(out % 2, 0, "a tie at silu({x}) did not go to even");
+        }
+        assert!(
+            (out - exact::silu(-x) - x).abs() <= 1,
+            "silu({x}) - silu(-{x}) is not {x} within one unit"
+        );
+        // The yardstick, in the test only: x / (1 + e^-x) in floating point.
+        let real = x as f64 / 65536.0;
+        let exact_value = real / (1.0 + (-real).exp()) * 65536.0;
+        let bound = x.unsigned_abs() as f64 / 2048.0 + 1.0;
+        assert!(
+            (out as f64 - exact_value).abs() <= bound,
+            "silu({x}) = {out} is more than {bound} from {exact_value}"
+        );
+    }
+    assert_eq!(exact::silu(0), 0);
+    assert_eq!(exact::silu(32 << 16), 32 << 16, "silu of 32 is not 32");
+    assert_eq!(exact::silu(-(32 << 16)), 0, "silu of -32 is not 0");
+}
