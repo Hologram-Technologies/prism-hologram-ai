@@ -584,7 +584,7 @@ statement = "Up to five inputs of one group are confirmed put on sixteen-bit cod
 id = "KN-43"
 level = "build"
 suite = "kernel"
-statement = "A claimed integer square root of a value of up to 128 bits is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root"
+statement = "A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root"
 
 [[id]]
 id = "EN-29"

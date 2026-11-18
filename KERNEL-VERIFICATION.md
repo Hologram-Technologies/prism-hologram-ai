@@ -98,6 +98,9 @@ The inherited gates and their own planted defects are in
 | The quotient witness is the input's quotient by the step | the guest checks `q * step <= value < q * step + step`, so a wrong witness is refused; that this pins `q` uniquely is the division algorithm, not stated as a theorem, because the product is not linear | argued, not proved |
 | `rqDownCode` (the code as a function of input and step) gives the code the check accepts | not stated: it needs quotient and remainder facts for a variable divisor, outside `linear_arithmetic`; EN-39 (branch `exact-codecs`) checks, for every input it writes, that the code is `rqDownCode`'s, passes the transcribed `rqElementOk`, and is `quantise_with`'s | tested, not proved |
 | No number decision 41 computes passes 64 bits | the guards in `rqElementOk` and `rqLargest` (mantissa below `2^24`, quotient at most 32767, a down shift at most 39 and an up shift at most 15, each inside an `if` so no product is formed before them), pinned by `kernel_kn_41` | tested, not proved |
+| `KN-43`: a claimed root is `exact` exactly when its square is at most the value and the value is below the square of the root plus one, which defines the floor square root | `root_ok_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| At most one root is accepted for a value | squares grow with the root, so two accepted roots are equal; this needs products of two variables, outside `linear_arithmetic`, and `simplify` may not unfold the runtime's product, so it is argued, not stated as a theorem | argued, not proved |
+| No number decision 43 computes passes 64 bits | the guard in `rootAnswer`: a value below `2^62` and a root below `2^31`, checked before any square is formed, so `(root + 1)^2` is at most `2^62` | pinned by `kernel_kn_43` |
 | Decision 41 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
 | Decisions 38 and 39 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
@@ -1193,6 +1196,30 @@ day on the hosted verifier, the whole of `Kernel.Requant` and `Proofs.Requant`,
 | --- | --- |
 | an input just past half a step counted down to `q + 1` and the up case widened to `<=` | rejected: `Lean rejected ... Proofs.Requant (error): omega could not prove the goal`, in `rq_down_half_step` and `rq_down_one_code` |
 | the largest-power check made `<=` | rejected: the same, in `rq_largest_down_decides` |
+
+## KN-43, the integer square root
+
+RMS and layer norms divide by a square root. On integers the floor square root
+is exact, so decision 43 checks it as exact rather than admitting it as a
+narrowing. A 13-byte request carries a value (8 bytes, below `2^62`) and a
+claimed root (4 bytes, below `2^31`). The answer is `exact` when
+`root^2 <= value < (root + 1)^2`, `differs` otherwise, and `invalid request`
+for any other length or a number past its bound.
+
+The bound is written as the square of `root + 1`, not as
+`root^2 + 2 root + 1`. The second form needs `(r + 1)^2` expanded, which
+`simplify` cannot do because it may not unfold the runtime's product, so a
+theorem tying the two was not provable here. With the next root's square
+written directly, `root_ok_decides` is linear in the two squares.
+
+### The pinned test: `kernel_kn_43`
+
+| Planted defect | Result |
+| --- | --- |
+| a value equal to the next square accepted (`<=?` for `<?`) | rejected: `rootOk changed` |
+| a root up to `2^32` admitted, past the 64-bit guard | rejected: `rootAnswer changed` |
+| decision 43 routed to decision 41's answer | rejected: `decision 43 must be routed to Kernel.Root::rootAnswer` |
+| none | passed |
 
 ## The examples in the compiled guest
 

@@ -1869,6 +1869,20 @@
           "value": 0
         }
       }
+    },
+    "43": {
+      "name": "Square root",
+      "asks": "Is this the floor square root of this value?",
+      "fields": {
+        "1": {
+          "name": "Value",
+          "value": 1000000
+        },
+        "9": {
+          "name": "Claimed root",
+          "value": 1000
+        }
+      }
     }
   }
 }

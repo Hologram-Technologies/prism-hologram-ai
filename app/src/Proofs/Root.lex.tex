@@ -1,0 +1,16 @@
+\begin{lexlean}{Proofs.Root}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Root}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: root_ok_decides,
+  parameters: [value : Nat, root : Nat],
+  statement: (((Kernel.Root::rootOk value root) = true) <-> (((Kernel.Root::rootSquare root) <= value) /\ (value < (Kernel.Root::rootSquare (root + 1))))),
+  proof: linear_arithmetic{definitions: [Kernel.Root::rootOk]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

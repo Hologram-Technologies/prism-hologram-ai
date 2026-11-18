@@ -320,9 +320,8 @@ Feature: kernel
     And the answer to decision 41 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62
 
   @KN-43 @build
-  Scenario: A claimed integer square root of a value of up to 128 bits is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root
+  Scenario: A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root
     Given the root model in app/src/Kernel/Root.lex.tex and its proofs in app/src/Proofs/Root.lex.tex
-    When the Lean kernel checks root_ok_decides and root_square_next during lexlean verify in the gate
-    Then a root is accepted exactly when its square is at most the value and the value is below its square plus twice it plus one
-    And that bound is the square of the root plus one, so the accepted root is the floor square root
-    And the answer to decision 43 is exact or differs, and invalid request for any length but 25
+    When the Lean kernel checks root_ok_decides during lexlean verify in the gate
+    Then a root is accepted exactly when its square is at most the value and the value is below the square of the root plus one, so the accepted root is the floor square root
+    And the answer to decision 43 is exact or differs, and invalid request for any length but 13, a value of 2^62 or more or a root of 2^31 or more, so no number it computes passes 64 bits

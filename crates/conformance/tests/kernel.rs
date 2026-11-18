@@ -3224,7 +3224,7 @@ fn kernel_kn_41() {
     assert_routed(41, "Kernel.Requant::rqAnswer");
 }
 
-/// `KN-43`: A claimed integer square root of a value of up to 128 bits is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root
+/// `KN-43`: A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root
 #[test]
 fn kernel_kn_43() {
     assert_proofs_are_gated();
@@ -3233,13 +3233,7 @@ fn kernel_kn_43() {
     assert_pinned(
         &proofs,
         "root_ok_decides",
-        "(((Kernel.Root::rootOk value root) = true) <-> (((Kernel.Root::rootSquare root) <= value) /\\ (value < (((Kernel.Root::rootSquare root) + (root + root)) + 1))))",
-        "propext",
-    );
-    assert_pinned(
-        &proofs,
-        "root_square_next",
-        "((Kernel.Root::rootSquare (root + 1)) = (((Kernel.Root::rootSquare root) + (root + root)) + 1))",
+        "(((Kernel.Root::rootOk value root) = true) <-> (((Kernel.Root::rootSquare root) <= value) /\\ (value < (Kernel.Root::rootSquare (root + 1)))))",
         "propext",
     );
     let found = declaration(&kernel, "rootSquare");
@@ -3249,12 +3243,14 @@ fn kernel_kn_43() {
     );
     let found = declaration(&kernel, "rootOk");
     assert!(
-        found.contains("body: (((rootSquare root) <=? value) && (value <? (((rootSquare root) + (root + root)) + 1)))"),
+        found.contains(
+            "body: (((rootSquare root) <=? value) && (value <? (rootSquare (root + 1))))"
+        ),
         "rootOk changed:\n{found}"
     );
     let found = declaration(&kernel, "rootAnswer");
     assert!(
-        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 25) then (if (rootOk (Kernel.Wire::fieldAt value 1 16) (Kernel.Wire::fieldAt value 17 8)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 13) && ((Kernel.Wire::fieldAt value 1 8) <? 4611686018427387904)) && ((Kernel.Wire::fieldAt value 9 4) <? 2147483648)) then (if (rootOk (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 4)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "rootAnswer changed:\n{found}"
     );
     assert_routed(43, "Kernel.Root::rootAnswer");
