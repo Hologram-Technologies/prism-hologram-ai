@@ -454,4 +454,12 @@ crate = "exact"
 type = "ExactError"
 variant = "ScaleNotFinite"
 suite = "engine"
-condition = "A scale stored with an exact product's weights is not a finite number"
+condition = "A scale or weight stored for an exact product is not a finite number"
+
+[[failure]]
+id = "FL-54"
+crate = "exact"
+type = "ExactError"
+variant = "NoExactCodec"
+suite = "engine"
+condition = "A stored format has no exact codec, so it is refused by name instead of run approximately"
