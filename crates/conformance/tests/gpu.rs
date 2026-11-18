@@ -1084,13 +1084,22 @@ fn gpu_gp_19() {
     for wanted in [
         "onnx: asked.get(\"onnx\")",
         "await loadOnnxModel({ kernel, ask, device, started });",
+        "const generate = await pipeline(\"text-generation\", MODEL.onnx, {",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    let module = read("site/app/engine/pipeline.mjs");
+    for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
         "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(
-            page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            module.contains(wanted),
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     let loader = read("site/app/engine/onnx-load.mjs");
@@ -1175,7 +1184,7 @@ fn gpu_gp_20() {
         loader.contains("render: compileTemplate(source)"),
         "the template is not compiled"
     );
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
@@ -1201,7 +1210,7 @@ fn gpu_gp_21() {
             "site/app/engine/files.mjs no longer has `{wanted}`"
         );
     }
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "files = await keepFiles({ record, open: fetched(base), module, kernel: ",
         "open: files ? files.open : fetched(base),",
@@ -1209,7 +1218,7 @@ fn gpu_gp_21() {
     ] {
         assert!(
             page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
@@ -1237,19 +1246,19 @@ fn gpu_gp_22() {
     let read = |path: &str| {
         std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
     };
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "new Uint8Array([24, 0, PRECISIONS[name], 0, 0])",
-        "new Uint8Array([24, 0, PRECISIONS[chosen], sizes[chosen].data, part])",
+        "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
+        "new Uint8Array([24, code, PRECISIONS[chosen], sizes[chosen].data, part])",
         "join(new Uint8Array([21]), offer(\"q4f16\"), offer(\"q4\"),",
         "const path = sizes[chosen].path;",
-        "join(new Uint8Array([22, device ? 1 : 0]),",
+        "join(new Uint8Array([22, gpu ? 1 : 0]),",
         "return on === \"webgpu\" ? createEngine(",
-        "state.device = on;",
+        "return Object.assign(generate, { task, model, dtype: chosen, device: on,",
     ] {
         assert!(
             page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     for gone in [
@@ -1259,7 +1268,7 @@ fn gpu_gp_22() {
     ] {
         assert!(
             !page.contains(gone),
-            "site/app/app.mjs still names its own choice: `{gone}`"
+            "site/app/engine/pipeline.mjs still names its own choice: `{gone}`"
         );
     }
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
@@ -1286,17 +1295,17 @@ fn gpu_gp_23() {
     let read = |path: &str| {
         std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
     };
-    let page = read("site/app/app.mjs");
+    let page = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "const asked = label(prompt.slice(0, length));",
-        "join(new Uint8Array([27]), asked, held, be(length, 4), be(prompt.length, 4))",
-        "engine.restoreState(session.held.state);",
-        "const out = await engine.run(prompt.slice(from), budget, {",
-        "label: label(prompt.slice(0, session.head)), state: engine.saveState(session.head)",
+        "const asked = label(prompt.slice(0, held.length));",
+        "join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))",
+        "engine.restoreState(held.state);",
+        "const tokens = await engine.run(prompt.slice(from), budget, {",
+        "held = { length: head, label: label(prompt.slice(0, head)), state: engine.saveState(head) };",
     ] {
         assert!(
             page.contains(wanted),
-            "site/app/app.mjs no longer has `{wanted}`"
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
         );
     }
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
@@ -1340,6 +1349,60 @@ fn gpu_gp_24() {
         "kept short: expected the other model's file dropped",
         "kept short: the other model's file was not dropped",
         "kept short: expected one file kept",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-25`: One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24
+#[test]
+fn gpu_gp_25() {
+    // The journey calls the module on a page with no page code in between
+    // (`just page-journey`); this test reads that the module asks the task
+    // through decision 24, that the page loads through it, and that the
+    // journey checks the call and the refusal.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let module = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "export async function pipeline(task, model, options = {}) {",
+        "const code = TASKS[task] ?? 255;",
+        "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
+        "const generate = turner({ engine, module, ask, stops, chat });",
+        "export function turner(session) {",
+    ] {
+        assert!(
+            module.contains(wanted),
+            "site/app/engine/pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let page = read("site/app/app.mjs");
+    for wanted in [
+        "import { CAPACITY, be, join, pipeline, turner } from \"./engine/pipeline.mjs\";",
+        "session = { generate: turner({ engine, module, ask }) };",
+        "const out = await session.generate(text, {",
+    ] {
+        assert!(
+            page.contains(wanted),
+            "site/app/app.mjs no longer has `{wanted}`"
+        );
+    }
+    for gone in ["loadOnnx(", "keepFiles(", "engine.run("] {
+        assert!(
+            !page.contains(gone),
+            "site/app/app.mjs runs `{gone}` itself instead of through the module"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "const { pipeline } = await import(\"./engine/pipeline.mjs\");",
+        "pipeline: the call's tokens",
+        "pipeline task: expected the kernel to refuse feature-extraction",
+        "pipeline task: the call went on past the task",
     ] {
         assert!(
             journey.contains(wanted),

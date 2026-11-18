@@ -187,6 +187,29 @@ try {
     await page.close();
   }
 
+  // GP-25: the one call, imported and called on a page with no page code in
+  // between, and refused by the kernel for a task it does not run.
+  for (const [name, task] of [["pipeline", "text-generation"], ["pipeline task", "feature-extraction"]]) {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ repo, task }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const checks = checklist();
+      try {
+        const generate = await pipeline(task, repo, { index: "/onnx/good/index", checks });
+        const out = await generate("hi", { max_new_tokens: 16 });
+        return { phase: "ready", device: generate.device, dtype: generate.dtype, checks: checks.items, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+      } catch (e) {
+        return { phase: "failed", error: String(e.message ?? e), checks: checks.items, output: null };
+      }
+    }, { repo: onnx.repo, task });
+    results.onnx[name] = { ...run, errors };
+    await page.close();
+  }
+
   // GP-21: four visits in one profile. The first downloads and keeps the
   // files; the second, with the origin serving none, reads them all from the
   // browser; the third meets a kept graph with one byte flipped, which the
@@ -470,6 +493,26 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["gitblob", "w
   const run3 = results.onnx.gitwrong;
   const stop3 = stoppedAt(run3);
   if (run3.phase !== "failed" || stop3?.subject !== "generation_config.json is the record's") fail(`onnx gitwrong: expected to stop at generation_config.json, stopped at ${stop3?.subject} (${run3.phase}: ${run3.error})`);
+}
+
+// GP-25: the one call, and a task the kernel does not run.
+{
+  const run = results.onnx.pipeline;
+  if (run.phase !== "ready") fail(`pipeline: the call did not load (${run.error})`);
+  else {
+    for (const step of ["kernel", "record", "source", "precision", "import", "roles", "device", "stop"]) {
+      if (!run.checks.some((c) => c.step === step && c.verdict === "pass")) fail(`pipeline: no passing ${step} check`);
+    }
+    if (run.checks.some((c) => c.verdict === "fail")) fail(`pipeline: a check failed: ${stoppedAt(run)?.subject}`);
+    const got = run.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== run.expected[i])) fail(`pipeline: the call's tokens ${got} are not the reference's ${run.expected}`);
+    if (run.dtype !== "q4f16" || !["webgpu", "cpu"].includes(run.device)) fail(`pipeline: chose ${run.dtype} on ${run.device}`);
+  }
+  if (run.errors.length) fail(`pipeline: page errors: ${run.errors.join(" | ")}`);
+  const task = results.onnx["pipeline task"];
+  const stop = stoppedAt(task);
+  if (task.phase !== "failed" || stop?.step !== "source" || stop?.detail !== 'kernel answered "unsupported task"') fail(`pipeline task: expected the kernel to refuse feature-extraction, saw ${stop?.step} (${task.phase}: ${task.error})`);
+  if (task.checks.some((c) => ["file", "kept", "import"].includes(c.step))) fail("pipeline task: the call went on past the task");
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.

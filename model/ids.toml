@@ -437,6 +437,12 @@ suite = "gpu"
 statement = "When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download"
 
 [[id]]
+id = "GP-25"
+level = "build"
+suite = "gpu"
+statement = "One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
