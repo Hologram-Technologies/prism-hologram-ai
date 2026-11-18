@@ -547,9 +547,9 @@ Feature: engine
     Then each returns ExactError::LengthMismatch
 
   @EN-35 @build
-  Scenario: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: decision 34 carries the crate's own sums of engine-stored blocks as examples answered exact, and each sum plus one as an example answered differs
+  Scenario: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
     Given q4 blocks as the engine stores them, at both ends of the sum's range, with every weight zero, and drawn at random, each with an activation of magnitude 127
     When hologram-ai-exact quantises each block's activations and takes its group sum, and the kernel client writes decision 34's request for that sum and for that sum plus one
     Then the request read as Kernel.Block reads it gives the crate's sum and the claim written
-    And the kernel's examples answer the crate's sum exact and the sum plus one differs
-    And the compiled guest replays those examples when the holo is verified
+    And claims.json lists the crate's sum as exact and the sum plus one as differs
+    And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed

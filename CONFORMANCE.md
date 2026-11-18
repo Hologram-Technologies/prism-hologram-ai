@@ -58,7 +58,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
 | `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
 | `EN-34` | `build` | A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code |
-| `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: decision 34 carries the crate's own sums of engine-stored blocks as examples answered exact, and each sum plus one as an example answered differs |
+| `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one |
 
 ## gpu
 

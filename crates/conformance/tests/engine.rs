@@ -17,8 +17,8 @@ use hologram_ai_tokenizer as tokeniser;
 use hologram_ai_wasm as wasm;
 
 use hologram_ai_kernel_client::{
-    admission, block_check, bucket, generation, journey, operators, plan, preflight, range, shape,
-    tier, trim, INVALID_REQUEST,
+    admission, bucket, generation, journey, operators, plan, preflight, range, shape, tier, trim,
+    INVALID_REQUEST,
 };
 
 fn root() -> PathBuf {
@@ -222,20 +222,6 @@ fn rewritten(request: &[u8]) -> Option<Vec<u8>> {
         (9, 25) => generation::request(word(r, 1), word(r, 9), word(r, 17)).to_vec(),
         (10, 33) => operators::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
         (11, 33) => shape::request(word(r, 1), word(r, 9), word(r, 17), word(r, 25)).to_vec(),
-        (34, 53) => {
-            // The inverse of the layout `block_check::request` documents.
-            let mut codes = [0; 16];
-            let mut activations = [0; 32];
-            for g in 0..32 {
-                let (h, i) = (g / 16, g % 16);
-                let byte = r[8 * h + 8 - i / 2];
-                let code = if i % 2 == 0 { byte >> 4 } else { byte & 0x0f };
-                codes[g / 2] |= code << (4 * (g % 2));
-                activations[g] = r[16 * h + 32 - i] as i8;
-            }
-            let claim = u32::from_be_bytes(r[49..53].try_into().ok()?).wrapping_sub(32768) as i32;
-            block_check::request(&codes, &activations, claim).to_vec()
-        }
         _ => return None,
     })
 }
@@ -266,7 +252,6 @@ fn read(tag: u8, answer: &[u8]) -> Option<(String, Option<u64>)> {
             shape::Answer::Size(n) => ("Size".into(), Some(n)),
             other => (format!("{other:?}"), None),
         }),
-        34 => plain(format!("{:?}", block_check::answer(answer))),
         _ => None,
     }
 }
@@ -313,7 +298,6 @@ fn vocabulary() -> BTreeMap<u8, BTreeSet<&'static str>> {
             ]),
         ),
         (4, BTreeSet::from(["Int8", "Int4", "Int8Paged", "Invalid"])),
-        (34, BTreeSet::from(["Exact", "Differs", "Invalid"])),
         (5, BTreeSet::from(["Admit", "Refuse", "Invalid"])),
         (6, BTreeSet::from(["Accept", "Reject", "Invalid"])),
         (
@@ -7544,13 +7528,12 @@ fn engine_fl_52() {
     );
 }
 
-/// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: decision 34 carries the crate's own sums of engine-stored blocks as examples answered exact, and each sum plus one as an example answered differs
+/// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
 #[test]
 fn engine_en_35() {
     use hologram_ai_kernel_client::block_check;
 
-    let kernel = std::fs::read_to_string(root().join("app/src/Kernel.lex.tex"))
-        .expect("the kernel's entry module");
+    let claims = kernel_claims();
     let mut missing = Vec::new();
     for (name, codes, activations) in en_35_blocks() {
         // The crate's own sum, from its own path: the input quantised by the
@@ -7566,8 +7549,7 @@ fn engine_en_35() {
         let sum = i32::try_from(sums[0]).expect("a block's sum fits 32 bits");
 
         // What decision 34 recomputes from the request, read as Kernel.Block
-        // reads it: the guest's replay of the examples is the gate, this is
-        // the same reading here so a wrong layout fails before CI.
+        // reads it, so a wrong layout fails here as well as in the guest.
         let request = block_check::request(&codes, &activations, sum);
         assert_eq!(
             block_reading(&request),
@@ -7582,28 +7564,65 @@ fn engine_en_35() {
         );
 
         for (request, answer) in [(request, "exact"), (off, "differs")] {
-            let example = format!(
-                "request := 0x{}, response := 0x{}}}",
+            let claim = (
                 request
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect::<String>(),
-                hex(answer)
+                answer.to_string(),
             );
-            if !kernel.contains(&example) {
-                missing.push(example);
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
             }
         }
     }
     assert!(
         missing.is_empty(),
-        "decision 34 lacks {} examples the crate gives:
-{}",
+        "the claims lack {} the crate makes of decision 34:\n{}",
         missing.len(),
-        missing.join(
-            "
-"
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// request in hex, the answer the guest must give).
+fn kernel_claims() -> Vec<(String, String)> {
+    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+        .expect("the claims the crates make of the kernel");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    value["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .map(|one| {
+            (
+                one["request"].as_str().expect("a request").to_string(),
+                one["answer"].as_str().expect("an answer").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The `app` recipe runs every claim through the guest of the holo it has
+/// just built. The claims are not the holo's examples, which cannot grow past
+/// about 108.
+fn assert_kernel_replays_claims() {
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
+    let verify = app
+        .find("prismpm --project app verify")
+        .expect("the app recipe builds the holo");
+    let replay = app
+        .find(
+            "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
+             crates/conformance/tests/kernel/claims.json",
         )
+        .expect("the app recipe replays the claims through the holo's guest");
+    assert!(
+        verify < replay,
+        "the claims are replayed after the holo is built"
     );
 }
 

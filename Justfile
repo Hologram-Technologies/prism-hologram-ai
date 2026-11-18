@@ -79,6 +79,9 @@ app:
     sed -n 's/^verified attestation: \([0-9a-f]\{64\}\)$/\1/p' .prism-proof.log > .prism-proof/attestation
     rm -f .prism-proof.log
     test -s .prism-proof/attestation
+    holos=(app/.prism/build/*/*.holo)
+    [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
+    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims.json
 
 # The engine the page loads: this repository's crates as one WebAssembly
 # module, built for the browser and put where the page asks for it. Release,

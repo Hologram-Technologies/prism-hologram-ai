@@ -560,4 +560,4 @@ statement = "A q4 or ternary matrix times a vector is taken with every group sum
 id = "EN-35"
 level = "build"
 suite = "engine"
-statement = "Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: decision 34 carries the crate's own sums of engine-stored blocks as examples answered exact, and each sum plus one as an example answered differs"
+statement = "Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one"
