@@ -9725,3 +9725,164 @@ fn engine_en_47() {
         "an epsilon at 2^32 was not refused"
     );
 }
+
+fn en_48_gcd(a: u64, b: u64) -> u64 {
+    if b == 0 {
+        a
+    } else {
+        en_48_gcd(b, a % b)
+    }
+}
+
+/// EN-48's bound on an unscaled frequency, in units of `2^-64` of a turn per position.
+const EN_48_BOUND: u64 = 1 << 10;
+
+/// `EN-48`: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^10 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
+#[test]
+fn engine_en_48() {
+    let pi = en_45_pi();
+    let slack = big(EN_45_SLACK);
+    let (pi_low, pi_high) = (big_sub(&pi, &slack), big_add(&pi, &slack));
+    let llama = exact::RopeScaling::Llama3 {
+        factor: 32,
+        low: 1,
+        high: 4,
+        original: 8192,
+    };
+    let configs = [
+        ("Qwen3-0.6B", 128u32, 1_000_000u64, exact::RopeScaling::None),
+        ("Qwen2.5-1.5B", 128, 1_000_000, exact::RopeScaling::None),
+        ("Llama 3.2 1B", 64, 500_000, llama),
+        ("64 at 10,000", 64, 10_000, exact::RopeScaling::None),
+    ];
+    for (name, d, theta, scaling) in configs {
+        let plain = exact::rope_frequencies(d, theta, exact::RopeScaling::None)
+            .expect("the config is within bounds");
+        let freqs =
+            exact::rope_frequencies(d, theta, scaling).expect("the config is within bounds");
+        assert_eq!(plain.len(), d as usize / 2);
+        for (i, &f) in plain.iter().enumerate() {
+            let g = en_48_gcd(2 * i as u64, u64::from(d)).max(1);
+            let (a, b) = ((2 * i as u64 / g) as u32, (u64::from(d) / g) as u32);
+            let (a, b) = if i == 0 { (0, 1) } else { (a, b) };
+            let theta_a = big_pow(&big(theta), a);
+            let power = big_shl(&big(1), (64 + EN_45_SCALE) * b);
+            let low = big_mul(
+                &big_pow(&big_mul(&big(f - EN_48_BOUND), &big_shl(&pi_high, 1)), b),
+                &theta_a,
+            );
+            let high = big_mul(
+                &big_pow(&big_mul(&big(f + EN_48_BOUND), &big_shl(&pi_low, 1)), b),
+                &theta_a,
+            );
+            assert!(
+                big_cmp(&low, &power).is_lt() && big_cmp(&power, &high).is_lt(),
+                "{name}: pair {i}'s frequency {f} is not within 2^10 of 2^64 theta^(-{a}/{b}) / (2 pi)"
+            );
+        }
+        for (i, (&f, &scaled)) in plain.iter().zip(&freqs).enumerate() {
+            let expected = match scaling {
+                exact::RopeScaling::None => f,
+                exact::RopeScaling::Llama3 {
+                    factor,
+                    low,
+                    high,
+                    original,
+                } => {
+                    let (f, factor) = (u128::from(f), u128::from(factor));
+                    let half_even = |n: u128, d: u128| {
+                        let (q, r) = (n / d, n % d);
+                        if 2 * r > d || (2 * r == d && q % 2 == 1) {
+                            q + 1
+                        } else {
+                            q
+                        }
+                    };
+                    let reach = f * u128::from(original);
+                    let value = if reach > u128::from(high) << 64 {
+                        f
+                    } else if reach < u128::from(low) << 64 {
+                        half_even(f, factor)
+                    } else {
+                        let n = reach - (u128::from(low) << 64);
+                        let span = u128::from(high - low) << 64;
+                        half_even(f * (span + n * (factor - 1)), factor * span)
+                    };
+                    // The yardstick, in the test only: the float formula of the Llama 3 reference.
+                    let nu = f as f64 / 18_446_744_073_709_551_616.0;
+                    let wavelen = 1.0 / nu;
+                    let (lw, hw) = (
+                        f64::from(original) / f64::from(low),
+                        f64::from(original) / f64::from(high),
+                    );
+                    let float = if wavelen < hw {
+                        nu
+                    } else if wavelen > lw {
+                        nu / factor as f64
+                    } else {
+                        let s = (f64::from(original) / wavelen - f64::from(low))
+                            / f64::from(high - low);
+                        (1.0 - s) * nu / factor as f64 + s * nu
+                    };
+                    let got = value as f64 / 18_446_744_073_709_551_616.0;
+                    assert!(
+                        (got - float).abs() <= 1e-12 * float,
+                        "{name}: pair {i} scales to {got}, the float formula to {float}"
+                    );
+                    u64::try_from(value).expect("a frequency fits")
+                }
+            };
+            assert_eq!(
+                scaled, expected,
+                "{name}: pair {i}'s scaled frequency is not the rounded keep, divide or blend"
+            );
+        }
+        for position in (0..32768u32).step_by(97).chain([65535, 1 << 20, u32::MAX]) {
+            for (i, &f) in freqs.iter().enumerate() {
+                let angle = exact::rope_angle(position, f);
+                let turns = (u128::from(position) * u128::from(f)) % (1u128 << 64);
+                let expected =
+                    ((turns + (1u128 << 31) - 1 + ((turns >> 32) & 1)) >> 32) as u64 as u32;
+                assert_eq!(
+                    angle, expected,
+                    "{name}: rope_angle({position}, {f}) is not rounded half to even"
+                );
+                if position < 32768 && scaling == exact::RopeScaling::None {
+                    // The yardstick, in the test only.
+                    let real =
+                        f64::from(position) * (theta as f64).powf(-(2.0 * i as f64) / f64::from(d));
+                    let (c, s) = (
+                        exact::cosine_turn(angle) as f64 / 1_073_741_824.0,
+                        exact::sine_turn(angle) as f64 / 1_073_741_824.0,
+                    );
+                    assert!(
+                        (c - real.cos()).abs() <= 1e-4 && (s - real.sin()).abs() <= 1e-4,
+                        "{name}: pair {i} at {position}: ({c}, {s}) against {real}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        exact::rope_frequencies(63, 10_000, exact::RopeScaling::None).is_none(),
+        "an odd head size was not refused"
+    );
+    assert!(
+        exact::rope_frequencies(0, 10_000, exact::RopeScaling::None).is_none(),
+        "a zero head size was not refused"
+    );
+    assert!(
+        exact::rope_frequencies(64, 1, exact::RopeScaling::None).is_none(),
+        "a theta below 2 was not refused"
+    );
+    let flat = exact::RopeScaling::Llama3 {
+        factor: 8,
+        low: 4,
+        high: 4,
+        original: 8192,
+    };
+    assert!(
+        exact::rope_frequencies(64, 500_000, flat).is_none(),
+        "a Llama 3 scaling with high at low was not refused"
+    );
+}
