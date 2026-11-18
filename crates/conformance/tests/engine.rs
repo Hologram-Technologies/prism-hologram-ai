@@ -9332,7 +9332,11 @@ fn big_shr(a: &[u32], bits: u32) -> Vec<u32> {
     let (words, rest) = ((bits / 32) as usize, bits % 32);
     let mut out: Vec<u32> = (words..a.len())
         .map(|i| {
-            let high = if rest == 0 { 0 } else { a.get(i + 1).map_or(0, |&n| n << (32 - rest)) };
+            let high = if rest == 0 {
+                0
+            } else {
+                a.get(i + 1).map_or(0, |&n| n << (32 - rest))
+            };
             (a[i] >> rest) | high
         })
         .collect();
@@ -9350,7 +9354,7 @@ fn en_45_atan_inverse(m: u32) -> Vec<u32> {
     let mut k = 0u32;
     while !power.is_empty() {
         let term = big_div_small(&power, 2 * k + 1);
-        if k % 2 == 0 {
+        if k.is_multiple_of(2) {
             plus = big_add(&plus, &term);
         } else {
             minus = big_add(&minus, &term);
@@ -9378,7 +9382,10 @@ fn en_45_sine(pi: &[u32], r: u32) -> Vec<u32> {
     let mut term = x;
     let mut k = 1u32;
     loop {
-        term = big_div_small(&big_shr(&big_mul(&term, &square), EN_45_SCALE), (2 * k) * (2 * k + 1));
+        term = big_div_small(
+            &big_shr(&big_mul(&term, &square), EN_45_SCALE),
+            (2 * k) * (2 * k + 1),
+        );
         if term.is_empty() {
             break;
         }
@@ -9397,7 +9404,7 @@ fn en_45_sine(pi: &[u32], r: u32) -> Vec<u32> {
 const EN_45_SLACK: u64 = 1 << 32;
 
 /// The table's BLAKE3, so the table is named as a tensor is.
-const EN_45_TABLE_BLAKE3: &str = "to be pinned when the table exists";
+const EN_45_TABLE_BLAKE3: &str = "d2612a42910edad3b81095ad0be154d6076c5c33771916cbbea2ded40419ec11";
 
 /// The value at step `step` of a turn of 65,536 steps, read from the table by
 /// quadrant, written here apart from the crate's lookup.
@@ -9437,20 +9444,47 @@ fn engine_en_45() {
     let bytes: Vec<u8> = table.iter().flat_map(|e| e.to_le_bytes()).collect();
     let mut arriving = download::Arriving::new();
     arriving.take(&bytes);
-    assert_eq!(arriving.label().to_hex(), EN_45_TABLE_BLAKE3, "the sine table is not the one named");
+    assert_eq!(
+        arriving.label().to_hex(),
+        EN_45_TABLE_BLAKE3,
+        "the sine table is not the one named"
+    );
 
     for step in 0..65536u32 {
         let angle = step << 16;
         let (sine, cosine) = (exact::sine_turn(angle), exact::cosine_turn(angle));
-        assert_eq!(i64::from(sine), en_45_step(table, step), "sine_turn at step {step} is not its quadrant's entry");
-        assert_eq!(i64::from(cosine), en_45_step(table, step + 16384), "cosine_turn at step {step} is not sine a quarter turn on");
+        assert_eq!(
+            i64::from(sine),
+            en_45_step(table, step),
+            "sine_turn at step {step} is not its quadrant's entry"
+        );
+        assert_eq!(
+            i64::from(cosine),
+            en_45_step(table, step + 16384),
+            "cosine_turn at step {step} is not sine a quarter turn on"
+        );
         let norm = i64::from(sine) * i64::from(sine) + i64::from(cosine) * i64::from(cosine);
-        assert!((norm - (1i64 << 60)).abs() <= 1i64 << 31, "sin^2 + cos^2 at step {step} is {norm}");
+        assert!(
+            (norm - (1i64 << 60)).abs() <= 1i64 << 31,
+            "sin^2 + cos^2 at step {step} is {norm}"
+        );
         // Between steps: below half goes down, above half goes up, a tie to the even step.
         let even = if step % 2 == 0 { step } else { step + 1 };
-        assert_eq!(i64::from(exact::sine_turn(angle + 0x7fff)), en_45_step(table, step), "step {step} plus less than half did not stay");
-        assert_eq!(i64::from(exact::sine_turn(angle + 0x8000)), en_45_step(table, even), "a tie after step {step} did not go to even");
-        assert_eq!(i64::from(exact::sine_turn(angle + 0x8001)), en_45_step(table, step + 1), "step {step} plus more than half did not go up");
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x7fff)),
+            en_45_step(table, step),
+            "step {step} plus less than half did not stay"
+        );
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x8000)),
+            en_45_step(table, even),
+            "a tie after step {step} did not go to even"
+        );
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x8001)),
+            en_45_step(table, step + 1),
+            "step {step} plus more than half did not go up"
+        );
     }
     let mut state = 0x2545_f491_4f6c_dd1du64;
     for _ in 0..100_000 {
@@ -9458,8 +9492,20 @@ fn engine_en_45() {
         state ^= state >> 7;
         state ^= state << 17;
         let angle = (state >> 32) as u32;
-        assert_eq!(exact::sine_turn(angle.wrapping_neg()), -exact::sine_turn(angle), "sine is not odd at {angle}");
-        assert_eq!(exact::cosine_turn(angle.wrapping_neg()), exact::cosine_turn(angle), "cosine is not even at {angle}");
-        assert_eq!(exact::cosine_turn(angle), exact::sine_turn(angle.wrapping_add(1 << 30)), "cosine is not sine a quarter turn on at {angle}");
+        assert_eq!(
+            exact::sine_turn(angle.wrapping_neg()),
+            -exact::sine_turn(angle),
+            "sine is not odd at {angle}"
+        );
+        assert_eq!(
+            exact::cosine_turn(angle.wrapping_neg()),
+            exact::cosine_turn(angle),
+            "cosine is not even at {angle}"
+        );
+        assert_eq!(
+            exact::cosine_turn(angle),
+            exact::sine_turn(angle.wrapping_add(1 << 30)),
+            "cosine is not sine a quarter turn on at {angle}"
+        );
     }
 }

@@ -1652,3 +1652,91 @@ pub fn softmax_exp2(exponents: &[i64]) -> Vec<u32> {
         })
         .collect()
 }
+
+/// Steps in a quarter turn of the sine table: entry `r` is the sine at
+/// `r / 65536` of a turn, in units of `2^-30`.
+pub const SINE_QUARTER: usize = 16384;
+
+/// `a * b / 2^120`, cut down: the fixed point the sine table is generated in.
+/// Both factors stay below `2^123`, so the result fits.
+fn fixed_mul(a: u128, b: u128) -> u128 {
+    let low_mask = u128::from(u64::MAX);
+    let (a1, a0) = (a >> 64, a & low_mask);
+    let (b1, b0) = (b >> 64, b & low_mask);
+    let (middle, middle_carry) = (a1 * b0).overflowing_add(a0 * b1);
+    let (low, low_carry) = (a0 * b0).overflowing_add(middle << 64);
+    let high = a1 * b1 + (middle >> 64) + (u128::from(middle_carry) << 64) + u128::from(low_carry);
+    (high << 8) | (low >> 120)
+}
+
+/// `2^120 atan(1 / m)`, cut down, by its alternating series.
+fn atan_inverse(m: u128) -> u128 {
+    let mut power = (1u128 << 120) / m;
+    let (mut sum, mut k) = (0u128, 0u128);
+    while power > 0 {
+        let term = power / (2 * k + 1);
+        sum = if k.is_multiple_of(2) {
+            sum + term
+        } else {
+            sum - term
+        };
+        power /= m * m;
+        k += 1;
+    }
+    sum
+}
+
+/// `2^30 sin(pi r / 32768)` for `r <= 16384`, rounded half to even: `pi` by
+/// Machin's formula and the sine by its Taylor series, in integers over
+/// `2^120`, so every machine generates the same table.
+fn sine_entry(pi: u128, r: u128) -> u32 {
+    let x = (pi >> 15) * r + (((pi & 0x7fff) * r) >> 15);
+    let square = fixed_mul(x, x);
+    let (mut sum, mut term, mut k) = (x, x, 1u128);
+    loop {
+        term = fixed_mul(term, square) / ((2 * k) * (2 * k + 1));
+        if term == 0 {
+            break;
+        }
+        sum = if k % 2 == 1 { sum - term } else { sum + term };
+        k += 1;
+    }
+    let (quotient, rest, half) = (sum >> 90, sum & ((1u128 << 90) - 1), 1u128 << 89);
+    let up = rest > half || (rest == half && quotient & 1 == 1);
+    (quotient + u128::from(up)) as u32
+}
+
+/// The quarter-wave sine table: 16,385 entries, entry `r` the integer nearest
+/// `2^30 sin(pi r / 32768)`, generated once by exact integer arithmetic.
+pub fn sine_quarter() -> &'static [u32] {
+    static TABLE: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let pi = 16 * atan_inverse(5) - 4 * atan_inverse(239);
+        (0..=SINE_QUARTER as u128)
+            .map(|r| sine_entry(pi, r))
+            .collect()
+    })
+}
+
+/// The sine of `angle` units of `2^-32` of a turn, in units of `2^-30`: the
+/// angle rounded half to even to a step of `2^-16` of a turn, read from the
+/// quarter-wave table by quadrant.
+pub fn sine_turn(angle: u32) -> i32 {
+    let (whole, rest) = (angle >> 16, angle & 0xffff);
+    let up = rest > 0x8000 || (rest == 0x8000 && whole & 1 == 1);
+    let step = (whole + u32::from(up)) & 0xffff;
+    let table = sine_quarter();
+    let r = (step & 0x3fff) as usize;
+    let quarter = SINE_QUARTER;
+    match step >> 14 {
+        0 => table[r] as i32,
+        1 => table[quarter - r] as i32,
+        2 => -(table[r] as i32),
+        _ => -(table[quarter - r] as i32),
+    }
+}
+
+/// The cosine of `angle` units of `2^-32` of a turn: the sine a quarter turn on.
+pub fn cosine_turn(angle: u32) -> i32 {
+    sine_turn(angle.wrapping_add(1 << 30))
+}
