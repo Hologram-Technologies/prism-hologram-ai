@@ -2758,7 +2758,7 @@ fn kernel_kn_36() {
 }
 /// `KN-38`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
 #[test]
-fn kernel_kn_37() {
+fn kernel_kn_38() {
     assert_proofs_are_gated();
     let kernel = model("app/src/Kernel/Codec.lex.tex");
     let proofs = model("app/src/Proofs/Codec.lex.tex");
@@ -2849,7 +2849,7 @@ fn kernel_kn_37() {
 }
 /// `KN-39`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
 #[test]
-fn kernel_kn_38() {
+fn kernel_kn_39() {
     assert_proofs_are_gated();
     let kernel = model("app/src/Kernel/Narrow.lex.tex");
     let proofs = model("app/src/Proofs/Narrow.lex.tex");
