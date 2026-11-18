@@ -57,7 +57,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-31` | `build` | An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives |
 | `EN-32` | `build` | A WordPiece tokenizer.json, BERT's normaliser and pre-tokeniser with one sentence between two special tokens, gives the same ids as the authority's own tokeniser, and a WordPiece file that asks for any other step is refused by the step it asks for |
 | `EN-33` | `build` | An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes |
-| `EN-34` | `build` | A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code |
+| `EN-34` | `build` | A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code |
 | `EN-35` | `build` | Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one |
 
 ## gpu
@@ -188,6 +188,7 @@ not that the test provokes the failure.
 | `FL-50` | `exact` | `ExactError::InputNotFinite` | An input to an exact product is not a finite number |
 | `FL-51` | `exact` | `ExactError::GroupMisaligned` | An exact product's row length is not a whole number of scale groups |
 | `FL-52` | `exact` | `ExactError::LengthMismatch` | A buffer handed to an exact product is not the length its shape implies |
+| `FL-53` | `exact` | `ExactError::ScaleNotFinite` | A scale stored with an exact product's weights is not a finite number |
 
 ## Cited authorities
 

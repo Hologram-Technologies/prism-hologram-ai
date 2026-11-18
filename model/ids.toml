@@ -572,7 +572,7 @@ statement = "An ONNX export is imported through the page's module: every span, o
 id = "EN-34"
 level = "build"
 suite = "engine"
-statement = "A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code"
+statement = "A q4 or ternary matrix times a vector is computed in integers from its stored bytes: every scale and input is read as the exact integer times a power of two it stands for, each group sum equals the same sum written out in i64, each row is the exact sum of its groups rounded once to the nearest f32, the same whatever order its groups are in, and the page's module gives the same bytes as native code"
 
 [[id]]
 id = "EN-35"
