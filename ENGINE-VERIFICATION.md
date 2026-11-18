@@ -2208,3 +2208,33 @@ These are errors of single products against a float product, not answers: how
 often a whole run's greedy tokens agree with the float model's needs the
 integer non-matmul stages (brief step 4), and is the measure the choice is to
 be confirmed by.
+
+## EN-37, a row's terms as decision 39's chain
+
+`q4_row_terms` gives each row's terms in the order `q4_product_with` places
+them: each unit's exact sum, its scale's mantissa, and the power they stand at.
+`row_links` chains them into decision 39's 79-byte requests, six terms a link,
+at the row's lowest power, each link's partials the exact sums before and after
+it; `round_exact` rounds the last partial once. A row whose numbers could pass
+the guest's 64 bits is reported (`None`), not chained.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_37`
+
+Every request is checked to be 79 bytes and decision 39's; each link's terms are
+read back as decision 39 reads them and summed in the test, and must give the
+link's claimed partial; the last partial, rounded once, must give the bits
+`q4_product_with` gives, for every block and every scheme. Run on 2026-11-18;
+each defect planted alone.
+
+| Planted defect | Rejected by |
+| --- | --- |
+| the chain based at the highest power, not the lowest | `engine_en_37`: a row that fits is reported too wide |
+| a negative term added as positive | `engine_en_37`: `a link's claimed partial is not its partial plus its terms` |
+| a sum written least significant first | `engine_en_37`: the same |
+| partials up to `2^63` chained | not rejected by `engine_en_37`: no case reaches `2^62`; the guest answers such a link `too wide`, as the edge requests in KERNEL-VERIFICATION.md's KN-39 section show |
+| none | passed |
+
+Over the real export, 3,640 rows of Qwen3-0.6B were chained, none too wide, and
+the compiled guest of decision 39 answered all 26,460 links `exact` and all
+26,460 planted ones `differs` (recorded with KN-39).
+
