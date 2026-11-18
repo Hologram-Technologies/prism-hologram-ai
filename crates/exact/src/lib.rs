@@ -1623,3 +1623,32 @@ pub fn exp2_neg(d: u32) -> u32 {
     let up = rest > half || (rest == half && quotient & 1 == 1);
     (quotient + u64::from(up)) as u32
 }
+
+/// Softmax in integers. `exponents` are scores already in units of `2^-8` of
+/// a base-two exponent (the model's `log2(e)` and scale folded in by the
+/// caller). Each output is `exp2_neg(top - x)` times `2^30`, over the exact sum
+/// of those weights, rounded half to even: units of `2^-30`. The top score's
+/// weight is `2^30`, so the sum is at least `2^30` and no output passes it
+/// (EN-44). An empty row gives an empty row.
+pub fn softmax_exp2(exponents: &[i64]) -> Vec<u32> {
+    let Some(&top) = exponents.iter().max() else {
+        return Vec::new();
+    };
+    let weights: Vec<u128> = exponents
+        .iter()
+        .map(|&x| {
+            let d = u32::try_from(i128::from(top) - i128::from(x)).unwrap_or(u32::MAX);
+            u128::from(exp2_neg(d))
+        })
+        .collect();
+    let sum: u128 = weights.iter().sum();
+    weights
+        .iter()
+        .map(|&e| {
+            let scaled = e << 30;
+            let (quotient, rest) = (scaled / sum, scaled % sum);
+            let up = 2 * rest > sum || (2 * rest == sum && quotient & 1 == 1);
+            (quotient + u128::from(up)) as u32
+        })
+        .collect()
+}

@@ -2441,3 +2441,36 @@ declared narrowing (KN-39: step 0, exp; input 16 bits; output 31 bits).
 | the shift truncated instead of rounded | rejected: `exp2_neg(258) is not entry 2 over 2^1 rounded half to even` |
 | a tie rounded up instead of to even | rejected: `exp2_neg(259) is not entry 3 over 2^1 rounded half to even` |
 | none | passed |
+
+## EN-44, softmax in integers
+
+`softmax_exp2` takes a row of scores already in units of `2^-8` of a base-two
+exponent: the caller folds in `log2(e)` and the attention scale, as one more
+integer rescaling. It subtracts the top score, so the top weight is exactly
+`2^30` from EN-43's table, sums the weights exactly (in `u128`), and divides
+each `e * 2^30` by the sum, rounded half to even. Outputs are in units of
+`2^-30` and never pass `2^30`.
+
+What the test establishes, on rows of 1 to 4,096 scores (ties, one spike,
+spreads up to `2^44`, and `i64::MIN` beside `i64::MAX`):
+
+- every output is the half-to-even rounding of `e * 2^30 / S`, checked as
+  `2 |e * 2^30 - p * S| <= S`, with a tie at even;
+- a row's outputs sum to `2^30` within half a unit per output;
+- shifting every score by the same amount changes no output, because only
+  differences reach the table;
+- a larger score never gets a smaller output.
+
+Kernel re-checks: decision 44 bounds its divisor below `2^31` and its code at
+32767, so it cannot re-check these outputs (sums reach `2^42`, codes `2^30`). A
+decision for wider quotients is to come with the attention stage that uses
+them.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_44`
+
+| Planted defect | Result |
+| --- | --- |
+| the quotient truncated instead of rounded | rejected: `is more than half a unit from` |
+| the first weight left out of the sum | rejected: `is more than half a unit from` |
+| the top score not subtracted | rejected: `attempt to divide by zero`, every weight underflowing to 0 |
+| none | passed |
