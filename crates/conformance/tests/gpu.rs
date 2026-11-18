@@ -1100,7 +1100,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(

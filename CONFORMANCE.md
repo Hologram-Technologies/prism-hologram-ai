@@ -75,6 +75,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-50` | `build` | The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits |
 | `EN-51` | `build` | The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits |
 | `EN-52` | `build` | The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name |
+| `EN-53` | `build` | The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it |
 
 ## gpu
 
@@ -105,6 +106,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-23` | `build` | The engine page keeps the computed state of its chat frame's fixed head, the tokens every turn opens with, under the BLAKE3 of those token ids, and on a later turn asks the kernel (decision 27) whether that label equals the label of the new prompt's own opening ids; on reuse it restores the head and computes only the rest, and the turn's tokens equal those of computing the whole prompt |
 | `GP-24` | `build` | When the browser has too little room to keep a downloaded file, the engine page asks the kernel (decision 26) about each file already kept, oldest first, with the files this load uses pinned, drops a file only on evict and stops at enough; a file there is no room for on does not fit is not kept, and the model still loads from the download |
 | `GP-25` | `build` | One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24 |
+| `GP-28` | `build` | The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept |
 
 ## kernel
 

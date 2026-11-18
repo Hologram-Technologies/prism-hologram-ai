@@ -935,6 +935,8 @@ struct Decode {
     config: Option<Config>,
     /// The run so far.
     session: Option<Session>,
+    /// Runs kept for a later turn, by the number `decode_save` gave.
+    saved: BTreeMap<u32, Session>,
 }
 
 thread_local! {
@@ -1063,6 +1065,57 @@ pub extern "C" fn decode_step(token: u32) -> u32 {
     })
 }
 
+/// Keep the run as it was after its first `length` tokens, for a later turn
+/// that opens the same way: answers the number `decode_restore` takes, four
+/// bytes little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_save(length: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let kept = d
+                .session
+                .as_ref()
+                .and_then(|s| s.prefix(length))
+                .ok_or(CallError::NothingRead)?;
+            let id = d
+                .saved
+                .keys()
+                .next_back()
+                .map_or(0, |last| last.wrapping_add(1));
+            d.saved.insert(id, kept);
+            Ok(id.to_le_bytes().to_vec())
+        })
+    })
+}
+
+/// Carry on from a run `decode_save` kept.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_restore(id: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let kept = d.saved.get(&id).cloned().ok_or(CallError::NothingRead)?;
+            d.session = Some(kept);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// Start the open model's run again from its first token.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_reset() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let session = with_model(d, config, |model| Ok(Session::new(model)))?;
+            d.session = Some(session);
+            Ok(Vec::new())
+        })
+    })
+}
+
 /// Let go of every weight and the run, so their memory can be used again.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
@@ -1072,6 +1125,7 @@ pub extern "C" fn decode_clear() -> u32 {
             d.tensors.clear();
             d.config = None;
             d.session = None;
+            d.saved.clear();
         });
         Ok(Vec::new())
     })

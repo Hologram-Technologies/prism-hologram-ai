@@ -131,3 +131,27 @@ tie.
 | `in` on a mapping always false | the same | rejected: Llama differs in its 2 tool-call conversations |
 | A template's last newline kept, as first written | the same | found by the whitespace template: all 20 differed by that newline; fixed, as jinja2's keep_trailing_newline is off |
 | none | all twenty, and the journey | pass |
+
+## GP-28, the page's CPU device on the integer engine
+
+An ONNX export on the page's CPU device now runs on the integer engine:
+`site/app/engine/integer.mjs` hands the page's module every weight the import
+read (`decode_tensor`), opens it with the config's head counts, rope theta,
+epsilon as binary32 bits and the rotary scaling the loader confirmed
+(`decode_open`), and answers each token with `decode_step`; a second turn
+carries on from the run the module kept (`decode_save`, `decode_restore`,
+EN-53). The page computes no number of its own on this path. The float CPU
+engine (`cpu.mjs`) still runs weight containers and stays the yardstick
+GP-18 measures; WebGPU is still the float engine until the integer WGSL
+kernels land.
+
+`just page-journey`'s `cpu` run must report `integer: true` beside its
+sixteen tokens equal to the reference's and its second turn's reuse; `gpu_gp_28`
+reads that the pipeline builds the CPU device's engine with
+`createIntegerEngine` and never the float one. GP-19's pinned line moved with
+it.
+
+| Planted defect | Result |
+| --- | --- |
+| the pipeline's CPU device built with `createCpuEngine` again | rejected: `pipeline.mjs no longer has ``createIntegerEngine({ module, ...raw, capacity: CAPACITY })``` |
+| none | passed |
