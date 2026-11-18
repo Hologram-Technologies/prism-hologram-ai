@@ -7679,7 +7679,7 @@ fn engine_fl_52() {
     );
 }
 
-/// `FL-53`: A scale stored with an exact product's weights is not a finite number
+/// `FL-53`: A scale or weight stored for an exact product is not a finite number
 #[test]
 fn engine_fl_53() {
     let input = vec![1.0f32; 32];
@@ -7717,5 +7717,267 @@ fn engine_fl_53() {
             128
         ),
         Err(exact::ExactError::ScaleNotFinite)
+    );
+    let nan = f32::NAN.to_le_bytes();
+    assert_eq!(
+        exact::dense_product(&bits(&[1.0]), exact::Dense::F32(&nan), 1, 1),
+        Err(exact::ExactError::ScaleNotFinite)
+    );
+}
+
+/// A `MatMulNBits` case written out from the operator's definition: the codes,
+/// two to a byte, low half first; one scale per block; the zero points, packed
+/// four bits to a block, or absent for 8; and each weight as `code - zero`.
+struct NbitsCase {
+    rows: usize,
+    columns: usize,
+    block: usize,
+    half: bool,
+    codes: Vec<u8>,
+    scale_bytes: Vec<u8>,
+    zeros: Option<Vec<u8>>,
+    /// `weights[row][column]`, the integer each weight stands for.
+    weights: Vec<Vec<i64>>,
+    /// One scale per block, row after row.
+    scales: Vec<f64>,
+}
+
+fn nbits_case(
+    draw: &mut Draw,
+    rows: usize,
+    columns: usize,
+    block: usize,
+    half: bool,
+    zeros: bool,
+) -> NbitsCase {
+    let blocks = columns.div_ceil(block);
+    let mut codes = vec![0u8; rows * blocks * block / 2];
+    let mut zero_bytes = vec![0u8; rows * blocks.div_ceil(2)];
+    let mut weights = vec![vec![0i64; columns]; rows];
+    let mut scales = Vec::new();
+    let mut scale_bytes = Vec::new();
+    for row in 0..rows {
+        for b in 0..blocks {
+            let zero = if zeros { draw.below(16) as u8 } else { 8 };
+            zero_bytes[row * blocks.div_ceil(2) + b / 2] |= zero << (4 * (b % 2));
+            // A scale a half holds exactly, either sign.
+            let magnitude = (1 + draw.below(2047)) as f32 / 1024.0;
+            let scale = if draw.below(2) == 0 {
+                magnitude
+            } else {
+                -magnitude
+            };
+            scales.push(f64::from(scale));
+            if half {
+                scale_bytes.extend_from_slice(&half_bits(scale).to_le_bytes());
+            } else {
+                scale_bytes.extend_from_slice(&scale.to_le_bytes());
+            }
+            for i in 0..block {
+                // Padding past the last column holds codes too, and must not count.
+                let code = draw.below(16) as u8;
+                let g = (row * blocks + b) * block + i;
+                codes[g / 2] |= code << (4 * (g % 2));
+                let column = b * block + i;
+                if column < columns {
+                    weights[row][column] = i64::from(code) - i64::from(zero);
+                }
+            }
+        }
+    }
+    NbitsCase {
+        rows,
+        columns,
+        block,
+        half,
+        codes,
+        scale_bytes,
+        zeros: zeros.then_some(zero_bytes),
+        weights,
+        scales,
+    }
+}
+
+fn nbits_matrix(case: &NbitsCase) -> exact::Q4Matrix<'_> {
+    exact::Q4Matrix {
+        codes: &case.codes,
+        scales: if case.half {
+            exact::Q4Scales::F16(&case.scale_bytes)
+        } else {
+            exact::Q4Scales::F32(&case.scale_bytes)
+        },
+        zeros: match &case.zeros {
+            Some(bytes) => exact::Q4Zeros::Packed(bytes),
+            None => exact::Q4Zeros::Eight,
+        },
+        rows: case.rows,
+        columns: case.columns,
+        block: case.block,
+    }
+}
+
+/// `EN-35`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
+#[test]
+fn engine_en_35() {
+    let mut draw = Draw(0x51_7cc1_b727_220a);
+    let mut checked = 0;
+    for &block in exact::Q4_BLOCKS.iter() {
+        // A whole number of blocks, and a last block padded.
+        for &columns in &[block, 2 * block, 2 * block + block / 2 + 1] {
+            for (half, zeros) in [(true, false), (true, true), (false, true), (false, false)] {
+                let case = nbits_case(&mut draw, 3, columns, block, half, zeros);
+                let input: Vec<f32> = (0..columns).map(|_| draw.unit() * 4.0).collect();
+                let quantised = exact::quantise(&bits(&input)).expect("finite");
+                let matrix = nbits_matrix(&case);
+                let sums = exact::q4_block_sums(&quantised, &matrix).expect("well formed");
+                let blocks = columns.div_ceil(block);
+                let rows = exact::q4_product(&bits(&input), &matrix).expect("well formed");
+                for row in 0..case.rows {
+                    let mut written = Vec::new();
+                    for b in 0..blocks {
+                        let mut sum = 0i64;
+                        for column in b * block..((b + 1) * block).min(columns) {
+                            sum += i64::from(quantised.codes()[column]) * case.weights[row][column];
+                        }
+                        written.push(sum);
+                    }
+                    assert_eq!(
+                        &sums[row * blocks..(row + 1) * blocks],
+                        &written[..],
+                        "block {block}, {columns} columns, half {half}, zeros {zeros}, row {row}: the block sums differ"
+                    );
+                    let stated = exact_reference(
+                        &written,
+                        &case.scales[row * blocks..(row + 1) * blocks],
+                        quantised.exponent(),
+                    );
+                    assert_eq!(
+                        rows[row],
+                        stated.to_bits(),
+                        "block {block}, {columns} columns, half {half}, zeros {zeros}, row {row}: {} is not the stated {stated}",
+                        f32::from_bits(rows[row])
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 5 * 3 * 4 * 3);
+
+    // Zero points stored as eights are the zero points left out.
+    let case = nbits_case(&mut draw, 4, 96, 32, true, false);
+    let input: Vec<f32> = (0..96).map(|_| draw.unit()).collect();
+    let eights = vec![0x88u8; 4 * 3usize.div_ceil(2)];
+    let absent = exact::q4_product(&bits(&input), &nbits_matrix(&case)).expect("well formed");
+    let stored = exact::q4_product(
+        &bits(&input),
+        &exact::Q4Matrix {
+            zeros: exact::Q4Zeros::Packed(&eights),
+            ..nbits_matrix(&case)
+        },
+    )
+    .expect("well formed");
+    assert_eq!(
+        absent, stored,
+        "zero points of 8 are not the zero points left out"
+    );
+    // And block 32 with no zero points is EN-34's q4.
+    let (codes, scales) = (&case.codes, exact::Q4Scales::F16(&case.scale_bytes));
+    assert_eq!(
+        absent,
+        exact::q4_matvec(&bits(&input), codes, scales, 4, 96).expect("well formed"),
+        "MatMulNBits at block 32 with no zero points is not EN-34's q4"
+    );
+
+    // Dense weights, as MatMul's second input stores them: K rows of N.
+    for format in ["f32", "f16", "bf16"] {
+        let (k, n) = (40usize, 5usize);
+        let mut stored = Vec::new();
+        let mut values = Vec::new();
+        for _ in 0..k * n {
+            // Values each format holds exactly: a multiple of 1/64 below 2.
+            let value = (draw.below(255) as i32 - 127) as f32 / 64.0;
+            values.push(f64::from(value));
+            match format {
+                "f32" => stored.extend_from_slice(&value.to_le_bytes()),
+                "f16" => stored.extend_from_slice(&half_bits(value).to_le_bytes()),
+                _ => stored.extend_from_slice(&((value.to_bits() >> 16) as u16).to_le_bytes()),
+            }
+        }
+        let weights = match format {
+            "f32" => exact::initializer_codec(1, &stored),
+            "f16" => exact::initializer_codec(10, &stored),
+            _ => exact::initializer_codec(16, &stored),
+        }
+        .expect("an exact codec");
+        let input: Vec<f32> = (0..k).map(|_| draw.unit() * 2.0).collect();
+        let quantised = exact::quantise(&bits(&input)).expect("finite");
+        let out = exact::dense_product(&bits(&input), weights, k, n).expect("well formed");
+        for column in 0..n {
+            let codes: Vec<i64> = quantised.codes().iter().map(|&c| i64::from(c)).collect();
+            let column_values: Vec<f64> = (0..k).map(|row| values[row * n + column]).collect();
+            let stated = exact_reference(&codes, &column_values, quantised.exponent());
+            assert_eq!(
+                out[column],
+                stated.to_bits(),
+                "{format} output {column}: {} is not the stated {stated}",
+                f32::from_bits(out[column])
+            );
+        }
+    }
+
+    // The formats with an exact codec, as a node or initializer names them.
+    assert_eq!(exact::matmulnbits_codec(4, 32, 10, None), Ok(()));
+    assert_eq!(exact::matmulnbits_codec(4, 128, 1, Some(2)), Ok(()));
+}
+
+/// `FL-54`: A stored format has no exact codec, so it is refused by name instead of run approximately
+#[test]
+fn engine_fl_54() {
+    let no = Err(exact::ExactError::NoExactCodec);
+    assert_eq!(exact::matmulnbits_codec(8, 32, 10, None), no, "eight bits");
+    assert_eq!(exact::matmulnbits_codec(2, 32, 10, None), no, "two bits");
+    assert_eq!(
+        exact::matmulnbits_codec(4, 24, 10, None),
+        no,
+        "a block of 24"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 512, 10, None),
+        no,
+        "a block of 512"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 32, 16, None),
+        no,
+        "bfloat16 scales"
+    );
+    assert_eq!(
+        exact::matmulnbits_codec(4, 32, 10, Some(10)),
+        no,
+        "half zero points"
+    );
+    for data_type in [2, 3, 6, 7, 11, 17] {
+        assert_eq!(
+            exact::initializer_codec(data_type, &[0; 8]).map(|_| ()),
+            no,
+            "initializer type {data_type}"
+        );
+    }
+    let input = bits(&[1.0f32; 48]);
+    let codes = [0x88u8; 24];
+    let scales = [0u8; 4];
+    let matrix = exact::Q4Matrix {
+        codes: &codes,
+        scales: exact::Q4Scales::F16(&scales),
+        zeros: exact::Q4Zeros::Eight,
+        rows: 1,
+        columns: 48,
+        block: 24,
+    };
+    assert_eq!(
+        exact::q4_product(&input, &matrix).map(|_| ()),
+        no,
+        "a product at a block of 24"
     );
 }
