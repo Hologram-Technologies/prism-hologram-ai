@@ -84,6 +84,10 @@ The inherited gates and their own planted defects are in
 | The fields of a half, bfloat16 or binary32 stand for the IEEE 754 value `(-1)^sign * fraction-with-leading-bit * 2^(exponent - bias)` | the reading in `crates/exact` (`Dyadic`), tested against Rust's own conversions in `EN-34` on the cases drawn | tested, not proved |
 | `KN-38`: a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits (a table of at most 65,536 entries), its output 1 to 32 bits, and its certified error within its declared bound | `narrow_accepted_decides`, checked by the Lean kernel | proved |
 | The certified error of a narrowing's table is its true worst error | the table generator's, to be checked when each table is built; no table exists yet | not proved |
+| `KN-39`: one link of a row's exact recombination is `exact` exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part; a part counts on one side only, by its sign; two exact links compose into one, so a chain confirms the plain sum of every term in it; at most one claim is exact | `rows_accepts_decides`, `rows_part_splits`, `rows_part_one_side`, `rows_links_compose` and `rows_one_claim`, checked by the Lean kernel | proved |
+| A chain of any length confirms the plain sum | follows from `rows_links_compose` by induction on the number of links; no theorem states the induction, because the request holds one link | argued, not proved |
+| No number decision 39 computes passes 64 bits: partials below `2^62`, and each term's `sum * mantissa` below `2^(58 - shift)` | the guard in `rowsAnswer`, pinned by `kernel_kn_39` and exercised at its edges in the compiled guest; the product bound itself is not stated as a theorem, because it is not linear | tested, not proved |
+| The compiled guest answers decision 39 as its definition does | 52,920 links from 3,640 real Qwen3-0.6B rows (half planted one too high) and 12 crafted edge requests, each answered as expected by the guest of a holo built from this branch; a measurement across this branch and `crates/exact`, not yet a test in the suite | measured |
 | Decisions 37 and 38 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
@@ -1002,6 +1006,60 @@ address is `KN-35`, recorded above.
 | none | `verified 6 modules` |
 
 Run on 2026-11-17 in the pinned SDK image; `lexlean verify` exited 1 on each
+rejection.
+
+## KN-39, row recombination
+
+A row of a product is the sum of its units' sums times their scales, each at its
+own power of two. The guest checks one row as a chain of links, because a request
+holds at most 81 bytes and a row has 32 to 280 units. A link is 79 bytes: the
+exact partial so far (a sign byte and eight bytes), the claimed partial after it,
+and up to six terms of a sign, a unit sum (four bytes), a scale mantissa (four
+bytes) and a power of two (one byte) above the chain's lowest power. The page
+carries the partial from one link to the next. A link whose partial reaches
+`2^62`, or whose term's `sum * mantissa` reaches `2^(58 - shift)`, is `too wide`:
+the guest's numbers are 64 bits, and the Lean model's are unbounded.
+
+### The pinned test: `kernel_kn_39`
+
+| Planted defect | Result |
+| --- | --- |
+| a link accepted with the claim on the wrong side | rejected: `rowsAccepts changed` |
+| a part counted whatever its sign | rejected: `rowsPart changed` |
+| a shift of 59 admitted | rejected: `rowsTermFits changed` |
+| decision 39 routed to decision 38's answer | rejected: `decision 39 must be routed to Kernel.Rows::rowsAnswer` |
+| the third term's sum read from its mantissa | rejected: `rowsAnswer changed` |
+| none | passed |
+
+### The proof gate: `lexlean verify src/Proofs/Rows.lex.tex`
+
+| Planted defect | Result |
+| --- | --- |
+| a link accepted with the claim on the wrong side | rejected: `Lean rejected HologramAi.Proofs.Rows (error): omega could not prove the goal` |
+| a part counted whatever its sign | rejected: the same |
+| a shift of 59 admitted | not rejected: `verified 4 modules`. The bound is outside every theorem; `kernel_kn_39` rejects it |
+| none | `verified 4 modules` |
+
+### The compiled guest against the fast path
+
+A holo built from this branch with `prismpm --project app build` (2026-11-18,
+96 s, published `23a1c162…`), its guest run by the vendored `prism-code`
+(`loadArchive`, then `dispatch`) under Node:
+
+| Requests | Expected | Answered as expected |
+| --- | --- | --- |
+| 26,460 links of 3,640 rows of Qwen3-0.6B's 196 projections (every 97th row, sixteen-bit inputs per group of 32, 0.2% outliers), built by `crates/exact`'s `row_links` from the terms `q4_product_with` places | `exact` | 26,460 |
+| the same links with the claimed partial one too high | `differs` | 26,460 |
+| the largest sums the bounds admit, all-negative terms, cancellation, crossing zero, a zero term at shift 58 | `exact` (5), `differs` (1) | 6 |
+| a term of exactly `2^58`, a sum of `2^24`, a partial of `2^62`, a shift of 59 | `too wide` | 4 |
+| a sign of 2; a 78-byte request | `invalid request` | 2 |
+
+No row of the 3,640 was too wide. The chain's last partial, rounded once,
+equals the fast path's output for every row (asserted while the links were
+built). This is a measurement across two branches; it becomes a test in the
+suite where `crates/exact` and decision 39 are in one tree.
+
+Run on 2026-11-18 in the pinned SDK image; `lexlean verify` exited 1 on each
 rejection.
 
 ## The examples in the compiled guest
