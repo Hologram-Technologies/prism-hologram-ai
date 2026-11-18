@@ -2474,3 +2474,49 @@ them.
 | the first weight left out of the sum | rejected: `is more than half a unit from` |
 | the top score not subtracted | rejected: `attempt to divide by zero`, every weight underflowing to 0 |
 | none | passed |
+
+## EN-45, rotary positions' sine and cosine as one certified table
+
+Rotary positions need `sin` and `cos`, which have no exact integer values. An
+angle is held in units of `2^-32` of a turn, so a sum of angles wraps exactly
+as a turn does, and `sine_turn` and `cosine_turn` round it half to even to a
+step of `2^-16` of a turn and read one quarter-wave table by quadrant.
+`sine_quarter()` holds 16,385 entries, entry `r` the integer nearest
+`2^30 sin(pi r / 32768)`, in units of `2^-30`.
+
+The table is generated, not typed in: `pi` by Machin's formula and each sine
+by its Taylor series, in integers over `2^120`, rounded half to even. Every
+machine generates the same bytes, and the test pins their BLAKE3,
+`d2612a42910edad3b81095ad0be154d6076c5c33771916cbbea2ded40419ec11`, so the
+table is named as a tensor is. There is no float on the shipped path.
+
+The certificate is separate code. `engine_en_45` works out `2^256 sin(pi r / 32768)`
+for every entry with integers of any width written in the test (its own
+Machin `pi` and Taylor series, every cut down by under one unit, a slack of
+`2^32` units allowed on each side) and checks
+`2 entry - 1 < 2^31 sin(pi r / 32768) < 2 entry + 1`, so each entry is the
+nearest integer. It checks every step's quadrant reading, ties between steps
+going to the even step, sine odd, cosine even and a quarter turn on from
+sine, and `sin^2 + cos^2` within `2^31` of `2^60` at every step.
+
+The step is `2^-16` of a turn, about `9.6e-5` radians, finer than the `f16`
+caches the ONNX exports carry (about `4.9e-4` relative). The frequencies,
+the position times frequency in turns, and YaRN and Llama 3 scaling are the
+next stage; they read this table.
+
+### Why not in Lean
+
+As with EN-43, the hosted prover's `simplify` does not evaluate the runtime's
+arithmetic on literals, so a per-entry certificate does not close in Lean
+today. The certificate lives in this test until the toolchain has a proof
+form that evaluates closed arithmetic.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_45`
+
+| Planted defect | Result |
+| --- | --- |
+| entry 4096 one too high | rejected: `entry 4096 = 410903208 is not the integer nearest 2^30 sin(pi 4096 / 32768)` |
+| a tie between steps rounded up instead of to even | rejected: `a tie after step 0 did not go to even` |
+| the third quadrant's sign not negated | rejected: `cosine_turn at step 16385 is not sine a quarter turn on` |
+| `pi` with `atan(1/240)` for `atan(1/239)` | rejected: `sin of a quarter turn is not 2^30` |
+| none | passed |
