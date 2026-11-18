@@ -2593,3 +2593,53 @@ it, as for EN-44.
 | the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
 | values and weights not bounded | rejected: `a value at 2^31 was not refused` |
 | none | passed |
+
+## EN-48, rotary angles in integers
+
+Each pair `i` of a head of size `d` turns by `theta^(-2i/d)` radians per
+position. `rope_frequencies` holds that rate as `F`, in units of `2^-64` of a
+turn per position, so a position's angle is `position * F` modulo `2^64`,
+exact, and `rope_angle` rounds it half to even to `2^-32` of a turn for
+EN-45's `sine_turn` and `cosine_turn`.
+
+`F` is `2^(63 - (2i/d) log2 theta - log2 pi)`, generated in integers over
+`2^62`: `log2` by repeated squaring, one bit per square, the power of two as a
+product of `2^(2^-j)`, each the integer square root of the one before, and
+`pi` by Machin's formula. Every machine gets the same `F`.
+
+Llama 3 scaling, which Llama 3.2 1B names, is rational in `F`: a pair above
+`high / original` turns per position is kept, one below `low / original` is
+divided by `factor`, and one between is blended,
+`F (D - N + N factor) / (factor D)` with `N = original F - low 2^64` and
+`D = (high - low) 2^64`, rounded half to even. The factors are taken as whole
+numbers, as the three models' configs give them. YaRN, which none of
+milestone 2's models uses, is refused by name where the config is read.
+
+What the test establishes, for Qwen3-0.6B and Qwen2.5-1.5B (128 at
+1,000,000), Llama 3.2 1B (64 at 500,000, Llama 3 scaling 32, 1, 4, 8192), and
+64 at 10,000:
+
+- every unscaled `F` is within `2^6` units of `2^64 theta^(-2i/d) / (2 pi)`,
+  certified as `((F - 2^6) 2 pi)^b theta^a < 2^(64b) < ((F + 2^6) 2 pi)^b theta^a`
+  for `2i/d = a/b`, with the test's own Machin `pi` and integers of any
+  width; the largest miss is pair 0's, 26 units, and `2^4` fails;
+- every Llama 3 frequency is the test's own keep, divide or blend, rounded
+  half to even, and within `10^-12` of the reference's float formula;
+- every angle is `position * F` modulo `2^64` rounded half to even, and its
+  cosine and sine are within `10^-4` of `cos` and `sin` of
+  `position theta^(-2i/d)` for positions below 32,768.
+
+The float comparisons are yardsticks, in the test only. `2^6` units of
+`2^-64` of a turn per position move a position's angle by under `2^-38` of a
+turn at a million positions.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_48`
+
+| Planted defect | Result |
+| --- | --- |
+| `pi` from `atan(1/240)` | rejected: `pair 0's frequency 2935825336898657179 is not within 2^6 ...` |
+| half of `log2 pi` left out of the exponent | rejected: `pair 0's frequency 5203730428379116568 is not within 2^6 ...` |
+| the Llama 3 blend rounded down | rejected: `Llama 3.2 1B: pair 16's scaled frequency is not the rounded keep, divide or blend` |
+| the keep and divide bands swapped | rejected: the blend overflows and the config is refused |
+| the angle truncated | rejected: `rope_angle(97, 2935890503282001200) is not rounded half to even` |
+| none | passed |

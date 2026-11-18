@@ -660,10 +660,10 @@ Feature: engine
     And a row of zeros with epsilon 0, an empty row, a row and weights of different lengths, and a value at 2^31 are refused
 
   @EN-48 @build
-  Scenario: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^10 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
+  Scenario: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^6 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
     Given the head sizes and thetas of Qwen3-0.6B, Qwen2.5-1.5B and Llama 3.2 1B, and 64 at 10,000
     When hologram-ai-exact's rope_frequencies generates each pair's frequency, with Llama 3 scaling where the config names it
-    Then each unscaled frequency F meets ((F - 2^10) 2 pi)^b theta^a < 2^(64b) < ((F + 2^10) 2 pi)^b theta^a for 2i/d = a/b, with pi from Machin's formula in the test
+    Then each unscaled frequency F meets ((F - 2^6) 2 pi)^b theta^a < 2^(64b) < ((F + 2^6) 2 pi)^b theta^a for 2i/d = a/b, with pi from Machin's formula in the test
     And each Llama 3 frequency is the test's own keep, divide or blend of the unscaled one, rounded half to even, and within 10^-12 of the float formula's
     And rope_angle is position times frequency modulo 2^64 rounded half to even to 2^-32 of a turn, and cosine_turn and sine_turn of it are within 10^-4 of cos and sin of position theta^(-2i/d)
     And an odd or zero head size, a theta below 2, and a Llama 3 scaling with high at or below low are refused

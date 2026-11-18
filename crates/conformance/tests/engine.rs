@@ -9735,9 +9735,9 @@ fn en_48_gcd(a: u64, b: u64) -> u64 {
 }
 
 /// EN-48's bound on an unscaled frequency, in units of `2^-64` of a turn per position.
-const EN_48_BOUND: u64 = 1 << 10;
+const EN_48_BOUND: u64 = 1 << 6;
 
-/// `EN-48`: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^10 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
+/// `EN-48`: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^6 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
 #[test]
 fn engine_en_48() {
     let pi = en_45_pi();
@@ -9777,7 +9777,7 @@ fn engine_en_48() {
             );
             assert!(
                 big_cmp(&low, &power).is_lt() && big_cmp(&power, &high).is_lt(),
-                "{name}: pair {i}'s frequency {f} is not within 2^10 of 2^64 theta^(-{a}/{b}) / (2 pi)"
+                "{name}: pair {i}'s frequency {f} is not within 2^6 of 2^64 theta^(-{a}/{b}) / (2 pi)"
             );
         }
         for (i, (&f, &scaled)) in plain.iter().zip(&freqs).enumerate() {
