@@ -549,3 +549,9 @@ id = "EN-33"
 level = "build"
 suite = "engine"
 statement = "An ONNX export is imported through the page's module: every span, operator, file and 4-bit weight is put to the kernel the page runs, through the module's one import, exactly as the importer asks natively, and the model comes back as the nodes, tensors and places the role map reads, each tensor named by the BLAKE3 of its bytes"
+
+[[id]]
+id = "EN-34"
+level = "build"
+suite = "engine"
+statement = "A q4 or ternary matrix times a vector is taken with every group sum exact in integers: each sum equals the same sum written out in i64, each output is the stated recombination of those sums bit for bit and lies within the input's rounding of the float product, and the page's module gives the same bytes as native code"
