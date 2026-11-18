@@ -73,6 +73,7 @@ app:
     set -euo pipefail
     shopt -s failglob
     (cd app && lexlean fmt --all --check && lexlean lock --check)
+    (cd experience && lexlean fmt --check && lexlean lock --check && lexlean check)
     (cd app && lexlean verify src/Proofs/*.lex.tex)
     prismpm --project app verify | tee .prism-proof.log
     mkdir -p .prism-proof
