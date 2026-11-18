@@ -1,0 +1,17 @@
+\begin{lexlean}{Proofs.Divide}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Divide}
+\importmodule{Kernel.Requant}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: divide_is_requant_rule,
+  parameters: [value : Nat, divisor : Nat, half : Nat, odd : Nat, code : Nat],
+  statement: ((Kernel.Divide::divideOk value divisor half odd code) = (Kernel.Requant::rqDownOk value divisor half odd (Kernel.Divide::divideProduct half odd divisor) code)),
+  proof: simplify{definitions: [Kernel.Divide::divideOk]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

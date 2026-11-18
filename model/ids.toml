@@ -587,6 +587,12 @@ suite = "kernel"
 statement = "A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root"
 
 [[id]]
+id = "KN-44"
+level = "build"
+suite = "kernel"
+statement = "A claimed quotient of a value below 2^62 by a divisor below 2^31, rounded half to even to a code of at most 32767, is confirmed exactly when it passes KN-41's rounding rule with the divisor as the step, so a norm and a softmax divide by one rule"
+
+[[id]]
 id = "KN-45"
 level = "build"
 suite = "kernel"
@@ -682,3 +688,15 @@ id = "EN-41"
 level = "build"
 suite = "engine"
 statement = "Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits"
+
+[[id]]
+id = "EN-43"
+level = "build"
+suite = "engine"
+statement = "The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936"
+
+[[id]]
+id = "EN-44"
+level = "build"
+suite = "engine"
+statement = "Softmax is integer: for scores in units of 2^-8 of a base-two exponent, each output is exp2_neg of the largest score less its own, times 2^30, over their exact sum, rounded half to even, in units of 2^-30; the outputs sum to 2^30 within half a unit each, a common shift of the scores changes nothing, and a larger score never gets a smaller output"
