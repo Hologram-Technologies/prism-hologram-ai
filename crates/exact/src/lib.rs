@@ -1740,3 +1740,31 @@ pub fn sine_turn(angle: u32) -> i32 {
 pub fn cosine_turn(angle: u32) -> i32 {
     sine_turn(angle.wrapping_add(1 << 30))
 }
+
+/// The integer nearest `2^32 log2(e)`: SiLU's exponent `e^-x` is taken in base
+/// two as `2^(-x log2(e))`, on EN-43's table.
+pub const LOG2_E: u64 = 6_196_328_019;
+
+/// SiLU's input and output unit: `2^-16`.
+pub const SILU_FRACTION: u32 = 16;
+
+/// `x / (1 + e^-x)` for `x` in units of `2^-16` below `2^47` in size, in the
+/// same units: the exponent `|x| log2(e)` in units of `2^-8`, rounded half to
+/// even, gives `w = exp2_neg`, and the quotient `x 2^30 / (2^30 + w)` (or
+/// `x w / (2^30 + w)` below 0) is rounded half to even.
+pub fn silu(x: i64) -> i64 {
+    let scaled = u128::from(x.unsigned_abs()) * u128::from(LOG2_E);
+    let (whole, rest, half) = (scaled >> 40, scaled & ((1u128 << 40) - 1), 1u128 << 39);
+    let d = whole + u128::from(rest > half || (rest == half && whole & 1 == 1));
+    let w = u128::from(exp2_neg(u32::try_from(d).unwrap_or(u32::MAX)));
+    let denominator = (1u128 << 30) + w;
+    let numerator = u128::from(x.unsigned_abs()) * if x >= 0 { 1u128 << 30 } else { w };
+    let (quotient, rest) = (numerator / denominator, numerator % denominator);
+    let up = 2 * rest > denominator || (2 * rest == denominator && quotient & 1 == 1);
+    let magnitude = (quotient + u128::from(up)) as i64;
+    if x >= 0 {
+        magnitude
+    } else {
+        -magnitude
+    }
+}

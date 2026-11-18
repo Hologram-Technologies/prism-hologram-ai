@@ -2520,3 +2520,37 @@ form that evaluates closed arithmetic.
 | the third quadrant's sign not negated | rejected: `cosine_turn at step 16385 is not sine a quarter turn on` |
 | `pi` with `atan(1/240)` for `atan(1/239)` | rejected: `sin of a quarter turn is not 2^30` |
 | none | passed |
+
+## EN-46, SiLU in integers
+
+SiLU is `x / (1 + e^-x)`. `silu` takes `x` in units of `2^-16`, below `2^47` in
+size, and answers in the same units. `e^-x` is taken in base two on EN-43's
+table: the exponent `|x| log2(e)` in units of `2^-8`, rounded half to even,
+gives `w = exp2_neg`, a weight in units of `2^-30`. Then
+`silu(x) = x 2^30 / (2^30 + w)` for `x >= 0` and `x w / (2^30 + w)` below 0,
+one quotient rounded half to even. `LOG2_E` is the integer nearest
+`2^32 log2(e)`, 6,196,328,019.
+
+What the test establishes, on every seventh `x` from `-2^20` to `2^20` (where
+SiLU bends) and 20,000 drawn up to `2^47` in size:
+
+- `LOG2_E` meets `(2L - 1) ln 2 < 2^33 < (2L + 1) ln 2`, with `ln 2` as
+  `2 atanh(1/3)` in the test's own integers of any width;
+- every output is the half-to-even rounding of the quotient the test works
+  out from its own exponent rounding, checked as `2 |n - p D| <= D`;
+- `silu(x) - silu(-x)` is `x` within one unit, as `x sigma(x) + x sigma(-x) = x`;
+- every output is within `|x| / 2048` plus one unit of `x / (1 + e^-x)`.
+
+The last is a yardstick in floating point, in the test only. The bound comes
+from the exponent's step of `2^-8`, which moves `w` by at most `2^(1/512) - 1`,
+about 0.14%, and `sigma` by at most a quarter of that.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_46`
+
+| Planted defect | Result |
+| --- | --- |
+| `LOG2_E` one too high | rejected: `LOG2_E = 6196328020 is not the integer nearest 2^32 log2(e)` |
+| the quotient truncated instead of rounded | rejected: `silu(-947293) = 0 is more than half a unit from -537115131 / 1073742391` |
+| the exponent truncated instead of rounded | rejected: `silu(-947377) = -1 is more than half a unit from ...` |
+| `sigma` for `x < 0` taken as for `x >= 0` | rejected: `silu(-1048576) = -1048576 is more than half a unit from ...` |
+| none | passed |
