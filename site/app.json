@@ -2,7 +2,7 @@
   "name": "Hologram AI kernel",
   "shortName": "AI kernel",
   "live": "https://hologram-technologies.github.io/prism-hologram-ai/",
-  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Forty-two decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), whether one group's claimed sum times its scale is exact (37), what integers a stored q4 byte, half, bfloat16 or binary32 holds (38), whether a step may narrow a value with its declared width and bound (39), whether a partial sum of a row is exact after its next terms (40), whether inputs are put on sixteen-bit codes at their group's largest power (41) and whether a claimed root is the floor square root of a value (43). Anything else answers invalid request.",
+  "purpose": "Decides what Hologram AI may load and run. A request names one decision in its first byte and carries that decision's numbers; the answer is the verdict. Forty-three decisions: the next step of the journey (1), whether a model may proceed (2), whether a stage plan is right (3), the quantisation tier (4), whether a buffer is admitted (5), whether a tensor's byte range is valid (6), whether a trim of the conversation is right (7), the next attention cache size (8), a turn's token budget (9), whether an ONNX graph may be imported (10), the size a dimension is bound to (11), which backend can run the model (12), how long one block of weights is (13), whether a token is the first of the highest scores (14), whether a token lies in the penalty window (15), whether a speculative commit is the right size (16) what a quantisation code stands for (17), whether an ONNX operator's name is one the engine runs (18), whether a model's family and shape are (19), how long a 4-bit ONNX weight's parts are (20), which precision fits (21), whether the model runs on WebGPU, on the CPU or not at all (22), whether a span of one of a model's files may be read (23), what each of a model's files is called (24), whether generation stops (25), whether a cached block is dropped (26), whether a computed prefix may be reused (27), whether a model's manifest is satisfied (28), whether a sum of products is held exactly (29), where a run gives the same answer again (30), whether replaying an answer confirms its receipt (31), whether opening part of a past answer shows the value that produced it (32), whether a prefix computed elsewhere may be reused (33), whether one block's claimed sum of products is exact (34), whether a label is a BLAKE3 address (35), whether a run may start with no floating point in it (36), whether one group's claimed sum times its scale is exact (37), what integers a stored q4 byte, half, bfloat16 or binary32 holds (38), whether a step may narrow a value with its declared width and bound (39), whether a partial sum of a row is exact after its next terms (40), whether inputs are put on sixteen-bit codes at their group's largest power (41), whether a claimed root is the floor square root of a value (43) and whether a code is a value divided by a divisor, rounded half to even (44). Anything else answers invalid request.",
   "inputLabel": "Decision request",
   "placeholder": "hex: followed by the decision's bytes",
   "submitLabel": "Decide",
@@ -243,7 +243,8 @@
     {"name": "rq_up_exact", "module": "Requant", "statement": "(((Kernel.Requant::rqUpOk product code) = true) ↔ ((code = product) ∧ (code <= 32767)))"},
     {"name": "rq_largest_down_decides", "module": "Requant", "statement": "(((Kernel.Requant::rqLargestDown largest step) = true) ↔ ((largest <= (Kernel.Requant::rqLimitTimes step)) ∧ ((Kernel.Requant::rqLimitTimes step) < (largest + largest))))"},
     {"name": "rq_largest_up_decides", "module": "Requant", "statement": "(((Kernel.Requant::rqLargestUp scaled) = true) ↔ ((scaled <= 32767) ∧ (32767 < (scaled + scaled))))"},
-    {"name": "root_ok_decides", "module": "Root", "statement": "(((Kernel.Root::rootOk value root) = true) ↔ (((Kernel.Root::rootSquare root) <= value) ∧ (value < (Kernel.Root::rootSquare (root + 1)))))"}
+    {"name": "root_ok_decides", "module": "Root", "statement": "(((Kernel.Root::rootOk value root) = true) ↔ (((Kernel.Root::rootSquare root) <= value) ∧ (value < (Kernel.Root::rootSquare (root + 1)))))"},
+    {"name": "divide_is_requant_rule", "module": "Divide", "statement": "((Kernel.Divide::divideOk value divisor half odd code) = (Kernel.Requant::rqDownOk value divisor half odd (Kernel.Divide::divideProduct half odd divisor) code))"}
   ],
   "pinned": [
     {
@@ -414,6 +415,16 @@
     {
       "name": "kernel_kn_41",
       "what": "The theorems' statements and axioms, every input's offsets and guards, and that decision 41 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_43",
+      "what": "The theorem's statement and axioms, the 64-bit guards on the value and the root, and that decision 43 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_44",
+      "what": "The theorem's statement and axioms, the guards on the value, divisor and witness, and that decision 44 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

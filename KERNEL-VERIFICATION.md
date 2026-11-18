@@ -101,6 +101,9 @@ The inherited gates and their own planted defects are in
 | `KN-43`: a claimed root is `exact` exactly when its square is at most the value and the value is below the square of the root plus one, which defines the floor square root | `root_ok_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
 | At most one root is accepted for a value | squares grow with the root, so two accepted roots are equal; this needs products of two variables, outside `linear_arithmetic`, and `simplify` may not unfold the runtime's product, so it is argued, not stated as a theorem | argued, not proved |
 | No number decision 43 computes passes 64 bits | the guard in `rootAnswer`: a value below `2^62` and a root below `2^31`, checked before any square is formed, so `(root + 1)^2` is at most `2^62` | pinned by `kernel_kn_43` |
+| `KN-44`: a code is `exact` for a value and a divisor exactly when KN-41's `rqDownOk` accepts it with the divisor as the step and `(2 half + odd) * divisor` as the product, so KN-41's four rounding theorems hold for it | `divide_is_requant_rule`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| The witness `2 half + odd` is the floor quotient | `rqDownOk` checks `q * d <= value < q * d + d`; that this pins `q` is the division algorithm, as for KN-41, not stated because the product is of two variables | argued, not proved |
+| No number decision 44 computes passes 64 bits | the guard in `divideAnswer`: a value below `2^62`, a divisor from 1 to below `2^31`, half below `2^30` and odd at most 1, checked before the product is formed, so `q * d` is below `2^62` | pinned by `kernel_kn_44` |
 | Decision 41 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
 | Decisions 38 and 39 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
@@ -1219,6 +1222,33 @@ written directly, `root_ok_decides` is linear in the two squares.
 | a value equal to the next square accepted (`<=?` for `<?`) | rejected: `rootOk changed` |
 | a root up to `2^32` admitted, past the 64-bit guard | rejected: `rootAnswer changed` |
 | decision 43 routed to decision 41's answer | rejected: `decision 43 must be routed to Kernel.Root::rootAnswer` |
+| none | passed |
+
+## KN-44, the rounded quotient
+
+RMS norm divides each input by a root known only at run time, and softmax
+divides each exponent by their sum. Each rounds the quotient once, half to
+even. KN-41 already proves that rule for any step: a code within half a step,
+the even code on a tie, and one code per witness. Decision 44 runs it with the
+divisor as the step, so it adds no new rounding to trust.
+
+A 20-byte request carries the value (8 bytes, below `2^62`), the divisor
+(4 bytes, 1 to below `2^31`), half the floor quotient (4 bytes, below `2^30`),
+whether the floor quotient is odd (1 byte) and the claimed code (2 bytes, at
+most 32767, the bound `rqDownOk` keeps). The answer is `exact`, `differs` or
+`invalid request`.
+
+The module is `Kernel.Divide`, not `Kernel.Quotient`: LexLean refuses a module
+segment spelled like a Lean namespace, and Lean has `Quotient`.
+
+### The pinned test: `kernel_kn_44`
+
+| Planted defect | Result |
+| --- | --- |
+| the odd bit dropped from the product, so the witness is taken as `2 half` | rejected: `divideProduct changed` |
+| a divisor up to `2^32` admitted, past the 64-bit guard | rejected: `divideAnswer changed` |
+| a divisor of 0 admitted | rejected: `divideAnswer changed` |
+| decision 44 routed to decision 43's answer | rejected: `decision 44 must be routed to Kernel.Divide::divideAnswer` |
 | none | passed |
 
 ## The examples in the compiled guest

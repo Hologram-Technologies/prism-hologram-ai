@@ -2737,6 +2737,45 @@
       "module": "Root",
       "name": "Square root",
       "tag": 43
+    },
+    {
+      "asks": "Is this code the value divided by the divisor, rounded half to even?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Value",
+          "value": 1000,
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "Divisor",
+          "value": 3,
+          "width": 4
+        },
+        {
+          "at": 13,
+          "name": "Half the floor quotient",
+          "value": 166,
+          "width": 4
+        },
+        {
+          "at": 17,
+          "name": "Floor quotient is odd",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 18,
+          "name": "Claimed code",
+          "value": 333,
+          "width": 2
+        }
+      ],
+      "length": 20,
+      "module": "Divide",
+      "name": "Rounded quotient",
+      "tag": 44
     }
   ],
   "request": 81
