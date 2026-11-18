@@ -1,0 +1,64 @@
+\begin{lexlean}{Proofs.Requant}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Requant}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: rq_down_witness,
+  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, code : Nat],
+  statement: (((Kernel.Requant::rqDownOk value step half odd product code) = true) -> ((product <= value) /\ ((value < (product + step)) /\ (code <= 32767)))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqDownOk]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: rq_down_half_step,
+  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, code : Nat],
+  statement: (((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((code = ((half + half) + odd)) -> ((value + value) <= ((product + product) + step))) /\ ((code = (((half + half) + odd) + 1)) -> ((step + (product + product)) <= (value + value))))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqDownOk]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: rq_down_tie_even,
+  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, code : Nat],
+  statement: ((odd <= 1) -> (((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((value + value) = (step + (product + product))) -> (code = ((half + odd) + (half + odd)))))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqDownOk]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rq_down_one_code,
+  parameters: [value : Nat, step : Nat, half : Nat, odd : Nat, product : Nat, one : Nat, other : Nat],
+  statement: (((Kernel.Requant::rqDownOk value step half odd product one) = true) -> (((Kernel.Requant::rqDownOk value step half odd product other) = true) -> (one = other))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqDownOk]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rq_up_exact,
+  parameters: [product : Nat, code : Nat],
+  statement: (((Kernel.Requant::rqUpOk product code) = true) <-> ((code = product) /\ (code <= 32767))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqUpOk]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: rq_largest_down_decides,
+  parameters: [largest : Nat, step : Nat],
+  statement: (((Kernel.Requant::rqLargestDown largest step) = true) <-> ((largest <= (Kernel.Requant::rqLimitTimes step)) /\ ((Kernel.Requant::rqLimitTimes step) < (largest + largest)))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqLargestDown]},
+  axioms: [propext]
+}
+
+theorem{
+  name: rq_largest_up_decides,
+  parameters: [scaled : Nat],
+  statement: (((Kernel.Requant::rqLargestUp scaled) = true) <-> ((scaled <= 32767) /\ (32767 < (scaled + scaled)))),
+  proof: linear_arithmetic{definitions: [Kernel.Requant::rqLargestUp]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -1,0 +1,73 @@
+\begin{lexlean}{Kernel.Codec}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: codecWidth,
+  parameters: [format : Nat],
+  result: Nat,
+  body: (if (format =? 0) then 256 else (if (format =? 3) then 4294967296 else 65536))
+}
+
+definition{
+  name: codecLowSize,
+  parameters: [format : Nat],
+  result: Nat,
+  body: (if (format =? 0) then 16 else (if (format =? 1) then 1024 else (if (format =? 2) then 128 else 8388608)))
+}
+
+definition{
+  name: codecMiddleSize,
+  parameters: [format : Nat],
+  result: Nat,
+  body: (if (format =? 0) then 16 else (if (format =? 1) then 32 else 256))
+}
+
+definition{
+  name: codecLow,
+  parameters: [format : Nat, stored : Nat],
+  result: Nat,
+  body: (prim remainder stored (codecLowSize format) 0 : Nat)
+}
+
+definition{
+  name: codecMiddle,
+  parameters: [format : Nat, stored : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient stored (codecLowSize format) 0 : Nat) (codecMiddleSize format) 0 : Nat)
+}
+
+definition{
+  name: codecHigh,
+  parameters: [format : Nat, stored : Nat],
+  result: Nat,
+  body: (prim quotient stored (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) 0 : Nat)
+}
+
+definition{
+  name: codecEncode,
+  parameters: [format : Nat, high : Nat, middle : Nat, low : Nat],
+  result: Nat,
+  body: (((prim multiply high (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) : Nat) + (prim multiply middle (codecLowSize format) : Nat)) + low)
+}
+
+definition{
+  name: codecText,
+  parameters: [format : Nat, stored : Nat],
+  result: Bytes,
+  body: (if (format =? 0) then (prim append (prim append (Kernel.Wire::decimal (codecLow format stored)) (prim utf8_encode " " : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) else (prim append (prim append (prim append (prim append (Kernel.Wire::decimal (codecHigh format stored)) (prim utf8_encode " " : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) (prim utf8_encode " " : Bytes) : Bytes) (Kernel.Wire::decimal (codecLow format stored)) : Bytes))
+}
+
+definition{
+  name: codecAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -2899,3 +2899,327 @@ fn kernel_kn_37() {
         );
     }
 }
+/// `KN-38`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+#[test]
+fn kernel_kn_38() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Codec.lex.tex");
+    let proofs = model("app/src/Proofs/Codec.lex.tex");
+    assert_pinned(
+        &proofs,
+        "codec_round_trip",
+        "((format <= 3) -> ((stored < (Kernel.Codec::codecWidth format)) -> ((Kernel.Codec::codecEncode format (Kernel.Codec::codecHigh format stored) (Kernel.Codec::codecMiddle format stored) (Kernel.Codec::codecLow format stored)) = stored)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_fields_fit",
+        "(((Kernel.Codec::codecLow format stored) < (Kernel.Codec::codecLowSize format)) /\\ ((Kernel.Codec::codecMiddle format stored) < (Kernel.Codec::codecMiddleSize format)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_q4",
+        "((low < 16) -> ((middle < 16) -> (((Kernel.Codec::codecLow 0 (Kernel.Codec::codecEncode 0 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 0 (Kernel.Codec::codecEncode 0 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 0 (Kernel.Codec::codecEncode 0 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_half",
+        "((low < 1024) -> ((middle < 32) -> (((Kernel.Codec::codecLow 1 (Kernel.Codec::codecEncode 1 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 1 (Kernel.Codec::codecEncode 1 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 1 (Kernel.Codec::codecEncode 1 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_bfloat16",
+        "((low < 128) -> ((middle < 256) -> (((Kernel.Codec::codecLow 2 (Kernel.Codec::codecEncode 2 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 2 (Kernel.Codec::codecEncode 2 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 2 (Kernel.Codec::codecEncode 2 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "codec_reads_back_binary32",
+        "((low < 8388608) -> ((middle < 256) -> (((Kernel.Codec::codecLow 3 (Kernel.Codec::codecEncode 3 high middle low)) = low) /\\ (((Kernel.Codec::codecMiddle 3 (Kernel.Codec::codecEncode 3 high middle low)) = middle) /\\ ((Kernel.Codec::codecHigh 3 (Kernel.Codec::codecEncode 3 high middle low)) = high)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "codecWidth");
+    assert!(
+        found.contains(
+            "body: (if (format =? 0) then 256 else (if (format =? 3) then 4294967296 else 65536))"
+        ),
+        "codecWidth changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecLowSize");
+    assert!(
+        found.contains("body: (if (format =? 0) then 16 else (if (format =? 1) then 1024 else (if (format =? 2) then 128 else 8388608)))"),
+        "codecLowSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecMiddleSize");
+    assert!(
+        found.contains("body: (if (format =? 0) then 16 else (if (format =? 1) then 32 else 256))"),
+        "codecMiddleSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecLow");
+    assert!(
+        found.contains("body: (prim remainder stored (codecLowSize format) 0 : Nat)"),
+        "codecLow changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecMiddle");
+    assert!(
+        found.contains("body: (prim remainder (prim quotient stored (codecLowSize format) 0 : Nat) (codecMiddleSize format) 0 : Nat)"),
+        "codecMiddle changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecHigh");
+    assert!(
+        found.contains("body: (prim quotient stored (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) 0 : Nat)"),
+        "codecHigh changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecEncode");
+    assert!(
+        found.contains("body: (((prim multiply high (prim multiply (codecLowSize format) (codecMiddleSize format) : Nat) : Nat) + (prim multiply middle (codecLowSize format) : Nat)) + low)"),
+        "codecEncode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecText");
+    assert!(
+        found.contains("body: (if (format =? 0) then (prim append (prim append (Kernel.Wire::decimal (codecLow format stored)) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) else (prim append (prim append (prim append (prim append (Kernel.Wire::decimal (codecHigh format stored)) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecMiddle format stored)) : Bytes) (prim utf8_encode \" \" : Bytes) : Bytes) (Kernel.Wire::decimal (codecLow format stored)) : Bytes))"),
+        "codecText changed:\n{found}"
+    );
+    let found = declaration(&kernel, "codecAnswer");
+    assert!(
+        found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "codecAnswer changed:\n{found}"
+    );
+    assert_routed(38, "Kernel.Codec::codecAnswer");
+}
+/// `KN-39`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
+#[test]
+fn kernel_kn_39() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Narrow.lex.tex");
+    let proofs = model("app/src/Proofs/Narrow.lex.tex");
+    assert_pinned(
+        &proofs,
+        "narrow_accepted_decides",
+        "(((Kernel.Narrow::narrowAccepted step inputBits outputBits bound certified) = true) <-> ((step <= 5) /\\ ((1 <= inputBits) /\\ ((inputBits <= 16) /\\ ((1 <= outputBits) /\\ ((outputBits <= 32) /\\ (certified <= bound)))))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "narrowAccepted");
+    assert!(
+        found.contains("body: ((((step <=? 5) && ((1 <=? inputBits) && (inputBits <=? 16))) && ((1 <=? outputBits) && (outputBits <=? 32))) && (certified <=? bound))"),
+        "narrowAccepted changed:\n{found}"
+    );
+    let found = declaration(&kernel, "narrowAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"refuse\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "narrowAnswer changed:\n{found}"
+    );
+    assert_routed(39, "Kernel.Narrow::narrowAnswer");
+}
+/// `KN-40`: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
+#[test]
+fn kernel_kn_40() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Rows.lex.tex");
+    let proofs = model("app/src/Proofs/Rows.lex.tex");
+    assert_pinned(
+        &proofs,
+        "rows_accepts_decides",
+        "(((Kernel.Rows::rowsAccepts positive negative claimedPositive claimedNegative) = true) <-> ((positive + claimedNegative) = (negative + claimedPositive)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_part_splits",
+        "((sign <= 1) -> (((Kernel.Rows::rowsPart sign size 0) + (Kernel.Rows::rowsPart sign size 1)) = size))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_part_one_side",
+        "(((sign = 0) -> ((Kernel.Rows::rowsPart sign size 1) = 0)) /\\ ((sign = 1) -> ((Kernel.Rows::rowsPart sign size 0) = 0)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_links_compose",
+        "(((Kernel.Rows::rowsAccepts (startPositive + firstPositive) (startNegative + firstNegative) middlePositive middleNegative) = true) -> (((Kernel.Rows::rowsAccepts (middlePositive + secondPositive) (middleNegative + secondNegative) endPositive endNegative) = true) -> ((Kernel.Rows::rowsAccepts (startPositive + (firstPositive + secondPositive)) (startNegative + (firstNegative + secondNegative)) endPositive endNegative) = true)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_one_claim",
+        "(((Kernel.Rows::rowsAccepts positive negative onePositive oneNegative) = true) -> (((Kernel.Rows::rowsAccepts positive negative otherPositive otherNegative) = true) -> ((onePositive + otherNegative) = (otherPositive + oneNegative))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_next_accepted",
+        "((Kernel.Rows::rowsAccepts positive negative (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 0) (Kernel.Rows::rowsPart (Kernel.Rows::rowsNextSign positive negative) (Kernel.Rows::rowsNextSize positive negative) 1)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_accepts_only_next_positive",
+        "(((Kernel.Rows::rowsAccepts positive negative size 0) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 0))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_accepts_only_next_negative",
+        "(((Kernel.Rows::rowsAccepts positive negative 0 size) = true) -> ((size = (Kernel.Rows::rowsNextSize positive negative)) /\\ (((size = 0) -> (1 = 0)) -> ((Kernel.Rows::rowsNextSign positive negative) = 1))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rows_term_fits_bounds",
+        "(((Kernel.Rows::rowsTermFits sum mantissa shift) = true) -> ((shift <= 58) /\\ ((sum < 16777216) /\\ (mantissa < 16777216))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "rowsPow2");
+    assert!(
+        found.contains("body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (rowsPow2 rest) : Nat)),\n  recursive_argument: power"),
+        "rowsPow2 changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermSize");
+    assert!(
+        found.contains(
+            "body: (prim multiply (prim multiply sum mantissa : Nat) (rowsPow2 shift) : Nat)"
+        ),
+        "rowsTermSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermFits");
+    assert!(
+        found.contains("body: (((sum <? 16777216) && (mantissa <? 16777216)) && ((shift <=? 58) && ((prim multiply sum mantissa : Nat) <? (rowsPow2 (prim subtract 58 shift : Nat)))))"),
+        "rowsTermFits changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsPart");
+    assert!(
+        found.contains("body: (if (sign =? want) then size else 0)"),
+        "rowsPart changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsTermPart");
+    assert!(
+        found.contains("body: (rowsPart sign (rowsTermSize sum mantissa shift) want)"),
+        "rowsTermPart changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsAccepts");
+    assert!(
+        found.contains("body: ((positive + claimedNegative) =? (negative + claimedPositive))"),
+        "rowsAccepts changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsNextSign");
+    assert!(
+        found.contains("body: (if (negative <=? positive) then 0 else 1)"),
+        "rowsNextSign changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsNextSize");
+    assert!(
+        found.contains("body: (if (negative <=? positive) then (prim subtract positive negative : Nat) else (prim subtract negative positive : Nat))"),
+        "rowsNextSize changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rowsAnswer");
+    assert!(
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 79) && (((((((((Kernel.Wire::fieldAt value 1 1) <=? 1) && ((Kernel.Wire::fieldAt value 10 1) <=? 1)) && ((Kernel.Wire::fieldAt value 19 1) <=? 1)) && ((Kernel.Wire::fieldAt value 29 1) <=? 1)) && ((Kernel.Wire::fieldAt value 39 1) <=? 1)) && ((Kernel.Wire::fieldAt value 49 1) <=? 1)) && ((Kernel.Wire::fieldAt value 59 1) <=? 1)) && ((Kernel.Wire::fieldAt value 69 1) <=? 1))) then (if (((((((((Kernel.Wire::fieldAt value 2 8) <? 4611686018427387904) && ((Kernel.Wire::fieldAt value 11 8) <? 4611686018427387904)) && (rowsTermFits (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1))) then (if (rowsAccepts (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 0) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 0)) (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 1) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 1)) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 0) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 1)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"too wide\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "rowsAnswer changed:\n{found}"
+    );
+    assert_routed(40, "Kernel.Rows::rowsAnswer");
+}
+/// `KN-41`: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
+#[test]
+fn kernel_kn_41() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Requant.lex.tex");
+    let proofs = model("app/src/Proofs/Requant.lex.tex");
+    assert_pinned(
+        &proofs,
+        "rq_down_witness",
+        "(((Kernel.Requant::rqDownOk value step half odd product code) = true) -> ((product <= value) /\\ ((value < (product + step)) /\\ (code <= 32767))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_half_step",
+        "(((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((code = ((half + half) + odd)) -> ((value + value) <= ((product + product) + step))) /\\ ((code = (((half + half) + odd) + 1)) -> ((step + (product + product)) <= (value + value)))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_tie_even",
+        "((odd <= 1) -> (((Kernel.Requant::rqDownOk value step half odd product code) = true) -> (((value + value) = (step + (product + product))) -> (code = ((half + odd) + (half + odd))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_down_one_code",
+        "(((Kernel.Requant::rqDownOk value step half odd product one) = true) -> (((Kernel.Requant::rqDownOk value step half odd product other) = true) -> (one = other)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_up_exact",
+        "(((Kernel.Requant::rqUpOk product code) = true) <-> ((code = product) /\\ (code <= 32767)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_largest_down_decides",
+        "(((Kernel.Requant::rqLargestDown largest step) = true) <-> ((largest <= (Kernel.Requant::rqLimitTimes step)) /\\ ((Kernel.Requant::rqLimitTimes step) < (largest + largest))))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "rq_largest_up_decides",
+        "(((Kernel.Requant::rqLargestUp scaled) = true) <-> ((scaled <= 32767) /\\ (32767 < (scaled + scaled))))",
+        "propext",
+    );
+    let found = declaration(&kernel, "rqPow2");
+    assert!(
+        found.contains("body: (match power\n    | Nat.zero => 1\n    | Nat.succ rest => (prim multiply 2 (rqPow2 rest) : Nat)),\n  recursive_argument: power"),
+        "rqPow2 changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqDownOk");
+    assert!(
+        found.contains("body: ((((product <=? value) && (value <? (product + step))) && (code <=? 32767)) && ((((step + (product + product)) <? (value + value)) && (code =? (((half + half) + odd) + 1))) || ((((value + value) <? (step + (product + product))) && (code =? ((half + half) + odd))) || (((value + value) =? (step + (product + product))) && (code =? (((half + half) + odd) + odd))))))"),
+        "rqDownOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqUpOk");
+    assert!(
+        found.contains("body: ((code <=? 32767) && (code =? product))"),
+        "rqUpOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqElementOk");
+    assert!(
+        found.contains("body: (if ((value <? 16777216) && (half <=? 16383)) then (if (direction =? 1) then (if (shift <=? 15) then (rqUpOk (prim multiply value (rqPow2 shift) : Nat) code) else false) else (if (shift <=? 39) then (rqDownOk value (rqPow2 shift) half odd (prim multiply ((half + half) + odd) (rqPow2 shift) : Nat) code) else (((code =? 0) && (half =? 0)) && (odd =? 0)))) else false)"),
+        "rqElementOk changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLimitTimes");
+    assert!(
+        found.contains("body: (prim multiply 32767 step : Nat)"),
+        "rqLimitTimes changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargestDown");
+    assert!(
+        found.contains("body: ((largest <=? (rqLimitTimes step)) && ((rqLimitTimes step) <? (largest + largest)))"),
+        "rqLargestDown changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargestUp");
+    assert!(
+        found.contains("body: ((scaled <=? 32767) && (32767 <? (scaled + scaled)))"),
+        "rqLargestUp changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqLargest");
+    assert!(
+        found.contains("body: (if (largest =? 0) then true else (if (largest <? 16777216) then (if (direction =? 1) then (if (shift <=? 15) then (rqLargestUp (prim multiply largest (rqPow2 shift) : Nat)) else false) else (if (shift <=? 39) then (rqLargestDown largest (rqPow2 shift)) else false)) else false))"),
+        "rqLargest changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqDownCode");
+    assert!(
+        found.contains("body: ((prim quotient value step 0 : Nat) + (if ((step <? (prim multiply 2 (prim remainder value step 0 : Nat) : Nat)) || (((prim multiply 2 (prim remainder value step 0 : Nat) : Nat) =? step) && ((prim remainder (prim quotient value step 0 : Nat) 2 0 : Nat) =? 1))) then 1 else 0))"),
+        "rqDownCode changed:\n{found}"
+    );
+    let found = declaration(&kernel, "rqAnswer");
+    assert!(
+        found.contains("body: (if ((((((((Foundation.Bytes::byteLength value) =? 62) && ((Kernel.Wire::fieldAt value 5 1) <=? 1)) && (((Kernel.Wire::fieldAt value 11 1) <=? 1) && ((Kernel.Wire::fieldAt value 15 1) <=? 1))) && (((Kernel.Wire::fieldAt value 22 1) <=? 1) && ((Kernel.Wire::fieldAt value 26 1) <=? 1))) && (((Kernel.Wire::fieldAt value 33 1) <=? 1) && ((Kernel.Wire::fieldAt value 37 1) <=? 1))) && (((Kernel.Wire::fieldAt value 44 1) <=? 1) && ((Kernel.Wire::fieldAt value 48 1) <=? 1))) && (((Kernel.Wire::fieldAt value 55 1) <=? 1) && ((Kernel.Wire::fieldAt value 59 1) <=? 1))) then (if (rqLargest (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 1) (Kernel.Wire::fieldAt value 6 1)) then (if (((((rqElementOk (Kernel.Wire::fieldAt value 7 4) (Kernel.Wire::fieldAt value 11 1) (Kernel.Wire::fieldAt value 12 1) (Kernel.Wire::fieldAt value 13 2) (Kernel.Wire::fieldAt value 15 1) (Kernel.Wire::fieldAt value 16 2)) && (rqElementOk (Kernel.Wire::fieldAt value 18 4) (Kernel.Wire::fieldAt value 22 1) (Kernel.Wire::fieldAt value 23 1) (Kernel.Wire::fieldAt value 24 2) (Kernel.Wire::fieldAt value 26 1) (Kernel.Wire::fieldAt value 27 2))) && (rqElementOk (Kernel.Wire::fieldAt value 29 4) (Kernel.Wire::fieldAt value 33 1) (Kernel.Wire::fieldAt value 34 1) (Kernel.Wire::fieldAt value 35 2) (Kernel.Wire::fieldAt value 37 1) (Kernel.Wire::fieldAt value 38 2))) && (rqElementOk (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 1) (Kernel.Wire::fieldAt value 45 1) (Kernel.Wire::fieldAt value 46 2) (Kernel.Wire::fieldAt value 48 1) (Kernel.Wire::fieldAt value 49 2))) && (rqElementOk (Kernel.Wire::fieldAt value 51 4) (Kernel.Wire::fieldAt value 55 1) (Kernel.Wire::fieldAt value 56 1) (Kernel.Wire::fieldAt value 57 2) (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 2))) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"not the largest power\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "rqAnswer changed:\n{found}"
+    );
+    assert_routed(41, "Kernel.Requant::rqAnswer");
+}
