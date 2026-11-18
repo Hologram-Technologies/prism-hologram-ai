@@ -71,7 +71,7 @@ let session = null;
 // app.holo from its cache, and a cache from an earlier deploy can outlive it
 // (UOR-Foundation/template#83): an old kernel then refuses requests it never
 // knew, and its refusal would read as a verdict. precache.json is written at
-// deploy with every served file's SHA-256 and the worker never answers it, so
+// deploy with every served file's BLAKE3 and the worker never answers it, so
 // it is the one listing the cache cannot serve stale.
 const HOLO = "../app.holo";
 const fetchBytes = async (url) => {
@@ -85,16 +85,16 @@ async function deployedKernel() {
   if (!response.ok) throw new Error(`precache.json: HTTP ${response.status}`);
   const entry = (await response.json()).files.find((f) => f.path === "./app.holo");
   if (!entry) throw new Error("precache.json lists no app.holo");
-  return entry.sha256;
+  return entry.blake3;
 }
 async function sameKernel(holo, listed) {
   const subject = "kernel is the one this deploy lists";
-  const hex = (buffer) => Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, "0")).join("");
-  const held = hex(await crypto.subtle.digest("SHA-256", holo));
+  const { blake3Hex } = await import("../vendor/prism-code/src/blake3.mjs");
+  const held = blake3Hex(holo);
   // A page served outside a deploy (a local preview) has no listing to compare.
-  if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held sha256 ${held}`);
-  if (held === listed) return checks.add("kernel", subject, "pass", `sha256 ${held}`);
-  checks.add("kernel", subject, "fail", `deployed sha256 ${listed}, held sha256 ${held}`);
+  if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held blake3 ${held}`);
+  if (held === listed) return checks.add("kernel", subject, "pass", `blake3 ${held}`);
+  checks.add("kernel", subject, "fail", `deployed blake3 ${listed}, held blake3 ${held}`);
   // Remove the stale copy so the next load fetches this deploy's kernel.
   for (const name of globalThis.caches ? await caches.keys() : []) {
     if (name.startsWith("prism-")) await (await caches.open(name)).delete(new URL(HOLO, location.href).href, { ignoreSearch: true });
