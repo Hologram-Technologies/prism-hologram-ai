@@ -370,12 +370,12 @@
     },
     {
       "name": "kernel_kn_37",
-      "what": "The theorems' statements and axioms, the field sizes, the request offsets, and that decision 37 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "what": "The theorems' statements and axioms, the field sizes, the request offsets, and that decision 38 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     },
     {
       "name": "kernel_kn_38",
-      "what": "The theorem's statement and axioms, the request offsets, and that decision 38 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "what": "The theorem's statement and axioms, the request offsets, and that decision 39 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
     }
   ],

@@ -2756,7 +2756,7 @@ fn kernel_kn_36() {
     );
     assert_routed(36, "Kernel.Integer::integerAnswer");
 }
-/// `KN-37`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
+/// `KN-38`: A stored q4 byte, IEEE half, bfloat16 or binary32 is read into integer fields, its two nibbles or its sign, exponent and fraction, that encode back to exactly the stored bits, and fields within their widths read back unchanged
 #[test]
 fn kernel_kn_37() {
     assert_proofs_are_gated();
@@ -2845,9 +2845,9 @@ fn kernel_kn_37() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "codecAnswer changed:\n{found}"
     );
-    assert_routed(37, "Kernel.Codec::codecAnswer");
+    assert_routed(38, "Kernel.Codec::codecAnswer");
 }
-/// `KN-38`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
+/// `KN-39`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
 #[test]
 fn kernel_kn_38() {
     assert_proofs_are_gated();
@@ -2869,5 +2869,5 @@ fn kernel_kn_38() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"refuse\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "narrowAnswer changed:\n{found}"
     );
-    assert_routed(38, "Kernel.Narrow::narrowAnswer");
+    assert_routed(39, "Kernel.Narrow::narrowAnswer");
 }
