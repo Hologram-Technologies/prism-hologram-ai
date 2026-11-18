@@ -7961,6 +7961,64 @@ fn engine_en_35() {
         }
     }
 
+    // Rows whose weights lie too far apart to share one 62-bit integer form
+    // are placed weight by weight, and are still exact: 2^100, -2^100 and
+    // 2^-100 times equal codes cancel to 2^-100, and 2^100 with 2^-100 rounds
+    // to 2^100 only at the one rounding.
+    let wide: Vec<u8> = [2f32.powi(100), -(2f32.powi(100)), 2f32.powi(-100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let ones = bits(&[1.0f32; 3]);
+    assert_eq!(
+        exact::dense_product(
+            &ones,
+            exact::Dense::F32(&wide),
+            exact::DenseLayout::InputMajor,
+            3,
+            1
+        ),
+        Ok(vec![2f32.powi(-100).to_bits()]),
+        "a row of 2^100, -2^100 and 2^-100 does not cancel exactly"
+    );
+    let apart: Vec<u8> = [2f32.powi(100), 2f32.powi(-100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    assert_eq!(
+        exact::dense_product(
+            &bits(&[1.0f32; 2]),
+            exact::Dense::F32(&apart),
+            exact::DenseLayout::InputMajor,
+            2,
+            1
+        ),
+        Ok(vec![2f32.powi(100).to_bits()]),
+        "a row of 2^100 and 2^-100 is not 2^100 after one rounding"
+    );
+
+    // A q4 row whose scales lie 249 powers of two apart is placed term by
+    // term: every weight 1 (code 9), every input 1 (code 64, power 6), so each
+    // block sums to 2048 and the row is 2^105 plus 2^-138, which is 2^105.
+    let apart_scales: Vec<u8> = [f32::from_bits(1), 2f32.powi(100)]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let nines = [0x99u8; 32];
+    let wide_q4 = exact::Q4Matrix {
+        codes: &nines,
+        scales: exact::Q4Scales::F32(&apart_scales),
+        zeros: exact::Q4Zeros::Eight,
+        rows: 1,
+        columns: 64,
+        block: 32,
+    };
+    assert_eq!(
+        exact::q4_product(&bits(&[1.0f32; 64]), &wide_q4),
+        Ok(vec![2f32.powi(105).to_bits()]),
+        "a q4 row with scales 2^-149 and 2^100 is not 2^105"
+    );
+
     // The formats with an exact codec, as a node or initializer names them.
     assert_eq!(exact::matmulnbits_codec(4, 32, 10, None), Ok(()));
     assert_eq!(exact::matmulnbits_codec(4, 128, 1, Some(2)), Ok(()));

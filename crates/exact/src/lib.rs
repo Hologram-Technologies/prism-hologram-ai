@@ -494,18 +494,38 @@ pub fn ternary_group_sums(
 /// One row's exact value from its group sums and its groups' scales: the sum
 /// of each group sum times its scale, times `2^-input_exponent`, held in the
 /// complete register with every bit.
+///
+/// When every term, shifted to the row's smallest scale exponent, fits so that
+/// their sum stays inside `i128`, the terms are added there and the total is
+/// placed once; otherwise each term is placed on its own. The value is the
+/// same either way.
 #[must_use]
 pub fn exact_row(sums: &[i64], scales: &[Dyadic], input_exponent: i32) -> Row {
+    let terms: Vec<(i128, i32)> = sums
+        .iter()
+        .zip(scales)
+        // A group sum is below 2^20 and a mantissa below 2^24: inside i128.
+        .map(|(&sum, scale)| (i128::from(sum) * scale.mantissa, scale.exponent))
+        .filter(|&(product, _)| product != 0)
+        .collect();
     let mut row = Row::ZERO;
-    for (&sum, scale) in sums.iter().zip(scales) {
-        // A group sum is below 2^15 and a mantissa below 2^24: the product
-        // is far inside i128.
-        let product = i128::from(sum) * scale.mantissa;
-        row.add_scaled(
-            product.unsigned_abs(),
-            scale.exponent - input_exponent,
-            product < 0,
-        );
+    let Some(lowest) = terms.iter().map(|&(_, e)| e).min() else {
+        return row;
+    };
+    let carry = i64::from(bits_of(terms.len() as u128));
+    let fits = terms.iter().all(|&(product, e)| {
+        bits_of(product.unsigned_abs()) as i64 + i64::from(e - lowest) + carry <= 126
+    });
+    if fits {
+        let total: i128 = terms
+            .iter()
+            .map(|&(product, e)| product << (e - lowest) as u32)
+            .sum();
+        row.add_scaled(total.unsigned_abs(), lowest - input_exponent, total < 0);
+    } else {
+        for &(product, e) in &terms {
+            row.add_scaled(product.unsigned_abs(), e - input_exponent, product < 0);
+        }
     }
     row
 }
@@ -778,24 +798,113 @@ pub fn dense_product(
     {
         return Err(ExactError::LengthMismatch);
     }
+    let place = |n: usize, k: usize| match layout {
+        DenseLayout::InputMajor => k * rows + n,
+        DenseLayout::OutputMajor => n * columns + k,
+    };
     (0..rows)
         .map(|n| {
-            let mut row = Row::ZERO;
-            for (k, &code) in quantised.codes.iter().enumerate() {
-                let weight = weights.at(match layout {
-                    DenseLayout::InputMajor => k * rows + n,
-                    DenseLayout::OutputMajor => n * columns + k,
-                })?;
-                let product = i128::from(code) * weight.mantissa;
-                row.add_scaled(
-                    product.unsigned_abs(),
-                    weight.exponent - quantised.exponent,
-                    product < 0,
-                );
-            }
+            let row = match weights {
+                Dense::F16(bytes) => half_row(
+                    &quantised.codes,
+                    bytes,
+                    |k| place(n, k),
+                    -quantised.exponent,
+                )?,
+                _ => {
+                    let values = (0..columns)
+                        .map(|k| weights.at(place(n, k)))
+                        .collect::<Result<Vec<Dyadic>, ExactError>>()?;
+                    wide_row(&quantised.codes, &values, -quantised.exponent)
+                }
+            };
             Ok(round_to_binary32(&row))
         })
         .collect()
+}
+
+/// The power of two a half's integer form counts: every finite half is an
+/// integer times `2^-24`, of magnitude below `2^40`.
+const HALF_UNIT: i32 = -24;
+
+/// Products summed in `i64` before they join the `i128` total: each is below
+/// `127 * 2^40 = 2^47`, so 4096 of them stay below `2^59`.
+const HALF_CHUNK: usize = 4096;
+
+/// A half as the integer it is in units of `2^-24`, or `None` for an infinity
+/// or NaN. Exact for every finite half.
+fn half_fixed(bits: u16) -> Option<i64> {
+    let fraction = i64::from(bits & 0x3ff);
+    let biased = (bits >> 10) & 0x1f;
+    let magnitude = match biased {
+        31 => return None,
+        0 => fraction,
+        _ => (fraction | 0x400) << (biased - 1),
+    };
+    Some(if bits & 0x8000 == 0 {
+        magnitude
+    } else {
+        -magnitude
+    })
+}
+
+/// A row of half weights times the input codes, exactly: each product summed
+/// in integers in units of `2^-24`, then placed once in the register at that
+/// unit times `2^shift`. The
+/// value is the one each product placed on its own would give.
+fn half_row(
+    codes: &[i8],
+    bytes: &[u8],
+    at: impl Fn(usize) -> usize,
+    shift: i32,
+) -> Result<Row, ExactError> {
+    let mut total: i128 = 0;
+    for (chunk, start) in codes.chunks(HALF_CHUNK).zip((0..).step_by(HALF_CHUNK)) {
+        let mut part: i64 = 0;
+        for (offset, &code) in chunk.iter().enumerate() {
+            let b = 2 * at(start + offset);
+            let weight = half_fixed(u16::from_le_bytes([bytes[b], bytes[b + 1]]))
+                .ok_or(ExactError::ScaleNotFinite)?;
+            part += i64::from(code) * weight;
+        }
+        total += i128::from(part);
+    }
+    let mut row = Row::ZERO;
+    row.add_scaled(total.unsigned_abs(), HALF_UNIT + shift, total < 0);
+    Ok(row)
+}
+
+/// A row of weights read exactly times the input codes. When every weight,
+/// shifted to the row's smallest exponent, fits in 62 bits, the products are
+/// summed in `i128` and placed once; otherwise each product is placed in the
+/// register on its own. Either way the value is exact and the same.
+fn wide_row(codes: &[i8], values: &[Dyadic], shift: i32) -> Row {
+    let lowest = values
+        .iter()
+        .filter(|v| v.mantissa != 0)
+        .map(|v| v.exponent)
+        .min()
+        .unwrap_or(0);
+    let fits = values.iter().all(|v| {
+        v.mantissa == 0
+            || bits_of(v.mantissa.unsigned_abs()) as i64 + i64::from(v.exponent - lowest) <= 62
+    }) && codes.len() < 1 << 24;
+    let mut row = Row::ZERO;
+    if fits {
+        // Each product below 2^69, fewer than 2^24 of them: below 2^93.
+        let total: i128 = codes
+            .iter()
+            .zip(values)
+            .map(|(&c, v)| i128::from(c) * (v.mantissa << (v.exponent - lowest) as u32))
+            .sum();
+        row.add_scaled(total.unsigned_abs(), lowest + shift, total < 0);
+    } else {
+        for (&code, v) in codes.iter().zip(values) {
+            let product = i128::from(code) * v.mantissa;
+            row.add_scaled(product.unsigned_abs(), v.exponent + shift, product < 0);
+        }
+    }
+    row
 }
 
 /// An ONNX initializer of `data_type` as dense weights, or
