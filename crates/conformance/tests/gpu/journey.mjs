@@ -442,11 +442,11 @@ if (root.phase !== "failed" || rootStop?.step !== "root") fail(`root: expected t
 
 const signature = (r) => r.checks.find((c) => c.subject === "index root signature");
 if (signature(good)?.verdict !== "pass") fail("good: the index root's signature was not checked");
-const foreign = results.foreign;
-const foreignStop = stoppedAt(foreign);
-if (foreign.phase !== "failed" || foreignStop?.subject !== "index root signature" || !/^RootUnverified: .*chain/.test(foreignStop?.detail ?? ""))
+const foreignHub = results.foreign;
+const foreignStop = stoppedAt(foreignHub);
+if (foreignHub.phase !== "failed" || foreignStop?.subject !== "index root signature" || !/^RootUnverified: .*chain/.test(foreignStop?.detail ?? ""))
   fail(`foreign: expected to stop at the index root signature as RootUnverified, chain failed; stopped at ${foreignStop?.step}: ${foreignStop?.subject} (${foreignStop?.detail})`);
-if (foreign.checks.some((c) => c.subject === "hub record matches the index root")) fail("foreign: the page read a record under a root it could not prove");
+if (foreignHub.checks.some((c) => c.subject === "hub record matches the index root")) fail("foreign: the page read a record under a root it could not prove");
 
 const stale = results.stale;
 const staleStop = stoppedAt(stale);
