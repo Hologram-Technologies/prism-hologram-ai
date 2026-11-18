@@ -38,3 +38,9 @@ id = "AUTH-UOR-MATMUL"
 level = "some-true"
 statement = "uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34, EN-37 and EN-40 check the sums against sums written out independently; the other claims of the library are not established here."
 authority = "UOR-MATMUL"
+
+[[claim]]
+id = "OPEN-GREEDY-QWEN3-0.6B-INTEGER"
+level = "open"
+statement = "Greedy agreement of the integer CPU path (EN-49, hologram-ai-cpu-decode) with the float model on Qwen3-0.6B (onnx-community/Qwen3-0.6B-ONNX@79346d3, model_q4f16.onnx, BLAKE3 cd4068615928006d...), against ONNX Runtime 1.26.0 on the CPU running the same file: three chat prompts in Qwen3's template with thinking off, greedy to 32 tokens or the end of turn, 62 tokens in all. Teacher-forced on the integer path's tokens, the float model's argmax equals the integer path's at 62 of 62 positions; run freely, the two greedy sequences are equal for all 10, 20 and 32 tokens. Largest absolute logit gap 0.051, median per position about 0.03, which includes the float model's own half-precision activations. The integer path ran at about 1.2 s per token on one thread, release build, WSL. Measured 2026-11-18."
+sample_size = 62
