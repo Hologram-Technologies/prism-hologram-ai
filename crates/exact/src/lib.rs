@@ -907,6 +907,368 @@ fn wide_row(codes: &[i8], values: &[Dyadic], shift: i32) -> Row {
     row
 }
 
+/// How many bits an input code has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Width {
+    /// -127 to 127.
+    Eight,
+    /// -32,767 to 32,767.
+    Sixteen,
+}
+
+impl Width {
+    fn limit(self) -> u128 {
+        match self {
+            Self::Eight => 127,
+            Self::Sixteen => 32_767,
+        }
+    }
+}
+
+/// Which inputs share one power of two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grouping {
+    /// The whole vector, as [`quantise`] does.
+    Vector,
+    /// Each run of [`ACTIVATION_GROUP`] inputs, the last shorter if the vector
+    /// is: one outlier then sets the step only for its own group.
+    Groups,
+}
+
+/// Inputs in one activation group under [`Grouping::Groups`].
+pub const ACTIVATION_GROUP: usize = 32;
+
+/// How an input vector is put on integers: the one approximation in a
+/// product, measured per model (brief step 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scheme {
+    /// Bits per code.
+    pub width: Width,
+    /// Which inputs share a power of two.
+    pub grouping: Grouping,
+}
+
+/// An input vector on integers under a [`Scheme`]: input `i` stands for
+/// `codes[i] * 2^-exponents[i / group]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Activations {
+    codes: Vec<i16>,
+    exponents: Vec<i32>,
+    group: usize,
+}
+
+impl Activations {
+    /// The integer codes.
+    #[must_use]
+    pub fn codes(&self) -> &[i16] {
+        &self.codes
+    }
+
+    /// One power of two per group.
+    #[must_use]
+    pub fn exponents(&self) -> &[i32] {
+        &self.exponents
+    }
+
+    /// Inputs per group: the vector's length under [`Grouping::Vector`].
+    #[must_use]
+    pub fn group(&self) -> usize {
+        self.group
+    }
+
+    /// The power of two input `i` is scaled by.
+    fn exponent_at(&self, i: usize) -> i32 {
+        self.exponents[i / self.group.max(1)]
+    }
+}
+
+/// Scales `read` by the largest power of two that keeps every value within
+/// `limit`, each rounded to the nearest, ties to even: the codes and the
+/// power. All zeros are zero codes at power 0.
+fn scale_onto(read: &[Dyadic], limit: u128) -> (Vec<i16>, i32) {
+    let zero = Dyadic {
+        mantissa: 0,
+        exponent: 0,
+    };
+    let largest = read
+        .iter()
+        .fold(zero, |m, &x| if larger(x, m) { x } else { m });
+    let top = largest.mantissa.unsigned_abs();
+    if top == 0 {
+        return (vec![0; read.len()], 0);
+    }
+    // The largest `k` with `top * 2^k <= limit`: one step down from the `k`
+    // that gives `top * 2^k` the bits of `limit`, if that is past it.
+    let mut k = bits_of(limit) as i32 - bits_of(top) as i32;
+    let past = if k >= 0 {
+        top << k as u32 > limit
+    } else {
+        top > limit << (-k) as u32
+    };
+    if past {
+        k -= 1;
+    }
+    let exponent = k - largest.exponent;
+    let codes = read
+        .iter()
+        .map(|x| {
+            let magnitude = x.mantissa.unsigned_abs();
+            let shift = x.exponent + exponent;
+            let code = if shift >= 0 {
+                magnitude << shift as u32
+            } else {
+                shift_right_even(magnitude, (-shift) as u32)
+            };
+            // Within the limit by the choice of exponent; restated.
+            let code = code.min(limit) as i16;
+            if x.mantissa < 0 {
+                -code
+            } else {
+                code
+            }
+        })
+        .collect();
+    (codes, exponent)
+}
+
+/// Puts `input`, binary32 bit patterns, on integers under `scheme`: each group
+/// scaled by the largest power of two that keeps it within the width's limit,
+/// each value rounded to the nearest, ties to even. Each input is then off by
+/// at most half its group's step, which is at most the group's largest input
+/// divided by the limit.
+pub fn quantise_with(input: &[u32], scheme: Scheme) -> Result<Activations, ExactError> {
+    let read: Vec<Dyadic> = input
+        .iter()
+        .map(|&bits| Dyadic::from_binary32(bits).ok_or(ExactError::InputNotFinite))
+        .collect::<Result<Vec<Dyadic>, ExactError>>()?;
+    let group = match scheme.grouping {
+        Grouping::Vector => read.len().max(1),
+        Grouping::Groups => ACTIVATION_GROUP,
+    };
+    let mut codes = Vec::with_capacity(read.len());
+    let mut exponents = Vec::with_capacity(read.len().div_ceil(group));
+    for part in read.chunks(group) {
+        let (part_codes, exponent) = scale_onto(part, scheme.width.limit());
+        codes.extend(part_codes);
+        exponents.push(exponent);
+    }
+    Ok(Activations {
+        codes,
+        exponents,
+        group,
+    })
+}
+
+/// A row's exact value from terms `(product, exponent)`, each `product *
+/// 2^exponent`: summed in `i128` at the smallest exponent when every shifted
+/// term fits with room for the carries, and placed once; placed term by term
+/// otherwise. The value is the same either way.
+fn place_terms(terms: &[(i128, i32)]) -> Row {
+    let mut row = Row::ZERO;
+    let Some(lowest) = terms
+        .iter()
+        .filter(|&&(p, _)| p != 0)
+        .map(|&(_, e)| e)
+        .min()
+    else {
+        return row;
+    };
+    let carry = i64::from(bits_of(terms.len() as u128));
+    let fits = terms.iter().all(|&(p, e)| {
+        p == 0 || bits_of(p.unsigned_abs()) as i64 + i64::from(e - lowest) + carry <= 126
+    });
+    if fits {
+        let total: i128 = terms
+            .iter()
+            .filter(|&&(p, _)| p != 0)
+            .map(|&(p, e)| p << (e - lowest) as u32)
+            .sum();
+        row.add_scaled(total.unsigned_abs(), lowest, total < 0);
+    } else {
+        for &(p, e) in terms {
+            row.add_scaled(p.unsigned_abs(), e, p < 0);
+        }
+    }
+    row
+}
+
+/// One wide input or weight value, admitted whole.
+type Wide = Alphabet<i16, Full<i16>>;
+
+/// The exact sums of a q4 matrix's rows with `input`, one per unit: a unit is
+/// the smaller of a weight block and an input group, so each unit has one
+/// weight scale and one input power. Row after row, unit after unit.
+pub fn q4_unit_sums(input: &Activations, matrix: &Q4Matrix<'_>) -> Result<Vec<i64>, ExactError> {
+    matrix.check(input.codes.len())?;
+    let mut table = [Nibble::new(0).map_err(|_| ExactError::NoExactCodec)?; 16];
+    for (code, entry) in (0i8..).zip(table.iter_mut()) {
+        *entry = Nibble::new(code).map_err(|_| ExactError::NoExactCodec)?;
+    }
+    let grid = Grid::<'_, i8, Bnd<15>, 16>::new(&table);
+    let activations = uor_matmul::as_alphabet_full(&input.codes);
+    let unit = matrix.block.min(input.group);
+    let blocks = matrix.blocks();
+    let padded = blocks * matrix.block;
+    let mut weights = vec![Wide::of(0); unit];
+    let mut sums = Vec::with_capacity(matrix.rows * padded.div_ceil(unit));
+    for row in 0..matrix.rows {
+        for start in (0..matrix.columns).step_by(unit) {
+            let group = start / matrix.block;
+            let codec = Offset::<i8, Bnd<15>, Bnd<30>, _>::new(grid, matrix.zero(row, group))
+                .ok_or(ExactError::NoExactCodec)?;
+            let used = unit.min(matrix.columns - start);
+            let first = row * padded + start;
+            for (i, weight) in weights.iter_mut().take(used).enumerate() {
+                let g = first + i;
+                let nibble = (matrix.codes[g / 2] >> (4 * (g % 2))) & 0x0f;
+                *weight = Wide::of(i16::from(codec.decode_element(u16::from(nibble), 0).get()));
+            }
+            let sum = dot_ref(&activations[start..start + used], &weights[..used]);
+            sums.push(sum as i64);
+        }
+    }
+    Ok(sums)
+}
+
+/// A q4 matrix times `input` under `scheme`, both as binary32 bit patterns:
+/// one output bit pattern per row.
+pub fn q4_product_with(
+    input: &[u32],
+    matrix: &Q4Matrix<'_>,
+    scheme: Scheme,
+) -> Result<Vec<u32>, ExactError> {
+    let activations = quantise_with(input, scheme)?;
+    let sums = q4_unit_sums(&activations, matrix)?;
+    let unit = matrix.block.min(activations.group);
+    let units = matrix.columns.div_ceil(unit);
+    let blocks = matrix.blocks();
+    (0..matrix.rows)
+        .map(|row| {
+            let terms = (0..units)
+                .map(|u| {
+                    let scale = matrix.scales.at(row * blocks + u * unit / matrix.block)?;
+                    let sum = i128::from(sums[row * units + u]);
+                    Ok((
+                        sum * scale.mantissa,
+                        scale.exponent - activations.exponent_at(u * unit),
+                    ))
+                })
+                .collect::<Result<Vec<(i128, i32)>, ExactError>>()?;
+            Ok(round_to_binary32(&place_terms(&terms)))
+        })
+        .collect()
+}
+
+/// `input` times a dense weight matrix under `scheme`, as [`dense_product`]
+/// with the input on the scheme's integers: each input group's products are
+/// summed exactly and the groups placed at their own powers.
+pub fn dense_product_with(
+    input: &[u32],
+    weights: Dense<'_>,
+    layout: DenseLayout,
+    columns: usize,
+    rows: usize,
+    scheme: Scheme,
+) -> Result<Vec<u32>, ExactError> {
+    let activations = quantise_with(input, scheme)?;
+    let (length, width) = weights.bytes();
+    if input.len() != columns
+        || Some(length) != columns.checked_mul(rows).and_then(|n| n.checked_mul(width))
+    {
+        return Err(ExactError::LengthMismatch);
+    }
+    let place = |n: usize, k: usize| match layout {
+        DenseLayout::InputMajor => k * rows + n,
+        DenseLayout::OutputMajor => n * columns + k,
+    };
+    // Sixteen-bit codes times a half below 2^40 are below 2^55; 32 of them
+    // stay below 2^60, inside i64.
+    let chunk = ACTIVATION_GROUP.min(activations.group);
+    (0..rows)
+        .map(|n| {
+            let mut terms = Vec::with_capacity(columns.div_ceil(chunk));
+            for start in (0..columns).step_by(chunk) {
+                let shift = -activations.exponent_at(start);
+                let end = (start + chunk).min(columns);
+                match weights {
+                    Dense::F16(bytes) => {
+                        let mut part: i64 = 0;
+                        for k in start..end {
+                            let b = 2 * place(n, k);
+                            let w = half_fixed(u16::from_le_bytes([bytes[b], bytes[b + 1]]))
+                                .ok_or(ExactError::ScaleNotFinite)?;
+                            part += i64::from(activations.codes[k]) * w;
+                        }
+                        terms.push((i128::from(part), HALF_UNIT + shift));
+                    }
+                    _ => {
+                        for k in start..end {
+                            let w = weights.at(place(n, k))?;
+                            terms.push((
+                                i128::from(activations.codes[k]) * w.mantissa,
+                                w.exponent + shift,
+                            ));
+                        }
+                    }
+                }
+            }
+            Ok(round_to_binary32(&place_terms(&terms)))
+        })
+        .collect()
+}
+
+/// A ternary matrix of `rows` by `columns`, in its three planes, times
+/// `input` under `scheme`: one output bit pattern per row.
+pub fn ternary_product_with(
+    input: &[u32],
+    signs: &[u8],
+    nonzeros: &[u8],
+    scales: &[u8],
+    rows: usize,
+    columns: usize,
+    scheme: Scheme,
+) -> Result<Vec<u32>, ExactError> {
+    let activations = quantise_with(input, scheme)?;
+    if !columns.is_multiple_of(TERNARY_GROUP) {
+        return Err(ExactError::GroupMisaligned);
+    }
+    let plane = rows * columns / 8;
+    if input.len() != columns
+        || signs.len() != plane
+        || nonzeros.len() != plane
+        || scales.len() != rows * (columns / TERNARY_GROUP) * 4
+    {
+        return Err(ExactError::LengthMismatch);
+    }
+    let grid = Grid::<'_, i8, Full<i8>, 4>::new(&TERNARY_TABLE);
+    let codes = uor_matmul::as_alphabet_full(&activations.codes);
+    let unit = TERNARY_GROUP.min(activations.group);
+    let mut weights = vec![Wide::of(0); unit];
+    (0..rows)
+        .map(|row| {
+            let mut terms = Vec::with_capacity(columns / unit);
+            for start in (0..columns).step_by(unit) {
+                let used = unit.min(columns - start);
+                for (i, weight) in weights.iter_mut().take(used).enumerate() {
+                    let g = row * columns + start + i;
+                    let bit = |plane: &[u8]| u16::from((plane[g / 8] >> (g % 8)) & 1);
+                    *weight = Wide::of(i16::from(
+                        grid.decode_element(bit(nonzeros) + 2 * bit(signs), 0).get(),
+                    ));
+                }
+                let sum = dot_ref(&codes[start..start + used], &weights[..used]) as i64;
+                let scale = Q4Scales::F32(scales)
+                    .at(row * (columns / TERNARY_GROUP) + start / TERNARY_GROUP)?;
+                terms.push((
+                    i128::from(sum) * scale.mantissa,
+                    scale.exponent - activations.exponent_at(start),
+                ));
+            }
+            Ok(round_to_binary32(&place_terms(&terms)))
+        })
+        .collect()
+}
+
 /// An ONNX initializer of `data_type` as dense weights, or
 /// [`ExactError::NoExactCodec`]: binary32 (1), half (10) and bfloat16 (16) have
 /// exact codecs; no other type does yet.

@@ -569,3 +569,11 @@ Feature: engine
     Given MatMulNBits at eight or two bits, at a block of 24 or 512, with bfloat16 scales or half zero points, and initializers of integer or double type
     When their codec is asked for, or a product at a block of 24
     Then each returns ExactError::NoExactCodec
+
+  @EN-36 @build
+  Scenario: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits
+    Given inputs of 1 to 256 values with one spike among small ones, and the four schemes: eight or sixteen bits, per vector or per group of 32
+    When each is put on integers by quantise_with, and multiplied by MatMulNBits matrices at every block, dense half and binary32 weights, and a ternary matrix
+    Then every code is its input rounded to the nearest at its group's step, the largest step within the width's limit, and a spike sets the step only for its own group
+    And every output's bits are the exact sum of each code times its weight and scale at its group's power, worked in the test and rounded once there
+    And eight bits per vector gives the same bits as EN-34's and EN-35's products

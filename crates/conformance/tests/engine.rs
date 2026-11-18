@@ -8104,3 +8104,298 @@ fn engine_fl_54() {
         "a product at a block of 24"
     );
 }
+
+/// The row a case states from terms `(sum, scale, input power)`: the exact
+/// sum of each `sum * scale * 2^-power`, worked from each scale's f64 bits and
+/// rounded once by Rust's own conversion (asserted to need at most 53 bits).
+fn exact_reference_terms(terms: &[(i64, f64, i32)]) -> f32 {
+    let parts: Vec<(i128, i32)> = terms
+        .iter()
+        .map(|&(sum, scale, power)| {
+            let (mantissa, exponent) = f64_parts(scale);
+            (i128::from(sum) * mantissa, exponent - power)
+        })
+        .filter(|&(m, _)| m != 0)
+        .collect();
+    let Some(lowest) = parts.iter().map(|&(_, e)| e).min() else {
+        return 0.0;
+    };
+    let total: i128 = parts.iter().map(|&(m, e)| m << (e - lowest)).sum();
+    let mut exponent = lowest;
+    if total == 0 {
+        return 0.0;
+    }
+    // One rounding to 24 bits, ties to even, written here apart from the
+    // crate's: the bits below the 24th decide it.
+    let negative = total < 0;
+    let mut magnitude = total.unsigned_abs();
+    let width = 128 - magnitude.leading_zeros();
+    if width > 24 {
+        let shift = width - 24;
+        let kept = magnitude >> shift;
+        let rest = magnitude & ((1u128 << shift) - 1);
+        let half = 1u128 << (shift - 1);
+        magnitude = kept + u128::from(rest > half || (rest == half && kept & 1 == 1));
+        exponent += shift as i32;
+    }
+    assert!(
+        (-126..=103).contains(&exponent),
+        "a case's value is outside the normal binary32 range the reference handles"
+    );
+    let value = magnitude as f32 * 2f32.powi(exponent);
+    if negative {
+        -value
+    } else {
+        value
+    }
+}
+
+const SCHEMES: [exact::Scheme; 4] = [
+    exact::Scheme {
+        width: exact::Width::Eight,
+        grouping: exact::Grouping::Vector,
+    },
+    exact::Scheme {
+        width: exact::Width::Eight,
+        grouping: exact::Grouping::Groups,
+    },
+    exact::Scheme {
+        width: exact::Width::Sixteen,
+        grouping: exact::Grouping::Vector,
+    },
+    exact::Scheme {
+        width: exact::Width::Sixteen,
+        grouping: exact::Grouping::Groups,
+    },
+];
+
+/// `EN-36`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits
+#[test]
+// Rows and outputs are indexed together with the weights and scales they read.
+#[allow(clippy::needless_range_loop)]
+fn engine_en_36() {
+    let mut draw = Draw(0x6a09_e667_f3bc_c908);
+    let spiky = |draw: &mut Draw, n: usize| -> Vec<f32> {
+        let mut v: Vec<f32> = (0..n).map(|_| draw.unit() * 2.0).collect();
+        v[n / 3] = 300.0;
+        v
+    };
+
+    // Every code is its input rounded to the nearest at its group's step, the
+    // largest step that keeps the group within the width's limit.
+    for scheme in SCHEMES {
+        let limit = if scheme.width == exact::Width::Eight {
+            127f64
+        } else {
+            32767f64
+        };
+        for n in [1usize, 31, 32, 33, 100, 256] {
+            let input = spiky(&mut draw, n);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let group = a.group();
+            assert_eq!(
+                group,
+                if scheme.grouping == exact::Grouping::Vector {
+                    n
+                } else {
+                    32
+                }
+            );
+            assert_eq!(a.exponents().len(), n.div_ceil(group));
+            for (g, part) in input.chunks(group).enumerate() {
+                let unit = 2f64.powi(-a.exponents()[g]);
+                let largest = part.iter().fold(0f64, |m, x| m.max(f64::from(*x).abs()));
+                if largest > 0.0 {
+                    assert!(
+                        largest / unit <= limit,
+                        "{scheme:?}, {n}: group {g}'s step is too small"
+                    );
+                    assert!(
+                        largest / unit > limit / 2.0,
+                        "{scheme:?}, {n}: group {g}'s step is not the largest"
+                    );
+                }
+                for (i, &x) in part.iter().enumerate() {
+                    let code = f64::from(a.codes()[g * group + i]);
+                    let nearest = (f64::from(x) / unit).round_ties_even().clamp(-limit, limit);
+                    assert_eq!(
+                        code, nearest,
+                        "{scheme:?}, {n}: {x} is not rounded to the nearest code"
+                    );
+                }
+            }
+        }
+    }
+
+    // A spike sets the step only for its own group.
+    let input = spiky(&mut draw, 96);
+    let grouped = exact::quantise_with(
+        &bits(&input),
+        exact::Scheme {
+            width: exact::Width::Eight,
+            grouping: exact::Grouping::Groups,
+        },
+    )
+    .expect("finite");
+    let whole = exact::quantise_with(
+        &bits(&input),
+        exact::Scheme {
+            width: exact::Width::Eight,
+            grouping: exact::Grouping::Vector,
+        },
+    )
+    .expect("finite");
+    assert!(
+        grouped.exponents()[2] > whole.exponents()[0],
+        "the spike's step reached a group without it"
+    );
+    assert_eq!(
+        grouped.exponents()[1],
+        whole.exponents()[0],
+        "the spike's own group has another step"
+    );
+
+    // Per vector at eight bits is EN-34's and EN-35's input: the same bits.
+    let vector8 = SCHEMES[0];
+    for &block in exact::Q4_BLOCKS.iter() {
+        let case = nbits_case(&mut draw, 3, 2 * block + block / 2 + 1, block, true, true);
+        let input: Vec<f32> = (0..case.columns).map(|_| draw.unit() * 3.0).collect();
+        assert_eq!(
+            exact::q4_product_with(&bits(&input), &nbits_matrix(&case), vector8),
+            exact::q4_product(&bits(&input), &nbits_matrix(&case)),
+            "block {block}: the eight-bit vector scheme is not EN-35's q4 product"
+        );
+    }
+
+    // Each scheme's product is the exact sum, each unit at its own powers.
+    for scheme in SCHEMES {
+        for &block in exact::Q4_BLOCKS.iter() {
+            let case = nbits_case(&mut draw, 2, 2 * block + 7, block, true, true);
+            let input = spiky(&mut draw, case.columns);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let out = exact::q4_product_with(&bits(&input), &nbits_matrix(&case), scheme)
+                .expect("well formed");
+            let blocks = case.columns.div_ceil(block);
+            for row in 0..case.rows {
+                let terms: Vec<(i64, f64, i32)> = (0..case.columns)
+                    .map(|c| {
+                        (
+                            i64::from(a.codes()[c]) * case.weights[row][c],
+                            case.scales[row * blocks + c / block],
+                            a.exponents()[c / a.group()],
+                        )
+                    })
+                    .collect();
+                let stated = exact_reference_terms(&terms);
+                assert_eq!(
+                    out[row],
+                    stated.to_bits(),
+                    "{scheme:?}, block {block}, row {row}: {} is not the stated {stated}",
+                    f32::from_bits(out[row])
+                );
+            }
+        }
+
+        // Dense half and binary32 weights.
+        for half in [true, false] {
+            let (k, n) = (70usize, 3usize);
+            let values: Vec<f32> = (0..k * n)
+                .map(|_| (draw.below(255) as i32 - 127) as f32 / 64.0)
+                .collect();
+            let stored: Vec<u8> = if half {
+                values
+                    .iter()
+                    .flat_map(|&v| half_bits(v).to_le_bytes())
+                    .collect()
+            } else {
+                values.iter().flat_map(|&v| v.to_le_bytes()).collect()
+            };
+            let weights = if half {
+                exact::Dense::F16(&stored)
+            } else {
+                exact::Dense::F32(&stored)
+            };
+            let input = spiky(&mut draw, k);
+            let a = exact::quantise_with(&bits(&input), scheme).expect("finite");
+            let out = exact::dense_product_with(
+                &bits(&input),
+                weights,
+                exact::DenseLayout::InputMajor,
+                k,
+                n,
+                scheme,
+            )
+            .expect("well formed");
+            for column in 0..n {
+                let terms: Vec<(i64, f64, i32)> = (0..k)
+                    .map(|r| {
+                        (
+                            i64::from(a.codes()[r]),
+                            f64::from(values[r * n + column]),
+                            a.exponents()[r / a.group()],
+                        )
+                    })
+                    .collect();
+                let stated = exact_reference_terms(&terms);
+                assert_eq!(
+                    out[column],
+                    stated.to_bits(),
+                    "{scheme:?}, dense half {half}, output {column}"
+                );
+            }
+            if scheme == vector8 {
+                assert_eq!(
+                    out,
+                    exact::dense_product(
+                        &bits(&input),
+                        weights,
+                        exact::DenseLayout::InputMajor,
+                        k,
+                        n
+                    )
+                    .expect("well formed"),
+                    "the eight-bit vector scheme is not EN-35's dense product"
+                );
+            }
+        }
+
+        // Ternary.
+        let spike = spiky(&mut draw, 256);
+        let case = ternary_case(&mut draw, 2, 256, spike);
+        let a = exact::quantise_with(&bits(&case.input), scheme).expect("finite");
+        let plane = 2 * 256 / 8;
+        let out = exact::ternary_product_with(
+            &bits(&case.input),
+            &case.tensor[..plane],
+            &case.tensor[plane..2 * plane],
+            &case.tensor[2 * plane..],
+            2,
+            256,
+            scheme,
+        )
+        .expect("well formed");
+        for row in 0..2 {
+            let terms: Vec<(i64, f64, i32)> = (0..256)
+                .map(|c| {
+                    (
+                        i64::from(a.codes()[c]) * i64::from(case.weights[row * 256 + c]),
+                        case.scales[row * 2 + c / 128],
+                        a.exponents()[c / a.group()],
+                    )
+                })
+                .collect();
+            assert_eq!(
+                out[row],
+                exact_reference_terms(&terms).to_bits(),
+                "{scheme:?}, ternary row {row}"
+            );
+        }
+        if scheme == vector8 {
+            assert_eq!(
+                out.iter().map(|&b| f32::from_bits(b)).collect::<Vec<f32>>(),
+                exact_rows(&case).expect("well formed"),
+                "the eight-bit vector scheme is not EN-34's ternary product"
+            );
+        }
+    }
+}
