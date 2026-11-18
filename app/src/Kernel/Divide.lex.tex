@@ -1,0 +1,32 @@
+\begin{lexlean}{Kernel.Divide}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Requant}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: divideProduct,
+  parameters: [half : Nat, odd : Nat, divisor : Nat],
+  result: Nat,
+  body: (prim multiply ((half + half) + odd) divisor : Nat)
+}
+
+definition{
+  name: divideOk,
+  parameters: [value : Nat, divisor : Nat, half : Nat, odd : Nat, code : Nat],
+  result: Bool,
+  body: (Kernel.Requant::rqDownOk value divisor half odd (divideProduct half odd divisor) code)
+}
+
+definition{
+  name: divideAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((((Foundation.Bytes::byteLength value) =? 20) && ((Kernel.Wire::fieldAt value 1 8) <? 4611686018427387904)) && ((0 <? (Kernel.Wire::fieldAt value 9 4)) && ((Kernel.Wire::fieldAt value 9 4) <? 2147483648))) && ((Kernel.Wire::fieldAt value 13 4) <? 1073741824)) && ((Kernel.Wire::fieldAt value 17 1) <=? 1)) then (if (divideOk (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 2)) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -587,6 +587,12 @@ suite = "kernel"
 statement = "A claimed integer square root of a value below 2^62 is confirmed exactly when its square is at most the value and the next square is above it, so a norm divides by the value's one floor root"
 
 [[id]]
+id = "KN-44"
+level = "build"
+suite = "kernel"
+statement = "A claimed quotient of a value below 2^62 by a divisor below 2^31, rounded half to even to a code of at most 32767, is confirmed exactly when it passes KN-41's rounding rule with the divisor as the step, so a norm and a softmax divide by one rule"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"
