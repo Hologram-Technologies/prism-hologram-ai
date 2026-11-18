@@ -85,6 +85,7 @@ runtime's crates are not published there.
 | `FL-24`, `FL-25`: the GGUF reader fails only as `model/failures.toml` lists | `engine_fl_24` and `engine_fl_25` | tested |
 | `EN-32`: a WordPiece `tokenizer.json` in BERT's shape gives the ids HuggingFace's own `tokenizers` gives, and a WordPiece file asking for another step is refused by the step | `engine_en_32`, over 2,135 texts and five files, the unknown token reached 13,820 times; eleven refusals | tested against the authority |
 | `EN-33`: an ONNX export is imported through the page's module, every question put to the kernel the page runs through one import exactly as the importer asks natively, and the model handed back as the nodes, tensors and places the role map reads | `engine_en_33`, EN-31's model in pieces of 7, 4096 and the whole graph; and once, locally, Qwen3-0.6B's real q4f16 export through the release module and the published kernel | tested; real export measured |
+| `EN-35`: every group sum `hologram-ai-exact` takes of a q4 block is one the compiled guest answers `exact` for decision 34 | `engine_en_35`, eight blocks and 17 claims; `replay.mjs` in the `app` recipe | tested here; replayed in main's published guest; replayed in this holo's guest on CI |
 | `FL-49`: the importer's refusal reaches the page as the importer's own failure | `engine_fl_49` | tested |
 | That a published model's own file is read | not tested: every file here is built in the suite; none comes from a hub |
 | `EN-19`: a conversation counts a turn with the model's own tokeniser | `engine_en_19` | tested |
@@ -2041,7 +2042,7 @@ are made integer (brief step 4). The crate holds no float value. The reference t
 the rounding against is Rust's own conversion; that the crate's reading of
 half and `f32` bits matches IEEE 754 is tested on the cases drawn, not proved.
 
-## EN-35, exact codecs for the weights Milestone 2 runs
+## EN-39, exact codecs for the weights Milestone 2 runs
 
 The Milestone 2 exports store their projections as ONNX `MatMulNBits` at four
 bits and a few weights as dense initializers. `hologram-ai-exact` now has an
@@ -2062,7 +2063,7 @@ exact codec for each, read from the stored bytes with no repack:
   four bits, those blocks, half or binary32 scales and `uint8` zero points, and
   `initializer_codec` only types 1, 10 and 16.
 
-### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_35 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_39 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
 
 Every block sum is checked against the sum written out in the test from the
 operator's definition (each code less its block's zero point, padding left
@@ -2073,17 +2074,17 @@ seven tests run, the file restored.
 
 | Planted defect | Rejected by |
 | --- | --- |
-| zero points read high half first | `engine_en_35`: `block 16, 16 columns, half true, zeros true, row 0: the block sums differ` |
-| stored zero points ignored, every block at 8 | `engine_en_35`: the block sums differ |
-| a padded block counts its padding | `engine_en_35`: the crate reads past the input (`range end index 48 out of range for slice of length 41`) |
-| a padded last block left out of a row's stride | `engine_en_35`: `LengthMismatch` on a well-formed matrix |
-| bfloat16 read with a half's fraction width | `engine_en_35`: `bf16 output 0 ... is not the stated -10.562988` |
-| dense weights read transposed | `engine_en_35`: `f32 output 0: 2.1704102 is not the stated -0.8469238` |
+| zero points read high half first | `engine_en_39`: `block 16, 16 columns, half true, zeros true, row 0: the block sums differ` |
+| stored zero points ignored, every block at 8 | `engine_en_39`: the block sums differ |
+| a padded block counts its padding | `engine_en_39`: the crate reads past the input (`range end index 48 out of range for slice of length 41`) |
+| a padded last block left out of a row's stride | `engine_en_39`: `LengthMismatch` on a well-formed matrix |
+| bfloat16 read with a half's fraction width | `engine_en_39`: `bf16 output 0 ... is not the stated -10.562988` |
+| dense weights read transposed | `engine_en_39`: `f32 output 0: 2.1704102 is not the stated -0.8469238` |
 | eight-bit `MatMulNBits` admitted | `engine_fl_54`: `eight bits` |
 | a double initializer read as binary32 | `engine_fl_54`: `initializer type 11` |
-| a block of 24 admitted | `engine_fl_54` and `engine_en_35` |
-| a weight below -8 clamped | `engine_en_35`: the block sums differ |
-| an output-major weight read input-major | `engine_en_35`: `f32: the output-major layout gives other bits` |
+| a block of 24 admitted | `engine_fl_54` and `engine_en_39` |
+| a weight below -8 clamped | `engine_en_39`: the block sums differ |
+| an output-major weight read input-major | `engine_en_39`: `f32: the output-major layout gives other bits` |
 | none, before and after | passed |
 
 ### Run over a real export
@@ -2097,8 +2098,8 @@ matrix: roughly normal, and the same with 0.2% of values at 40 times.
 
 | Weights | Stored as | Codec | Result |
 | --- | --- | --- | --- |
-| 196 projections, 440,401,920 weights | `MatMulNBits`, 4 bits, block 32, half scales, no zero points | EN-35 `Q4Matrix` | 196 run, 0 refused; 13,762,560 block sums, none wrong; no row past its bound (worst 0.141 of it); relative error (L2) 0.78% / 8.8%; 1.4 to 1.5 s for all 196 |
-| The tied head, 151,936 by 1,024 | `MatMul` over `Transpose(embed_tokens)`, half | EN-35 `Dense`, output-major | no row past its bound (worst 0.106); relative error (L2) 0.70% / 8.2%; 8.1 to 8.3 s for one input |
+| 196 projections, 440,401,920 weights | `MatMulNBits`, 4 bits, block 32, half scales, no zero points | EN-39 `Q4Matrix` | 196 run, 0 refused; 13,762,560 block sums, none wrong; no row past its bound (worst 0.141 of it); relative error (L2) 0.78% / 8.8%; 1.4 to 1.5 s for all 196 |
+| The tied head, 151,936 by 1,024 | `MatMul` over `Transpose(embed_tokens)`, half | EN-39 `Dense`, output-major | no row past its bound (worst 0.106); relative error (L2) 0.70% / 8.2%; 8.1 to 8.3 s for one input |
 | The embedding table (the head's same 311,164,928 bytes) | half, read by `Gather` | a lookup: each value read exactly by `Dyadic` | not a product |
 | 113 normalisation weights, 131,072 bytes | half | read exactly by `Dyadic` | the stage itself is step 4 |
 | Rotary cos and sin caches, 10,485,760 bytes | half | not used: rotary tables are to be generated by an exact integer algorithm and admitted through decision 38 | step 4 |
@@ -2132,16 +2133,16 @@ Planted against the fast paths, each alone, with the seven exact tests:
 
 | Planted defect | Rejected by |
 | --- | --- |
-| a half below the normal range read at twice its value | `engine_en_35`: `half weights below the normal range are not read exactly` (a case added after a first run did not reject it) |
-| half weights placed one power too high | `engine_en_35`: `f16 output 0: 23.129883 is not the stated 11.564941` |
-| a normal half read at twice its value | `engine_en_35`: the same |
-| a negative half weight read as positive | `engine_en_35`: `22.057617 is not the stated 11.564941` |
-| a row of group sums too wide for `i128` summed there anyway | `engine_en_35`: `attempt to shift left with overflow` |
-| a dense row too wide for `i128` summed there anyway | `engine_en_35`: the same |
-| a row's total placed at the wrong power | `engine_en_35` and `engine_en_34` |
+| a half below the normal range read at twice its value | `engine_en_39`: `half weights below the normal range are not read exactly` (a case added after a first run did not reject it) |
+| half weights placed one power too high | `engine_en_39`: `f16 output 0: 23.129883 is not the stated 11.564941` |
+| a normal half read at twice its value | `engine_en_39`: the same |
+| a negative half weight read as positive | `engine_en_39`: `22.057617 is not the stated 11.564941` |
+| a row of group sums too wide for `i128` summed there anyway | `engine_en_39`: `attempt to shift left with overflow` |
+| a dense row too wide for `i128` summed there anyway | `engine_en_39`: the same |
+| a row's total placed at the wrong power | `engine_en_39` and `engine_en_34` |
 | none, before and after | passed |
 
-### What EN-35 does not establish
+### What EN-39 does not establish
 
 The gate's cases are drawn from the operator's definition; the real export
 above is a measurement outside it. The page's module does
@@ -2160,9 +2161,9 @@ exact: sums are taken per unit, the smaller of a weight block and an input
 group, through `uor-matmul`'s `dot_ref` over `i16`, each unit at its scale's
 and its group's own powers, and each row rounded once (`q4_product_with`,
 `ternary_product_with`, `dense_product_with`). Eight bits per vector gives
-EN-34's and EN-35's bits, which the gate asserts.
+EN-34's and EN-39's bits, which the gate asserts.
 
-### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_35 engine_en_36 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_34 engine_en_39 engine_en_36 engine_fl_50 engine_fl_51 engine_fl_52 engine_fl_53 engine_fl_54`
 
 Every code is checked to be its input's nearest at its group's step and the
 step the largest the limit allows; every output against the exact sum worked in
@@ -2270,3 +2271,59 @@ KERNEL-VERIFICATION.md's KN-40 section. The transcription is checked by
 reading, not generated from the model; that the compiled guest answers these
 requests `exact` is not run, because building a holo needs
 `prism-code build --remote github`, which pushes.
+
+## EN-35, the crate's group sums confirmed by the kernel
+
+The engine's rule is that an integer stage is defined and proved in LexLean
+and the fast path is gated equal to it. For the q4 group sum the definition
+is `Kernel.Block` (KN-34); this gate ties `hologram-ai-exact` to it. Eight
+blocks, at both ends of the sum's range, with every weight zero, and four
+drawn at random, are summed by the crate's own path and written by
+`block_check::request`. `crates/conformance/tests/kernel/claims.json` lists 17
+claims: each sum `exact`, each sum plus one `differs`, and one 52-byte request
+`invalid request`. `engine_en_35` checks that every crate sum and sum plus one
+is listed, and that the `app` recipe runs
+`crates/conformance/tests/kernel/replay.mjs` on the holo it has just built.
+That script runs every claim through the compiled guest, the one built from
+the proved definitions, and fails unless each gets the answer listed.
+
+The claims are not the holo's examples. A first form carried them as decision
+34's examples, and CI refused the holo: `error[LLT4001]: phase link: invalid
+semantic-module JSON: recursion limit exceeded`, at 125 examples, past the
+limit "The limit on examples" in KERNEL-VERIFICATION.md describes. A claims
+file has no such limit.
+
+`engine_en_35` also reads each request as `Kernel.Block` reads it, by its
+fields, `byteFromEnd` and the high half for an even index, so a wrong layout
+fails in the Rust suite as well as in the guest.
+
+### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo claims.json`
+
+The holo published from main at 2026-11-18 (`site/app.holo` on the project's
+Pages, which carries decision 34) answered all 17 claims as listed. With the
+first claim's answer changed to `differs` it failed:
+`1 of 17 claims answered otherwise ... the guest answers exact`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_35`
+
+Run on 2026-11-18 in WSL with the pinned toolchain (cargo 1.97.1), not in the
+SDK image. Each defect was planted alone and the file restored.
+
+| Planted defect | Result |
+| --- | --- |
+| the crate reads q4 nibbles high first | the kernel reads another block |
+| the crate decodes q4 code 0 as +8 | the kernel reads another block |
+| the client writes the low half for an even index | the kernel reads another block |
+| the client offsets the claim by 32767 | the kernel reads another block |
+| the client pairs a weight with its neighbour's activation | the kernel reads another block |
+| an `exact` claim listed as `differs` | the claims lack 1 the crate makes of decision 34 |
+| the replay dropped from the `app` recipe | the app recipe replays the claims through the holo's guest (missing) |
+| none | passed |
+
+### What EN-35 does not establish
+
+The replay on CI runs against this branch's holo; locally it ran against the
+published one. The gate covers the group sum only: the crate's quantisation of
+the input and its recombination of the sums with the scales are still
+floating point with no LexLean definition, which the engine's rule does not
+allow in a shipped path.

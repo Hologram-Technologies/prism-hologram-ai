@@ -578,13 +578,14 @@ statement = "A q4 or ternary matrix times a vector is computed in integers from 
 id = "EN-35"
 level = "build"
 suite = "engine"
-statement = "A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32"
+statement = "Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one"
+
 
 [[id]]
 id = "EN-36"
 level = "build"
 suite = "engine"
-statement = "An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits"
+statement = "An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits"
 
 [[id]]
 id = "EN-37"
@@ -597,3 +598,9 @@ id = "EN-38"
 level = "build"
 suite = "engine"
 statement = "An input put on sixteen-bit codes per group of 32 is written as decision 40's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 40's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's"
+
+[[id]]
+id = "EN-39"
+level = "build"
+suite = "engine"
+statement = "A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32"

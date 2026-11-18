@@ -1345,6 +1345,57 @@ pub mod manifest {
     }
 }
 
+/// Decision 34: whether a claimed sum is the exact sum of one 32-wide q4
+/// block times int8 activations.
+pub mod block_check {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The claim is the block's sum.
+        Exact,
+        /// The claim is not the block's sum.
+        Differs,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for one block as the engine stores it, weight `g` in bits
+    /// `4 * (g % 2)` of `codes[g / 2]` as its code less eight, times
+    /// `activations`, with `claim` its sum.
+    ///
+    /// The kernel reads weight `16 * h + i` from the high half of byte
+    /// `8 * h + 8 - i / 2` when `i` is even and from the low half when it is
+    /// odd, and its activation from byte `16 * h + 32 - i`. The claim is
+    /// written plus 32768 in four bytes, wrapping, which no two `i32` claims
+    /// share.
+    #[must_use]
+    pub fn request(codes: &[u8; 16], activations: &[i8; 32], claim: i32) -> [u8; 53] {
+        let mut out = [0; 53];
+        out[0] = 34;
+        for g in 0..32 {
+            let code = (codes[g / 2] >> (4 * (g % 2))) & 0x0f;
+            let (h, i) = (g / 16, g % 16);
+            out[8 * h + 8 - i / 2] |= if i % 2 == 0 { code << 4 } else { code };
+            out[16 * h + 32 - i] = activations[g].to_be_bytes()[0];
+        }
+        out[49..53].copy_from_slice(&claim.wrapping_add(32768).to_be_bytes());
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"exact" => Answer::Exact,
+            b"differs" => Answer::Differs,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;

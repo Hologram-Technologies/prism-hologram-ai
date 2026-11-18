@@ -556,13 +556,12 @@ Feature: engine
     Then each returns ExactError::ScaleNotFinite
 
   @EN-35 @build
-  Scenario: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
-    Given MatMulNBits matrices at blocks of 16, 32, 64, 128 and 256, with a whole number of blocks and with the last block padded, half and binary32 scales of either sign, and zero points left out or packed four bits to a block
-    And dense MatMul weights stored as binary32, half and bfloat16
-    When each is multiplied by a vector by hologram-ai-exact
-    Then every block sum equals the sum of each input code times its code less its block's zero point, written out from the operator's definition
-    And every output's bits are the exact sum worked from each scale's or weight's own bits, rounded once to binary32, ties to even
-    And zero points stored as eights give the same bits as zero points left out, and block 32 with none gives EN-34's q4 bits
+  Scenario: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
+    Given q4 blocks as the engine stores them, at both ends of the sum's range, with every weight zero, and drawn at random, each with an activation of magnitude 127
+    When hologram-ai-exact quantises each block's activations and takes its group sum, and the kernel client writes decision 34's request for that sum and for that sum plus one
+    Then the request read as Kernel.Block reads it gives the crate's sum and the claim written
+    And claims.json lists the crate's sum as exact and the sum plus one as differs
+    And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed
 
   @FL-54 @build
   Scenario: A stored format has no exact codec, so it is refused by name instead of run approximately
@@ -571,12 +570,12 @@ Feature: engine
     Then each returns ExactError::NoExactCodec
 
   @EN-36 @build
-  Scenario: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits
+  Scenario: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits
     Given inputs of 1 to 256 values with one spike among small ones, and the four schemes: eight or sixteen bits, per vector or per group of 32
     When each is put on integers by quantise_with, and multiplied by MatMulNBits matrices at every block, dense half and binary32 weights, and a ternary matrix
     Then every code is its input rounded to the nearest at its group's step, the largest step within the width's limit, and a spike sets the step only for its own group
     And every output's bits are the exact sum of each code times its weight and scale at its group's power, worked in the test and rounded once there
-    And eight bits per vector gives the same bits as EN-34's and EN-35's products
+    And eight bits per vector gives the same bits as EN-34's and EN-39's products
 
   @EN-37 @build
   Scenario: A row's exact terms are chained into decision 39's 79-byte requests, six terms a link, each link's partial the exact sum of the terms before it, and the chain's last partial is the row value the fast path places, rounded once to the same binary32 bits; a row too wide for the guest's 64-bit numbers is reported, not chained
@@ -594,3 +593,12 @@ Feature: engine
     Then every request is 62 bytes and decision 40's, and names its group's largest input at the group's power
     And every input in it passes rqElementOk and the power passes rqLargest, as transcribed in the test from Kernel.Requant
     And every code is rqDownCode's for its input and step, and the codes are quantise_with's, in order
+
+  @EN-39 @build
+  Scenario: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
+    Given MatMulNBits matrices at blocks of 16, 32, 64, 128 and 256, with a whole number of blocks and with the last block padded, half and binary32 scales of either sign, and zero points left out or packed four bits to a block
+    And dense MatMul weights stored as binary32, half and bfloat16
+    When each is multiplied by a vector by hologram-ai-exact
+    Then every block sum equals the sum of each input code times its code less its block's zero point, written out from the operator's definition
+    And every output's bits are the exact sum worked from each scale's or weight's own bits, rounded once to binary32, ties to even
+    And zero points stored as eights give the same bits as zero points left out, and block 32 with none gives EN-34's q4 bits

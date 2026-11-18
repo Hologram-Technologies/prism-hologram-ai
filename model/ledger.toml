@@ -36,5 +36,5 @@ sample_size = 198
 [[claim]]
 id = "AUTH-UOR-MATMUL"
 level = "some-true"
-statement = "uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34 to EN-36 check the sums against sums written out independently; the other claims of the library are not established here."
+statement = "uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34, EN-36 and EN-39 check the sums against sums written out independently; the other claims of the library are not established here."
 authority = "UOR-MATMUL"

@@ -7822,9 +7822,9 @@ fn nbits_matrix(case: &NbitsCase) -> exact::Q4Matrix<'_> {
     }
 }
 
-/// `EN-35`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
+/// `EN-39`: A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32
 #[test]
-fn engine_en_35() {
+fn engine_en_39() {
     let mut draw = Draw(0x51_7cc1_b727_220a);
     let mut checked = 0;
     for &block in exact::Q4_BLOCKS.iter() {
@@ -8169,7 +8169,7 @@ const SCHEMES: [exact::Scheme; 4] = [
     },
 ];
 
-/// `EN-36`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-35's bits
+/// `EN-36`: An input is put on eight- or sixteen-bit integers per vector or per group of 32, each group at the largest power of two that keeps it within its limit and each value rounded to the nearest, ties to even, and every q4, ternary and dense product under each scheme is the exact sum at each group's own power, rounded once to binary32, with eight bits per vector giving EN-34's and EN-39's bits
 #[test]
 // Rows and outputs are indexed together with the weights and scales they read.
 #[allow(clippy::needless_range_loop)]
@@ -8255,7 +8255,7 @@ fn engine_en_36() {
         "the spike's own group has another step"
     );
 
-    // Per vector at eight bits is EN-34's and EN-35's input: the same bits.
+    // Per vector at eight bits is EN-34's and EN-39's input: the same bits.
     let vector8 = SCHEMES[0];
     for &block in exact::Q4_BLOCKS.iter() {
         let case = nbits_case(&mut draw, 3, 2 * block + block / 2 + 1, block, true, true);
@@ -8263,7 +8263,7 @@ fn engine_en_36() {
         assert_eq!(
             exact::q4_product_with(&bits(&input), &nbits_matrix(&case), vector8),
             exact::q4_product(&bits(&input), &nbits_matrix(&case)),
-            "block {block}: the eight-bit vector scheme is not EN-35's q4 product"
+            "block {block}: the eight-bit vector scheme is not EN-39's q4 product"
         );
     }
 
@@ -8354,7 +8354,7 @@ fn engine_en_36() {
                         n
                     )
                     .expect("well formed"),
-                    "the eight-bit vector scheme is not EN-35's dense product"
+                    "the eight-bit vector scheme is not EN-39's dense product"
                 );
             }
         }
@@ -8679,4 +8679,163 @@ fn engine_en_38() {
         }
     }
     assert!(checked > 300, "only {checked} inputs checked");
+}
+
+/// `EN-35`: Every group sum hologram-ai-exact takes of a q4 block is confirmed by the kernel: the compiled guest answers decision 34 exact for the crate's own sum of each engine-stored block, and differs for that sum plus one
+#[test]
+fn engine_en_35() {
+    use hologram_ai_kernel_client::block_check;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    for (name, codes, activations) in en_35_blocks() {
+        // The crate's own sum, from its own path: the input quantised by the
+        // crate, the codes read as the engine stores them.
+        let input: Vec<f32> = activations.iter().map(|&a| f32::from(a)).collect();
+        let quantised = exact::quantise(&bits(&input)).expect("a finite input quantises");
+        assert_eq!(
+            quantised.codes(),
+            activations.as_slice(),
+            "{name}: the codes are the activations"
+        );
+        let sums = exact::q4_group_sums(&quantised, &codes, 1, 32).expect("one block sums");
+        let sum = i32::try_from(sums[0]).expect("a block's sum fits 32 bits");
+
+        // What decision 34 recomputes from the request, read as Kernel.Block
+        // reads it, so a wrong layout fails here as well as in the guest.
+        let request = block_check::request(&codes, &activations, sum);
+        assert_eq!(
+            block_reading(&request),
+            (sum, sum),
+            "{name}: the kernel reads another block"
+        );
+        let off = block_check::request(&codes, &activations, sum + 1);
+        assert_eq!(
+            block_reading(&off),
+            (sum + 1, sum),
+            "{name}: the claim is not read plus one"
+        );
+
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let claim = (
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                answer.to_string(),
+            );
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 34:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// request in hex, the answer the guest must give).
+fn kernel_claims() -> Vec<(String, String)> {
+    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+        .expect("the claims the crates make of the kernel");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    value["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .map(|one| {
+            (
+                one["request"].as_str().expect("a request").to_string(),
+                one["answer"].as_str().expect("an answer").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The `app` recipe runs every claim through the guest of the holo it has
+/// just built. The claims are not the holo's examples, which cannot grow past
+/// about 108.
+fn assert_kernel_replays_claims() {
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
+    let verify = app
+        .find("prismpm --project app verify")
+        .expect("the app recipe builds the holo");
+    let replay = app
+        .find(
+            "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
+             crates/conformance/tests/kernel/claims.json",
+        )
+        .expect("the app recipe replays the claims through the holo's guest");
+    assert!(
+        verify < replay,
+        "the claims are replayed after the holo is built"
+    );
+}
+
+/// The blocks EN-35 hands the kernel, each with an activation of magnitude
+/// 127 so the crate quantises the activations to themselves: the sums at both
+/// ends of the range, every weight zero, and blocks drawn at random.
+fn en_35_blocks() -> Vec<(String, [u8; 16], [i8; 32])> {
+    let mut out = vec![
+        (
+            "every weight -8, activations -127".to_string(),
+            [0x00; 16],
+            [-127; 32],
+        ),
+        (
+            "every weight -8, activations 127".to_string(),
+            [0x00; 16],
+            [127; 32],
+        ),
+        (
+            "every weight 7, activations 127".to_string(),
+            [0xff; 16],
+            [127; 32],
+        ),
+        ("every weight 0".to_string(), [0x88; 16], {
+            let mut a = [5; 32];
+            a[31] = -127;
+            a
+        }),
+    ];
+    let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
+    for case in 0..4 {
+        let mut codes = [0; 16];
+        for c in &mut codes {
+            *c = draw.below(256) as u8;
+        }
+        let mut activations = [0; 32];
+        for a in &mut activations {
+            *a = (draw.below(255) as i16 - 127) as i8;
+        }
+        activations[draw.below(32) as usize] = if case % 2 == 0 { 127 } else { -127 };
+        out.push((format!("drawn block {case}"), codes, activations));
+    }
+    out
+}
+
+/// A decision-34 request read as `Kernel.Block` reads it: the claim less
+/// 32768, and the sum of `positiveFrom` less `negativeFrom` over its four
+/// halves, which `parts_cover_every_product` and the size theorems make the
+/// signed sum of each code less eight times each byte as an `i8`.
+fn block_reading(request: &[u8; 53]) -> (i32, i32) {
+    let mut sum = 0;
+    for (weights, activations, base) in [(1, 25, 0), (1, 17, 8), (9, 41, 0), (9, 33, 8)] {
+        for rest in 0..8 {
+            let index = base + rest;
+            let byte = request[weights + 7 - index / 2];
+            let code = if index % 2 == 1 { byte % 16 } else { byte / 16 };
+            let activation = i32::from(request[activations + 7 - rest] as i8);
+            sum += (i32::from(code) - 8) * activation;
+        }
+    }
+    let claim = u32::from_be_bytes(request[49..53].try_into().expect("four bytes"));
+    (claim.wrapping_sub(32768) as i32, sum)
 }
