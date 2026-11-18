@@ -8628,7 +8628,7 @@ fn engine_en_39() {
         let mut codes = Vec::new();
         for request in &requests {
             assert_eq!(request.len(), exact::REQUANT_BYTES);
-            assert_eq!(request[0], 40, "a request that is not decision 41's");
+            assert_eq!(request[0], 41, "a request that is not decision 41's");
             let n = |at: usize, width: usize| {
                 request[at..at + width]
                     .iter()
@@ -8838,4 +8838,102 @@ fn block_reading(request: &[u8; 53]) -> (i32, i32) {
     }
     let claim = u32::from_be_bytes(request[49..53].try_into().expect("four bytes"));
     (claim.wrapping_sub(32768) as i32, sum)
+}
+
+/// `EN-36`: Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one
+#[test]
+fn engine_en_36() {
+    use hologram_ai_kernel_client::scale_check;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    for (sum, bits) in EN_36_GROUPS {
+        // The crate's own reading of the half: an exact mantissa times a power
+        // of two no lower than 2^-24, so the product in units of 2^-24 is the
+        // sum times the mantissa shifted up by the exponent's distance from it.
+        let scale = exact::Dyadic::from_binary16(bits).expect("a finite half");
+        let shift = u32::try_from(scale.exponent + 24).expect("no half is below 2^-24");
+        let product = i128::from(sum) * (scale.mantissa << shift);
+
+        // What decision 37 recomputes, read as Kernel.Scale reads it.
+        let request = scale_check::request(sum, bits, product);
+        assert_eq!(
+            scale_reading(&request),
+            Some((product, product)),
+            "{sum} times {bits:#06x}: the kernel reads another group"
+        );
+        let off = scale_check::request(sum, bits, product + 1);
+        assert_eq!(
+            scale_reading(&off),
+            Some((product + 1, product)),
+            "{sum} times {bits:#06x}: the claim is not read plus one"
+        );
+
+        for (request, answer) in [(request, "exact"), (off, "differs")] {
+            let claim = (
+                request
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
+                answer.to_string(),
+            );
+            if !claims.contains(&claim) {
+                missing.push(format!("{} -> {}", claim.0, claim.1));
+            }
+        }
+    }
+    // A scale that is an infinity or a NaN has no product.
+    for bits in [0x7c00, 0xfc00, 0x7e00] {
+        assert_eq!(
+            exact::Dyadic::from_binary16(bits),
+            None,
+            "{bits:#06x} is not finite"
+        );
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 37:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+}
+
+/// The groups EN-36 hands the kernel, as (sum, half scale): one, the largest
+/// half and the smallest subnormal, the smallest normal, a negative scale, a
+/// negative zero, zero sums, and the sums at both ends of a block's range.
+const EN_36_GROUPS: [(i32, u16); 9] = [
+    (32512, 0x3c00),
+    (-32512, 0x3c00),
+    (32512, 0x7bff),
+    (-32512, 0xfbff),
+    (12345, 0x0001),
+    (-1, 0x0400),
+    (0, 0xbc00),
+    (7, 0x8000),
+    (-300, 0xb555),
+];
+
+/// A decision-37 request read as `Kernel.Scale` reads it: the signed claim,
+/// and the sum's magnitude times `halfUnits` of the half with the sign the
+/// two signs give, a zero product never negative. `None` for a scale that is
+/// not finite.
+fn scale_reading(request: &[u8; 16]) -> Option<(i128, i128)> {
+    let offset = i128::from(u32::from_be_bytes(
+        request[1..5].try_into().expect("four bytes"),
+    ));
+    let bits = u32::from(u16::from_be_bytes([request[5], request[6]]));
+    let (exponent, mantissa) = ((bits / 1024) % 32, i128::from(bits % 1024));
+    let units = match exponent {
+        0 => mantissa,
+        31 => return None,
+        e => (1024 + mantissa) * (1 << (e - 1)),
+    };
+    let size = (offset - 32768).abs() * units;
+    let negative = size > 0 && ((bits >= 32768) == (offset >= 32768));
+    let claimed = i128::from(u64::from_be_bytes(
+        request[8..16].try_into().expect("eight bytes"),
+    ));
+    let claim = if request[7] == 1 { -claimed } else { claimed };
+    Some((claim, if negative { -size } else { size }))
 }

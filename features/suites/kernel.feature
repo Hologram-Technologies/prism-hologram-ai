@@ -280,3 +280,11 @@ Feature: kernel
     When the Lean kernel checks integer_run_decides, integer_run_is_everywhere and integer_run_refuses_fixed_order_floats during lexlean verify in the gate
     Then a run is admitted exactly when its products and every other stage are exact, which is decision 30's class everywhere for any order of reductions
     And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
+
+  @KN-37 @build
+  Scenario: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
+    Given a request of the tag 37, a group sum plus 32768 in four bytes, an IEEE half in two, a sign byte and a magnitude in eight
+    When the kernel reads the half as its fraction when its exponent field is zero and as 1024 plus its fraction times 2 to the field less one otherwise, and multiplies the sum's magnitude by it
+    Then the answer is exact exactly when the magnitude is that product and the sign is 1 just when the product is nonzero and the two signs differ
+    And a zero product is never negative, a half whose exponent field is 31 is answered not finite, and a request of another length is answered invalid request
+    And the theorems of Proofs.Scale state each of these and are pinned with their axioms

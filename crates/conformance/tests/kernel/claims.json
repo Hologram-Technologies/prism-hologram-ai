@@ -68,6 +68,86 @@
     {
       "request": "220000000000000000000000000000000081818181818181818181818181818181818181818181818181818181818181810000ff",
       "answer": "invalid request"
+    },
+    {
+      "request": "250000ff003c00000000007f00000000",
+      "answer": "exact"
+    },
+    {
+      "request": "250000ff003c00000000007f00000001",
+      "answer": "differs"
+    },
+    {
+      "request": "25000001003c00010000007f00000000",
+      "answer": "exact"
+    },
+    {
+      "request": "25000001003c00010000007effffffff",
+      "answer": "differs"
+    },
+    {
+      "request": "250000ff007bff00007ef02000000000",
+      "answer": "exact"
+    },
+    {
+      "request": "250000ff007bff00007ef02000000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2500000100fbff00007ef02000000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2500000100fbff00007ef02000000001",
+      "answer": "differs"
+    },
+    {
+      "request": "250000b0390001000000000000003039",
+      "answer": "exact"
+    },
+    {
+      "request": "250000b039000100000000000000303a",
+      "answer": "differs"
+    },
+    {
+      "request": "2500007fff0400010000000000000400",
+      "answer": "exact"
+    },
+    {
+      "request": "2500007fff04000100000000000003ff",
+      "answer": "differs"
+    },
+    {
+      "request": "2500008000bc00000000000000000000",
+      "answer": "exact"
+    },
+    {
+      "request": "2500008000bc00000000000000000001",
+      "answer": "differs"
+    },
+    {
+      "request": "25000080078000000000000000000000",
+      "answer": "exact"
+    },
+    {
+      "request": "25000080078000000000000000000001",
+      "answer": "differs"
+    },
+    {
+      "request": "2500007ed4b555000000000063f9c000",
+      "answer": "exact"
+    },
+    {
+      "request": "2500007ed4b555000000000063f9c001",
+      "answer": "differs"
+    },
+    {
+      "request": "25000080017c00000000000000000000",
+      "answer": "not finite"
+    },
+    {
+      "request": "250000ff003c00000000007f000000",
+      "answer": "invalid request"
     }
   ]
 }

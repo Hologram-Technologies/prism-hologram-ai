@@ -563,6 +563,14 @@ Feature: engine
     And claims.json lists the crate's sum as exact and the sum plus one as differs
     And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed
 
+  @EN-36 @build
+  Scenario: Every group sum hologram-ai-exact scales by an IEEE half is confirmed by the kernel: the compiled guest answers decision 37 exact for the crate's own product of each sum and half, and differs for that product plus one
+    Given group sums at both ends of a block's range and zero, and halves that are one, the largest, the smallest subnormal, the smallest normal, negative and negative zero
+    When hologram-ai-exact multiplies each sum by its half as an exact count of 2^-24, and the kernel client writes decision 37's request for that product and for that product plus one
+    Then the request read as Kernel.Scale reads it gives the crate's product and the claim written
+    And claims.json lists the crate's product as exact and the product plus one as differs, and the app recipe's replay of the guest answers each as listed
+    And a half that is an infinity or a NaN has no product in the crate
+
   @FL-54 @build
   Scenario: A stored format has no exact codec, so it is refused by name instead of run approximately
     Given MatMulNBits at eight or two bits, at a block of 24 or 512, with bfloat16 scales or half zero points, and initializers of integer or double type
