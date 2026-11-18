@@ -65,6 +65,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-39` | `build` | An input put on sixteen-bit codes per group of 32 is written as decision 41's 62-byte requests, five inputs a request with their group's largest input, and every request satisfies decision 41's definition as transcribed from Kernel.Requant: the power is the group's largest, each quotient witness is the input divided down, each code is the one rqDownCode computes, and the codes are quantise_with's |
 | `EN-40` | `build` | A four-bit MatMulNBits matrix at any block from 16 to 256, its last block padded, with half or binary32 scales and zero points absent or packed, and a dense binary32, half or bfloat16 MatMul weight, are each multiplied by a vector in integers from their stored bytes, every block sum equal to the sum written out from the operator's definition and every output the exact value rounded once to binary32 |
 | `EN-41` | `build` | Every binary32 hologram-ai-exact rounds a row to is confirmed by the kernel: the compiled guest answers decision 42 exact for the crate's own rounding of each value and differs for any other bits |
+| `EN-43` | `build` | The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936 |
 
 ## gpu
 

@@ -9078,3 +9078,119 @@ fn round_reading(negative: bool, magnitude: u64, exponent: i32) -> u32 {
         sign | field as u32
     }
 }
+
+/// Unsigned integers of any width, little-endian 32-bit limbs: only what
+/// EN-43's certificate needs, written here so the check shares no code with
+/// the table it checks.
+fn big(value: u64) -> Vec<u32> {
+    let mut limbs = vec![value as u32, (value >> 32) as u32];
+    big_trim(&mut limbs);
+    limbs
+}
+
+fn big_trim(limbs: &mut Vec<u32>) {
+    while limbs.last() == Some(&0) {
+        limbs.pop();
+    }
+}
+
+fn big_mul(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut out = vec![0u32; a.len() + b.len()];
+    for (i, &x) in a.iter().enumerate() {
+        let mut carry = 0u64;
+        for (j, &y) in b.iter().enumerate() {
+            let t = u64::from(out[i + j]) + u64::from(x) * u64::from(y) + carry;
+            out[i + j] = t as u32;
+            carry = t >> 32;
+        }
+        let mut k = i + b.len();
+        while carry > 0 {
+            let t = u64::from(out[k]) + carry;
+            out[k] = t as u32;
+            carry = t >> 32;
+            k += 1;
+        }
+    }
+    big_trim(&mut out);
+    out
+}
+
+fn big_pow(base: &[u32], mut exponent: u32) -> Vec<u32> {
+    let mut result = big(1);
+    let mut square = base.to_vec();
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = big_mul(&result, &square);
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            square = big_mul(&square, &square);
+        }
+    }
+    result
+}
+
+fn big_shl(value: &[u32], bits: u32) -> Vec<u32> {
+    let (words, rest) = ((bits / 32) as usize, bits % 32);
+    let mut out = vec![0u32; words];
+    let mut carry = 0u32;
+    for &limb in value {
+        out.push((limb << rest) | carry);
+        carry = if rest == 0 { 0 } else { limb >> (32 - rest) };
+    }
+    out.push(carry);
+    big_trim(&mut out);
+    out
+}
+
+fn big_cmp(a: &[u32], b: &[u32]) -> std::cmp::Ordering {
+    a.len()
+        .cmp(&b.len())
+        .then_with(|| a.iter().rev().cmp(b.iter().rev()))
+}
+
+/// EN-43's criterion for entry `j`: `t` is the integer nearest
+/// `2^(30 - j/256)` exactly when `(2t - 1)^256 < 2^(7936 - j) < (2t + 1)^256`.
+fn exp2_entry_ok(j: u32, t: u64) -> bool {
+    let power = big_shl(&big(1), 7936 - j);
+    let below = big_pow(&big(2 * t - 1), 256);
+    let above = big_pow(&big(2 * t + 1), 256);
+    big_cmp(&below, &power).is_lt() && big_cmp(&power, &above).is_lt()
+}
+
+/// `EN-43`: The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936
+#[test]
+fn engine_en_43() {
+    let table = &exact::EXP2_FRACTION;
+    assert_eq!(table.len(), 256);
+    for (j, &entry) in table.iter().enumerate() {
+        let j = j as u32;
+        // The criterion says |t - 2^(30 - j/256)| < 1/2, so the entry that meets it is the nearest integer.
+        assert!(
+            exp2_entry_ok(j, u64::from(entry)),
+            "entry {j} = {entry} is not the integer nearest 2^(30 - {j}/256)"
+        );
+    }
+    // Every lookup within one unit: (e - 1)^256 * 2^d < 2^7680 < (e + 1)^256 * 2^d.
+    let target = big_shl(&big(1), 7680);
+    for d in 0..7936u32 {
+        let e = u64::from(exact::exp2_neg(d));
+        let above = big_shl(&big_pow(&big(e + 1), 256), d);
+        assert!(
+            big_cmp(&target, &above).is_lt(),
+            "exp2_neg({d}) = {e} is more than one unit low"
+        );
+        if e >= 1 {
+            let below = big_shl(&big_pow(&big(e - 1), 256), d);
+            assert!(
+                big_cmp(&below, &target).is_lt(),
+                "exp2_neg({d}) = {e} is more than one unit high"
+            );
+        }
+    }
+    for d in [7936u32, 8000, 65535, u32::MAX] {
+        assert_eq!(exact::exp2_neg(d), 0, "exp2_neg({d}) is not 0");
+    }
+    assert_eq!(exact::exp2_neg(0), 1 << 30, "exp2_neg(0) is not 2^30");
+    assert_eq!(exact::exp2_neg(256), 1 << 29, "exp2_neg(256) is not 2^29");
+}
