@@ -722,3 +722,9 @@ Feature: engine
     Given GP-19's Qwen3-shaped export opened in the page's module
     When decode_step is called with a token id equal to the vocabulary
     Then the call answers no, and the module's answer is Decode(TokenOutOfRange)
+
+  @EN-53 @build
+  Scenario: The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it
+    Given GP-19's Qwen3-shaped export opened in the page's module and stepped through its prompt and eight greedy tokens
+    When the run is kept at the prompt's length, stepped on, restored, and stepped again with the same tokens, and then reset and stepped through the prompt again
+    Then every step after the restore and after the reset answers the token and logits the first run did, bit for bit

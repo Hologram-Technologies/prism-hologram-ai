@@ -199,3 +199,10 @@ Feature: gpu
     Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
     And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
     And the engine page's own visits load and answer through the same call
+
+  @GP-28 @build
+  Scenario: The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept
+    Given GP-19's Qwen3-shaped ONNX export on the hub, and the engine page with navigator.gpu taken away
+    When `just page-journey` loads it at ?onnx= and asks two turns
+    Then the page reports the integer engine on the CPU device, and its sixteen tokens are the reference's
+    And the pipeline builds the CPU device's engine with createIntegerEngine from the import's tensors and the config, never the float CPU engine

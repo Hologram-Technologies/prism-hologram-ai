@@ -443,6 +443,12 @@ suite = "gpu"
 statement = "One call, pipeline(task, model, { device, dtype }), loads an ONNX export named on the hub and answers a function that runs a turn, with every step the engine page takes put to the verified kernel; the page is one caller of it, and a task the kernel does not run is refused by the kernel's decision 24"
 
 [[id]]
+id = "GP-28"
+level = "build"
+suite = "gpu"
+statement = "The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept"
+
+[[id]]
 id = "KN-18"
 level = "build"
 suite = "kernel"
@@ -742,3 +748,9 @@ id = "EN-52"
 level = "build"
 suite = "engine"
 statement = "The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name"
+
+[[id]]
+id = "EN-53"
+level = "build"
+suite = "engine"
+statement = "The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it"

@@ -1416,3 +1416,48 @@ fn gpu_gp_25() {
         );
     }
 }
+
+/// `GP-28`: The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept
+#[test]
+fn gpu_gp_28() {
+    // The journey runs the page (`just page-journey`); this test reads that
+    // the CPU device's engine is the integer one and the journey checks it.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "import { createIntegerEngine } from \"./integer.mjs\";",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !pipeline.contains("createCpuEngine"),
+        "the pipeline still builds the float CPU engine"
+    );
+    let integer = read("site/app/engine/integer.mjs");
+    for call in [
+        "\"decode_tensor\"",
+        "\"decode_open\"",
+        "\"decode_step\"",
+        "\"decode_save\"",
+        "\"decode_restore\"",
+        "\"decode_reset\"",
+    ] {
+        assert!(integer.contains(call), "integer.mjs no longer calls {call}");
+    }
+    let load = read("site/app/engine/onnx-load.mjs");
+    assert!(
+        load.contains("engineTensors(weights, read), { table, read, config, rope: { ...rope } })"),
+        "onnx-load.mjs no longer hands the build the import's tensors and the config"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    assert!(
+        journey.contains("the CPU device did not run the integer engine"),
+        "the journey no longer checks the CPU device's engine"
+    );
+}
