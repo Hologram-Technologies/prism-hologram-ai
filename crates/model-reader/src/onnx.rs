@@ -240,6 +240,7 @@ pub struct Graph {
     previous_end: u64,
     external: Vec<(hologram_ai_onnx_preflight::stream::Tensor, TensorAt)>,
     records: usize,
+    encoder: bool,
 }
 
 impl Graph {
@@ -254,6 +255,19 @@ impl Graph {
             previous_end: 0,
             external: Vec::new(),
             records: 0,
+            encoder: false,
+        }
+    }
+
+    /// An import of the graph file `file` of an encoder, whose operators are
+    /// asked of decision 18's encoder style (KN-52). The caller knows the
+    /// task; the graph alone does not say it, since an encoder's 4-bit
+    /// weights name the fused domain too.
+    #[must_use]
+    pub fn encoder(file: File) -> Self {
+        Self {
+            encoder: true,
+            ..Self::new(file)
         }
     }
 
@@ -324,7 +338,9 @@ impl Graph {
         self.taking.finish(kernel)?;
 
         let fused = self.nodes.iter().any(|node| node.domain == FUSED_DOMAIN);
-        let style = if fused {
+        let style = if self.encoder {
+            opname::Style::Encoder
+        } else if fused {
             opname::Style::Fused
         } else {
             opname::Style::Decomposed

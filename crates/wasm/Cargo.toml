@@ -21,10 +21,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 blake3 = { workspace = true }
 hologram-ai-download = { workspace = true }
+hologram-ai-cpu-encode = { workspace = true }
 hologram-ai-exact = { workspace = true }
 hologram-ai-model-reader = { workspace = true }
 hologram-ai-tokenizer = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 
 [lints]
 workspace = true

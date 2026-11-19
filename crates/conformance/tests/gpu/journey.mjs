@@ -14,6 +14,7 @@ import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles, onnxInitializer
 import { referenceModel } from "./reference.mjs";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
 import { mintTrust, signRoot } from "./hub-sign.mjs";
+import { buildEncoderFixture, ENCODER_TEXTS } from "./encoder-export.mjs";
 
 const site = process.argv[2];
 const playwright = process.env.PRISM_PLAYWRIGHT ?? "/opt/prismpm/oracles/node_modules/playwright/index.mjs";
@@ -106,6 +107,10 @@ async function onnxVisit(context, { variant, repo = onnx.repo, precision = null,
 }
 
 const onnx = buildOnnxFixture();
+// GP-35 and GP-36: an embedding model and a classifier, each its own
+// repository on its own hub, served as the ONNX export is.
+const encoders = { bert: buildEncoderFixture("bert"), distil: buildEncoderFixture("distil") };
+const encoderExpected = JSON.parse(await readFile(new URL("./encoder-expected.json", import.meta.url), "utf8"));
 // GP-24: another model's kept file, named by its BLAKE3.
 const foreign = { size: 300000 };
 foreign.name = blake3Hex(new Uint8Array(foreign.size).fill(7));
@@ -185,6 +190,24 @@ const server = http.createServer(async (request, response) => {
       response.setHeader("content-range", `bytes ${start}-${end}/${v.container.length}`);
       return response.end(v.container.subarray(start, end + 1));
     }
+    response.statusCode = 404;
+    return response.end();
+  }
+  const encoderRoute = path.match(/^\/encoder\/(bert|distil)\/(.*)$/);
+  if (encoderRoute) {
+    const f = encoders[encoderRoute[1]];
+    const resolve = `/encoder/${encoderRoute[1]}/files/`;
+    const hub = onnxHubFiles(f, { resolve });
+    const uor = uorIndexFiles([{ repo: f.repo, revision: f.revision, path: f.path, bytes: f.files.get(f.path), resolve }]);
+    const rest = encoderRoute[2];
+    if (rest === "index/root.json") return response.end(hub.root);
+    if (rest === `index/models/${f.repo}.json`) return response.end(hub.record);
+    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root));
+    if (rest === "uor/root.json") return response.end(uor.root);
+    const shard = rest.startsWith("uor/") ? uor.shards.get(rest.slice(4)) : null;
+    if (shard) return response.end(shard);
+    const served = rest.startsWith("files/") ? f.files.get(rest.slice(6)) : null;
+    if (served) return response.end(served);
     response.statusCode = 404;
     return response.end();
   }
@@ -299,7 +322,7 @@ try {
 
   // GP-25: the one call, imported and called on a page with no page code in
   // between, and refused by the kernel for a task it does not run.
-  for (const [name, task] of [["pipeline", "text-generation"], ["pipeline task", "feature-extraction"]]) {
+  for (const [name, task] of [["pipeline", "text-generation"], ["pipeline task", "summarization"]]) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
@@ -317,6 +340,35 @@ try {
       }
     }, { repo: onnx.repo, task });
     results.onnx[name] = { ...run, errors };
+    await page.close();
+  }
+
+  // GP-35 and GP-36: the one call for an embedding and for a label, on the
+  // module's integer encoder, with no page code in between.
+  for (const [kind, task] of [["bert", "feature-extraction"], ["distil", "text-classification"]]) {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ repo, task, kind, texts }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const checks = checklist();
+      const hex = (bits) => Array.from(new Uint8Array(bits.buffer, bits.byteOffset, bits.byteLength), (b) => b.toString(16).padStart(2, "0")).join("");
+      try {
+        const run = await pipeline(task, repo, { index: `/encoder/${kind}/index`, checks });
+        const outputs = [];
+        for (const text of texts) {
+          const out = await run(text);
+          outputs.push({ text, ids: Array.from(out.ids), label: out.index ?? null, name: out.label ?? null, bits: hex(out.bits) });
+        }
+        return { phase: "ready", device: run.device, dtype: run.dtype, checks: checks.items, outputs };
+      } catch (e) {
+        return { phase: "failed", error: String(e.message ?? e), checks: checks.items, outputs: [] };
+      }
+    }, { repo: encoders[kind].repo, task, kind, texts: ENCODER_TEXTS[kind] });
+    results.encoder ??= {};
+    results.encoder[kind] = { ...run, errors };
     await page.close();
   }
 
@@ -724,8 +776,28 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first",
   if (run.errors.length) fail(`pipeline: page errors: ${run.errors.join(" | ")}`);
   const task = results.onnx["pipeline task"];
   const stop = stoppedAt(task);
-  if (task.phase !== "failed" || stop?.step !== "source" || stop?.detail !== 'kernel answered "unsupported task"') fail(`pipeline task: expected the kernel to refuse feature-extraction, saw ${stop?.step} (${task.phase}: ${task.error})`);
+  if (task.phase !== "failed" || stop?.step !== "source" || stop?.detail !== 'kernel answered "unsupported task"') fail(`pipeline task: expected the kernel to refuse summarization, saw ${stop?.step} (${task.phase}: ${task.error})`);
   if (task.checks.some((c) => ["file", "kept", "import"].includes(c.step))) fail("pipeline task: the call went on past the task");
+}
+
+// GP-35 and GP-36: the page's encoder answers equal hologram-ai-cpu-encode's
+// bit for bit (encoder-expected.json, which EN-64 recomputes), on the CPU
+// device decision 22 chose, with every operator asked of the encoder style.
+for (const kind of ["bert", "distil"]) {
+  const run = results.encoder[kind];
+  const what = kind === "bert" ? "encoder embedding" : "encoder label";
+  if (run.phase !== "ready") fail(`${what}: ${run.error}`);
+  if (run.device !== "cpu" || run.dtype !== "q4f16") fail(`${what}: chose ${run.dtype} on ${run.device}`);
+  if (!run.checks.some((c) => c.step === "engine" && c.verdict === "pass")) fail(`${what}: no check names the module's integer encoder`);
+  const want = encoderExpected[kind];
+  if (run.outputs.length !== want.length) fail(`${what}: ${run.outputs.length} answers for ${want.length} sentences`);
+  run.outputs.forEach((got, i) => {
+    const w = want[i];
+    if (JSON.stringify(got.ids) !== JSON.stringify(w.ids)) fail(`${what}: "${got.text}" is ids ${got.ids}, not ${w.ids}`);
+    if (got.bits !== w.bits) fail(`${what}: "${got.text}": the page's bits are not hologram-ai-cpu-encode's`);
+    if (kind === "distil" && (got.label !== w.label || got.name !== ["NEGATIVE", "POSITIVE"][w.label])) fail(`${what}: "${got.text}" is ${got.name} (${got.label}), not label ${w.label}`);
+  });
+  if (run.errors.length) fail(`${what}: page errors: ${run.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.

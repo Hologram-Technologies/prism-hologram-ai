@@ -353,3 +353,17 @@ Feature: kernel
     Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
+
+  @KN-52 @build
+  Scenario: An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english
+    Given the operator model in app/src/Kernel/Opnames.lex.tex and its proofs in app/src/Proofs/Opnames.lex.tex
+    When the Lean kernel checks opname_listed_encoder and opname_listed_unknown during lexlean verify in the gate
+    Then style 2 asks the encoder list of 25 names, and no style past 2 lists any name
+    And the compiled guest answers supported for Erf and Gemm in an encoder graph, unsupported operator for Erf in a decomposed graph and for GroupQueryAttention in an encoder graph, and invalid request for style 3, as the claims it replays list
+
+  @KN-53 @build
+  Scenario: Decision 24 names the files of feature extraction and text classification as it names those of text generation, and refuses any other task
+    Given the source model in app/src/Kernel/Source.lex.tex and its proofs in app/src/Proofs/Source.lex.tex
+    When the Lean kernel checks source_named_decides and source_task_decides during lexlean verify in the gate
+    Then tasks 0, 1 and 2 are named alike and a task of 3 or more is answered unsupported task
+    And the compiled guest answers onnx/model_q4f16.onnx for feature extraction and onnx/model_q4.onnx for text classification, as the claims it replays list

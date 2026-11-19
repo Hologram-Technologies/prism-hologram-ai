@@ -10956,3 +10956,196 @@ fn engine_fl_73() {
         );
     }
 }
+
+/// The page's encoder fixtures (GP-35, GP-36): each encoder's tokenizer.json
+/// and config.json text and its sentences, from encoder-export.mjs.
+fn en_64_page() -> serde_json::Value {
+    let ran = std::process::Command::new("node")
+        .arg(root().join("crates/conformance/tests/gpu/encoder-export.mjs"))
+        .output()
+        .expect("node runs");
+    assert!(
+        ran.status.success(),
+        "encoder-export.mjs failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    serde_json::from_slice(ran.stdout.trim_ascii_end()).expect("encoder-export.mjs prints JSON")
+}
+
+/// Hand the page's module every weight of `f` as `encoder-roles` names them.
+fn en_64_module(f: &En62, config: &str) {
+    // As the page does: an encoder's import starts afresh, dropping the
+    // weights of the last one.
+    let label = wasm::given(&[0; 32]);
+    assert_eq!(wasm::onnx_start_encoder(label, 32, 0, 0), 0);
+    for (name, (first, second, rows, columns, q4)) in &f.bytes {
+        let mut given = Vec::new();
+        given.extend_from_slice(
+            &u32::try_from(name.len())
+                .expect("a short name")
+                .to_le_bytes(),
+        );
+        given.extend_from_slice(name.as_bytes());
+        // Kind 0 is a 4-bit matrix with half scales, 2 a dense half table.
+        given.push(if *q4 { 0 } else { 2 });
+        for n in [*rows, *columns, first.len()] {
+            given.extend_from_slice(&u32::try_from(n).expect("fits").to_le_bytes());
+        }
+        given.extend_from_slice(first);
+        given.extend_from_slice(second);
+        let at = wasm::given(&given);
+        assert_eq!(
+            wasm::encode_tensor(at, given.len() as u32),
+            0,
+            "{name}: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+    }
+    let at = wasm::given(config.as_bytes());
+    assert_eq!(
+        wasm::encode_open(at, config.len() as u32),
+        0,
+        "encode_open: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+}
+
+/// The lowercase hex of binary32 bits, four bytes each little-endian, as the
+/// page's journey writes them.
+fn en_64_hex(bits: &[u32]) -> String {
+    bits.iter()
+        .flat_map(|b| b.to_le_bytes())
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// `EN-64`: The page's module runs an encoder through hologram-ai-cpu-encode: given each weight by the role the page placed it in and the config's text, whose head and layer counts are whole numbers and whose LayerNorm epsilon is read from its decimal text in units of 2^-32, it answers a sentence's embedding, or a classifier's label scores and the first largest label chosen by comparing their bits as integers, bit for bit as hologram-ai-cpu-encode answers the same ids; and the ids and bits the page's journey must show (encoder-expected.json) are those
+#[test]
+fn engine_en_64() {
+    let (bert, distil) = en_62_fixtures();
+    let page = en_64_page();
+    let expected: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/gpu/encoder-expected.json"))
+            .expect("encoder-expected.json"),
+    )
+    .expect("encoder-expected.json is JSON");
+    let mut computed = serde_json::Map::new();
+    for (kind, f) in [("bert", &bert), ("distil", &distil)] {
+        let fixture = &page[kind];
+        let wordpiece = tokeniser::WordPiece::read(
+            fixture["tokenizer"]
+                .as_str()
+                .expect("tokenizer.json")
+                .as_bytes(),
+        )
+        .expect("the fixture's WordPiece reads");
+        let tensors = en_62_tensors(f);
+        let model = encode::read(&tensors, en_62_config(f)).expect("the encoder reads");
+        en_64_module(f, fixture["config"].as_str().expect("config.json"));
+        let mut rows = Vec::new();
+        for text in fixture["texts"].as_array().expect("texts") {
+            let text = text.as_str().expect("a sentence");
+            let ids = wordpiece.encode(text);
+            let id_bytes: Vec<u8> = ids.iter().flat_map(|i| i.to_le_bytes()).collect();
+            let at = wasm::given(&id_bytes);
+            let (want, label) = if kind == "bert" {
+                assert_eq!(wasm::encode_embed(at, id_bytes.len() as u32), 0);
+                (encode::embed(&model, &ids).expect("embeds"), None)
+            } else {
+                assert_eq!(wasm::encode_classify(at, id_bytes.len() as u32), 0);
+                let scores = encode::classify(&model, &ids).expect("classifies");
+                let label = encode::label(&scores).expect("a label");
+                (scores, Some(label))
+            };
+            let said: Vec<u32> = wasm::last_answer()
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            let said = match label {
+                Some(label) => {
+                    assert_eq!(said.first(), Some(&label), "{text}: the module's label");
+                    said[1..].to_vec()
+                }
+                None => said,
+            };
+            assert_eq!(
+                said, want,
+                "{text}: the module's bits are not hologram-ai-cpu-encode's"
+            );
+            rows.push(serde_json::json!({ "text": text, "ids": ids, "label": label, "bits": en_64_hex(&want) }));
+        }
+        computed.insert(kind.to_string(), serde_json::Value::Array(rows));
+    }
+    let computed = serde_json::Value::Object(computed);
+    if std::env::var_os("EN_64_WRITE").is_some() {
+        std::fs::write(
+            root().join("crates/conformance/tests/gpu/encoder-expected.json"),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&computed).expect("JSON")
+            ),
+        )
+        .expect("written");
+    }
+    assert_eq!(
+        expected, computed,
+        "encoder-expected.json is not what hologram-ai-cpu-encode answers; rerun with EN_64_WRITE=1 only if the encoder was meant to change"
+    );
+    // The epsilon is read exactly: 1e-12 is 0 in units of 2^-32, and the
+    // config's own text, not a float, says so; a non-number is refused.
+    for (config, status) in [
+        (
+            &br#"{"num_attention_heads": 4, "num_hidden_layers": 2, "layer_norm_eps": 1e-12}"#[..],
+            0,
+        ),
+        (
+            &br#"{"num_attention_heads": 4, "num_hidden_layers": 2, "layer_norm_eps": "x"}"#[..],
+            1,
+        ),
+    ] {
+        let at = wasm::given(config);
+        assert_eq!(
+            wasm::encode_open(at, config.len() as u32),
+            status,
+            "{}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+    }
+}
+
+/// `FL-74`: An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure
+#[test]
+fn engine_fl_74() {
+    let (bert, _) = en_62_fixtures();
+    // Every weight but the first layer's query projection: the module refuses
+    // to open the encoder, naming the attention role.
+    let mut held = bert.bytes.clone();
+    held.remove("l0.wq");
+    for (name, (first, second, rows, columns, q4)) in &held {
+        let mut given = Vec::new();
+        given.extend_from_slice(
+            &u32::try_from(name.len())
+                .expect("a short name")
+                .to_le_bytes(),
+        );
+        given.extend_from_slice(name.as_bytes());
+        given.push(if *q4 { 0 } else { 2 });
+        for n in [*rows, *columns, first.len()] {
+            given.extend_from_slice(&u32::try_from(n).expect("fits").to_le_bytes());
+        }
+        given.extend_from_slice(first);
+        given.extend_from_slice(second);
+        let at = wasm::given(&given);
+        assert_eq!(wasm::encode_tensor(at, given.len() as u32), 0);
+    }
+    let config = br#"{"num_attention_heads": 4, "num_hidden_layers": 2, "layer_norm_eps": 1e-12}"#;
+    let at = wasm::given(config);
+    assert_eq!(wasm::encode_open(at, config.len() as u32), 1);
+    assert_eq!(
+        wasm::last_answer(),
+        named(wasm::CallError::Encode(encode::EncodeError::Unrecognised(
+            encode::Role::Attention
+        ))),
+        "the page reads the encoder's own failure"
+    );
+}

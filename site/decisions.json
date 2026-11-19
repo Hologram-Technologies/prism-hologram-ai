@@ -1007,6 +1007,10 @@
             [
               "fused",
               1
+            ],
+            [
+              "encoder",
+              2
             ]
           ],
           "name": "Export style",
@@ -1331,6 +1335,14 @@
             [
               "text generation",
               0
+            ],
+            [
+              "feature extraction",
+              1
+            ],
+            [
+              "text classification",
+              2
             ]
           ],
           "name": "Task",

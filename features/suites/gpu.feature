@@ -197,7 +197,7 @@ Feature: gpu
     Given GP-19's Qwen3-shaped ONNX export and its hub record
     When `just page-journey` imports site/app/engine/pipeline.mjs on a page and calls pipeline("text-generation", the export, { index }) with no page code in between, then calls the function it answers with "hi"
     Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
-    And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
+    And pipeline("summarization", the export) stops at the kernel's answer unsupported task, with no file read
     And the engine page's own visits load and answer through the same call
 
   @GP-26 @build
@@ -242,3 +242,15 @@ Feature: gpu
     Then the first turn computes the whole prompt and asks nothing about reuse
     And the second is answered reuse for the head, computes only the positions after it, and its tokens are exactly the first turn's, which are the reference's
     And each turn reports its time to first token
+
+  @GP-35 @build
+  Scenario: pipeline("feature-extraction", model) loads a BERT encoder exported as Xenova's all-MiniLM-L6-v2 q4f16 export is, from its hub record and its own files, imports it with every operator asked of decision 18's encoder style and its file named by decision 24, places its weights by the node that reads them, int64 position ids left out, and answers each sentence's WordPiece ids and unit-length embedding from the module's integer encoder, bit for bit hologram-ai-cpu-encode's, on the CPU device decision 22 chose
+    Given GP-13's encoder written as Xenova's all-MiniLM-L6-v2 export is, with its int64 position ids, a WordPiece tokenizer and a hub record and UOR index of its own
+    When `just page-journey` calls pipeline("feature-extraction", the export, { index }) on a page and runs it on each sentence of ENCODER_TEXTS
+    Then the device is the CPU, the precision q4f16, a check names the module's integer encoder, and every sentence's ids and embedding bits are encoder-expected.json's
+
+  @GP-36 @build
+  Scenario: pipeline("text-classification", model) loads a DistilBERT classifier exported as Xenova's SST-2 q4f16 export is and answers each sentence's label, chosen by the module by comparing the scores' bits as integers and named by the config's id2label, and the scores, bit for bit hologram-ai-cpu-encode's
+    Given GP-14's classifier written as Xenova's SST-2 DistilBERT export is
+    When `just page-journey` calls pipeline("text-classification", the export, { index }) and runs it on each sentence
+    Then every sentence's ids, label, label name and score bits are encoder-expected.json's

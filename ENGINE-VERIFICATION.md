@@ -2897,6 +2897,38 @@ and a misshapen feed-forward as `Unrecognised`, an infinite scale as
 sentence, an id past the vocabulary and 65 tokens past a 64-row position
 table as `TokenOutOfRange`.
 
-Not yet: the page's feature-extraction and text-classification paths through
-the module, and the agreement on the real exports, which waits on Ilya's word
-to download them.
+The agreement on the real exports is recorded in the ledger
+(`OPEN-ENCODERS-INTEGER-AGREEMENT`); the page's paths are EN-64's.
+
+## EN-64, the encoders in the page's module
+
+The page's module runs the same `hologram-ai-cpu-encode`, so the page's
+embedding and label are this crate's bits. The page hands it each weight by
+the role `encoderRoles` placed it in (`encode_tensor`), then the text of
+config.json (`encode_open`): the head and layer counts as whole numbers, under
+BERT's or DistilBERT's names, and the LayerNorm epsilon from its decimal text,
+`m * 10^e` read as integers and rounded half to even to units of `2^-32`, so
+no float lies on the way (DistilBERT's config names none and is at 1e-12, 0 in
+these units). `encode_embed` answers the embedding's binary32 bits;
+`encode_classify` answers the label first, chosen by `label` comparing the
+scores' bits as integers, then the scores. The tokenizer is read by
+`wordpiece_read`, since BERT's files split by WordPiece, and a graph imported
+with `onnx_start_encoder` asks decision 18's encoder style (KN-52).
+
+`engine_en_64` hands the module GP-13's and GP-14's encoders and the ids the
+fixtures' own WordPiece gives four sentences, and asserts the module's bits
+equal the crate's; then that `crates/conformance/tests/gpu/encoder-expected.json`,
+which the page's journey must show (GP-35, GP-36), holds exactly those ids and
+bits. Written once with `EN_64_WRITE=1`, it is compared on every run after.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_64 engine_fl_74`
+
+| Planted defect | Result |
+| --- | --- |
+| one hex digit of the first embedding's bits in encoder-expected.json changed (`3817d2bd` to `3817d2be`) | rejected: `encoder-expected.json is not what hologram-ai-cpu-encode answers` |
+| the module kept the last encoder's weights when a second was opened, as the test first did | rejected: `a good film: the module's label` (`Some(0)`, not `Some(1)`: BERT's token-type table read into DistilBERT) |
+| none | passed, with EN-62, EN-63 and FL-70 to FL-73 |
+
+FL-74: with the first layer's query matrix left out, `encode_open` says no
+and leaves `Encode(Unrecognised(Attention))` where the page reads answers.
+

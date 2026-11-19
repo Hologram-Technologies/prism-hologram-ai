@@ -16,6 +16,7 @@
 // 27. The page is one caller of this module; nothing here reads the page.
 
 import { createCpuEngine } from "./cpu.mjs";
+import { createIntegerEncoder } from "./integer-encoder.mjs";
 import { createEngine } from "./gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
@@ -25,8 +26,10 @@ import { keepFiles, manifestReady } from "./files.mjs";
 // The precisions this engine runs, in the kernel's code for decision 24.
 export const PRECISIONS = { q4f16: 0, q4: 1 };
 // The tasks, in decision 24's code. The kernel answers unsupported task for
-// any but text generation; the module refuses nothing itself.
+// any other; the module refuses nothing itself.
 export const TASKS = { "text-generation": 0, "feature-extraction": 1, "text-classification": 2 };
+// The tasks an encoder answers, on the module's integer engine (row 9).
+const ENCODER_TASKS = new Set(["feature-extraction", "text-classification"]);
 // What the kernel's choice of precision and device is weighed against. No
 // browser reports how much memory a GPU has, so its budget is a stated 4 GiB;
 // the CPU engine, single-threaded on a static host, takes models up to 1 GiB.
@@ -141,7 +144,9 @@ export async function pipeline(task, model, options = {}) {
   }
   onStatus("Downloading and checking every tensor…");
   let on = null;
+  const encoding = ENCODER_TASKS.has(task);
   const loading = loadOnnx({
+    encoder: encoding,
     record,
     path,
     open: files ? files.open : fetched(base),
@@ -179,7 +184,7 @@ export async function pipeline(task, model, options = {}) {
   });
   // A failed load forgets every file it read or kept here, since one of them
   // may be the file that was not the record's; the next load downloads them.
-  const { engine, stops, chat } = await loading.catch(async (e) => {
+  const loaded = await loading.catch(async (e) => {
     if (files) await files.forget();
     throw e;
   });
@@ -191,8 +196,23 @@ export async function pipeline(task, model, options = {}) {
     const t = files.tensors;
     checks.add("store", "tensors kept once by their BLAKE3 address, only those not held downloaded", "pass", `${t.read} tensors read here (${t.readBytes} bytes), ${t.fetched} downloaded (${t.fetchedBytes} bytes), ${t.kept} newly kept (${t.keptBytes} bytes), ${t.restFetchedBytes} bytes of the rest downloaded, in ${t.reads} reads`);
   }
+  if (encoding) return encoderPipeline({ task, model, dtype: chosen, record, module, ask, checks, loaded, size: sizes[chosen].bytes });
+  const { engine, stops, chat } = loaded;
   const generate = turner({ engine, module, ask, stops, chat });
   return Object.assign(generate, { task, model, dtype: chosen, device: on, engine, module, record });
+}
+
+// An encoder's task on the module's integer engine: `embed(text)` answers
+// the sentence embedding's bits and their Float32Array view, `classify(text)`
+// the label the module chose and every score. The device is decision 22's,
+// asked as for a browser with no GPU, since only the module runs encoders.
+async function encoderPipeline({ task, model, dtype, record, module, ask, checks, loaded, size }) {
+  const largest = Math.max(...Object.values(loaded.table.places).map((place) => place[2]));
+  const device = await ask("device", "device to run on", join(new Uint8Array([22, 0]), be(0, 8), be(largest, 8), be(size, 8), be(CPU_CEILING, 8)), (a) => a === "cpu");
+  const encoder = createIntegerEncoder({ module, ...loaded });
+  checks.add("engine", "the encoder runs on the module's integer engine", "pass", `${encoder.dims.n_layers} layers of width ${encoder.dims.d}, every stage on integers (EN-62${task === "text-classification" ? ", EN-63" : ""})`);
+  const run = task === "feature-extraction" ? (text) => encoder.embed(text) : (text) => encoder.classify(text);
+  return Object.assign(async (text) => run(text), { task, model, dtype, device, engine: encoder, module, record });
 }
 
 // One turn of a loaded model: `generate(text, { max_new_tokens, onToken })`.

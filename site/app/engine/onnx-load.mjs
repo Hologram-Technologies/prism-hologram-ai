@@ -48,7 +48,7 @@ async function whole(stream) {
 
 // `admitted(table)` is asked after the import and before any weight is placed:
 // the pipeline puts the importer's own addresses to decision 28 there.
-export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, admitted = async () => {}, onProgress = () => {} }) {
+export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, admitted = async () => {}, onProgress = () => {}, encoder = false }) {
   // A file the record names, with its BLAKE3. A record that gives a file no
   // BLAKE3 is refused: Hugging Face's SHA-256 and Git's SHA-1 are not checked.
   const entry = (p) => {
@@ -76,7 +76,8 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   };
   const config = JSON.parse(text.decode(await small("config.json")));
   const generation = await small("generation_config.json", true);
-  m.callWith("tokeniser_read", await small("tokenizer.json"));
+  // An encoder splits text by WordPiece, a decoder by byte pairs.
+  m.callWith(encoder ? "wordpiece_read" : "tokeniser_read", await small("tokenizer.json"));
   // The chat template is the model's own, from tokenizer_config.json, with the
   // special tokens it names; a list of templates gives the one named default.
   const tokenizerConfig = await small("tokenizer_config.json", true);
@@ -118,7 +119,8 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   const graph = entry(path);
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
   const declared = record.files.filter((f) => f.path.startsWith(`${path}_data`)).length;
-  m.callWith("onnx_start", unhex(graph.blake3), BigInt(graph.size), declared);
+  // An encoder's operators are asked of decision 18's encoder style (KN-52).
+  m.callWith(encoder ? "onnx_start_encoder" : "onnx_start", unhex(graph.blake3), BigInt(graph.size), declared);
   await stream(0, path, (chunk) => m.callWith("onnx_take", chunk));
   const dataFiles = text.decode(m.call("onnx_graph_finish")).split("\n").filter(Boolean);
   for (const [i, name] of dataFiles.entries()) {
@@ -143,6 +145,10 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     }
     return out;
   };
+
+  // An encoder is placed and run by integer-encoder.mjs, from the import and
+  // the config's own text, which the module reads exactly.
+  if (encoder) return { table, read, config: text.decode(await small("config.json")), asked };
 
   const { dims, weights } = roles(table, config);
   checks.add("roles", "every weight placed by the node that reads it", "pass", `${weights.size} tensors for ${config.model_type}, ${dims.n_layers} layers`);

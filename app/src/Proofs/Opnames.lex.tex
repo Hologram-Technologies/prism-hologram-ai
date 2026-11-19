@@ -12,5 +12,21 @@ theorem{
   proof: linear_arithmetic{definitions: [Kernel.Opnames::opnameIs]},
   axioms: [propext]
 }
+
+theorem{
+  name: opname_listed_encoder,
+  parameters: [wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  statement: ((Kernel.Opnames::opnameListed 2 wa wb wc wd) = (Kernel.Opnames::opnameEncoder wa wb wc wd)),
+  proof: simplify{definitions: [Kernel.Opnames::opnameListed]},
+  axioms: [propext]
+}
+
+theorem{
+  name: opname_listed_unknown,
+  parameters: [style : Nat, wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  statement: ((3 <= style) -> ((Kernel.Opnames::opnameListed style wa wb wc wd) = false)),
+  proof: linear_arithmetic{definitions: [Kernel.Opnames::opnameListed]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

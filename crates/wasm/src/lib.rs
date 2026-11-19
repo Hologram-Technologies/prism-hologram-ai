@@ -49,12 +49,13 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use hologram_ai_cpu_encode as encode;
 use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
-use hologram_ai_exact::{request_product, Layout};
+use hologram_ai_exact::{request_product, Dense, Layout, Q4Scales};
 use hologram_ai_model_reader::holk::Container;
 use hologram_ai_model_reader::onnx::{DataFile, File, Graph, ImportError, Imported, ReadFile};
 use hologram_ai_model_reader::Kernel;
-use hologram_ai_tokenizer::Tokeniser;
+use hologram_ai_tokenizer::{Tokeniser, WordPiece};
 
 /// The call was answered; the result buffer holds the answer.
 const OK: u32 = 0;
@@ -82,6 +83,9 @@ pub enum CallError {
     WrongSize,
     /// `FL-49`: the ONNX importer refused, named as `ImportError` names it.
     Import(ImportError),
+    /// `FL-74`: an encoder could not be read from the weights handed over, or
+    /// could not run, named as `EncodeError` names it.
+    Encode(encode::EncodeError),
 }
 
 /// What the module holds between calls.
@@ -940,6 +944,332 @@ pub extern "C" fn hash_finish(id: u32) -> u32 {
     answer(|state| {
         let hasher = state.hashing.remove(&id).ok_or(CallError::NothingRead)?;
         Ok(hasher.finalize().as_bytes().to_vec())
+    })
+}
+
+// ─── An encoder, run in the page (row 9) ────────────────────────────────────
+
+/// One weight as `encode_tensor` took it.
+struct Held {
+    kind: u8,
+    rows: usize,
+    columns: usize,
+    /// The codes of a 4-bit matrix, or a dense weight's values.
+    first: Vec<u8>,
+    /// A 4-bit matrix's scales; empty for a dense weight.
+    second: Vec<u8>,
+}
+
+/// An encoder's weights as the page hands them over, by role, and its config.
+#[derive(Default)]
+struct Encoder {
+    tensors: BTreeMap<String, Held>,
+    /// The encoder's WordPiece tokeniser, once `wordpiece_read` has read it.
+    wordpiece: Option<WordPiece>,
+    /// What the weights do not say, once `encode_open` has read the config.
+    config: Option<encode::Config>,
+}
+
+thread_local! {
+    static ENCODE: RefCell<Encoder> = RefCell::new(Encoder::default());
+}
+
+/// Start importing an encoder's graph file: as `onnx_start`, but its
+/// operators are asked of decision 18's encoder style (KN-52), since an
+/// encoder's 4-bit weights name the fused domain as a decoder's do.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_start_encoder(at: u32, len: u32, length: u64, declared: u32) -> u32 {
+    answer(|state| {
+        let declared = u8::try_from(declared).map_err(|_| CallError::WrongSize)?;
+        let file = onnx_file(state, "graph".into(), (at, len), 0, declared, length)?;
+        ONNX.with_borrow_mut(|onnx| {
+            *onnx = OnnxImport {
+                graph: Some(Graph::encoder(file)),
+                ..OnnxImport::default()
+            };
+        });
+        ENCODE.with_borrow_mut(|e| {
+            e.tensors.clear();
+            e.config = None;
+        });
+        Ok(Vec::new())
+    })
+}
+
+/// One weight of an encoder, by the role the page placed it in
+/// (`encoderRoles`, GP-17): four bytes of name length, the name, one byte of
+/// kind (0 a 4-bit matrix with half scales, 1 with binary32 scales, 2 dense
+/// halves, 3 dense binary32, 4 dense bfloat16), four bytes each of rows and
+/// columns, four bytes of the first part's length, the first part (the codes,
+/// or the values), then the scales; all little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_tensor(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let word = |at: usize| -> Result<usize, CallError> {
+            let bytes: [u8; 4] = given
+                .get(at..at + 4)
+                .and_then(|b| b.try_into().ok())
+                .ok_or(CallError::WrongSize)?;
+            Ok(u32::from_le_bytes(bytes) as usize)
+        };
+        let named = word(0)?;
+        let name = given.get(4..4 + named).ok_or(CallError::WrongSize)?;
+        let name = String::from_utf8(name.to_vec()).map_err(|_| CallError::NotText)?;
+        let at = 4 + named;
+        let kind = *given.get(at).ok_or(CallError::WrongSize)?;
+        if kind > 4 {
+            return Err(CallError::WrongSize);
+        }
+        let (rows, columns, first) = (word(at + 1)?, word(at + 5)?, word(at + 9)?);
+        let first = given
+            .get(at + 13..at + 13 + first)
+            .ok_or(CallError::WrongSize)?
+            .to_vec();
+        let second = given
+            .get(at + 13 + first.len()..)
+            .unwrap_or_default()
+            .to_vec();
+        ENCODE.with_borrow_mut(|e| {
+            e.tensors.insert(
+                name,
+                Held {
+                    kind,
+                    rows,
+                    columns,
+                    first,
+                    second,
+                },
+            );
+        });
+        Ok(Vec::new())
+    })
+}
+
+/// A number of `fields` that is a whole number, read exactly from its text.
+fn whole_field(fields: &serde_json::Value, keys: &[&str]) -> Result<usize, CallError> {
+    keys.iter()
+        .find_map(|key| fields.get(*key))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or(CallError::NotText)
+}
+
+/// LayerNorm's epsilon in units of `2^-32`, rounded half to even, from the
+/// decimal text of the config's number: `m * 10^e` is read as integers, so no
+/// float lies on the way. A model whose config names none (DistilBERT's) is
+/// at transformers' default, 1e-12, which is 0 in these units.
+fn epsilon_units(text: Option<&str>) -> Result<u64, CallError> {
+    let Some(text) = text else {
+        return Ok(0);
+    };
+    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+        Some((m, e)) => (m, e.parse::<i32>().map_err(|_| CallError::NotText)?),
+        None => (text, 0),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{whole}{fraction}");
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(CallError::NotText);
+    }
+    let m: u128 = digits.parse().map_err(|_| CallError::WrongSize)?;
+    let shift = exponent - i32::try_from(fraction.len()).map_err(|_| CallError::WrongSize)?;
+    let scaled = m
+        .checked_shl(32)
+        .filter(|s| s >> 32 == m)
+        .ok_or(CallError::WrongSize)?;
+    let units = if shift >= 0 {
+        10u128
+            .checked_pow(shift.unsigned_abs())
+            .and_then(|p| scaled.checked_mul(p))
+            .ok_or(CallError::WrongSize)?
+    } else {
+        match 10u128.checked_pow(shift.unsigned_abs()) {
+            // Past 10^38 the value is below half a unit.
+            None => 0,
+            Some(d) => {
+                let (q, r) = (scaled / d, scaled % d);
+                let twice = r.checked_mul(2).ok_or(CallError::WrongSize)?;
+                if twice > d || (twice == d && q % 2 == 1) {
+                    q + 1
+                } else {
+                    q
+                }
+            }
+        }
+    };
+    u64::try_from(units).map_err(|_| CallError::WrongSize)
+}
+
+/// Read the encoder the held weights make: `config` is the text of the
+/// model's config.json. Its head and layer counts are whole numbers, read as
+/// BERT (`num_attention_heads`, `num_hidden_layers`) or DistilBERT (`n_heads`,
+/// `n_layers`) names them, and `layer_norm_eps` by `epsilon_units`. Answers
+/// nothing; a role missing or misshapen is `Encode(Unrecognised(..))` (FL-74).
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_open(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let text = text_of(state, at, len)?;
+        let fields: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| CallError::NotText)?;
+        let eps: BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_str(&text).map_err(|_| CallError::NotText)?;
+        let config = encode::Config {
+            heads: whole_field(&fields, &["num_attention_heads", "n_heads"])?,
+            layers: whole_field(&fields, &["num_hidden_layers", "n_layers"])?,
+            epsilon: epsilon_units(eps.get("layer_norm_eps").map(|v| v.get()))?,
+        };
+        ENCODE.with_borrow_mut(|e| {
+            with_encoder(e, config, |_| Ok(()))?;
+            e.config = Some(config);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The encoder the held weights make under `config`, lent to `run`.
+fn with_encoder<T>(
+    e: &Encoder,
+    config: encode::Config,
+    run: impl FnOnce(&encode::Model<'_>) -> Result<T, CallError>,
+) -> Result<T, CallError> {
+    let tensors: BTreeMap<String, encode::Tensor<'_>> = e
+        .tensors
+        .iter()
+        .map(|(name, held)| {
+            let Held {
+                kind,
+                rows,
+                columns,
+                first,
+                second,
+            } = held;
+            let (rows, columns) = (*rows, *columns);
+            let tensor = match kind {
+                0 | 1 => encode::Tensor::Q4 {
+                    codes: first,
+                    scales: if *kind == 0 {
+                        Q4Scales::F16(second)
+                    } else {
+                        Q4Scales::F32(second)
+                    },
+                    rows,
+                    columns,
+                },
+                2 => encode::Tensor::Dense {
+                    values: Dense::F16(first),
+                    rows,
+                    columns,
+                },
+                3 => encode::Tensor::Dense {
+                    values: Dense::F32(first),
+                    rows,
+                    columns,
+                },
+                _ => encode::Tensor::Dense {
+                    values: Dense::Bf16(first),
+                    rows,
+                    columns,
+                },
+            };
+            (name.clone(), tensor)
+        })
+        .collect();
+    let model = encode::read(&tensors, config).map_err(CallError::Encode)?;
+    run(&model)
+}
+
+/// Token ids, four bytes each little-endian, through the encoder `encode_open`
+/// read, answering `outputs`' binary32 bits, four bytes each.
+fn encode_ids(
+    state: &State,
+    at: u32,
+    len: u32,
+    outputs: impl FnOnce(&encode::Model<'_>, &[u32]) -> Result<Vec<u32>, CallError>,
+) -> Result<Vec<u8>, CallError> {
+    let given = taken(state, at, len)?;
+    if given.len() % TOKEN_BYTES != 0 {
+        return Err(CallError::WrongSize);
+    }
+    let ids: Vec<u32> = given
+        .chunks_exact(TOKEN_BYTES)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    ENCODE.with_borrow(|e| {
+        let config = e.config.ok_or(CallError::NothingRead)?;
+        with_encoder(e, config, |model| {
+            let bits = outputs(model, &ids)?;
+            Ok(bits.iter().flat_map(|b| b.to_le_bytes()).collect())
+        })
+    })
+}
+
+/// Read an encoder's WordPiece tokeniser from its `tokenizer.json`: BERT's
+/// and DistilBERT's split text by WordPiece, not by byte pairs, and wrap a
+/// sentence in `[CLS]` and `[SEP]` as the file's template says.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn wordpiece_read(at: u32, len: u32) -> u32 {
+    STATE.with_borrow_mut(|state| {
+        let bytes = match taken(state, at, len) {
+            Ok(bytes) => bytes,
+            Err(why) => return failed(state, &format!("{why:?}")),
+        };
+        match WordPiece::read(&bytes) {
+            Ok(wordpiece) => {
+                ENCODE.with_borrow_mut(|e| e.wordpiece = Some(wordpiece));
+                state.result.clear();
+                OK
+            }
+            Err(why) => failed(state, &format!("{why:?}")),
+        }
+    })
+}
+
+/// A sentence's ids by the WordPiece tokeniser read, four bytes each,
+/// little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn wordpiece_encode(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let text = text_of(state, at, len)?;
+        ENCODE.with_borrow(|e| {
+            let wordpiece = e.wordpiece.as_ref().ok_or(CallError::NothingRead)?;
+            Ok(wordpiece
+                .encode(&text)
+                .iter()
+                .flat_map(|id| id.to_le_bytes())
+                .collect())
+        })
+    })
+}
+
+/// A sentence's ids to its embedding at unit length (EN-62), as binary32 bits.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_embed(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        encode_ids(state, at, len, |model, ids| {
+            encode::embed(model, ids).map_err(CallError::Encode)
+        })
+    })
+}
+
+/// A sentence's ids to a classifier's label: the index of the first largest
+/// score, compared as integers (`hologram_ai_cpu_encode::label`), then every
+/// label's score (EN-63) as binary32 bits, all four bytes each.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_classify(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        encode_ids(state, at, len, |model, ids| {
+            let scores = encode::classify(model, ids).map_err(CallError::Encode)?;
+            let label = encode::label(&scores).unwrap_or(u32::MAX);
+            Ok(std::iter::once(label).chain(scores).collect())
+        })
     })
 }
 
