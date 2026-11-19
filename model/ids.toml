@@ -599,6 +599,12 @@ suite = "kernel"
 statement = "A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it"
 
 [[id]]
+id = "KN-47"
+level = "build"
+suite = "kernel"
+statement = "The kernel renders a conversation of up to eight system, user and assistant turns as Qwen2.5's, Qwen3's or Llama 3.2's chat template renders it, by its own definition (decision 46): Qwen2.5's default system line, Qwen3's empty thinking block when thinking is off and its trailing assistant turn, Llama 3.2's date line and Python's whitespace trim; a Qwen3 assistant turn carrying </think> reasoning, a role past assistant and a request of the wrong length are refused by name"
+
+[[id]]
 id = "KN-45"
 level = "build"
 suite = "kernel"
@@ -724,3 +730,9 @@ id = "EN-47"
 level = "build"
 suite = "engine"
 statement = "RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused"
+[[id]]
+id = "EN-54"
+level = "build"
+suite = "engine"
+statement = "hologram-ai-chat renders a conversation in the subset the engine defines as transformers renders the model's own chat template, for every recorded case of Qwen2.5-1.5B-Instruct, Qwen3-0.6B and Llama 3.2 1B Instruct the subset holds, and asks decision 46 the same conversation, whose claims the guest replays"
+

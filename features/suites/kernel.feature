@@ -357,3 +357,10 @@ Feature: kernel
     Then a template is named a family exactly when the four 8-byte words of its BLAKE3 are that family's, and no other code is given
     And the app recipe replays decision 45 in the guest for the three templates, a template of the gate's own and a request of the wrong length
     And the engine page asks decision 45 for the template its model's tokenizer_config.json carries, and stops by name on any other
+
+  @KN-47 @build
+  Scenario: The kernel renders a conversation of up to eight system, user and assistant turns as Qwen2.5's, Qwen3's or Llama 3.2's chat template renders it, by its own definition (decision 46): Qwen2.5's default system line, Qwen3's empty thinking block when thinking is off and its trailing assistant turn, Llama 3.2's date line and Python's whitespace trim; a Qwen3 assistant turn carrying </think> reasoning, a role past assistant and a request of the wrong length are refused by name
+    Given the chat model in app/src/Kernel/Chat.lex.tex and its proofs in app/src/Proofs/Chat.lex.tex
+    When the Lean kernel checks the whitespace, role and family theorems during lexlean verify in the gate
+    Then the trim strips exactly Python's whitespace below 33, only the three roles and the three families are rendered
+    And the app recipe replays decision 46 in the guest for every recorded case that fits one request, each answered with the text transformers renders

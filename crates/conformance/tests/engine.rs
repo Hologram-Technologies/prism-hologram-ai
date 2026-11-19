@@ -9725,3 +9725,142 @@ fn engine_en_47() {
         "an epsilon at 2^32 was not refused"
     );
 }
+
+/// The recorded cases of one export's template: (name, context, text), and
+/// the date its strftime_now gave.
+fn en_54_cases(file: &str) -> (Vec<(String, serde_json::Value, String)>, String) {
+    let recorded: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root()
+                .join("crates/conformance/tests/gpu/templates")
+                .join(file),
+        )
+        .expect("the recorded template"),
+    )
+    .expect("JSON");
+    let cases = recorded["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .map(|c| {
+            (
+                c["name"].as_str().expect("a name").to_string(),
+                c["context"].clone(),
+                c["text"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    (
+        cases,
+        recorded["date"].as_str().expect("a date").to_string(),
+    )
+}
+
+/// A recorded case as the defined subset reads it; `None` for one outside it.
+fn en_54_conversation(
+    context: &serde_json::Value,
+) -> Option<Vec<(hologram_ai_chat::template::Role, String)>> {
+    use hologram_ai_chat::template::Role;
+    if context.get("tools").is_some() {
+        return None;
+    }
+    context["messages"]
+        .as_array()?
+        .iter()
+        .map(|m| {
+            if m.get("tool_calls").is_some() {
+                return None;
+            }
+            let role = match m["role"].as_str()? {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                _ => return None,
+            };
+            Some((role, m["content"].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+fn en_54_options(context: &serde_json::Value, date: &str) -> hologram_ai_chat::template::Options {
+    let date = context["date_string"].as_str().unwrap_or(date);
+    hologram_ai_chat::template::Options {
+        add_generation_prompt: context["add_generation_prompt"].as_bool().unwrap_or(false),
+        thinking_off: context["enable_thinking"] == serde_json::Value::Bool(false),
+        date: date.as_bytes().try_into().expect("an eleven-byte date"),
+    }
+}
+
+/// `EN-54`: hologram-ai-chat renders a conversation in the subset the engine defines as transformers renders the model's own chat template, for every recorded case of Qwen2.5-1.5B-Instruct, Qwen3-0.6B and Llama 3.2 1B Instruct the subset holds, and asks decision 46 the same conversation, whose claims the guest replays
+#[test]
+fn engine_en_54() {
+    use hologram_ai_chat::template::{self, Family, Message};
+    let claims: Vec<(String, String)> = kernel_claims();
+    let mut rendered = 0;
+    let mut claimed = 0;
+    for (file, family) in [
+        ("Qwen2.5-1.5B-Instruct.json", Family::Qwen25),
+        ("Qwen3-0.6B-ONNX.json", Family::Qwen3),
+        ("Llama-3.2-1B-Instruct-ONNX.json", Family::Llama32),
+    ] {
+        let (cases, date) = en_54_cases(file);
+        for (name, context, text) in cases {
+            let Some(turns) = en_54_conversation(&context) else {
+                continue;
+            };
+            let messages: Vec<Message<'_>> = turns
+                .iter()
+                .map(|(role, content)| Message {
+                    role: *role,
+                    content,
+                })
+                .collect();
+            let options = en_54_options(&context, &date);
+            let Ok(ours) = template::render(family, &messages, options) else {
+                assert!(
+                    family == Family::Qwen3 && name.starts_with("thinking"),
+                    "{file} {name}: refused outside the reasoning case"
+                );
+                continue;
+            };
+            assert_eq!(ours, text, "{file} {name}: the render is not transformers'");
+            rendered += 1;
+            if let Some(request) = template::request(family, &messages, options) {
+                let hex: String = request.iter().map(|b| format!("{b:02x}")).collect();
+                assert!(
+                    claims.iter().any(|(r, a)| *r == hex && *a == text),
+                    "{file} {name}: no decision-46 claim asks it with the recorded text"
+                );
+                claimed += 1;
+            }
+        }
+    }
+    assert!(
+        rendered >= 30,
+        "only {rendered} recorded cases are in the subset"
+    );
+    assert!(claimed >= 12, "only {claimed} cases are claims");
+}
+
+/// `FL-60`: A Qwen3 assistant turn carries </think> reasoning, which the defined subset leaves out, so the conversation is refused by name
+#[test]
+fn engine_fl_60() {
+    use hologram_ai_chat::template::{self, Family, Message, TemplateError};
+    let (cases, date) = en_54_cases("Qwen3-0.6B-ONNX.json");
+    let (_, context, _) = cases
+        .into_iter()
+        .find(|(name, _, _)| name == "thinking")
+        .expect("the thinking case");
+    let turns = en_54_conversation(&context).expect("system, user and assistant turns");
+    let messages: Vec<Message<'_>> = turns
+        .iter()
+        .map(|(role, content)| Message {
+            role: *role,
+            content,
+        })
+        .collect();
+    assert_eq!(
+        template::render(Family::Qwen3, &messages, en_54_options(&context, &date)),
+        Err(TemplateError::ReasoningInTurn)
+    );
+}

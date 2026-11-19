@@ -3632,3 +3632,66 @@ fn kernel_kn_46() {
         );
     }
 }
+
+/// `KN-47`: The kernel renders a conversation of up to eight system, user and assistant turns as Qwen2.5's, Qwen3's or Llama 3.2's chat template renders it, by its own definition (decision 46): Qwen2.5's default system line, Qwen3's empty thinking block when thinking is off and its trailing assistant turn, Llama 3.2's date line and Python's whitespace trim; a Qwen3 assistant turn carrying </think> reasoning, a role past assistant and a request of the wrong length are refused by name
+#[test]
+fn kernel_kn_47() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Chat.lex.tex");
+    let proofs = model("app/src/Proofs/Chat.lex.tex");
+    for (theorem, statement, axioms) in [
+        ("chat_space_tab_to_return", "((9 <= byte) -> ((byte <= 13) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Quot.sound, propext"),
+        ("chat_space_separators", "((28 <= byte) -> ((byte <= 32) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Quot.sound, propext"),
+        ("chat_space_not_below", "((byte < 9) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
+        ("chat_space_not_between", "((13 < byte) -> ((byte < 28) -> ((Kernel.Chat::chatSpaceByte byte) = false)))", "Quot.sound, propext"),
+        ("chat_space_not_above", "((32 < byte) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
+        ("chat_role_known_decides", "(((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2))", "propext"),
+        ("chat_family_known_decides", "(((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\\ (family <= 3)))", "Classical.choice, Quot.sound, propext"),
+    ] {
+        assert_pinned(&proofs, theorem, statement, axioms);
+    }
+    for name in [
+        "chatTrim",
+        "chatQwenTurns",
+        "chatQwenHead",
+        "chatQwenPrompt",
+        "chatLlama",
+        "chatRender",
+        "chatAnswer",
+    ] {
+        declaration(&kernel, name);
+    }
+    assert_routed(46, "Kernel.Chat::chatAnswer");
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("claims"),
+    )
+    .expect("claims.json is JSON");
+    let answers: Vec<&str> = claims["claims"]
+        .as_array()
+        .expect("claims")
+        .iter()
+        .filter(|c| c["request"].as_str().is_some_and(|r| r.starts_with("2e")))
+        .filter_map(|c| c["answer"].as_str())
+        .collect();
+    for wanted in [
+        "refused: reasoning in a turn",
+        "refused: unknown role",
+        "invalid request",
+    ] {
+        assert!(
+            answers.contains(&wanted),
+            "no decision-46 claim is answered `{wanted}`"
+        );
+    }
+    for family in [
+        "<|im_start|>system\nYou are Qwen",
+        "<|im_start|>user\nhi",
+        "<|begin_of_text|>",
+    ] {
+        assert!(
+            answers.iter().any(|a| a.starts_with(family)),
+            "no decision-46 claim renders as `{family}`"
+        );
+    }
+}
