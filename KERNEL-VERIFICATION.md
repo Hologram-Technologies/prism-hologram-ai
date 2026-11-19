@@ -76,6 +76,7 @@ The inherited gates and their own planted defects are in
 | `KN-34`: every product of a 32-wide block lies in exactly one of the positive and negative parts, by the signs of its weight code and activation; a block is `exact` exactly when the claim plus the negative part equals the positive part plus 32768; at most one claim is exact | `parts_cover_every_product` (by induction over the places), the four sign theorems `agrees_when_both_positive`, `agrees_when_both_negative`, `differs_when_weight_positive` and `differs_when_weight_negative`, `weight_size_about_eight`, `activation_size_about_zero`, `accepts_decides` and `accepts_one_claim`, checked by the Lean kernel | proved |
 | `KN-35`: a content label is admitted as an address exactly when its first seven bytes are `blake3:`; `sha256:` is refused | `address_blake3_decides` and `address_sha256_refused`, checked by the Lean kernel | proved |
 | `KN-36`: a run may start exactly when its products and every other stage are exact, which is decision 30's class `everywhere` whatever the order of reductions; a run with a floating-point stage is refused | `integer_run_decides`, `integer_run_is_everywhere` and `integer_run_refuses_fixed_order_floats`, checked by the Lean kernel | proved |
+| `KN-45`: the engine session, a pure step over open, admit, prompt chunk, generate and close: a page not named by BLAKE3 fails it, it is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails it, the position stays within the capacity, and an ended session stays ended | `session_ends_stay_ended`, `session_refuses_other_hashes`, `session_ready_only_with_every_page`, `session_refuses_floats`, `session_prompt_chunks_compose` and `session_position_within_capacity`, checked by the hosted LexLean verifier; not yet by the pinned SDK image | proved (hosted) |
 | The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
@@ -104,6 +105,9 @@ The inherited gates and their own planted defects are in
 | `KN-43`: a claimed root is `exact` exactly when its square is at most the value and the value is below the square of the root plus one, which defines the floor square root | `root_ok_decides`, checked by Lean on the hosted verifier | proved (hosted verifier) |
 | At most one root is accepted for a value | squares grow with the root, so two accepted roots are equal; this needs products of two variables, outside `linear_arithmetic`, and `simplify` may not unfold the runtime's product, so it is argued, not stated as a theorem | argued, not proved |
 | No number decision 43 computes passes 64 bits | the guard in `rootAnswer`: a value below `2^62` and a root below `2^31`, checked before any square is formed, so `(root + 1)^2` is at most `2^62` | pinned by `kernel_kn_43` |
+| `KN-44`: a code is `exact` for a value and a divisor exactly when KN-41's `rqDownOk` accepts it with the divisor as the step and `(2 half + odd) * divisor` as the product, so KN-41's four rounding theorems hold for it | `divide_is_requant_rule`, checked by Lean on the hosted verifier | proved (hosted verifier) |
+| The witness `2 half + odd` is the floor quotient | `rqDownOk` checks `q * d <= value < q * d + d`; that this pins `q` is the division algorithm, as for KN-41, not stated because the product is of two variables | argued, not proved |
+| No number decision 44 computes passes 64 bits | the guard in `divideAnswer`: a value below `2^62`, a divisor from 1 to below `2^31`, half below `2^30` and odd at most 1, checked before the product is formed, so `q * d` is below `2^62` | pinned by `kernel_kn_44` |
 | Decision 41 answers as its definition does in the compiled guest | not run: building a holo on this machine has moved to `prism-code build --remote github`, which pushes | not tested |
 | Decisions 38 and 39 answer their examples in the compiled guest | none are replayed, for the reason given for decisions 18 to 28 | not tested |
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
@@ -1255,6 +1259,71 @@ written directly, `root_ok_decides` is linear in the two squares.
 | a root up to `2^32` admitted, past the 64-bit guard | rejected: `rootAnswer changed` |
 | decision 43 routed to decision 41's answer | rejected: `decision 43 must be routed to Kernel.Root::rootAnswer` |
 | none | passed |
+
+## KN-44, the rounded quotient
+
+RMS norm divides each input by a root known only at run time, and softmax
+divides each exponent by their sum. Each rounds the quotient once, half to
+even. KN-41 already proves that rule for any step: a code within half a step,
+the even code on a tie, and one code per witness. Decision 44 runs it with the
+divisor as the step, so it adds no new rounding to trust.
+
+A 20-byte request carries the value (8 bytes, below `2^62`), the divisor
+(4 bytes, 1 to below `2^31`), half the floor quotient (4 bytes, below `2^30`),
+whether the floor quotient is odd (1 byte) and the claimed code (2 bytes, at
+most 32767, the bound `rqDownOk` keeps). The answer is `exact`, `differs` or
+`invalid request`.
+
+The module is `Kernel.Divide`, not `Kernel.Quotient`: LexLean refuses a module
+segment spelled like a Lean namespace, and Lean has `Quotient`.
+
+### The pinned test: `kernel_kn_44`
+
+| Planted defect | Result |
+| --- | --- |
+| the odd bit dropped from the product, so the witness is taken as `2 half` | rejected: `divideProduct changed` |
+| a divisor up to `2^32` admitted, past the 64-bit guard | rejected: `divideAnswer changed` |
+| a divisor of 0 admitted | rejected: `divideAnswer changed` |
+| decision 44 routed to decision 43's answer | rejected: `decision 44 must be routed to Kernel.Divide::divideAnswer` |
+| none | passed |
+
+## KN-45, the engine session
+
+Decided by Ilya on 2026-11-18: milestone 2 runs the whole engine in the
+guest, written in LexLean. PrismPM's session world (`core-wasm@2`, proposal
+629, merged in PrismPM #638, not yet released) lets one guest instance serve a
+session's ordered steps, a session being the fold of a pure step over its
+requests. `app/src/Engine/Session.lex.tex` is Hologram AI's side of that: the
+step's phase, admitted pages, page count, capacity and position, as functions
+of the state and one request (open, admit a page, prompt chunk, generate,
+close), built on decisions 35 and 36. It is outside `app/src/Kernel` and
+nothing routes to it: it becomes the guest's root when the session world is in
+the SDK image `prismpm.lock` pins. The forward pass it runs is the integer
+stages (KN-37 to KN-44), joined in as they are proved.
+
+### The proof gate
+
+The local SDK image no longer runs on this machine (2026-11-18), so the proofs
+were checked by the hosted LexLean verifier on a draft holding the session,
+its proofs and the five modules they import. That is a diagnostic, not the
+pinned SDK's verdict; CI gives that once the branch is pushed.
+
+- `lexlean fmt --check`: canonical (all nine modules).
+- `lexlean verify src/Proofs/Session.lex.tex`: verified on 2026-11-18 (hosted task-49, draft prism-app/a7ddf49d…), after three corrections the earlier runs found: two theorems restated so their `if` sits in the goal, and two axiom lists narrowed to what Lean observed (`Quot.sound, propext`).
+
+Found on the way, kept for the next module: `first` is a keyword; a proof
+module must import every module its statements name; parameter and
+definition lists past 100 characters are written one item per line; and
+`linear_arithmetic` splits an `if` in the goal but not in a hypothesis, so
+a theorem whose premise would hold an `if` is stated with the `if` in the
+goal (`session_ready_only_with_every_page` and `session_refuses_floats` are
+written that way).
+
+### The pinned test: `kernel_kn_45`
+
+It pins the six statements and their axioms, that the five state functions are
+declared, and that the session imports decisions 35 and 36. 37 kernel tests
+pass.
 
 ## The examples in the compiled guest
 

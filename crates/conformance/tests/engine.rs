@@ -9079,6 +9079,653 @@ fn round_reading(negative: bool, magnitude: u64, exponent: i32) -> u32 {
     }
 }
 
+/// Unsigned integers of any width, little-endian 32-bit limbs: only what
+/// EN-43's certificate needs, written here so the check shares no code with
+/// the table it checks.
+fn big(value: u64) -> Vec<u32> {
+    let mut limbs = vec![value as u32, (value >> 32) as u32];
+    big_trim(&mut limbs);
+    limbs
+}
+
+fn big_trim(limbs: &mut Vec<u32>) {
+    while limbs.last() == Some(&0) {
+        limbs.pop();
+    }
+}
+
+fn big_mul(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut out = vec![0u32; a.len() + b.len()];
+    for (i, &x) in a.iter().enumerate() {
+        let mut carry = 0u64;
+        for (j, &y) in b.iter().enumerate() {
+            let t = u64::from(out[i + j]) + u64::from(x) * u64::from(y) + carry;
+            out[i + j] = t as u32;
+            carry = t >> 32;
+        }
+        let mut k = i + b.len();
+        while carry > 0 {
+            let t = u64::from(out[k]) + carry;
+            out[k] = t as u32;
+            carry = t >> 32;
+            k += 1;
+        }
+    }
+    big_trim(&mut out);
+    out
+}
+
+fn big_pow(base: &[u32], mut exponent: u32) -> Vec<u32> {
+    let mut result = big(1);
+    let mut square = base.to_vec();
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = big_mul(&result, &square);
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            square = big_mul(&square, &square);
+        }
+    }
+    result
+}
+
+fn big_shl(value: &[u32], bits: u32) -> Vec<u32> {
+    let (words, rest) = ((bits / 32) as usize, bits % 32);
+    let mut out = vec![0u32; words];
+    let mut carry = 0u32;
+    for &limb in value {
+        out.push((limb << rest) | carry);
+        carry = if rest == 0 { 0 } else { limb >> (32 - rest) };
+    }
+    out.push(carry);
+    big_trim(&mut out);
+    out
+}
+
+fn big_cmp(a: &[u32], b: &[u32]) -> std::cmp::Ordering {
+    a.len()
+        .cmp(&b.len())
+        .then_with(|| a.iter().rev().cmp(b.iter().rev()))
+}
+
+/// EN-43's criterion for entry `j`: `t` is the integer nearest
+/// `2^(30 - j/256)` exactly when `(2t - 1)^256 < 2^(7936 - j) < (2t + 1)^256`.
+fn exp2_entry_ok(j: u32, t: u64) -> bool {
+    let power = big_shl(&big(1), 7936 - j);
+    let below = big_pow(&big(2 * t - 1), 256);
+    let above = big_pow(&big(2 * t + 1), 256);
+    big_cmp(&below, &power).is_lt() && big_cmp(&power, &above).is_lt()
+}
+
+/// `EN-43`: The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936
+#[test]
+fn engine_en_43() {
+    let table = &exact::EXP2_FRACTION;
+    assert_eq!(table.len(), 256);
+    for (j, &entry) in table.iter().enumerate() {
+        let j = j as u32;
+        // The criterion says |t - 2^(30 - j/256)| < 1/2, so the entry that meets it is the nearest integer.
+        assert!(
+            exp2_entry_ok(j, u64::from(entry)),
+            "entry {j} = {entry} is not the integer nearest 2^(30 - {j}/256)"
+        );
+    }
+    // Every lookup within one unit: (e - 1)^256 * 2^d < 2^7680 < (e + 1)^256 * 2^d.
+    let target = big_shl(&big(1), 7680);
+    for d in 0..7936u32 {
+        let e = u64::from(exact::exp2_neg(d));
+        // The one rounding: the entry over 2^k to the nearest, a tie to even,
+        // worked as floor((2t + 2^k) / 2^(k + 1)) less one on an odd tie.
+        let (t, k) = (u64::from(table[(d & 255) as usize]), d >> 8);
+        let nearest = (2 * t + (1 << k)) >> (k + 1);
+        let tie = k > 0 && (2 * t) % (1 << (k + 1)) == 1 << k;
+        let expected = if tie && nearest % 2 == 1 {
+            nearest - 1
+        } else {
+            nearest
+        };
+        assert_eq!(
+            e,
+            expected,
+            "exp2_neg({d}) is not entry {} over 2^{k} rounded half to even",
+            d & 255
+        );
+        let above = big_shl(&big_pow(&big(e + 1), 256), d);
+        assert!(
+            big_cmp(&target, &above).is_lt(),
+            "exp2_neg({d}) = {e} is more than one unit low"
+        );
+        if e >= 1 {
+            let below = big_shl(&big_pow(&big(e - 1), 256), d);
+            assert!(
+                big_cmp(&below, &target).is_lt(),
+                "exp2_neg({d}) = {e} is more than one unit high"
+            );
+        }
+    }
+    for d in [7936u32, 8000, 65535, u32::MAX] {
+        assert_eq!(exact::exp2_neg(d), 0, "exp2_neg({d}) is not 0");
+    }
+    assert_eq!(exact::exp2_neg(0), 1 << 30, "exp2_neg(0) is not 2^30");
+    assert_eq!(exact::exp2_neg(256), 1 << 29, "exp2_neg(256) is not 2^29");
+}
+
+/// Scores for EN-44: rows of every shape the attention can produce.
+fn en_44_rows() -> Vec<Vec<i64>> {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut rows = vec![vec![0], vec![5, 5], vec![i64::MIN, i64::MAX], vec![-3; 7]];
+    for &len in &[2usize, 3, 31, 32, 33, 256, 4096] {
+        for spread in [4u32, 12, 20, 44] {
+            let row: Vec<i64> = (0..len)
+                .map(|_| (next() >> (64 - spread)) as i64 - (1i64 << (spread - 1)))
+                .collect();
+            rows.push(row);
+        }
+    }
+    let mut spike = vec![0i64; 64];
+    spike[17] = 9000;
+    rows.push(spike);
+    rows
+}
+
+/// `EN-44`: Softmax is integer: for scores in units of 2^-8 of a base-two exponent, each output is exp2_neg of the largest score less its own, times 2^30, over their exact sum, rounded half to even, in units of 2^-30; the outputs sum to 2^30 within half a unit each, a common shift of the scores changes nothing, and a larger score never gets a smaller output
+#[test]
+fn engine_en_44() {
+    for row in en_44_rows() {
+        let out = exact::softmax_exp2(&row);
+        assert_eq!(out.len(), row.len());
+        let top = *row.iter().max().unwrap();
+        let weights: Vec<u128> = row
+            .iter()
+            .map(|&x| {
+                let d = u32::try_from(i128::from(top) - i128::from(x)).unwrap_or(u32::MAX);
+                u128::from(exact::exp2_neg(d))
+            })
+            .collect();
+        let sum: u128 = weights.iter().sum();
+        for (&e, &p) in weights.iter().zip(&out) {
+            let (scaled, back) = (e << 30, u128::from(p) * sum);
+            let gap = scaled.abs_diff(back);
+            assert!(
+                2 * gap <= sum,
+                "{p} is more than half a unit from {e} * 2^30 / {sum}"
+            );
+            if 2 * gap == sum {
+                assert_eq!(p % 2, 0, "a tie at {e} * 2^30 / {sum} did not go to even");
+            }
+        }
+        let total: i128 = out.iter().map(|&p| i128::from(p)).sum();
+        let slack = (row.len() as i128 + 1) / 2;
+        assert!(
+            (total - (1 << 30)).abs() <= slack,
+            "a row of {} sums to {total}",
+            row.len()
+        );
+        for shift in [1i64, -7, 1 << 40] {
+            let moved: Vec<i64> = row.iter().map(|&x| x.saturating_add(shift)).collect();
+            if moved.iter().zip(&row).all(|(m, x)| m - x == shift) {
+                assert_eq!(
+                    exact::softmax_exp2(&moved),
+                    out,
+                    "a shift by {shift} changed the outputs"
+                );
+            }
+        }
+        for a in 0..row.len().min(64) {
+            for b in 0..row.len().min(64) {
+                if row[a] > row[b] {
+                    assert!(out[a] >= out[b], "a larger score got a smaller output");
+                }
+            }
+        }
+    }
+    assert!(exact::softmax_exp2(&[]).is_empty());
+    assert_eq!(exact::softmax_exp2(&[123]), vec![1 << 30]);
+}
+
+fn big_add(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut out = Vec::with_capacity(a.len().max(b.len()) + 1);
+    let mut carry = 0u64;
+    for i in 0..a.len().max(b.len()) {
+        let t = u64::from(*a.get(i).unwrap_or(&0)) + u64::from(*b.get(i).unwrap_or(&0)) + carry;
+        out.push(t as u32);
+        carry = t >> 32;
+    }
+    out.push(carry as u32);
+    big_trim(&mut out);
+    out
+}
+
+fn big_sub(a: &[u32], b: &[u32]) -> Vec<u32> {
+    assert!(!big_cmp(a, b).is_lt(), "a subtraction would go below zero");
+    let mut out = Vec::with_capacity(a.len());
+    let mut borrow = 0i64;
+    for (i, &limb) in a.iter().enumerate() {
+        let t = i64::from(limb) - i64::from(*b.get(i).unwrap_or(&0)) - borrow;
+        borrow = i64::from(t < 0);
+        out.push((t + (borrow << 32)) as u32);
+    }
+    big_trim(&mut out);
+    out
+}
+
+fn big_div_small(a: &[u32], divisor: u32) -> Vec<u32> {
+    let mut out = vec![0u32; a.len()];
+    let mut rest = 0u64;
+    for i in (0..a.len()).rev() {
+        let current = (rest << 32) | u64::from(a[i]);
+        out[i] = (current / u64::from(divisor)) as u32;
+        rest = current % u64::from(divisor);
+    }
+    big_trim(&mut out);
+    out
+}
+
+fn big_shr(a: &[u32], bits: u32) -> Vec<u32> {
+    let (words, rest) = ((bits / 32) as usize, bits % 32);
+    let mut out: Vec<u32> = (words..a.len())
+        .map(|i| {
+            let high = if rest == 0 {
+                0
+            } else {
+                a.get(i + 1).map_or(0, |&n| n << (32 - rest))
+            };
+            (a[i] >> rest) | high
+        })
+        .collect();
+    big_trim(&mut out);
+    out
+}
+
+/// EN-45's fixed point: values are integers over `2^256`.
+const EN_45_SCALE: u32 = 256;
+
+/// `2^256 atan(1 / m)`, truncated: the alternating series, each term cut down.
+fn en_45_atan_inverse(m: u32) -> Vec<u32> {
+    let mut power = big_div_small(&big_shl(&big(1), EN_45_SCALE), m);
+    let (mut plus, mut minus) = (Vec::new(), Vec::new());
+    let mut k = 0u32;
+    while !power.is_empty() {
+        let term = big_div_small(&power, 2 * k + 1);
+        if k.is_multiple_of(2) {
+            plus = big_add(&plus, &term);
+        } else {
+            minus = big_add(&minus, &term);
+        }
+        power = big_div_small(&power, m * m);
+        k += 1;
+    }
+    big_sub(&plus, &minus)
+}
+
+/// `2^256 pi`, by Machin's formula `pi = 16 atan(1/5) - 4 atan(1/239)`.
+fn en_45_pi() -> Vec<u32> {
+    let five = big_mul(&en_45_atan_inverse(5), &big(16));
+    let far = big_mul(&en_45_atan_inverse(239), &big(4));
+    big_sub(&five, &far)
+}
+
+/// `2^256 sin(pi r / 32768)` for `r <= 16384`, by its Taylor series, each step
+/// cut down. Every cut is under one unit and there are a few hundred, so the
+/// result is within `EN_45_SLACK` units of the true value.
+fn en_45_sine(pi: &[u32], r: u32) -> Vec<u32> {
+    let x = big_shr(&big_mul(pi, &big(u64::from(r))), 15);
+    let square = big_shr(&big_mul(&x, &x), EN_45_SCALE);
+    let (mut plus, mut minus) = (x.clone(), Vec::new());
+    let mut term = x;
+    let mut k = 1u32;
+    loop {
+        term = big_div_small(
+            &big_shr(&big_mul(&term, &square), EN_45_SCALE),
+            (2 * k) * (2 * k + 1),
+        );
+        if term.is_empty() {
+            break;
+        }
+        if k % 2 == 1 {
+            minus = big_add(&minus, &term);
+        } else {
+            plus = big_add(&plus, &term);
+        }
+        k += 1;
+    }
+    big_sub(&plus, &minus)
+}
+
+/// Units of `2^-256` the certificate allows between its sine and the true one,
+/// far more than its cuts can add up to and far less than any entry's margin.
+const EN_45_SLACK: u64 = 1 << 32;
+
+/// The table's BLAKE3, so the table is named as a tensor is.
+const EN_45_TABLE_BLAKE3: &str = "d2612a42910edad3b81095ad0be154d6076c5c33771916cbbea2ded40419ec11";
+
+/// The value at step `step` of a turn of 65,536 steps, read from the table by
+/// quadrant, written here apart from the crate's lookup.
+fn en_45_step(table: &[u32], step: u32) -> i64 {
+    let r = (step % 16384) as usize;
+    let value = |i: usize| i64::from(table[i]);
+    match (step % 65536) / 16384 {
+        0 => value(r),
+        1 => value(16384 - r),
+        2 => -value(r),
+        _ => -value(16384 - r),
+    }
+}
+
+/// `EN-45`: Rotary positions take sine and cosine from one quarter-wave table: 16,385 entries, entry r the integer nearest 2^30 sin(pi r / 32768), generated by an exact integer algorithm, certified entry by entry with integers of any width and named by its BLAKE3; sine_turn and cosine_turn of an angle in units of 2^-32 of a turn round it half to even to 2^-16 of a turn and read the table by quadrant, so sine is odd, cosine is sine a quarter turn on, and sin^2 + cos^2 is 2^60 within 2^31
+#[test]
+fn engine_en_45() {
+    let table = exact::sine_quarter();
+    assert_eq!(table.len(), 16385);
+    assert_eq!(table[0], 0, "sin 0 is not 0");
+    assert_eq!(table[16384], 1 << 30, "sin of a quarter turn is not 2^30");
+    let pi = en_45_pi();
+    let slack = big(EN_45_SLACK);
+    for r in 1..=16384u32 {
+        let entry = u64::from(table[r as usize]);
+        let sine = en_45_sine(&pi, r);
+        // 2 entry - 1 < 2^31 sin x < 2 entry + 1, with the certificate's slack on each side.
+        let low = big_shl(&big_sub(&sine, &slack), 31);
+        let high = big_shl(&big_add(&sine, &slack), 31);
+        let below = big_shl(&big(2 * entry - 1), EN_45_SCALE);
+        let above = big_shl(&big(2 * entry + 1), EN_45_SCALE);
+        assert!(
+            big_cmp(&below, &low).is_lt() && big_cmp(&high, &above).is_lt(),
+            "entry {r} = {entry} is not the integer nearest 2^30 sin(pi {r} / 32768)"
+        );
+    }
+    let bytes: Vec<u8> = table.iter().flat_map(|e| e.to_le_bytes()).collect();
+    let mut arriving = download::Arriving::new();
+    arriving.take(&bytes);
+    assert_eq!(
+        arriving.label().to_hex(),
+        EN_45_TABLE_BLAKE3,
+        "the sine table is not the one named"
+    );
+
+    for step in 0..65536u32 {
+        let angle = step << 16;
+        let (sine, cosine) = (exact::sine_turn(angle), exact::cosine_turn(angle));
+        assert_eq!(
+            i64::from(sine),
+            en_45_step(table, step),
+            "sine_turn at step {step} is not its quadrant's entry"
+        );
+        assert_eq!(
+            i64::from(cosine),
+            en_45_step(table, step + 16384),
+            "cosine_turn at step {step} is not sine a quarter turn on"
+        );
+        let norm = i64::from(sine) * i64::from(sine) + i64::from(cosine) * i64::from(cosine);
+        assert!(
+            (norm - (1i64 << 60)).abs() <= 1i64 << 31,
+            "sin^2 + cos^2 at step {step} is {norm}"
+        );
+        // Between steps: below half goes down, above half goes up, a tie to the even step.
+        let even = if step % 2 == 0 { step } else { step + 1 };
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x7fff)),
+            en_45_step(table, step),
+            "step {step} plus less than half did not stay"
+        );
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x8000)),
+            en_45_step(table, even),
+            "a tie after step {step} did not go to even"
+        );
+        assert_eq!(
+            i64::from(exact::sine_turn(angle + 0x8001)),
+            en_45_step(table, step + 1),
+            "step {step} plus more than half did not go up"
+        );
+    }
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    for _ in 0..100_000 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let angle = (state >> 32) as u32;
+        assert_eq!(
+            exact::sine_turn(angle.wrapping_neg()),
+            -exact::sine_turn(angle),
+            "sine is not odd at {angle}"
+        );
+        assert_eq!(
+            exact::cosine_turn(angle.wrapping_neg()),
+            exact::cosine_turn(angle),
+            "cosine is not even at {angle}"
+        );
+        assert_eq!(
+            exact::cosine_turn(angle),
+            exact::sine_turn(angle.wrapping_add(1 << 30)),
+            "cosine is not sine a quarter turn on at {angle}"
+        );
+    }
+}
+
+/// `2^256 ln 2`, cut down: `2 atanh(1/3)`, the sum of `2 / ((2k + 1) 3^(2k + 1))`.
+fn en_46_ln2() -> Vec<u32> {
+    let mut power = big_div_small(&big_shl(&big(2), EN_45_SCALE), 3);
+    let mut sum = Vec::new();
+    let mut k = 0u32;
+    while !power.is_empty() {
+        sum = big_add(&sum, &big_div_small(&power, 2 * k + 1));
+        power = big_div_small(&power, 9);
+        k += 1;
+    }
+    sum
+}
+
+/// `EN-46`'s inputs: a dense run around zero, where SiLU bends, and wide values.
+fn en_46_inputs() -> Vec<i64> {
+    let mut inputs: Vec<i64> = (-(1i64 << 20)..=(1i64 << 20)).step_by(7).collect();
+    inputs.extend([
+        0,
+        1,
+        -1,
+        1 << 46,
+        -(1i64 << 46),
+        (1i64 << 47) - 1,
+        -((1i64 << 47) - 1),
+    ]);
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for _ in 0..20_000 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let width = 1 + (state % 47) as u32;
+        let magnitude = ((state >> 17) & ((1u64 << width) - 1)) as i64;
+        inputs.push(if state & 1 == 0 {
+            magnitude
+        } else {
+            -magnitude
+        });
+    }
+    inputs
+}
+
+/// `EN-46`: SiLU is integer: for x in units of 2^-16 below 2^47 in size, the exponent |x| log2(e) is taken in units of 2^-8 with log2(e) as the integer nearest 2^32 log2(e), certified exactly, rounded half to even; w is exp2_neg of it, and silu(x) is x 2^30 / (2^30 + w) for x at or above 0 and x w / (2^30 + w) below, rounded half to even, so silu(x) - silu(-x) is x within one unit, and it is within |x| / 2048 plus one unit of x / (1 + e^-x)
+#[test]
+fn engine_en_46() {
+    // The constant: (2L - 1) ln 2 < 2^33 < (2L + 1) ln 2, with ln 2 in the test's own slack.
+    let ln2 = en_46_ln2();
+    let slack = big(EN_45_SLACK);
+    let l = exact::LOG2_E;
+    let target = big_shl(&big(1), 33 + EN_45_SCALE);
+    let below = big_mul(&big(2 * l - 1), &big_add(&ln2, &slack));
+    let above = big_mul(&big(2 * l + 1), &big_sub(&ln2, &slack));
+    assert!(
+        big_cmp(&below, &target).is_lt() && big_cmp(&target, &above).is_lt(),
+        "LOG2_E = {l} is not the integer nearest 2^32 log2(e)"
+    );
+
+    for x in en_46_inputs() {
+        let out = exact::silu(x);
+        // The exponent in units of 2^-8, rounded half to even, written here apart from the crate.
+        let scaled = u128::from(x.unsigned_abs()) * u128::from(l);
+        let (whole, rest, half) = (scaled >> 40, scaled & ((1u128 << 40) - 1), 1u128 << 39);
+        let d = whole + u128::from(rest > half || (rest == half && whole & 1 == 1));
+        let w = i128::from(exact::exp2_neg(u32::try_from(d).unwrap_or(u32::MAX)));
+        let denominator = (1i128 << 30) + w;
+        let numerator = i128::from(x) * if x >= 0 { 1i128 << 30 } else { w };
+        let gap = (numerator - i128::from(out) * denominator).abs();
+        assert!(
+            2 * gap <= denominator,
+            "silu({x}) = {out} is more than half a unit from {numerator} / {denominator}"
+        );
+        if 2 * gap == denominator {
+            assert_eq!(out % 2, 0, "a tie at silu({x}) did not go to even");
+        }
+        assert!(
+            (out - exact::silu(-x) - x).abs() <= 1,
+            "silu({x}) - silu(-{x}) is not {x} within one unit"
+        );
+        // The yardstick, in the test only: x / (1 + e^-x) in floating point.
+        let real = x as f64 / 65536.0;
+        let exact_value = real / (1.0 + (-real).exp()) * 65536.0;
+        let bound = x.unsigned_abs() as f64 / 2048.0 + 1.0;
+        assert!(
+            (out as f64 - exact_value).abs() <= bound,
+            "silu({x}) = {out} is more than {bound} from {exact_value}"
+        );
+    }
+    assert_eq!(exact::silu(0), 0);
+    assert_eq!(exact::silu(32 << 16), 32 << 16, "silu of 32 is not 32");
+    assert_eq!(exact::silu(-(32 << 16)), 0, "silu of -32 is not 0");
+}
+
+/// EN-47's rows: (values, weights, epsilon).
+fn en_47_rows() -> Vec<(Vec<i64>, Vec<i64>, u64)> {
+    let mut state = 0x0123_4567_89ab_cdefu64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut rows = vec![
+        (vec![1 << 16], vec![1 << 16], 0),
+        (vec![-(1i64 << 16); 64], vec![3 << 15; 64], 0),
+        (
+            vec![(1i64 << 31) - 1, -((1i64 << 31) - 1)],
+            vec![(1i64 << 31) - 1; 2],
+            u64::from(u32::MAX),
+        ),
+        (vec![1], vec![1 << 16], 1),
+    ];
+    let mut spike = vec![0i64; 1536];
+    spike[700] = 40 << 16;
+    rows.push((spike, vec![1 << 16; 1536], 4295));
+    for &len in &[2usize, 3, 31, 32, 896, 1536, 2048, 8192] {
+        for width in [8u32, 16, 24, 31] {
+            let mut draw = |w: u32| {
+                let v = next();
+                let magnitude = ((v >> 20) & ((1u64 << w) - 1)) as i64;
+                if v & 1 == 0 {
+                    magnitude
+                } else {
+                    -magnitude
+                }
+            };
+            let values: Vec<i64> = (0..len).map(|_| draw(width)).collect();
+            let weights: Vec<i64> = (0..len).map(|_| draw(17)).collect();
+            let epsilon = next() >> (32 + (next() % 32));
+            rows.push((values, weights, epsilon));
+        }
+    }
+    rows
+}
+
+/// The integer square root by bisection, written here apart from the crate.
+fn en_47_root(q: u128) -> u128 {
+    let (mut low, mut high) = (0u128, 1u128 << 64);
+    while high - low > 1 {
+        let middle = (low + high) / 2;
+        if middle.checked_mul(middle).is_some_and(|square| square <= q) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+/// `EN-47`: RMSNorm is integer: for x and the weight g in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the sum of squares plus n epsilon is exact, the root r is the largest integer with n r^2 <= (that sum) 2^32, which is the integer square root of the floored mean times 2^32 as decision 43 decides it, and each output is x g 2^16 / r rounded half to even, in units of 2^-16, within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon); a row whose root is 0 or whose sizes are past the bounds is refused
+#[test]
+fn engine_en_47() {
+    for (values, weights, epsilon) in en_47_rows() {
+        let out = exact::rms_norm(&values, &weights, epsilon).expect("the row is within bounds");
+        assert_eq!(out.len(), values.len());
+        let n = values.len() as u128;
+        let v: u128 = values
+            .iter()
+            .map(|&x| x.unsigned_abs() as u128 * x.unsigned_abs() as u128)
+            .sum::<u128>()
+            + n * u128::from(epsilon);
+        let r = en_47_root((v << 32) / n);
+        assert!(
+            n * r * r <= v << 32 && v << 32 < n * (r + 1) * (r + 1),
+            "the root is not the largest with n r^2 <= v 2^32"
+        );
+        let rms = ((values
+            .iter()
+            .map(|&x| (x as f64 / 65536.0).powi(2))
+            .sum::<f64>()
+            + n as f64 * epsilon as f64 / 4_294_967_296.0)
+            / n as f64)
+            .sqrt();
+        for ((&x, &g), &y) in values.iter().zip(&weights).zip(&out) {
+            let numerator = i128::from(x) * i128::from(g) * (1i128 << 16);
+            let gap = (numerator - i128::from(y) * r as i128).unsigned_abs();
+            assert!(
+                2 * gap <= r,
+                "y = {y} is more than half a unit from {numerator} / {r}"
+            );
+            if 2 * gap == r {
+                assert_eq!(y % 2, 0, "a tie at {numerator} / {r} did not go to even");
+            }
+            // The yardstick, in the test only.
+            let real = (x as f64 / 65536.0) * (g as f64 / 65536.0) / rms * 65536.0;
+            let bound = y.unsigned_abs() as f64 / 1_048_576.0 + 1.0;
+            assert!(
+                (y as f64 - real).abs() <= bound,
+                "y = {y} is more than {bound} from {real}"
+            );
+        }
+    }
+    assert!(
+        exact::rms_norm(&[0, 0, 0], &[1, 1, 1], 0).is_none(),
+        "a zero root was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[], &[], 1).is_none(),
+        "an empty row was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1, 2], &[1], 1).is_none(),
+        "weights of another length were not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1i64 << 31], &[1], 1).is_none(),
+        "a value at 2^31 was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1], &[-(1i64 << 31)], 1).is_none(),
+        "a weight at 2^31 was not refused"
+    );
+    assert!(
+        exact::rms_norm(&[1], &[1], 1u64 << 32).is_none(),
+        "an epsilon at 2^32 was not refused"
+    );
+}
+
 /// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
 #[test]
 fn engine_en_42() {

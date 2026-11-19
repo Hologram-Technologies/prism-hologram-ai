@@ -2407,3 +2407,189 @@ A row whose exact value needs more than 64 bits of magnitude is outside
 decision 42; the crate's register holds wider ones. The row's sum of scaled
 groups in the register, and the input's quantisation, have no LexLean
 definition yet.
+
+## EN-43, softmax's exponent as a certified table
+
+Softmax needs `exp`, which has no exact integer value. It is taken in base
+two, `2^(-d/256)` for `d` in units of `2^-8`: the scale `log2(e)` is folded into
+the scores' scale, as float engines do with `exp2`. `EXP2_FRACTION` holds 256
+entries, entry `j` the integer nearest `2^(30 - j/256)`, and `exp2_neg(d)`
+shifts entry `d mod 256` down by `d div 256`, rounded half to even. There is no
+float on the shipped path: the table is constants, and the lookup is a shift.
+
+The certificate is exact. `t` is the integer nearest `2^(30 - j/256)` exactly
+when `(2t - 1)^256 < 2^(7936 - j) < (2t + 1)^256`, which `engine_en_43` checks
+for every entry with integers of any width written in the test, so the check
+shares no code with the table. It also checks every lookup below 7936 two
+ways: that it is the entry's rounding, recomputed in the test, and that it is
+within one unit of `2^(30 - d/256)`, as `(e - 1)^256 * 2^d < 2^7680 < (e + 1)^256 * 2^d`.
+
+### Why not in Lean
+
+The same criterion was written in LexLean (`expEntryOk`) and given to the
+hosted verifier for entries 0 and 1. `simplify` unrolled the power but could
+not evaluate the runtime's `multiply` and `subtract` on literals, so neither
+closed. Until the toolchain has a proof form that evaluates closed arithmetic,
+the certificate lives in this test, and the kernel admits the table as a
+declared narrowing (KN-39: step 0, exp; input 16 bits; output 31 bits).
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_43`
+
+| Planted defect | Result |
+| --- | --- |
+| entry 128 one too high | rejected: `entry 128 = 759250126 is not the integer nearest 2^(30 - 128/256)` |
+| the shift truncated instead of rounded | rejected: `exp2_neg(258) is not entry 2 over 2^1 rounded half to even` |
+| a tie rounded up instead of to even | rejected: `exp2_neg(259) is not entry 3 over 2^1 rounded half to even` |
+| none | passed |
+
+## EN-44, softmax in integers
+
+`softmax_exp2` takes a row of scores already in units of `2^-8` of a base-two
+exponent: the caller folds in `log2(e)` and the attention scale, as one more
+integer rescaling. It subtracts the top score, so the top weight is exactly
+`2^30` from EN-43's table, sums the weights exactly (in `u128`), and divides
+each `e * 2^30` by the sum, rounded half to even. Outputs are in units of
+`2^-30` and never pass `2^30`.
+
+What the test establishes, on rows of 1 to 4,096 scores (ties, one spike,
+spreads up to `2^44`, and `i64::MIN` beside `i64::MAX`):
+
+- every output is the half-to-even rounding of `e * 2^30 / S`, checked as
+  `2 |e * 2^30 - p * S| <= S`, with a tie at even;
+- a row's outputs sum to `2^30` within half a unit per output;
+- shifting every score by the same amount changes no output, because only
+  differences reach the table;
+- a larger score never gets a smaller output.
+
+Kernel re-checks: decision 44 bounds its divisor below `2^31` and its code at
+32767, so it cannot re-check these outputs (sums reach `2^42`, codes `2^30`). A
+decision for wider quotients is to come with the attention stage that uses
+them.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_44`
+
+| Planted defect | Result |
+| --- | --- |
+| the quotient truncated instead of rounded | rejected: `is more than half a unit from` |
+| the first weight left out of the sum | rejected: `is more than half a unit from` |
+| the top score not subtracted | rejected: `attempt to divide by zero`, every weight underflowing to 0 |
+| none | passed |
+
+## EN-45, rotary positions' sine and cosine as one certified table
+
+Rotary positions need `sin` and `cos`, which have no exact integer values. An
+angle is held in units of `2^-32` of a turn, so a sum of angles wraps exactly
+as a turn does, and `sine_turn` and `cosine_turn` round it half to even to a
+step of `2^-16` of a turn and read one quarter-wave table by quadrant.
+`sine_quarter()` holds 16,385 entries, entry `r` the integer nearest
+`2^30 sin(pi r / 32768)`, in units of `2^-30`.
+
+The table is generated, not typed in: `pi` by Machin's formula and each sine
+by its Taylor series, in integers over `2^120`, rounded half to even. Every
+machine generates the same bytes, and the test pins their BLAKE3,
+`d2612a42910edad3b81095ad0be154d6076c5c33771916cbbea2ded40419ec11`, so the
+table is named as a tensor is. There is no float on the shipped path.
+
+The certificate is separate code. `engine_en_45` works out `2^256 sin(pi r / 32768)`
+for every entry with integers of any width written in the test (its own
+Machin `pi` and Taylor series, every cut down by under one unit, a slack of
+`2^32` units allowed on each side) and checks
+`2 entry - 1 < 2^31 sin(pi r / 32768) < 2 entry + 1`, so each entry is the
+nearest integer. It checks every step's quadrant reading, ties between steps
+going to the even step, sine odd, cosine even and a quarter turn on from
+sine, and `sin^2 + cos^2` within `2^31` of `2^60` at every step.
+
+The step is `2^-16` of a turn, about `9.6e-5` radians, finer than the `f16`
+caches the ONNX exports carry (about `4.9e-4` relative). The frequencies,
+the position times frequency in turns, and YaRN and Llama 3 scaling are the
+next stage; they read this table.
+
+### Why not in Lean
+
+As with EN-43, the hosted prover's `simplify` does not evaluate the runtime's
+arithmetic on literals, so a per-entry certificate does not close in Lean
+today. The certificate lives in this test until the toolchain has a proof
+form that evaluates closed arithmetic.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_45`
+
+| Planted defect | Result |
+| --- | --- |
+| entry 4096 one too high | rejected: `entry 4096 = 410903208 is not the integer nearest 2^30 sin(pi 4096 / 32768)` |
+| a tie between steps rounded up instead of to even | rejected: `a tie after step 0 did not go to even` |
+| the third quadrant's sign not negated | rejected: `cosine_turn at step 16385 is not sine a quarter turn on` |
+| `pi` with `atan(1/240)` for `atan(1/239)` | rejected: `sin of a quarter turn is not 2^30` |
+| none | passed |
+
+## EN-46, SiLU in integers
+
+SiLU is `x / (1 + e^-x)`. `silu` takes `x` in units of `2^-16`, below `2^47` in
+size, and answers in the same units. `e^-x` is taken in base two on EN-43's
+table: the exponent `|x| log2(e)` in units of `2^-8`, rounded half to even,
+gives `w = exp2_neg`, a weight in units of `2^-30`. Then
+`silu(x) = x 2^30 / (2^30 + w)` for `x >= 0` and `x w / (2^30 + w)` below 0,
+one quotient rounded half to even. `LOG2_E` is the integer nearest
+`2^32 log2(e)`, 6,196,328,019.
+
+What the test establishes, on every seventh `x` from `-2^20` to `2^20` (where
+SiLU bends) and 20,000 drawn up to `2^47` in size:
+
+- `LOG2_E` meets `(2L - 1) ln 2 < 2^33 < (2L + 1) ln 2`, with `ln 2` as
+  `2 atanh(1/3)` in the test's own integers of any width;
+- every output is the half-to-even rounding of the quotient the test works
+  out from its own exponent rounding, checked as `2 |n - p D| <= D`;
+- `silu(x) - silu(-x)` is `x` within one unit, as `x sigma(x) + x sigma(-x) = x`;
+- every output is within `|x| / 2048` plus one unit of `x / (1 + e^-x)`.
+
+The last is a yardstick in floating point, in the test only. The bound comes
+from the exponent's step of `2^-8`, which moves `w` by at most `2^(1/512) - 1`,
+about 0.14%, and `sigma` by at most a quarter of that.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_46`
+
+| Planted defect | Result |
+| --- | --- |
+| `LOG2_E` one too high | rejected: `LOG2_E = 6196328020 is not the integer nearest 2^32 log2(e)` |
+| the quotient truncated instead of rounded | rejected: `silu(-947293) = 0 is more than half a unit from -537115131 / 1073742391` |
+| the exponent truncated instead of rounded | rejected: `silu(-947377) = -1 is more than half a unit from ...` |
+| `sigma` for `x < 0` taken as for `x >= 0` | rejected: `silu(-1048576) = -1048576 is more than half a unit from ...` |
+| none | passed |
+
+## EN-47, RMSNorm in integers
+
+`rms_norm` takes a row of values `x` and weights `g` in units of `2^-16`, below
+`2^31` in size and at most `2^16` long, and `epsilon` in units of `2^-32`. The
+sum of squares plus `n epsilon` is exact, in `u128`. The root `r` is the
+largest integer with `n r^2 <= (that sum) 2^32`, which is KN-43's integer
+square root of the floored mean times `2^32`: the floor root of a floored
+mean is the floor root of the mean, so there is one narrowing, not two. Each
+output is `x g 2^16 / r` rounded half to even, in units of `2^-16`. A row past
+the bounds, or whose root is 0, is refused.
+
+A first draft also rounded the mean half to even before the root. A planted
+truncation of that mean passed every row, since the floor root almost never
+sees the difference, so the step was taken out rather than kept untested.
+
+What the test establishes, on rows of 1 to 8,192 values drawn up to `2^31`,
+one spike, all equal, and `epsilon` from 0 to `2^32 - 1`:
+
+- `n r^2 <= v 2^32 < n (r + 1)^2`, with `r` found in the test by bisection;
+- every output meets `2 |x g 2^16 - y r| <= r`, a tie at even;
+- every output is within `|y| / 2^20` plus one unit of `x g / sqrt(mean(x^2) + epsilon)`,
+  a yardstick in floating point, in the test only;
+- a zero root, an empty row, mismatched lengths, a value or weight at `2^31`
+  and an `epsilon` at `2^32` are refused.
+
+Kernel re-checks: decision 43 bounds its value below `2^62` and its root below
+`2^31`; RMSNorm's `q` reaches `2^94`, so a wider decision is needed to re-check
+it, as for EN-44.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_47`
+
+| Planted defect | Result |
+| --- | --- |
+| the root one too high | rejected: `y = 160001 is more than half a unit from 1547340349440 / 9670786` |
+| `epsilon` left out of the sum | rejected: `y = 2147483647 is more than half a unit from ...` |
+| the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
+| values and weights not bounded | rejected: `a value at 2^31 was not refused` |
+| none | passed |

@@ -1564,3 +1564,277 @@ pub fn request_product(bytes: &[u8], layout: Layout) -> Result<Vec<u32>, ExactEr
         }
     }
 }
+
+/// The fractional part of softmax's base-two exponent: entry `j` is the
+/// integer nearest `2^(30 - j/256)`, so `2^30` at `j = 0`. Generated with
+/// integers of any width; EN-43 certifies each entry exactly, as
+/// `(2t - 1)^256 < 2^(7936 - j) < (2t + 1)^256`.
+pub const EXP2_FRACTION: [u32; 256] = [
+    1073741824, 1070838486, 1067942999, 1065055341, 1062175491, 1059303428, 1056439131, 1053582579,
+    1050733751, 1047892626, 1045059183, 1042233401, 1039415261, 1036604740, 1033801819, 1031006477,
+    1028218693, 1025438448, 1022665720, 1019900489, 1017142735, 1014392438, 1011649578, 1008914134,
+    1006186087, 1003465416, 1000752102, 998046124, 995347464, 992656100, 989972014, 987295185,
+    984625594, 981963222, 979308048, 976660054, 974019220, 971385527, 968758955, 966139485,
+    963527098, 960921775, 958323496, 955732243, 953147997, 950570738, 948000448, 945437108,
+    942880699, 940331203, 937788600, 935252872, 932724001, 930201967, 927686753, 925178340,
+    922676710, 920181844, 917693724, 915212331, 912737649, 910269657, 907808339, 905353676,
+    902905651, 900464244, 898029440, 895601218, 893179563, 890764456, 888355878, 885953814,
+    883558244, 881169153, 878786521, 876410331, 874040567, 871677210, 869320244, 866969651,
+    864625413, 862287515, 859955938, 857630665, 855311680, 852998965, 850692504, 848392279,
+    846098274, 843810471, 841528855, 839253408, 836984114, 834720956, 832463917, 830212982,
+    827968132, 825729353, 823496627, 821269938, 819049271, 816834607, 814625932, 812423229,
+    810226483, 808035676, 805850792, 803671817, 801498734, 799331526, 797170178, 795014675,
+    792865000, 790721137, 788583072, 786450787, 784324269, 782203500, 780088465, 777979150,
+    775875538, 773777614, 771685363, 769598769, 767517817, 765442492, 763372778, 761308661,
+    759250125, 757197155, 755149737, 753107854, 751071493, 749040637, 747015274, 744995386,
+    742980960, 740971982, 738968435, 736970306, 734977579, 732990241, 731008277, 729031671,
+    727060411, 725094480, 723133865, 721178552, 719228525, 717283772, 715344277, 713410026,
+    711481005, 709557200, 707638598, 705725183, 703816941, 701913860, 700015924, 698123120,
+    696235434, 694352853, 692475362, 690602947, 688735596, 686873293, 685016026, 683163781,
+    681316545, 679474303, 677637043, 675804750, 673977412, 672155015, 670337545, 668524990,
+    666717336, 664914570, 663116678, 661323648, 659535466, 657752119, 655973594, 654199878,
+    652430958, 650666822, 648907455, 647152846, 645402981, 643657847, 641917433, 640181724,
+    638450708, 636724373, 635002706, 633285695, 631573326, 629865587, 628162466, 626463950,
+    624770026, 623080683, 621395908, 619715688, 618040012, 616368866, 614702239, 613040119,
+    611382493, 609729349, 608080675, 606436459, 604796689, 603161352, 601530438, 599903933,
+    598281827, 596664106, 595050760, 593441776, 591837143, 590236848, 588640881, 587049229,
+    585461881, 583878825, 582300049, 580725543, 579155293, 577589290, 576027521, 574469975,
+    572916640, 571367506, 569822560, 568281792, 566745190, 565212742, 563684439, 562160268,
+    560640218, 559124278, 557612438, 556104685, 554601009, 553101399, 551605844, 550114332,
+    548626854, 547143398, 545663953, 544188508, 542717053, 541249576, 539786068, 538326517,
+];
+
+/// `2^(30 - d/256)` for `d` in units of `2^-8`: the fractional entry of `d`,
+/// shifted down by `d`'s whole part and rounded half to even, the one rounding
+/// rule of this crate. Within one unit of the exact value (EN-43); 0 from
+/// `d = 7936`, where the exact value is at most half a unit.
+pub fn exp2_neg(d: u32) -> u32 {
+    let entry = u64::from(EXP2_FRACTION[(d & 255) as usize]);
+    let shift = d >> 8;
+    if shift == 0 {
+        return entry as u32;
+    }
+    if shift > 32 {
+        return 0;
+    }
+    let quotient = entry >> shift;
+    let rest = entry & ((1u64 << shift) - 1);
+    let half = 1u64 << (shift - 1);
+    let up = rest > half || (rest == half && quotient & 1 == 1);
+    (quotient + u64::from(up)) as u32
+}
+
+/// Softmax in integers. `exponents` are scores already in units of `2^-8` of
+/// a base-two exponent (the model's `log2(e)` and scale folded in by the
+/// caller). Each output is `exp2_neg(top - x)` times `2^30`, over the exact sum
+/// of those weights, rounded half to even: units of `2^-30`. The top score's
+/// weight is `2^30`, so the sum is at least `2^30` and no output passes it
+/// (EN-44). An empty row gives an empty row.
+pub fn softmax_exp2(exponents: &[i64]) -> Vec<u32> {
+    let Some(&top) = exponents.iter().max() else {
+        return Vec::new();
+    };
+    let weights: Vec<u128> = exponents
+        .iter()
+        .map(|&x| {
+            let d = u32::try_from(i128::from(top) - i128::from(x)).unwrap_or(u32::MAX);
+            u128::from(exp2_neg(d))
+        })
+        .collect();
+    let sum: u128 = weights.iter().sum();
+    weights
+        .iter()
+        .map(|&e| {
+            let scaled = e << 30;
+            let (quotient, rest) = (scaled / sum, scaled % sum);
+            let up = 2 * rest > sum || (2 * rest == sum && quotient & 1 == 1);
+            (quotient + u128::from(up)) as u32
+        })
+        .collect()
+}
+
+/// Steps in a quarter turn of the sine table: entry `r` is the sine at
+/// `r / 65536` of a turn, in units of `2^-30`.
+pub const SINE_QUARTER: usize = 16384;
+
+/// `a * b / 2^120`, cut down: the fixed point the sine table is generated in.
+/// Both factors stay below `2^123`, so the result fits.
+fn fixed_mul(a: u128, b: u128) -> u128 {
+    let low_mask = u128::from(u64::MAX);
+    let (a1, a0) = (a >> 64, a & low_mask);
+    let (b1, b0) = (b >> 64, b & low_mask);
+    let (middle, middle_carry) = (a1 * b0).overflowing_add(a0 * b1);
+    let (low, low_carry) = (a0 * b0).overflowing_add(middle << 64);
+    let high = a1 * b1 + (middle >> 64) + (u128::from(middle_carry) << 64) + u128::from(low_carry);
+    (high << 8) | (low >> 120)
+}
+
+/// `2^120 atan(1 / m)`, cut down, by its alternating series.
+fn atan_inverse(m: u128) -> u128 {
+    let mut power = (1u128 << 120) / m;
+    let (mut sum, mut k) = (0u128, 0u128);
+    while power > 0 {
+        let term = power / (2 * k + 1);
+        sum = if k.is_multiple_of(2) {
+            sum + term
+        } else {
+            sum - term
+        };
+        power /= m * m;
+        k += 1;
+    }
+    sum
+}
+
+/// `2^30 sin(pi r / 32768)` for `r <= 16384`, rounded half to even: `pi` by
+/// Machin's formula and the sine by its Taylor series, in integers over
+/// `2^120`, so every machine generates the same table.
+fn sine_entry(pi: u128, r: u128) -> u32 {
+    let x = (pi >> 15) * r + (((pi & 0x7fff) * r) >> 15);
+    let square = fixed_mul(x, x);
+    let (mut sum, mut term, mut k) = (x, x, 1u128);
+    loop {
+        term = fixed_mul(term, square) / ((2 * k) * (2 * k + 1));
+        if term == 0 {
+            break;
+        }
+        sum = if k % 2 == 1 { sum - term } else { sum + term };
+        k += 1;
+    }
+    let (quotient, rest, half) = (sum >> 90, sum & ((1u128 << 90) - 1), 1u128 << 89);
+    let up = rest > half || (rest == half && quotient & 1 == 1);
+    (quotient + u128::from(up)) as u32
+}
+
+/// The quarter-wave sine table: 16,385 entries, entry `r` the integer nearest
+/// `2^30 sin(pi r / 32768)`, generated once by exact integer arithmetic.
+pub fn sine_quarter() -> &'static [u32] {
+    static TABLE: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let pi = 16 * atan_inverse(5) - 4 * atan_inverse(239);
+        (0..=SINE_QUARTER as u128)
+            .map(|r| sine_entry(pi, r))
+            .collect()
+    })
+}
+
+/// The sine of `angle` units of `2^-32` of a turn, in units of `2^-30`: the
+/// angle rounded half to even to a step of `2^-16` of a turn, read from the
+/// quarter-wave table by quadrant.
+pub fn sine_turn(angle: u32) -> i32 {
+    let (whole, rest) = (angle >> 16, angle & 0xffff);
+    let up = rest > 0x8000 || (rest == 0x8000 && whole & 1 == 1);
+    let step = (whole + u32::from(up)) & 0xffff;
+    let table = sine_quarter();
+    let r = (step & 0x3fff) as usize;
+    let quarter = SINE_QUARTER;
+    match step >> 14 {
+        0 => table[r] as i32,
+        1 => table[quarter - r] as i32,
+        2 => -(table[r] as i32),
+        _ => -(table[quarter - r] as i32),
+    }
+}
+
+/// The cosine of `angle` units of `2^-32` of a turn: the sine a quarter turn on.
+pub fn cosine_turn(angle: u32) -> i32 {
+    sine_turn(angle.wrapping_add(1 << 30))
+}
+
+/// The integer nearest `2^32 log2(e)`: SiLU's exponent `e^-x` is taken in base
+/// two as `2^(-x log2(e))`, on EN-43's table.
+pub const LOG2_E: u64 = 6_196_328_019;
+
+/// SiLU's input and output unit: `2^-16`.
+pub const SILU_FRACTION: u32 = 16;
+
+/// `x / (1 + e^-x)` for `x` in units of `2^-16` below `2^47` in size, in the
+/// same units: the exponent `|x| log2(e)` in units of `2^-8`, rounded half to
+/// even, gives `w = exp2_neg`, and the quotient `x 2^30 / (2^30 + w)` (or
+/// `x w / (2^30 + w)` below 0) is rounded half to even.
+pub fn silu(x: i64) -> i64 {
+    let scaled = u128::from(x.unsigned_abs()) * u128::from(LOG2_E);
+    let (whole, rest, half) = (scaled >> 40, scaled & ((1u128 << 40) - 1), 1u128 << 39);
+    let d = whole + u128::from(rest > half || (rest == half && whole & 1 == 1));
+    let w = u128::from(exp2_neg(u32::try_from(d).unwrap_or(u32::MAX)));
+    let denominator = (1u128 << 30) + w;
+    let numerator = u128::from(x.unsigned_abs()) * if x >= 0 { 1u128 << 30 } else { w };
+    let (quotient, rest) = (numerator / denominator, numerator % denominator);
+    let up = 2 * rest > denominator || (2 * rest == denominator && quotient & 1 == 1);
+    let magnitude = (quotient + u128::from(up)) as i64;
+    if x >= 0 {
+        magnitude
+    } else {
+        -magnitude
+    }
+}
+
+/// `n / d` rounded half to even, for `d > 0`: the rule of every narrowing.
+fn divide_even(n: u128, d: u128) -> u128 {
+    let (quotient, rest) = (n / d, n % d);
+    quotient + u128::from(2 * rest > d || (2 * rest == d && quotient & 1 == 1))
+}
+
+/// The integer square root, `r^2 <= value < (r + 1)^2`, as decision 43 decides it,
+/// digit by digit.
+fn integer_root(value: u128) -> u128 {
+    let (mut rest, mut root, mut bit) = (value, 0u128, 1u128 << 126);
+    while bit > value {
+        bit >>= 2;
+    }
+    while bit != 0 {
+        if rest >= root + bit {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    root
+}
+
+/// RMSNorm in integers. Values and weights are in units of `2^-16`, below
+/// `2^31` in size, at most `2^16` of them; `epsilon` is in units of `2^-32`,
+/// below `2^32`. The sum of squares plus `n epsilon` is exact; `r` is the
+/// largest integer with `n r^2 <= (that sum) 2^32`; each output is `x g 2^16 / r` rounded half to even, in units of
+/// `2^-16`. `None` for a row past the bounds or whose root is 0.
+pub fn rms_norm(values: &[i64], weights: &[i64], epsilon: u64) -> Option<Vec<i64>> {
+    let limit = 1u64 << 31;
+    if values.is_empty()
+        || values.len() > 1 << 16
+        || values.len() != weights.len()
+        || epsilon >= 1 << 32
+        || values
+            .iter()
+            .chain(weights)
+            .any(|v| v.unsigned_abs() >= limit)
+    {
+        return None;
+    }
+    let n = values.len() as u128;
+    let squares: u128 = values
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs()).pow(2))
+        .sum();
+    // The floor root of the floored mean is the floor root of the mean: one narrowing.
+    let r = integer_root(((squares + n * u128::from(epsilon)) << 32) / n);
+    if r == 0 {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .zip(weights)
+            .map(|(&x, &g)| {
+                let numerator = i128::from(x) * i128::from(g) * (1i128 << 16);
+                let magnitude = divide_even(numerator.unsigned_abs(), r) as i64;
+                if numerator < 0 {
+                    -magnitude
+                } else {
+                    magnitude
+                }
+            })
+            .collect(),
+    )
+}
