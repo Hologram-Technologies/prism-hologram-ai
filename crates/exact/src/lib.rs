@@ -2124,3 +2124,111 @@ pub fn rope_angle(position: u32, frequency: u64) -> u32 {
     let up = rest > 1 << 31 || (rest == 1 << 31 && whole & 1 == 1);
     (whole + u64::from(up)) as u32
 }
+
+/// LayerNorm in integers. Values, weights and biases are in units of `2^-16`,
+/// below `2^31` in size, at most `2^16` of them; `epsilon` is in units of
+/// `2^-32`, below `2^32`. The centred values `n x - sum(x)` and the variance's
+/// numerator `V = n sum(x^2) - sum(x)^2` are exact; `r` is the largest integer
+/// with `n^2 r^2 <= (V + n^2 epsilon) 2^32`; each output is
+/// `(n x - sum(x)) g 2^16 / (n r)` rounded half to even, plus `b`, in units of
+/// `2^-16`. `None` for a row past the bounds or whose root is 0.
+pub fn layer_norm(
+    values: &[i64],
+    weights: &[i64],
+    biases: &[i64],
+    epsilon: u64,
+) -> Option<Vec<i64>> {
+    let limit = 1u64 << 31;
+    if values.is_empty()
+        || values.len() > 1 << 16
+        || values.len() != weights.len()
+        || values.len() != biases.len()
+        || epsilon >= 1 << 32
+        || values
+            .iter()
+            .chain(weights)
+            .chain(biases)
+            .any(|v| v.unsigned_abs() >= limit)
+    {
+        return None;
+    }
+    let n = values.len() as i128;
+    let sum: i128 = values.iter().map(|&x| i128::from(x)).sum();
+    let squares: u128 = values
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs()).pow(2))
+        .sum();
+    // n sum(x^2) >= sum(x)^2 (Cauchy-Schwarz), so V is never negative.
+    let v = (n as u128) * squares - sum.unsigned_abs().pow(2);
+    let nn = (n * n) as u128;
+    // The floor root of the floored quotient is the floor root of the quotient: one narrowing.
+    let r = integer_root(((v + nn * u128::from(epsilon)) << 32) / nn);
+    if r == 0 {
+        return None;
+    }
+    let denominator = n as u128 * r;
+    Some(
+        values
+            .iter()
+            .zip(weights)
+            .zip(biases)
+            .map(|((&x, &g), &b)| {
+                let numerator = (n * i128::from(x) - sum) * i128::from(g) * (1i128 << 16);
+                let magnitude = divide_even(numerator.unsigned_abs(), denominator) as i64;
+                b + if numerator < 0 { -magnitude } else { magnitude }
+            })
+            .collect(),
+    )
+}
+
+/// The fraction GELU's series are carried in: `2^-40`.
+const GELU_FRACTION: u32 = 40;
+
+/// `sqrt(2 / pi)` in units of `2^-40`: the integer square root of
+/// `2^121 / floor(2^40 pi)`, `pi` by Machin's formula.
+fn gelu_constant() -> u128 {
+    let pi = (16 * atan_inverse(5) - 4 * atan_inverse(239)) >> 80;
+    integer_root((1u128 << 121) / pi)
+}
+
+/// GELU, `x Phi(x)`, for `x` in units of `2^-16`, in the same units. At or
+/// above 8 it is `x` and at or below -8 it is 0, each within `2^-40` of the
+/// true value. Between, with `X = |x|` and `Y = X^2`,
+/// `erf(X / sqrt 2) = sqrt(2 / pi) X A / B` for the positive series
+/// `A = sum Y^k / (2k+1)!!` and `B = e^(Y/2) = sum (Y/2)^k / k!`, every term cut
+/// down to `2^-40`, so nothing cancels; the output `(x + X erf) / 2` is rounded
+/// half to even once.
+pub fn gelu(x: i64) -> i64 {
+    let eight = 8i64 << SILU_FRACTION;
+    if x >= eight {
+        return x;
+    }
+    if x <= -eight {
+        return 0;
+    }
+    let one = 1u128 << GELU_FRACTION;
+    let magnitude = u128::from(x.unsigned_abs());
+    // Y in units of 2^-32, below 2^38.
+    let y = magnitude * magnitude;
+    let (mut a, mut b) = (one, one);
+    let (mut sum_a, mut sum_b) = (one, one);
+    let mut k = 1u128;
+    while a > 0 || b > 0 {
+        a = a * y / ((2 * k + 1) << 32);
+        b = b * y / (k << 33);
+        sum_a += a;
+        sum_b += b;
+        k += 1;
+    }
+    let ratio = (sum_a << GELU_FRACTION) / sum_b;
+    // erf(X / sqrt 2) in units of 2^-40.
+    let erf = (gelu_constant() * magnitude * ratio) >> (GELU_FRACTION + SILU_FRACTION);
+    // (x + X erf) / 2, in units of 2^-56 before the one narrowing.
+    let doubled = (i128::from(x) << GELU_FRACTION) + (magnitude * erf) as i128;
+    let rounded = divide_even(doubled.unsigned_abs(), 1u128 << (GELU_FRACTION + 1)) as i64;
+    if doubled < 0 {
+        -rounded
+    } else {
+        rounded
+    }
+}
