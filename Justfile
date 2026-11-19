@@ -133,7 +133,7 @@ engine-build out:
     [[ -n $registry && -n $target ]] || { echo "engine-build: cargo metadata names no registry source or target directory" >&2; exit 64; }
     # rustc applies the last prefix that matches, so the registry comes last:
     # a cargo home inside the workspace still maps to /registry.
-    export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/workspace"$'\x1f'"--remap-path-prefix=$registry=/registry"
+    export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/workspace"
     export SOURCE_DATE_EPOCH=0
     cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm
     cp "$target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm" "{{out}}"
