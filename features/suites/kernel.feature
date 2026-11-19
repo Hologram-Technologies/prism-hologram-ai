@@ -470,6 +470,14 @@ Feature: kernel
     And product_from_halves and product_as_limbs hold for every two numbers, and low_limb_is_word, high_limb_is_word and the half-product bounds bound the limbs
     And limbs_add_with_carry, carry_weight_is_final_carry and added_limbs_are_words hold for every two lists of limbs and every carry
 
+  @KN-57 @build
+  Scenario: The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8
+    Given the stage in app/src/Engine/Stage/Q4Sum.lex.tex and its proofs in app/src/Proofs/StageQ4Sum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageQ4Sum in the gate
+    Then group_sum_value and group_sum_sign hold for every activation list, weight list, unit count and output index
+    And pos_sum_32 and neg_sum_32 bound each side by 2^24
+    And times_exact proves the stage's native times equals Engine.Word::mulB over four bits for every multiplier up to 8
+
   @KN-80 @build
   Scenario: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
     Given the seal model in app/src/Kernel/Seal.lex.tex, whose eight words are the engine address `just engine` checks, and its proofs in app/src/Proofs/Seal.lex.tex
