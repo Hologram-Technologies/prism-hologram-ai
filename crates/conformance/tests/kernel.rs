@@ -114,6 +114,35 @@ fn assert_routed(tag: u8, answer: &str) {
     );
 }
 
+/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims.json`,
+/// which the `app` recipe replays through the guest of the holo it has just built. So
+/// a refusal that row 10 of the plan names is the compiled kernel's own answer, not
+/// only a reading of the model's text.
+fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
+    let claims =
+        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("the claims the crates make of the kernel");
+    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let listed: Vec<(&str, &str)> = claims["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .filter_map(|one| Some((one["request"].as_str()?, one["answer"].as_str()?)))
+        .collect();
+    for (request, answer) in cases {
+        assert_eq!(
+            request.first(),
+            Some(&decision),
+            "a decision-{decision} request"
+        );
+        let request: String = request.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(
+            listed.contains(&(request.as_str(), *answer)),
+            "no claim answers decision {decision}'s {request} with `{answer}`"
+        );
+    }
+}
+
 /// The lowercase hex of `text`, as an example's response is written in the model.
 fn hex(text: &str) -> String {
     text.bytes().map(|b| format!("{b:02x}")).collect()
@@ -1866,6 +1895,33 @@ fn kernel_kn_18() {
             "{definition} lists a name the test does not"
         );
     }
+    // Row 10: an operator off both lists, and one on the decomposed list asked of
+    // a fused graph, are refused by name by the compiled kernel; a listed one is not.
+    {
+        use hologram_ai_kernel_client::opname::{self, Style};
+        let name = |n: &str| opname::name(n).expect("a name of at most 32 bytes");
+        assert_claimed(
+            18,
+            &[
+                (
+                    opname::request(Style::Decomposed, &name("LayerNormalization")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Fused, &name("LayerNormalization")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Fused, &name("Add")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Decomposed, &name("MatMulNBits")).to_vec(),
+                    "supported",
+                ),
+            ],
+        );
+    }
     assert_routed(18, "Kernel.Opnames::opnameAnswer");
 }
 /// `KN-19`: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
@@ -1940,6 +1996,62 @@ fn kernel_kn_19() {
         declaration(&kernel, "familyGated").contains(&format!("(activation =? {})", word("silu"))),
         "the gated activation is not silu"
     );
+    // Row 10: Gemma and a mixture of experts (Mixtral) are refused by name as unknown
+    // families, a listed family with GELU as an unsupported shape, by the compiled
+    // kernel; a type or activation longer than eight bytes (qwen3_moe,
+    // gelu_pytorch_tanh) has no word, so it is never put to the kernel at all.
+    {
+        use hologram_ai_kernel_client::family::{self, Shape};
+        let word = |w: &str| family::word(w).expect("a word of at most eight bytes");
+        let qwen = Shape {
+            heads: 12,
+            groups: 2,
+            head_size: 128,
+            layers: 28,
+            width: 1536,
+            vocabulary: 151_936,
+        };
+        let gemma = Shape {
+            heads: 8,
+            groups: 4,
+            head_size: 256,
+            layers: 26,
+            width: 2304,
+            vocabulary: 256_000,
+        };
+        let mixtral = Shape {
+            heads: 32,
+            groups: 8,
+            head_size: 128,
+            layers: 32,
+            width: 4096,
+            vocabulary: 32_000,
+        };
+        assert_claimed(
+            19,
+            &[
+                (
+                    family::request(&word("gemma2"), &word("gelu"), gemma).to_vec(),
+                    "rejected: unknown family",
+                ),
+                (
+                    family::request(&word("mixtral"), &word("silu"), mixtral).to_vec(),
+                    "rejected: unknown family",
+                ),
+                (
+                    family::request(&word("llama"), &word("gelu"), qwen).to_vec(),
+                    "rejected: unsupported shape",
+                ),
+                (
+                    family::request(&word("qwen2"), &word("silu"), qwen).to_vec(),
+                    "supported",
+                ),
+            ],
+        );
+        for long in ["qwen3_moe", "qwen2_moe", "gelu_pytorch_tanh"] {
+            assert_eq!(family::word(long), None, "{long} has no word");
+        }
+    }
     assert_routed(19, "Kernel.Family::familyAnswer");
 }
 /// `KN-20`: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
@@ -2081,6 +2193,25 @@ fn kernel_kn_21() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 36) && (((Kernel.Wire::fieldAt value 1 1) <=? 1) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1)))) then (precisionText (precisionCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 12 8) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 20 8) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 28 8) (Kernel.Wire::fieldAt value 4 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "precisionAnswer changed:\n{found}"
     );
+    // Row 10: a record offering none of q4f16, q4 and fp16 (only q8, int8 or bnb4
+    // files) is answered `none fits` by the compiled kernel; one offering q4 gets q4.
+    {
+        use hologram_ai_kernel_client::precision;
+        let budget = 4 << 30;
+        assert_claimed(
+            21,
+            &[
+                (
+                    precision::request(budget, None, None, None).to_vec(),
+                    "none fits",
+                ),
+                (
+                    precision::request(budget, None, Some(1_100_000_000), None).to_vec(),
+                    "q4",
+                ),
+            ],
+        );
+    }
     assert_routed(21, "Kernel.Precision::precisionAnswer");
 }
 /// `KN-22`: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused

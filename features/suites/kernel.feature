@@ -145,6 +145,7 @@ Feature: kernel
     Then a name is a listed name exactly when the four words of its 32 bytes equal that name's four words
     And the decomposed style lists the 27 names read from Qwen2.5-1.5B's 4-bit export and the fused style the 18 read from Llama 3.2 1B, Qwen3-0.6B and SmolLM2-360M, each written in the model as the four words of its bytes
     And the answer to decision 18 is supported or unsupported operator by that same opnameListed, and a style other than 0 or 1 is no question
+    And the guest the app recipe builds answers unsupported operator for LayerNormalization, which is on neither list, and for Add asked of a fused graph, and supported for MatMulNBits, as the claims it replays list
 
   @KN-19 @build
   Scenario: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
@@ -153,6 +154,8 @@ Feature: kernel
     Then a type is listed exactly when it is qwen2, qwen3 or llama, read as the eight bytes of its name
     And a shape is one the engine runs exactly when the key-value heads are at least one and divide the heads, the head size is even and at least two, and layers, width and vocabulary are at least one
     And the answer to decision 19 is supported exactly when the type is listed, the activation is silu and the shape is one the engine runs
+    And the guest the app recipe builds answers rejected: unknown family for gemma2 and for mixtral, a mixture of experts, and rejected: unsupported shape for llama with gelu, as the claims it replays list
+    And a type or activation longer than eight bytes, such as qwen3_moe or gelu_pytorch_tanh, has no word to ask with, so it is never taken for a listed one
 
   @KN-20 @build
   Scenario: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
@@ -169,6 +172,7 @@ Feature: kernel
     And q4f16 is chosen exactly when it fits, q4 exactly when q4f16 does not and q4 does, fp16 exactly when neither does and fp16 does, and none exactly when none fits
     And a wider budget never moves the choice to a later precision
     And the answer to decision 21 is the precision of that same precisionCode
+    And the guest the app recipe builds answers none fits for a record that offers none of q4f16, q4 and fp16, as one with only q8, int8 or bnb4 files does, as the claims it replays list
 
   @KN-22 @build
   Scenario: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused

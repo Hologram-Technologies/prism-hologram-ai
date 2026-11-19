@@ -33,6 +33,15 @@ fn node(script: &str, args: &[&str]) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("{script} printed no JSON ({e}):\n{stdout}"))
 }
 
+// Eight scenarios read the one engine run `run.mjs` makes. It takes no input
+// but this tree, so it runs once and each scenario asserts on that output.
+// Run eight times, four at once on the gate's four cores, it took 22 to 28
+// of the gate's 45 minutes.
+fn run() -> &'static serde_json::Value {
+    static RUN: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    RUN.get_or_init(|| node("crates/conformance/tests/gpu/run.mjs", &[]))
+}
+
 /// The largest difference allowed between a logit the GPU computes in single
 /// precision and the reference's double-precision logit. The first runs on
 /// SwiftShader measured at most 6.6e-4 on logits spread over about 6 to 8.
@@ -117,7 +126,7 @@ fn blocks_agree(model: &serde_json::Value, label: &str) {
 /// `GP-01`: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
 #[test]
 fn gpu_gp_01() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     // No adapter is a failure, not a skip: a test that cannot see a GPU has
     // checked nothing.
     assert!(
@@ -127,7 +136,7 @@ fn gpu_gp_01() {
     );
     let errors = result["errors"].as_array().expect("the error list");
     assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    reference_agrees(&result, "ternary Qwen3");
+    reference_agrees(result, "ternary Qwen3");
 }
 
 /// `GP-02`: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
@@ -185,19 +194,19 @@ fn gpu_gp_02() {
 /// `GP-04`: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
 #[test]
 fn gpu_gp_04() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
         result["error"]
     );
-    blocks_agree(&result, "ternary Qwen3");
+    blocks_agree(result, "ternary Qwen3");
 }
 
 /// `GP-05`: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
 #[test]
 fn gpu_gp_05() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -464,7 +473,7 @@ fn gpu_gp_07() {
 /// `GP-08`: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_08() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -502,7 +511,7 @@ fn gpu_gp_08() {
 /// `GP-09`: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
 #[test]
 fn gpu_gp_09() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -534,7 +543,7 @@ fn gpu_gp_09() {
 /// `GP-10`: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_10() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -595,7 +604,7 @@ fn gpu_gp_11() {
     }
     assert_eq!(bands, [15, 3, 14], "kept, blended and slowed pairs");
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -693,7 +702,7 @@ fn gpu_gp_12() {
         );
     }
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -1617,7 +1626,7 @@ fn gpu_gp_27() {
     let loader = read("site/app/engine/loader.mjs");
     for wanted in [
         "from \"./hub/hub-client.mjs\";",
-        "index = await openIndex(base, policy, { hash });",
+        "index = await openIndex(base, policy, { hash, fetch: hubFetch });",
         "const record = await readRecord(index, repo);",
         "new URL(\"./hub/policy.json\", import.meta.url)",
     ] {
@@ -1640,5 +1649,105 @@ fn gpu_gp_27() {
             journey.contains(wanted),
             "the journey no longer checks `{wanted}`"
         );
+    }
+}
+
+/// `GP-30`: A return visit to the engine page with the network off loads the page, its engine and its kernel from the page's own service worker, reads the hub's index root, its signature and the model's record from this browser and checks them again as a download is checked, reads every file and tensor of the model from this browser with decision 28 asked again on the importer's own addresses, and answers with the reference's tokens; a kept record changed by one byte is refused as RecordMismatch, and with no hub index kept the page stops at the index root as RootUnreachable
+#[test]
+fn gpu_gp_30() {
+    // The journey runs the visits in a browser with the server answering
+    // nothing (`just page-journey`); this test reads that it does, and that
+    // the page's worker, the kept hub index and the checks it says are there.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    for (path, wanted) in [
+        ("site/app/sw.js", "await cache.addAll(listing.files.map((f) => new URL(f.path, ROOT).href));"),
+        ("site/app/sw.js", "const fresh = await fetch(request);"),
+        ("site/app/sw.js", "const kept = await cache.match(key);"),
+        ("site/app/sw.js", "url.href.split(/[?#]/)[0] === LISTING) return;"),
+        ("site/app/app.mjs", "navigator.serviceWorker.register(\"./sw.js\")"),
+        ("site/app/app.mjs", "if (listed === OFFLINE) return checks.add(\"kernel\", subject, \"not checked\""),
+        ("site/app/engine/loader.mjs", "const hit = store && (await store.match(url));"),
+        ("site/app/engine/loader.mjs", "if (response.ok && store) await store.put(url, response.clone());"),
+        ("site/app/engine/loader.mjs", "index = await openIndex(base, policy, { hash, fetch: hubFetch });"),
+        ("site/app/engine/pipeline.mjs", "const record = await hubRecord({ indexBase: index, repo: model, checks, fetch: hubFetch });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "if (down) return request.socket.destroy();"),
+        ("crates/conformance/tests/gpu/journey.mjs", "await context.setOffline(true);"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home offline: expected every tensor read here and no read of the network"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home record: expected a changed kept record refused as RecordMismatch"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home none: expected the page stopped at the index root, unreachable"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+    // The worker answers no model byte and no hub file: those are checked
+    // again on every read, which a worker answering for them would skip.
+    let worker = read("site/app/sw.js");
+    for absent in ["hologram-files", "/onnx/", "index/models", "uor/"] {
+        assert!(!worker.contains(absent), "site/app/sw.js names `{absent}`");
+    }
+}
+
+/// `GP-31`: The engine page keeps an ONNX export's tensors in the browser once each by the BLAKE3 address the hub's UOR index lists: each span is asked of decision 23, a tensor already held under any model, precision or repository is read from the browser and not downloaded, only the bytes not held are range-read from the first of the record's sources that answers, and nothing new is kept until decision 28 answers ready on the importer's own addresses; the same export under a second repository downloads nothing, its q4 graph after its q4f16 graph downloads only the tensors the first lacks, a kept tensor changed by one byte is refused and forgotten, a model the UOR index does not list is refused by name before any file is read, and an index giving a tensor another address is refused by decision 28
+#[test]
+fn gpu_gp_31() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The hub's shard rule is the hub's, byte for byte, at the BLAKE3 VENDOR.md names.
+    let bytes = std::fs::read(root().join("site/app/engine/hub/uorkey.mjs")).expect("uorkey.mjs");
+    let mut arriving = hologram_ai_download::Arriving::new();
+    arriving.take(&bytes);
+    assert!(
+        read("site/app/engine/hub/VENDOR.md").contains(&arriving.label().to_hex()),
+        "VENDOR.md does not name uorkey.mjs's BLAKE3"
+    );
+    for (path, wanted) in [
+        ("site/app/engine/loader.mjs", "const shardPath = await uorShardOf(record.repo, root.shardBits);"),
+        ("site/app/engine/loader.mjs", "if (blake3Hex(bytes) !== listed.blake3) refuse("),
+        ("site/app/engine/loader.mjs", "refuse(`the hub's UOR index lists no tensors for ${record.repo} ${path} at ${record.revision}`);"),
+        // Decision 23's wire: file length, offset, length, then the previous end.
+        ("site/app/engine/files.mjs", "request.set(be(file.size, 8), 3);"),
+        ("site/app/engine/files.mjs", "request.set(be(end, 8), 27);"),
+        ("site/app/engine/files.mjs", "if (answer !== \"accept\") throw new Error("),
+        ("site/app/engine/files.mjs", "segments.push({ from: t.offset, to: t.offset + t.length, named: t.address.slice(7), held: await heldAt(t.address.slice(7), t.length) });"),
+        ("site/app/engine/files.mjs", "while (j < segments.length && !local(segments[j])) j++;"),
+        ("site/app/engine/files.mjs", "response.status === 206 && span && Number(span[1]) === from && Number(span[2]) === to - 1"),
+        // Decision 28 before anything new is named.
+        ("site/app/engine/files.mjs", "request[0] = 28;"),
+        ("site/app/engine/files.mjs", "if (verdict.answer !== \"ready\") {"),
+        ("site/app/engine/files.mjs", "await p.handle.move(p.named);"),
+        ("site/app/engine/onnx-load.mjs", "await admitted(table);"),
+        ("site/app/engine/pipeline.mjs", "const manifest = await tensorManifest({ indexBase: index, record, paths: [path, ...dataPaths], checks, fetch: hubFetch });"),
+        ("site/app/engine/pipeline.mjs", "files = await keepFiles({ record, open: fetched(base), module, kernel: decide, manifest });"),
+        ("crates/conformance/tests/gpu/fixture.mjs", "export function uorIndexFiles(rows, { shardBits = 4, lie = null } = {}) {"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store twin: expected every tensor read here and none downloaded"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store q4: a tensor the q4f16 graph shares was downloaded again"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store q4: the fixture's two precisions share no tensor, so nothing is tested"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store tampered: the changed tensor is still kept"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store unlisted: expected the model refused by name for want of a manifest"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store lie: bytes were kept from a load decision 28 refused"),
+        ("crates/conformance/tests/gpu/journey.mjs", "read by this load, was dropped for room"),
+        ("site/app/engine/files.mjs", "// What this load reads from here is pinned before decision 26 is asked"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+}
+
+/// `GP-32`: Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token
+#[test]
+fn gpu_gp_32() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    for (path, wanted) in [
+        ("site/app/engine/pipeline.mjs", "const verdict = await ask(\"reuse\", \"computed prefix to reuse\", join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))"),
+        ("site/app/engine/pipeline.mjs", "engine.restoreState(held.state);"),
+        ("site/app/engine/pipeline.mjs", "computed: prompt.length - from,"),
+        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "reusing the head changed the tokens"),
+        ("crates/conformance/tests/gpu/journey.mjs", "a turn reported no time to first token"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
     }
 }
