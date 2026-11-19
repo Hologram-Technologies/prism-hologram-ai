@@ -372,8 +372,8 @@ Feature: kernel
   @KN-52 @build
   Scenario: An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english
     Given the operator model in app/src/Kernel/Opnames.lex.tex and its proofs in app/src/Proofs/Opnames.lex.tex
-    When the Lean kernel checks opname_listed_encoder and opname_listed_unknown, each from the style comparisons it rests on, during lexlean verify in the gate
-    Then style 2 asks the encoder list of 25 names, and no style past 2 lists any name
+    When the kernel's tests read opnameEncoder and opnameListed, and the Lean kernel checks opname_is_decides during lexlean verify in the gate
+    Then style 2 asks the encoder list of 25 names, each the bytes of a name the four graphs use, and no style past 2 lists any name
     And the compiled guest answers supported for Erf and Gemm in an encoder graph, unsupported operator for Erf in a decomposed graph and for GroupQueryAttention in an encoder graph, and invalid request for style 3, as the claims it replays list
 
   @KN-53 @build

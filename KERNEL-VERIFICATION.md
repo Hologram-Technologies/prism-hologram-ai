@@ -54,7 +54,7 @@ The inherited gates and their own planted defects are in
 | `KN-22`: WebGPU exactly when `gpuUsable` holds, the CPU exactly when it does not and the model is within the ceiling, refused otherwise | `device_webgpu_decides`, `device_cpu_decides` and `device_refused_decides`, checked by the Lean kernel | proved |
 | The CPU ceiling is a size a CPU path can run usefully | the ceiling is a number the caller states; no CPU path exists yet to measure it against | not proved |
 | `KN-23`: a span is accepted exactly when its file is declared, it starts at or after the previous span's end and it ends within the file; two spans accepted in order do not overlap | `chunk_declared_decides`, `chunk_inside_decides` and `chunk_spans_disjoint`, checked by the Lean kernel | proved |
-| `KN-24`: a file is named exactly when the task is text generation, the precision is listed, at most 100 data files are declared and the part is at most that count | `source_named_decides`, `source_undeclared_decides` and `source_task_decides`, checked by the Lean kernel | proved |
+| `KN-24`: a file is named exactly when the task is text generation, feature extraction or text classification (0 to 2, KN-53), the precision is listed, at most 100 data files are declared and the part is at most that count | `source_named_decides`, `source_undeclared_decides` and `source_task_decides`, checked by the Lean kernel | proved |
 | The names are the ones transformers.js 4.3.2 reads: `onnx/model`, the precision's suffix, `.onnx`, then `_data` and `_data_1` onward | `sourceGraph` and `sourceName`, pinned by `kernel_kn_24`; text is outside the proof forms | tested, not proved |
 | `KN-25`: no stop id is met exactly when every listed id differs from the token; the budget is spent exactly when the tokens generated reach it | `stop_differs_decides`, `stop_none_from_decides` by induction over the list, and `stop_spent_decides`, checked by the Lean kernel | proved |
 | `KN-26`: evict exactly when the block is not pinned, a candidate remains and space is short; does not fit exactly when none remains and space is short; enough exactly when it is not short | `evict_decides`, `evict_does_not_fit_decides`, `evict_enough_decides` and `evict_short_decides`, checked by the Lean kernel | proved |
@@ -1393,6 +1393,39 @@ do not, and `not finite` for an infinity or a NaN. No number it forms passes
 | the f16 read at half its units (times 32) | rejected: `rotaryCache changed` |
 | decision 50 routed to decision 49's answer | rejected: `decision 50 must be routed to Kernel.Rotary::rotaryAnswer` |
 | none | passed |
+
+## KN-52 and KN-53, an encoder's operators and files
+
+Row 9 runs an embedding model and a classifier from the page, so their graphs
+must pass decision 18 and their files be named by decision 24.
+
+Decision 18 gains a third export style, 2, the encoder's: 25 operator names,
+the union of every node of Xenova's `onnx/model_q4f16.onnx` and
+`onnx/model_q4.onnx` for all-MiniLM-L6-v2 (751bff3) and
+distilbert-base-uncased-finetuned-sst-2-english (0b6928e), read on 2026-11-19
+from the graphs' node sections alone by Range request (the initializers begin
+inside the first 512 KB of all four; the bytes were deleted). Style 3 or more
+is still no question. The importer asks style 2 only when its caller says the
+graph is an encoder's (`onnx_start_encoder`), since an encoder's 4-bit weights
+name the fused domain as a decoder's do.
+
+Decision 24 names the files of tasks 1 (feature extraction) and 2 (text
+classification) as it names text generation's: Xenova's exports use the same
+`onnx/model<suffix>.onnx`. A task of 3 or more is answered `unsupported task`.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Style 2 asks exactly the encoder's list, and no style past 2 lists any name | the body of `opnameListed`, pinned by `kernel_kn_18`; the name comparison itself is `opname_is_decides`, proved. Two theorems were tried on the hosted verifier (tasks 102 to 137): each needs `if false = true` reduced, which `simplify` here will not do with the rewrites it admits, and `linear_arithmetic` does not split on a Boolean result. As for KN-18's two lists, the dispatch is not a theorem | tested, not proved |
+| The 25 names are the four graphs' | `kernel_kn_52` holds the names and checks the model's numbers are their bytes and that it lists no other | tested, not proved |
+| A file is named exactly for tasks 0 to 2; a task of 3 or more is refused | `source_named_decides`, `source_undeclared_decides`, `source_task_decides`, restated | proved (hosted verifier, task-135) |
+| Decisions 18 and 24 answer the new requests in the compiled guest | 9 claims in `claims.json`: `Erf` and `Gemm` supported in an encoder graph, `Erf` refused in a decomposed one and `GroupQueryAttention` in an encoder's, style 3 invalid; the two tasks' graph names, an undeclared part, task 3 refused | replayed on CI |
+
+### The pinned tests: `kernel_kn_52`, `kernel_kn_53`
+
+| Planted defect | Result |
+| --- | --- |
+| `Erf` taken out of `opnameEncoder` | rejected: `Erf is not in opnameEncoder` |
+| none | passed, with `kernel_kn_18` and `kernel_kn_24` pinning the widened bodies |
 
 ## The examples in the compiled guest
 

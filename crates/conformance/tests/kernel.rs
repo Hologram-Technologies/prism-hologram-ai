@@ -3759,19 +3759,8 @@ fn kernel_kn_51() {
 fn kernel_kn_52() {
     assert_proofs_are_gated();
     let kernel = model("app/src/Kernel/Opnames.lex.tex");
-    let proofs = model("app/src/Proofs/Opnames.lex.tex");
-    assert_pinned(
-        &proofs,
-        "opname_listed_encoder",
-        "((Kernel.Opnames::opnameListed 2 wa wb wc wd) = (Kernel.Opnames::opnameEncoder wa wb wc wd))",
-        "propext",
-    );
-    assert_pinned(
-        &proofs,
-        "opname_listed_unknown",
-        "((Kernel.Opnames::opnameListed (style + 3) wa wb wc wd) = false)",
-        "propext",
-    );
+    // Which list a style asks is the body of `opnameListed`, pinned by
+    // kernel_kn_18; it is not a theorem here, as KN-18's lists are not.
     // The 25 names every node of the four graphs uses, read on 2026-11-19 from
     // the node sections of onnx/model_q4f16.onnx and onnx/model_q4.onnx at the
     // revisions the hub records (751bff3 and 0b6928e).
