@@ -249,3 +249,12 @@ Feature: gpu
     Then the first turn computes the whole prompt and asks nothing about reuse
     And the second is answered reuse for the head, computes only the positions after it, and its tokens are exactly the first turn's, which are the reference's
     And each turn reports its time to first token
+
+  @GP-40 @build
+  Scenario: Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs
+    Given GP-19's Qwen3-shaped ONNX export and its hub record, served to one page
+    When `just page-journey` imports site/app/engine/transformers.mjs on the engine page and calls it as transformers.js is called
+    Then pipeline("text-generation", repo, { device, dtype, progress_callback }) is answered by decision 70 before it loads, and progress_callback reports ready
+    And a messages list answers [{ generated_text: [...messages, { role: "assistant", content }] }] with the one call's text, and a TextStreamer receives that text as it is made
+    And a string answers [{ generated_text: prompt + completion }]
+    And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read
