@@ -270,3 +270,10 @@ Feature: gpu
     And a messages list answers [{ generated_text: [...messages, { role: "assistant", content }] }] with the one call's text, and a TextStreamer receives that text as it is made
     And a string answers [{ generated_text: prompt + completion }]
     And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read
+
+  @GP-50 @build
+  Scenario: Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled
+    Given the assembled page, and the same page serving engine.wasm with one bit of one byte flipped
+    When the page opens its engine through openModule, which every caller reaches
+    Then the page records the engine check passing with the kernel's answer sealed, and loads the container
+    And with the flipped engine it stops at the engine check with not the sealed engine, before the module is compiled and before any container byte is read

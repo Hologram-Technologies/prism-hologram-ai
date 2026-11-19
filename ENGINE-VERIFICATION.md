@@ -3086,3 +3086,57 @@ bits. Written once with `EN_64_WRITE=1`, it is compared on every run after.
 FL-74: with the first layer's query matrix left out, `encode_open` says no
 and leaves `Encode(Unrecognised(Attention))` where the page reads answers.
 
+
+## EN-90, one engine, the same bytes on every build
+
+Found on 2026-11-19: CI's deployed `engine.wasm` for main `4da90ab`
+(sha256 `f846328b…`) and a WSL build of the same commit (`b42ff0f8…`) were
+the same 2,033,321 bytes and not the same file. Replacing the WSL cargo home
+`/home/<user>/.cargo` by CI's `/tmp/prismpm-cargo-1001` (the SDK image's,
+named by the build user's uid) in the WSL file made it CI's, byte for byte:
+the 85 panic locations rustc writes for registry crates were the only
+difference, and the two paths happen to be the same length. Both used rustc
+1.97.1 (`8bab26f4`); the workspace's own paths are relative and did not
+differ, though the two checkouts sat at different paths.
+
+`just engine-build` therefore remaps the registry to `/registry` and the
+workspace to `/workspace`; clears every rustflags source the environment
+could carry (`CARGO_ENCODED_RUSTFLAGS` outranks the rest), every
+`CARGO_PROFILE_*` override and any rustc wrapper; and fixes
+`SOURCE_DATE_EPOCH`. The toolchain and the target stay pinned by
+`rust-toolchain.toml` (1.97.1, `wasm32-unknown-unknown`), and the release
+profile keeps `codegen-units = 1`. The module is 5,120 bytes smaller for the
+shorter paths.
+
+The address is sealed in the model (`sealedWord`, KN-80): `just engine` fails
+unless the module's BLAKE3 is it, naming both addresses and the words to
+record. The page asks decision 80 about the same address before compiling
+the module (GP-50).
+
+### Two builds
+
+| Build | Where | Result |
+| --- | --- | --- |
+| A | WSL, `~/seal-a`, cargo home `~/.cargo` | `blake3:4eccff67…a706bfb6`, 2,028,201 bytes |
+| B | WSL, `~/seal-long-path-b`, a fresh cargo home `~/cargo-home-fresh-b`, `RUSTFLAGS="-C target-cpu=native"` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` in its environment | identical to A |
+| C | CI, `engine.yml` in the SDK image | CI_RESULT |
+
+### The gate: `just engine-twice`, run by `.github/workflows/engine.yml`
+
+Two copies of the tree, two fresh cargo homes of different lengths, two
+target directories, host flags in the second environment; `cmp` on the two
+modules, then `engine-seal`. The workflow runs on every push and pull request
+that changes an input, keyed by `hashFiles` over all of them
+(`rust-toolchain.toml`, `Cargo.toml`, `Cargo.lock`, `crates/`, `xtask/`,
+`Justfile`, `prismpm.lock`, `Seal.lex.tex`); a kept module is reused only
+after `engine-seal` has derived its BLAKE3 again and found the sealed
+address, and anything else is a miss that builds twice in full.
+
+| Planted | Result |
+| --- | --- |
+| none, WSL, `just engine-twice` with two fresh cargo homes | passed: `two builds are the same 2028201 bytes`, `engine-seal` found `blake3:4eccff67…a706bfb6` |
+
+`cargo test -p repo-conformance --test engine -- engine_en_90 engine_en_26`
+pins the recipe, the toolchain, the profile and the workflow, and runs
+`engine-seal` on a module that is not the engine: it must fail naming both
+addresses. Passed on 2026-11-19.

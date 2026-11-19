@@ -1,0 +1,95 @@
+# EN-90's gate: the page's engine.wasm built twice, by `just engine-twice`, from
+# two copies of the tree with two cargo homes of different lengths and a host
+# flag in one environment; any byte that differs fails, and the address must be
+# the one app/src/Kernel/Seal.lex.tex seals. Project content, beside the
+# acceptance gate rather than in it, so the acceptance run's time is unchanged.
+name: engine
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - rust-toolchain.toml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - xtask/**
+      - Justfile
+      - prismpm.lock
+      - app/src/Kernel/Seal.lex.tex
+      - .github/workflows/engine.yml
+  pull_request:
+    paths:
+      - rust-toolchain.toml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - xtask/**
+      - Justfile
+      - prismpm.lock
+      - app/src/Kernel/Seal.lex.tex
+      - .github/workflows/engine.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('engine-pr-{0}', github.event.pull_request.number) || format('engine-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  twice:
+    name: engine.wasm byte-identical and sealed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact event revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The key names every input the module is made from: the toolchain and
+      # target (rust-toolchain.toml), the workspace and its locked crates
+      # (Cargo.toml, Cargo.lock, crates/), the flags and the build itself
+      # (Justfile), the SDK image that runs it (prismpm.lock), and the gate's
+      # own reader and seal (xtask/, Seal.lex.tex). A key that left one out
+      # would reuse a module made from something else.
+      - name: The module these exact inputs made, kept by an earlier run
+        id: kept
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: target/engine-kept
+          key: engine-twice-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'crates/**', 'xtask/**', 'Justfile', 'prismpm.lock', 'app/src/Kernel/Seal.lex.tex') }}
+      - name: Build twice and compare, or re-derive the kept module's address, through the locked SDK
+        shell: bash
+        env:
+          KEPT: ${{ steps.kept.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          image=$(sed -n 's/.*"sdk_image":"\([^"]*\)".*/\1/p' prismpm.lock)
+          if [[ ! $image =~ ^[a-z0-9.-]+(:[0-9]{1,5})?/[a-z0-9./_-]+@sha256:[0-9a-f]{64}$ ]]; then
+            printf '%s\n' 'prismpm.lock does not select an immutable SDK image' >&2
+            exit 64
+          fi
+          # A kept module is trusted only once its BLAKE3, derived again here,
+          # is the sealed address; any other answer is a miss, and a miss
+          # does the work in full.
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --tmpfs /tmp:rw,exec,nosuid,size=6g \
+            --volume "$PWD:$PWD" \
+            --workdir "$PWD" \
+            --env HOME=/tmp/prismpm-home \
+            --env KEPT \
+            "$image" bash -c '
+              set -euo pipefail
+              git config --global --add safe.directory "$PWD"
+              if [[ $KEPT == true ]] && cargo run -q --locked -p xtask -- engine-seal target/engine-kept/engine.wasm; then
+                echo "engine: reused the module these inputs made, its address re-derived"
+                exit 0
+              fi
+              rm -rf target/engine-kept
+              mkdir -p target/engine-kept
+              just engine-twice target/engine-kept/engine.wasm
+            '

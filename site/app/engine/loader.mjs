@@ -39,7 +39,15 @@ export function keptFetch(name = "hologram-hub") {
 
 // The wasm module's calls, with bytes in and out through its linear memory.
 // Every call answers 0 for yes; a no leaves the failure's name as the result.
-export async function openModule(url) {
+//
+// Decision 80 first (GP-50): the bytes fetched are compiled only if their
+// BLAKE3 is the engine address the kernel seals, so a module the build did not
+// make, a stale cache's or one altered on the way, is refused by name before
+// any of it runs. `ask` is the page's asker; there is no way in without it.
+export async function openModule(url, ask) {
+  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const { blake3 } = await import("../../vendor/prism-code/src/blake3.mjs");
+  await ask("engine", "engine.wasm is the engine the kernel seals (decision 80)", join(new Uint8Array([80]), blake3(bytes)), "sealed");
   // The module reaches the kernel through one import, `kernel.ask`: the
   // request at `at`, `len` bytes, and the answer written at `out`, at most
   // `cap` bytes; it answers the answer's whole length, so a longer one is cut
@@ -57,7 +65,7 @@ export async function openModule(url) {
       },
     },
   };
-  const { instance } = await WebAssembly.instantiate(await (await fetch(url)).arrayBuffer(), imports);
+  const { instance } = await WebAssembly.instantiate(bytes, imports);
   x = instance.exports;
   const result = () => new Uint8Array(x.memory.buffer).slice(x.result_at(), x.result_at() + x.result_len());
   const check = (name, status) => {

@@ -130,7 +130,7 @@ export async function pipeline(task, model, options = {}) {
   // not list is refused by name before any byte of it is read.
   const manifest = await tensorManifest({ indexBase: index, record, paths: [path, ...dataPaths], checks, fetch: hubFetch });
 
-  const module = await openModule(new URL("./engine.wasm", import.meta.url));
+  const module = await openModule(new URL("./engine.wasm", import.meta.url), ask);
   const decide = async (request) => new TextDecoder().decode(await kernel.dispatch(request));
   // The files kept from an earlier visit are read from this browser and
   // checked exactly as a download is; where the browser keeps none, every

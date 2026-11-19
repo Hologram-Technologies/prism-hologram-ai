@@ -170,9 +170,12 @@ const uorOf = (name) => {
 const apart = (bytes) => onnxInitializers(bytes).filter((t) => t.length >= 4096).map((t) => ({ ...t, address: blake3Hex(bytes.subarray(t.offset, t.offset + t.length)) }));
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
+// GP-50: every path the server is asked for, in order.
+const requested = [];
 const server = http.createServer(async (request, response) => {
   if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
+  requested.push(path);
   const fixtureRoute = path.match(/^\/fixture\/(\w+)\/(.*)$/);
   if (fixtureRoute && variants[fixtureRoute[1]]) {
     const v = variants[fixtureRoute[1]];
@@ -293,6 +296,42 @@ try {
     }
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks }));
     results[name] = { ...state, output, promptStart, errors, victim: victim.name };
+    await page.close();
+  }
+
+  // GP-50: the deploy's engine.wasm with one bit of one byte flipped. The
+  // page must ask decision 80 about the bytes' BLAKE3 and stop at "not the
+  // sealed engine" before it compiles them or reads the container. Every
+  // module the page compiles is recorded by its length; the engine's is the
+  // one that must not appear.
+  {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.addInitScript(() => {
+      window.__compiled = [];
+      for (const name of ["compile", "instantiate", "validate"]) {
+        const original = WebAssembly[name];
+        WebAssembly[name] = function (source, ...rest) {
+          window.__compiled.push(source?.byteLength ?? source?.length ?? -1);
+          return original.call(this, source, ...rest);
+        };
+      }
+    });
+    let engineLength = 0;
+    await page.route("**/app/engine/engine.wasm", async (route) => {
+      const body = Buffer.from(await (await route.fetch()).body());
+      body[body.length >> 1] ^= 0x01;
+      engineLength = body.length;
+      await route.fulfill({ body, contentType: "application/wasm" });
+    });
+    const containerReads = () => requested.filter((path) => path === `/fixture/good/${fixture.path}`).length;
+    const before = containerReads();
+    await page.goto(`${origin}/app/?repo=${fixture.repo}&path=${fixture.path}&index=/fixture/good/index`);
+    await page.click("#load");
+    await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks, compiled: window.__compiled }));
+    results.unsealed = { ...state, engineLength, containerReads: containerReads() - before, errors };
     await page.close();
   }
 
@@ -696,6 +735,17 @@ else {
   const got = good.output.tokens.slice(0, 16);
   if (got.length < 16 || got.some((t, i) => t !== good.expected[i])) fail(`good: the page's tokens ${got} are not the reference's ${good.expected}`);
 }
+// GP-50: the sealed engine passes decision 80 before it is compiled.
+const sealedCheck = good.checks.find((c) => c.step === "engine" && c.subject.includes("decision 80"));
+if (sealedCheck?.verdict !== "pass" || !/answered "sealed"/.test(sealedCheck.detail)) fail(`good: the engine was not checked by decision 80 (${sealedCheck?.verdict ?? "no check"}: ${sealedCheck?.detail ?? ""})`);
+// A flipped engine is refused by name, at that check, before it is compiled
+// and before any container byte is asked for.
+const unsealed = results.unsealed;
+const unsealedStop = stoppedAt(unsealed);
+if (unsealed.phase !== "failed" || unsealedStop?.step !== "engine" || !/answered "not the sealed engine"/.test(unsealedStop?.detail ?? "") || !/not the sealed engine/.test(unsealed.error ?? ""))
+  fail(`unsealed: expected to stop with "not the sealed engine" at decision 80, stopped at ${unsealedStop?.step}: ${unsealedStop?.detail} (${unsealed.phase}: ${unsealed.error})`);
+if (!unsealed.engineLength || unsealed.compiled.includes(unsealed.engineLength)) fail(`unsealed: the flipped engine (${unsealed.engineLength} bytes) was compiled: ${unsealed.compiled}`);
+if (unsealed.containerReads !== 0) fail(`unsealed: the container was read ${unsealed.containerReads} times after the engine was refused`);
 const listed = good.checks.find((c) => c.subject === "kernel is the one this deploy lists");
 if (listed?.verdict !== "pass") fail(`good: the kernel was not compared with the deploy's listing (${listed?.verdict ?? "no check"})`);
 if (good.promptStart !== "") fail(`good: the prompt box started with text, so typing would join it: ${JSON.stringify(good.promptStart)}`);
