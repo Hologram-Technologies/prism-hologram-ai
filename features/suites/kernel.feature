@@ -353,3 +353,11 @@ Feature: kernel
     Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
+
+  @KN-55 @build
+  Scenario: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
+    Given the greedy stage in app/src/Engine/Stage/Greedy.lex.tex and its proofs in app/src/Proofs/StageGreedy.lex.tex
+    When the Lean kernel checks greedy_key_is_max, exceed_zero_decides, none_above_greedy and greedy_in_range during lexlean verify in the gate
+    Then the key of the token bestIn picks from logits 0 to last is maxKey of those logits
+    And the summed excess of those logits over a bound is zero exactly when maxKey is at most the bound, so no logit's key is above the picked token's
+    And the picked token is at most last, an index of the logits
