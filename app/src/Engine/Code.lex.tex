@@ -1,0 +1,143 @@
+\begin{lexlean}{Engine.Code}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Gpu}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: opAt,
+  parameters: [code : Bytes, pos : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt code pos 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: wordAt,
+  parameters: [code : Bytes, pos : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt code pos 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: paramAt,
+  parameters: [params : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt params (prim multiply index 4 : Nat) 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: skipE,
+  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => pos
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then (pos + 5) else (if (((opAt code pos) =? 1) || ((opAt code pos) =? 2)) then (pos + 1) else (if (((opAt code pos) =? 3) || ((opAt code pos) =? 15)) then (pos + 2) else (if ((opAt code pos) =? 4) then (skipE rest code (pos + 2)) else (if ((opAt code pos) <=? 13) then (skipE rest code (skipE rest code (pos + 1))) else (skipE rest code (skipE rest code (skipE rest code (pos + 1)))))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: closedC,
+  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  result: Bool,
+  body: (match fuel
+    | Nat.zero => false
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then true else (if ((opAt code pos) =? 1) then false else (if ((opAt code pos) =? 2) then true else (if ((opAt code pos) =? 3) then false else (if ((opAt code pos) =? 4) then false else (if ((opAt code pos) <=? 13) then (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) else (if ((opAt code pos) =? 14) then (if (closedC rest code (pos + 1)) then (if (closedC rest code (skipE rest code (pos + 1))) then (closedC rest code (skipE rest code (skipE rest code (pos + 1)))) else false) else false) else true)))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: foldC,
+  parameters: [fuel : Nat, code : Bytes, params : Bytes, pos : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => 0
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then (Engine.Gpu::word (wordAt code (pos + 1))) else (if ((opAt code pos) <=? 4) then 0 else (if ((opAt code pos) =? 5) then (Engine.Gpu::word ((foldC rest code params (pos + 1)) + (foldC rest code params (skipE rest code (pos + 1))))) else (if ((opAt code pos) =? 6) then (Engine.Gpu::word (prim subtract ((foldC rest code params (pos + 1)) + 4294967296) (foldC rest code params (skipE rest code (pos + 1))) : Nat)) else (if ((opAt code pos) =? 7) then (Engine.Gpu::word (prim multiply (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1))) : Nat)) else (if ((opAt code pos) =? 8) then (Engine.Gpu::u32div (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1)))) else (if ((opAt code pos) =? 9) then (Engine.Gpu::u32rem (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1)))) else (if ((opAt code pos) =? 10) then (Engine.Gpu::u32shr (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1)))) else (if ((opAt code pos) =? 11) then (Engine.Gpu::u32shl (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1)))) else (if ((opAt code pos) =? 12) then (Engine.Gpu::u32and (foldC rest code params (pos + 1)) (foldC rest code params (skipE rest code (pos + 1)))) else (if ((opAt code pos) =? 13) then (if ((foldC rest code params (pos + 1)) <? (foldC rest code params (skipE rest code (pos + 1)))) then 1 else 0) else (if ((opAt code pos) =? 14) then (if ((foldC rest code params (pos + 1)) =? 0) then (foldC rest code params (skipE rest code (skipE rest code (pos + 1)))) else (foldC rest code params (skipE rest code (pos + 1)))) else (Engine.Gpu::word (paramAt params (opAt code (pos + 1))))))))))))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: renderEC,
+  parameters: [fuel : Nat, slots : Nat, code : Bytes, params : Bytes, pos : Nat],
+  result: Bytes,
+  body: (match fuel
+    | Nat.zero => (Engine.Gpu::text "")
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then (Engine.Gpu::wlit (wordAt code (pos + 1))) else (if ((opAt code pos) =? 1) then (Engine.Gpu::text "k") else (if ((opAt code pos) =? 2) then (Engine.Gpu::text "0u") else (if ((opAt code pos) =? 3) then (if ((opAt code (pos + 1)) <? slots) then (Engine.Gpu::cat (Engine.Gpu::text "l[") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 1))) (Engine.Gpu::text "]"))) else (Engine.Gpu::text "0u")) else (if ((opAt code pos) =? 4) then (Engine.Gpu::cat (Engine.Gpu::text "rd") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 1))) (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 2)) (Engine.Gpu::text ")"))))) else (if ((opAt code pos) =? 5) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " + ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (if ((opAt code pos) =? 6) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " - ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (if ((opAt code pos) =? 7) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " * ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (if ((opAt code pos) =? 8) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (if (closedC rest code (skipE rest code (pos + 1))) then (if ((foldC rest code params (skipE rest code (pos + 1))) =? 0) then (renderEC rest slots code params (pos + 1)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " / ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " / ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")"))))))) else (if ((opAt code pos) =? 9) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (if (closedC rest code (skipE rest code (pos + 1))) then (if ((foldC rest code params (skipE rest code (pos + 1))) =? 0) then (Engine.Gpu::text "0u") else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat 0x202520 (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat 0x202520 (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")"))))))) else (if ((opAt code pos) =? 10) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " >> (") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text " & 31u))")))))) else (if ((opAt code pos) =? 11) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " << (") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text " & 31u))")))))) else (if ((opAt code pos) =? 12) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "(") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " & ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (if ((opAt code pos) =? 13) then (if (if (closedC rest code (pos + 1)) then (closedC rest code (skipE rest code (pos + 1))) else false) then (Engine.Gpu::wlit (foldC rest code params pos)) else (Engine.Gpu::cat (Engine.Gpu::text "select(0u, 1u, ") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " < ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::text ")")))))) else (if ((opAt code pos) =? 14) then (if (closedC rest code (pos + 1)) then (if ((foldC rest code params (pos + 1)) =? 0) then (renderEC rest slots code params (skipE rest code (skipE rest code (pos + 1)))) else (renderEC rest slots code params (skipE rest code (pos + 1)))) else (Engine.Gpu::cat (Engine.Gpu::text "select(") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (skipE rest code (pos + 1)))) (Engine.Gpu::cat (Engine.Gpu::text ", ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 1))) (Engine.Gpu::cat (Engine.Gpu::text ", ") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::text " != 0u)")))))))) else (Engine.Gpu::wlit (paramAt params (opAt code (pos + 1)))))))))))))))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: skipS,
+  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => pos
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then (pos + 1) else (if ((opAt code pos) =? 1) then (skipE rest code (pos + 2)) else (if ((opAt code pos) =? 2) then (skipE rest code (skipE rest code (pos + 2))) else (if ((opAt code pos) =? 3) then (skipS rest code (skipS rest code (pos + 1))) else (if ((opAt code pos) =? 4) then (skipS rest code (skipE rest code (pos + 1))) else (skipS rest code (pos + 10)))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: writesC,
+  parameters: [fuel : Nat, code : Bytes, pos : Nat, buffer : Nat],
+  result: Bool,
+  body: (match fuel
+    | Nat.zero => false
+    | Nat.succ rest => (if ((opAt code pos) <=? 1) then false else (if ((opAt code pos) =? 2) then ((opAt code (pos + 1)) =? buffer) else (if ((opAt code pos) =? 3) then (if (writesC rest code (pos + 1) buffer) then true else (writesC rest code (skipS rest code (pos + 1)) buffer)) else (if ((opAt code pos) =? 4) then (writesC rest code (skipE rest code (pos + 1)) buffer) else (writesC rest code (pos + 10) buffer)))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: renderSC,
+  parameters: [fuel : Nat, slots : Nat, depth : Nat, code : Bytes, params : Bytes, pos : Nat],
+  result: Bytes,
+  body: (match fuel
+    | Nat.zero => (Engine.Gpu::text "")
+    | Nat.succ rest => (if ((opAt code pos) =? 0) then (Engine.Gpu::text "") else (if ((opAt code pos) =? 1) then (if ((opAt code (pos + 1)) <? slots) then (Engine.Gpu::cat (Engine.Gpu::text "l[") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 1))) (Engine.Gpu::cat (Engine.Gpu::text "] = ") (Engine.Gpu::cat (renderEC rest slots code params (pos + 2)) (Engine.Gpu::text ";\n"))))) else (Engine.Gpu::text "")) else (if ((opAt code pos) =? 2) then (Engine.Gpu::cat (Engine.Gpu::text "{ let at = ") (Engine.Gpu::cat (renderEC rest slots code params (pos + 2)) (Engine.Gpu::cat (Engine.Gpu::text "; let put = ") (Engine.Gpu::cat (renderEC rest slots code params (skipE rest code (pos + 2))) (Engine.Gpu::cat (Engine.Gpu::text "; if (at < arrayLength(&b") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 1))) (Engine.Gpu::cat (Engine.Gpu::text ")) { b") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 1))) (Engine.Gpu::text "[at] = put; } }\n"))))))))) else (if ((opAt code pos) =? 3) then (Engine.Gpu::cat (renderSC rest slots depth code params (pos + 1)) (renderSC rest slots depth code params (skipS rest code (pos + 1)))) else (if ((opAt code pos) =? 4) then (Engine.Gpu::cat (Engine.Gpu::text "if (") (Engine.Gpu::cat (renderEC rest slots code params (pos + 1)) (Engine.Gpu::cat (Engine.Gpu::text " != 0u) {\n") (Engine.Gpu::cat (renderSC rest slots depth code params (skipE rest code (pos + 1))) (Engine.Gpu::text "}\n"))))) else (Engine.Gpu::cat (Engine.Gpu::text "for (var ") (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "i") (Engine.Gpu::decimal depth)) (Engine.Gpu::cat (Engine.Gpu::text ": u32 = 0u; ") (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "i") (Engine.Gpu::decimal depth)) (Engine.Gpu::cat (Engine.Gpu::text " < ") (Engine.Gpu::cat (Engine.Gpu::wlit (wordAt code (pos + 5))) (Engine.Gpu::cat (Engine.Gpu::text "; ") (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "i") (Engine.Gpu::decimal depth)) (Engine.Gpu::cat (Engine.Gpu::text " = ") (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "i") (Engine.Gpu::decimal depth)) (Engine.Gpu::cat (Engine.Gpu::text " + 1u) {\n") (Engine.Gpu::cat (if ((opAt code (pos + 9)) <? slots) then (Engine.Gpu::cat (Engine.Gpu::text "l[") (Engine.Gpu::cat (Engine.Gpu::decimal (opAt code (pos + 9))) (Engine.Gpu::cat (Engine.Gpu::text "] = ") (Engine.Gpu::cat (Engine.Gpu::wlit (wordAt code (pos + 1))) (Engine.Gpu::cat (Engine.Gpu::text " + ") (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "i") (Engine.Gpu::decimal depth)) (Engine.Gpu::text ";\n"))))))) else (Engine.Gpu::text "")) (Engine.Gpu::cat (renderSC rest slots (depth + 1) code params (pos + 10)) (Engine.Gpu::text "}\n")))))))))))))))))))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: bindingsC,
+  parameters: [buffer : Nat, left : Nat, code : Bytes],
+  result: Bytes,
+  body: (match left
+    | Nat.zero => (Engine.Gpu::text "")
+    | Nat.succ rest => (Engine.Gpu::cat (Engine.Gpu::cat (Engine.Gpu::text "@group(0) @binding(") (Engine.Gpu::cat (Engine.Gpu::decimal buffer) (Engine.Gpu::cat (Engine.Gpu::text ") var<storage, ") (Engine.Gpu::cat (if (writesC 64 code 0 buffer) then (Engine.Gpu::text "read_write") else (Engine.Gpu::text "read")) (Engine.Gpu::cat (Engine.Gpu::text "> b") (Engine.Gpu::cat (Engine.Gpu::decimal buffer) (Engine.Gpu::cat (Engine.Gpu::text ": array<u32>;\nfn rd") (Engine.Gpu::cat (Engine.Gpu::decimal buffer) (Engine.Gpu::cat (Engine.Gpu::text "(i: u32) -> u32 { if (i < arrayLength(&b") (Engine.Gpu::cat (Engine.Gpu::decimal buffer) (Engine.Gpu::cat (Engine.Gpu::text ")) { return b") (Engine.Gpu::cat (Engine.Gpu::decimal buffer) (Engine.Gpu::text "[i]; } return 0u; }\n"))))))))))))) (bindingsC (buffer + 1) rest code))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: left
+}
+
+definition{
+  name: renderKernelC,
+  parameters: [buffers : Nat, slots : Nat, code : Bytes, params : Bytes],
+  result: Bytes,
+  body: (Engine.Gpu::cat (bindingsC 0 buffers code) (Engine.Gpu::cat (Engine.Gpu::text "override invocations: u32;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\nlet k = gid.x;\nif (k >= invocations) { return; }\nvar l: array<u32, ") (Engine.Gpu::cat (Engine.Gpu::decimal (if (slots =? 0) then 1 else slots)) (Engine.Gpu::cat (Engine.Gpu::text ">;\n") (Engine.Gpu::cat (renderSC 64 slots 0 code params 0) (Engine.Gpu::text "}\n")))))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: q4GroupSumsCode,
+  parameters: [],
+  result: Bytes,
+  body: 0x030100010301010803000f000301020903000f00030106000000000803010300000000000305000000000000002004030105050703010f01050703020000000020030401030503030704000507030200000000200304060c0a04010a030500000000030700000000040c03050000000007000000000f0306020303000303
+}
+
+definition{
+  name: exp2NegCode,
+  parameters: [],
+  result: Bytes,
+  body: 0x030100010301010400030003010204010c030100000000ff0301030a030100000000080301040a030203030301050603020b030403030301060b00000000010603030000000001020203000e03030e0d030300000000200503040e0d0306030500000000010e060305030600000000000c0304000000000100000000000302
+}
+\end{semanticmodule}
+\end{lexlean}

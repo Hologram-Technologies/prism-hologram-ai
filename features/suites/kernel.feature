@@ -353,3 +353,10 @@ Feature: kernel
     Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
+
+  @KN-49 @build
+  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+    Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
+    When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
+    Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
+    And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests

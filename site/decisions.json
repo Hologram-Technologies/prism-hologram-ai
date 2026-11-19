@@ -2809,6 +2809,61 @@
       "module": "Divide",
       "name": "Rounded quotient",
       "tag": 44
+    },
+    {
+      "asks": "What is this piece of the kernel's WGSL?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4 group sums",
+              1
+            ],
+            [
+              "softmax exponent",
+              2
+            ]
+          ],
+          "name": "Kernel",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Piece",
+          "value": 0,
+          "width": 2
+        },
+        {
+          "at": 4,
+          "name": "Units per row",
+          "value": 4,
+          "width": 4
+        },
+        {
+          "at": 8,
+          "name": "Codes per row (128, 256, 1024, 1536, 2048, 3072, 8192 or 8960)",
+          "value": 128,
+          "width": 4
+        },
+        {
+          "at": 16,
+          "choice": [
+            [
+              "no",
+              0
+            ]
+          ],
+          "name": "Zero points packed",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 17,
+      "module": "Render",
+      "name": "Kernel text",
+      "tag": 48
     }
   ],
   "request": 81

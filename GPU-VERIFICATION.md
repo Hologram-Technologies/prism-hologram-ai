@@ -182,18 +182,27 @@ page:
 
 Row 15 of the plan runs the integer stages on WebGPU. The kernels are written
 first in LexLean, in `app/src/Engine/Gpu.lex.tex`, outside the guest: a kernel
-is a statement over 32-bit words (`Expr`, `Stmt`), run by `exec` (in `app/src/Engine/GpuRun.lex.tex`) one
+is a statement over 32-bit words (`Expr`, `Stmt`), run by `exec` one
 invocation at a time (`runAll`), with a read past a buffer's end giving 0 and
 a store past it dropped. The same file holds the WGSL each kernel becomes,
 twice: as a term (`toWgsl`, with WGSL's own arithmetic in `wgslEval`) and as
 text (`renderKernel`).
+
+The guest cannot hold those trees. PrismPM's production exporter refuses recursion over a
+type of the application's own (`Expr.brecOn`: an escaping local function, `PP5008`), and its
+code generator refuses a recursive type outright. So the guest holds each kernel as a byte
+code, prefix order, one byte per node and four for a literal, in `app/src/Engine/Code.lex.tex`,
+and prints it with recursion on a fuel count, as every other guest module recurses. Lean
+checks, kernel by kernel, that this printer's text is byte for byte `renderKernel`'s text of
+the tree, and decision 48 prints only the kernels so checked.
 
 | Claim | Evidence | Kind |
 | --- | --- | --- |
 | Every expression the kernels use computes the same word in WGSL's arithmetic as in the model's, so every program runs alike | `wgsl_preserves_eval` and `wgsl_runs_every_program_alike` in `app/src/Proofs/GpuWgsl.lex.tex`, for all machines, expressions, statements and fuel | proved |
 | The q4 group-sum kernel gives the exact sums of the crate's two q4 fixtures, zero point 8 and packed zero points | `q4_group_sums_zero_eight` and `q4_group_sums_packed_zeros` in `app/src/Proofs/GpuQ4.lex.tex`: two outputs each, worked out by Lean | checked on fixtures |
 | `exp2Neg` gives EN-43's `exp2_neg` on 19 inputs covering every branch: shift 0, 1 to 31, 32 and past it | `exp2_neg_matches_reference` in `app/src/Proofs/GpuExp2.lex.tex`; the expected words were worked out by a port of `exp2_neg`, not by the crate | checked on fixtures |
-| The text `renderKernel` writes is the WGSL that ran on WebGPU | not gated yet. Kernel 1 (q4 group sums, two units, zero point 8) and kernel 2 (`exp2Neg`), rendered by a port of `renderKernel`, compiled in Chrome's WebGPU and ran on AMD RDNA 3.5 and SwiftShader in the PrismPM bridge (UOR-Foundation/prismpm#732), equal to the CPU bit for bit. A guest decision that answers the text, so a replayed claim pins it, was built (decision 48) and taken out: with it the guest's export failed in CI (`PP5008`, its error cut off), and it returns with the next change | run once by hand |
+| The guest prints exactly `renderKernel`'s text, and only for kernels so checked | nine theorems in `app/src/Proofs/GpuCode.lex.tex` (`q4_code_prints_tree_k128` to `_k8960`, `exp2_code_prints_tree`): for q4 group sums at zero point 8 with rows of 128, 256, 1024, 1536, 2048, 3072, 8192 and 8960 codes, and for `exp2Neg`, the guest's byte-code printer gives the same bytes as `renderKernel` on the kernel's tree, worked out by Lean. Decision 48 (`Kernel.Render`, KN-49) answers only those, and the `app` recipe replays 17 claims through the compiled guest: every piece of the 128-code q4 kernel and of `exp2Neg`, the empty piece past the end, and five refused requests (64 codes, packed zero points, units that do not match the width, 16 bytes, kernel 3) | checked per kernel, gated in the guest |
+| The text `renderKernel` writes is the WGSL that ran on WebGPU | Kernel 1's text for two units compiled in Chrome's WebGPU and ran on AMD RDNA 3.5 and SwiftShader in the PrismPM bridge (UOR-Foundation/prismpm#732), giving [452167, 158806] as the CPU does, and `exp2Neg`'s text ran there on all 19 inputs Lean checked, giving Lean's words (`test/fixtures/webgpu/exp2-neg.rendered.wgsl`, merged in #732). The guest's `exp2Neg` text is byte for byte that file, and its 128-code q4 text differs from the two-unit file only in the three width constants | run in PrismPM's headless test, not yet from this repository |
 | Each kernel runs on WebGPU as `crates/exact` computes it | not yet: a test that renders every kernel through the guest and runs it on WebGPU beside the crate is the next change | not tested |
 | A kernel equals its stage for every input in bounds | not yet: the stages EN-43 to EN-47 are defined in Rust, not LexLean, and the step from 32-bit words to the stage's integers needs nonlinear arithmetic the proof forms do not have | not proved |
 
