@@ -50,7 +50,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use hologram_ai_cpu_decode::{self as decode, Config, DecodeError, Initializer, Session};
-use hologram_ai_download::{Arriving, Label, Root, Whole, LABEL_BYTES};
+use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
 use hologram_ai_exact::RopeScaling;
 use hologram_ai_exact::{request_product, Layout};
 use hologram_ai_model_reader::holk::Container;
@@ -711,13 +711,13 @@ fn onnx_file(
     length: u64,
 ) -> Result<File, CallError> {
     let bytes = taken(state, root.0, root.1)?;
-    let root: [u8; 32] = bytes.try_into().map_err(|_| CallError::WrongSize)?;
+    let address: [u8; 32] = bytes.try_into().map_err(|_| CallError::WrongSize)?;
     Ok(File {
         name,
         index,
         declared,
         length,
-        root: Root(root),
+        address: Label(address),
     })
 }
 

@@ -37,6 +37,7 @@ the diagnostic and the restored result.
 | The store's admission is the kernel's | not yet: in the test, admission is the stand-in check that the bytes' BLAKE3 equals the address (the vendored hasher); the page is to ask the kernel's decision on the wasm module's label, as for a download, and that wiring is not built | not tested |
 | `GP-24`: when the browser has too little room to keep a downloaded file, the page drops kept files only on the kernel's decision 26, oldest first with this load's files pinned, and a file there is no room for is not kept while the model still loads | `just page-journey`: a profile holding another model's 300,000-byte file named by its BLAKE3, and `navigator.storage.estimate` reporting no free storage; GP-19's export loads, the kernel answers evict for the other file and enough after it, `config.json` is kept, the four later files are answered does not fit and not kept, and the page answers with the reference's tokens. `gpu_gp_24` reads that wiring. Run on 2026-11-17 on Windows with Chromium on the SwiftShader adapter. Planted: dropping on any answer but enough, never asking, and offering this load's files as unpinned each fail the journey. Not covered: a real quota (the estimate is replaced), and which files the browser itself clears under pressure | tested |
 | `GP-25`: one call, `pipeline(task, model, { device, dtype })` in `site/app/engine/pipeline.mjs`, loads an ONNX export named on the hub and answers a function that runs a turn, every step put to the verified kernel; the engine page is one caller of it, and a task the kernel does not run is refused by decision 24 | `just page-journey`: a page imports the module and calls `pipeline("text-generation", …)` with no page code in between, then the function it answers with "hi": the kernel holo is verified, each file named, q4f16 chosen on WebGPU, every span admitted, and the 16 tokens are the reference's; `pipeline("feature-extraction", …)` stops at the kernel's `unsupported task` with no file read; and every engine-page visit of GP-19 to GP-24 now loads and answers through the same call (the page lost 192 lines). `gpu_gp_25` reads that wiring, and the GP-19 to GP-23 pins now read the module. Run on 2026-11-17 on Windows with Chromium on the SwiftShader adapter. Planted: the module asking every task as text generation, and the call reporting the device asked for instead of the kernel's, each fail the journey. Not built: the call shape for embeddings and classification (row 9), which waits on the integer encoders | tested |
+| `GP-26`: every file of an ONNX export is checked by the BLAKE3 the hub's record names for it, small files in the module and the graph and data files through the importer (EN-42), and a record that names a file no BLAKE3 is refused by name; nothing is checked by SHA-256 or SHA-1 | `just page-journey` on 2026-11-18, Windows, Chromium on SwiftShader, against records that give each file's BLAKE3 beside the SHA-256 Hugging Face publishes: `config.json` checked as `blake3 1275de1a…`; the flipped graph refused by the kernel against its BLAKE3 (`FileRefused`); a wrong BLAKE3 for `tokenizer.json` stops the page there; a record naming `config.json` no BLAKE3 stops with `the record names no BLAKE3 for config.json` before any import; the kept-file, CPU and one-call visits load and answer. Kept files are held under the record's BLAKE3 directly, with no SHA-256 pointer. `gpu_gp_26` and `engine_en_42` pin it. Planted: the page not comparing a small file's BLAKE3, the graph put to the importer with its SHA-256 (every load then refused, so the run ends at the kept-file step rather than at a verdict), a file with no BLAKE3 let through, and the importer hashing whole files by SHA-256 again (rejected by `engine_en_42` and `engine_fl_45`). Against the live hub on 2026-11-18, after the hub published each file's BLAKE3 (Hologram-Technologies/hub#65, `738ff67`): this page, served locally with Chromium on SwiftShader (the machine's GPU failed to start in the test browser, `dxil.dll`), opened `?onnx=onnx-community/Qwen3-0.6B-ONNX`; `config.json`, `generation_config.json`, `tokenizer.json` and `tokenizer_config.json` passed against the record's BLAKE3 (`5011bbcd…`, `a007ce7e…`, `77c16932…`, `59111f79…`), `onnx/model_q4f16.onnx` was admitted by the kernel against its BLAKE3 with 508 tensors named and 919 questions, all 5 files were kept under their BLAKE3, and the model answered "The capital of France is Paris." in 7 tokens. The live records give a BLAKE3 only for the files the engine reads at q4 and q4f16, so another precision is refused by name; the hub record and index root are still checked by SHA-256, and move when the hub names them by BLAKE3 | tested |
 | `GP-16`: a prompt's computed prefix, kept and restored, gives bit for bit the logits and tokens of computing the whole prompt | `gpu_gp_16`: GP-10's and GP-11's models, a 40-token prefix and 8-token suffix: `saveState` after the prefix, every prefix row then overwritten by 50 other tokens from position 0, `restoreState`; and a fresh engine given the same prefix. All 16 positions after the prefix are the same bits on SwiftShader and AMD RDNA-3; the batched path picks the same 12 tokens. On the Qwen2-shaped model those 12 are one repeated token, so that check is weak there and strong on the Llama-shaped one | tested |
 | `GP-23`: the page keeps its chat frame's head, the ids every turn opens with, under the BLAKE3 of those ids, and a later turn reuses it only on the kernel's decision 27, computing only what follows | `just page-journey`: on GP-19's export, on WebGPU and on the CPU and on the kept-file visits, a first turn ("hi", 150 ids) computes all of its prompt and asks nothing; a second ("yes", 151 ids) asks the kernel with the BLAKE3 of its own first 115 ids, which the journey derives again from those ids with the vendored BLAKE3, is answered `reuse`, computes the 36 positions after the head, and gives the tokens of a reference given the whole prompt. The head is the common opening of the template rendered around two different texts. `gpu_gp_23` reads that wiring. Run on 2026-11-17 on Windows with Chromium on the SwiftShader adapter. Planted: restoring the head and then computing the whole prompt gives other tokens; reusing without asking leaves no reuse check (both run with a second turn of "hello"); holding one id more than the head, which "yes" does not share with "hi", is answered `recompute` and the page computes all 151 positions with the right tokens, which the journey rejects as no reuse | tested |
 | Prefix reuse saves time on a real model | not measured: the fixture's head is 115 of 151 ids, so a second turn computes a quarter of its prompt; what that saves in time to first token on Qwen2.5-1.5B or Qwen3-0.6B is to be measured in the page by hand. The head is kept for the session only; keeping it across visits is not built | not measured |
@@ -131,3 +132,45 @@ tie.
 | `in` on a mapping always false | the same | rejected: Llama differs in its 2 tool-call conversations |
 | A template's last newline kept, as first written | the same | found by the whitespace template: all 20 differed by that newline; fixed, as jinja2's keep_trailing_newline is off |
 | none | all twenty, and the journey | pass |
+
+## GP-27, the index root checked by its signature
+
+The page reads a model's record with the hub's own client, vendored at
+`site/app/engine/hub/` (VENDOR.md): `openIndex` checks the index root by its
+Sigstore bundle against `policy.json`, the hub model's trust anchors pinned
+here, and `readRecord` checks the record by the BLAKE3 the root names. Until
+this, the page checked the record against the root by SHA-256 and showed the
+root's signature as not checked.
+
+The tests cannot ask the live hub to sign the fixtures' roots, so
+`crates/conformance/tests/gpu/hub-sign.mjs` mints a chain of the same shape:
+a P-384 intermediate, a P-256 leaf carrying the policy's identity and issuer,
+a P-256 log key signing the entry timestamp, and a DSSE envelope naming the
+root's SHA-256. A policy naming that chain's keys, otherwise the pinned one,
+is what the journey serves the page; the verifier is the hub's, unchanged,
+and the page has no flag that skips it.
+
+`hub-check.mjs` drives the client in Node, and `just page-journey` drives the
+page:
+
+| Case | Refused as |
+| --- | --- |
+| root signed through a foreign intermediate and log key | `RootUnverified`, chain and log |
+| the policy's intermediate, a foreign log key | `RootUnverified`, log |
+| another workflow's identity | `RootUnverified`, identity |
+| the root changed after signing | `RootUnverified`, subject |
+| the test chain under the hub's own pinned policy | `RootUnverified`, chain and log |
+| no bundle | `RootUnreachable` |
+| a repository the root does not name; a changed, unaddressed or unreachable record | `RecordUnknown`, `RecordMismatch`, `RecordUnaddressed`, `RecordUnreachable` |
+| a changed or short file; a file its record gives no BLAKE3 | `FileMismatch`, `FileUnaddressed` |
+| the journey's `foreign` hub | the page stops at "index root signature", before any record is read |
+
+### The gate: `cargo test -p repo-conformance --test gpu -- gpu_gp_27`
+
+| Planted defect | Result |
+| --- | --- |
+| one byte of the vendored `sigstore.mjs` changed | rejected: `site/app/engine/hub/sigstore.mjs is not the hub's file` |
+| the policy's `rekorLogId` changed | rejected: `assertion failed` on `policy["rekorLogId"]` |
+| the verifier's chain fact forced true | rejected: `sigstore.mjs is not the hub's file`; with that pin and `SIGSTORE_BLAKE3`'s taken out too, rejected: `foreignKey failed other checks` |
+| `hubRecord` reading the root without `openIndex` | rejected: the loader no longer has `index = await openIndex(base, policy, { hash });` |
+| none | passed |
