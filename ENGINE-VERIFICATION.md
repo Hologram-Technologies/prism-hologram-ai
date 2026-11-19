@@ -2785,3 +2785,118 @@ half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
 Reading the rotary parameters from the export's cache rather than taking the
 family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
 integer path takes them from its caller.
+
+## EN-60, LayerNorm in integers
+
+`layer_norm` takes values `x`, weights `g` and biases `b` in units of `2^-16`,
+below `2^31` in size and at most `2^16` long, and `epsilon` in units of
+`2^-32`. The centred values `n x - sum(x)` and the variance's numerator
+`V = n sum(x^2) - sum(x)^2` are exact, in `i128` and `u128`; `V` is never
+negative by Cauchy-Schwarz. The root `r` is the largest integer with
+`n^2 r^2 <= (V + n^2 epsilon) 2^32`, decision 43's integer square root of the
+floored quotient, one narrowing as in EN-47. Each output is
+`(n x - sum(x)) g 2^16 / (n r)` rounded half to even, plus `b`. It is what the
+encoders of row 9 (all-MiniLM-L6-v2, DistilBERT SST-2) normalise with.
+
+What the test establishes, on EN-47's rows with biases drawn the same way:
+`r` is the largest root, found again by bisection; every output meets
+`2 |(n x - sum(x)) g 2^16 - (y - b) n r| <= n r`, a tie at even; every output
+is within `|y - b| / 2^20` plus one unit of the LayerNorm of the real numbers,
+a float yardstick in the test only; equal values with `epsilon` 0, an empty
+row, mismatched lengths, a value at `2^31` and an `epsilon` at `2^32` are
+refused.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_60`
+
+| Planted defect | Result |
+| --- | --- |
+| `epsilon` left out of the root | rejected: `y - b = 2147483647 is more than half a unit from ...` |
+| the output cut toward zero instead of rounded | rejected: `y - b = -1672 is more than half a unit from -11258999068426240 / 6730917244416` |
+| none | passed |
+
+## EN-61, GELU in integers
+
+`gelu` takes `x` in units of `2^-16` and gives `x Phi(x)` in the same units,
+the erf GELU both row 9 encoders use. At or above 8 it is `x`, and at or below
+-8 it is 0: `8 Phi(-8)` is below `2^-48`. Between, with `X = |x|` and
+`Y = X^2`, `erf(X / sqrt 2) = sqrt(2 / pi) X A / B`, where
+`A = sum Y^k / (2k+1)!!` and `B = sum (Y / 2)^k / k! = e^(Y/2)`. Both series
+have only positive terms, so nothing cancels at `|x|` near 8, where Taylor's
+alternating series for erf would need about 46 more bits. Every term is cut
+down to `2^-40`; `sqrt(2 / pi)` is the integer square root of
+`2^121 / floor(2^40 pi)`, `pi` by Machin's formula as in EN-45. The output
+`(x + X erf) / 2` is rounded half to even once. Every intermediate fits
+`u128`: the largest term is below `2^87` and its product with `Y` below
+`2^125`.
+
+What the test establishes, on 343 inputs (every eighth from -9 to 9, 160 drawn
+by a seeded generator in that range, 24 out to `2^20` units, the edges at 8
+and -8, and values out to `2^47`): each output is within one unit of
+`x Phi(x)` computed by Python's `math.erfc` and recorded in the test; inputs
+at or beyond 8 give `x` or 0; `gelu(x) - gelu(-x)` is `x` within one unit, and
+exactly `x` for every even `x`, since the two numerators differ by a whole
+`x` and round the same way. Not established: a bound tighter than one unit,
+which a truncation of the final rounding would also meet.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_61`
+
+| Planted defect | Result |
+| --- | --- |
+| the cut-off at 4 instead of 8 | rejected: `gelu(-294912) = 0 is more than one unit from -1.002014576560392` |
+| none | passed |
+
+Not in LexLean yet, as EN-43 to EN-47 are not: the stages are Rust, checked by
+these tests; their LexLean definitions follow the engine's other stages.
+
+## EN-62 and EN-63, the encoders in integers
+
+`hologram-ai-cpu-encode` runs row 9's encoders, all-MiniLM-L6-v2 for
+embeddings and DistilBERT SST-2 for labels, as `hologram-ai-cpu-decode` runs
+the decoders: hidden states are binary32 bit patterns touched only by integer
+code, and every stage rounds its result once, half to even. The weights come
+in by the roles the page already places them in (`onnx-roles.mjs`, GP-17), so
+the crate reads no graph. The stages:
+
+- the embedding: word, position and type-0 rows summed exactly, rounded once,
+  then LayerNorm (EN-60), each value entering in units of `2^-16`; the
+  normalised value times its weight plus its bias rounded once;
+- attention: the 4-bit products (EN-34 to EN-41) plus their biases, scores
+  as exact sums rounded once, softmax on the certified exponent table (EN-43,
+  EN-44) with `floor(2^40 / sqrt(d))`, every token attending to every other;
+- the feed-forward: the 4-bit products, GELU (EN-61) entering in units of
+  `2^-16`; residuals added and rounded once; LayerNorm after each block;
+- the embedding: the tokens' sum, not their mean, since unit length cancels
+  the count, each sum rounded once and entering in units of `2^-16`, divided
+  by the integer square root of its sum of squares, rounded to `2^-40`;
+- the label: the first token through the dense pre-classifier and its bias,
+  ReLU, then the dense classifier and its bias; the first largest score.
+
+The encoders' LayerNorm epsilon, `1e-12`, is below one unit of `2^-32` and
+enters as 0; a row of equal values is then refused (FL-72) rather than
+divided by a root of 0.
+
+Measured on GP-13's and GP-14's fixtures (two layers, width 128, q4f16
+matrices, sentences of 6 and 60 tokens) against the double-precision
+reference in `encoder-reference.mjs`, on 2026-11-19: every embedding
+component within `1.0e-5`, every label score within `9.8e-5`, the labels
+equal, and a second run the same bits. The gates are `2^-14` and `2^-10`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_62 engine_en_63`
+
+| Planted defect | Result |
+| --- | --- |
+| a causal mask, each token attending only to those before it | rejected: `a component -0.10827174782752991 is more than 0.00006103515625 from -0.12034248511094504`, and the score likewise |
+| ReLU in place of GELU | rejected: `a component -0.1134413331747055 is more than 0.00006103515625 from ...` |
+| the head without its ReLU | rejected: `a score -0.042501743882894516 is more than 0.0009765625 from -0.06594562553038026` |
+| attention scaled by `d` instead of `sqrt d` | rejected: `a score -0.07636036723852158 is more than 0.0009765625 from ...` |
+| none | passed |
+
+FL-70 to FL-73 are refused as their scenarios say: a missing query matrix
+and a misshapen feed-forward as `Unrecognised`, an infinite scale as
+`Exact(ScaleNotFinite)`, all-zero tables as `NormRefused`, and an empty
+sentence, an id past the vocabulary and 65 tokens past a 64-row position
+table as `TokenOutOfRange`.
+
+Not yet: the page's feature-extraction and text-classification paths through
+the module, and the agreement on the real exports, which waits on Ilya's word
+to download them.

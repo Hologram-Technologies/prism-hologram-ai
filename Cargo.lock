@@ -364,6 +364,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hologram-ai-cpu-encode"
+version = "0.1.0"
+dependencies = [
+ "hologram-ai-exact",
+]
+
+[[package]]
 name = "hologram-ai-download"
 version = "0.1.0"
 dependencies = [
@@ -672,6 +679,7 @@ version = "0.1.0"
 dependencies = [
  "hologram-ai-chat",
  "hologram-ai-cpu-decode",
+ "hologram-ai-cpu-encode",
  "hologram-ai-download",
  "hologram-ai-exact",
  "hologram-ai-kernel-client",

@@ -778,3 +778,27 @@ id = "GP-32"
 level = "build"
 suite = "gpu"
 statement = "Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token"
+
+[[id]]
+id = "EN-60"
+level = "build"
+suite = "engine"
+statement = "LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused"
+
+[[id]]
+id = "EN-61"
+level = "build"
+suite = "engine"
+statement = "GELU is integer: for x in units of 2^-16, gelu(x) is x at or above 8 and 0 at or below -8; between, with X = |x| and Y = X^2, erf(X / sqrt 2) is c X A / B for the positive series A = sum of Y^k / (2k+1)!! and B = sum of (Y / 2)^k / k!, each term cut down to 2^-40, and c, standing for sqrt(2 / pi), the integer square root of 2^121 / floor(2^40 pi) with pi by Machin's formula; the output (x + X erf) / 2 is rounded half to even once, in units of 2^-16, within one unit of x Phi(x), and gelu(x) - gelu(-x) is x within one unit, exactly x when x is even"
+
+[[id]]
+id = "EN-62"
+level = "build"
+suite = "engine"
+statement = "An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits"
+
+[[id]]
+id = "EN-63"
+level = "build"
+suite = "engine"
+statement = "A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits"
