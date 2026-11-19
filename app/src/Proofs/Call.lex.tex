@@ -1,0 +1,80 @@
+\begin{lexlean}{Proofs.Call}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Call}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: call_supported_runs,
+  parameters: [task : Nat, device : Nat, dtype : Nat, beams : Nat],
+  statement: ((task <= 2) -> ((device <= 4) -> ((dtype <= 2) -> ((beams <= 1) -> ((Kernel.Call::callCode task device dtype 0 beams 1) = (Kernel.Call::callDevice device)))))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_task_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((3 <= task) -> ((Kernel.Call::callCode task device dtype sample beams penalty) = 10)),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_device_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((5 <= device) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_dtype_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((3 <= dtype) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_beams_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((2 <= beams) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_penalty_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: (((penalty =? 1) = false) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: call_device_webgpu_decides,
+  parameters: [device : Nat],
+  statement: (((Kernel.Call::callDevice device) = 1) <-> (((device =? 1) || (device =? 2)) = true)),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_device_cpu_decides,
+  parameters: [device : Nat],
+  statement: (((Kernel.Call::callDevice device) = 2) <-> (((device =? 3) || (device =? 4)) = true)),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_sampling_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((1 <= sample) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

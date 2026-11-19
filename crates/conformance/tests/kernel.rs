@@ -4425,6 +4425,66 @@ fn kernel_kn_55() {
     );
 }
 
+/// `KN-70`: A transformers.js pipeline call is answered the engine device it runs on, auto, webgpu or cpu, exactly when its task, device, dtype and generation options are ones the engine honours: webgpu and gpu name WebGPU, wasm and cpu name the integer CPU engine, q4f16, q4 and auto are the dtypes, decoding is greedy; any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
+#[test]
+fn kernel_kn_70() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Call.lex.tex");
+    let proofs = model("app/src/Proofs/Call.lex.tex");
+    let refused = |name: &str, guard: &str| {
+        (
+            name.to_string(),
+            format!("({guard} -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty)))"),
+        )
+    };
+    let mut pinned = vec![
+        (
+            "call_supported_runs".to_string(),
+            "((task <= 2) -> ((device <= 4) -> ((dtype <= 2) -> ((beams <= 1) -> ((Kernel.Call::callCode task device dtype 0 beams 1) = (Kernel.Call::callDevice device))))))".to_string(),
+        ),
+        (
+            "call_task_refused".to_string(),
+            "((3 <= task) -> ((Kernel.Call::callCode task device dtype sample beams penalty) = 10))".to_string(),
+        ),
+        refused("call_device_refused", "(5 <= device)"),
+        refused("call_dtype_refused", "(3 <= dtype)"),
+        refused("call_beams_refused", "(2 <= beams)"),
+        refused("call_penalty_refused", "((penalty =? 1) = false)"),
+        refused("call_sampling_refused", "(1 <= sample)"),
+    ];
+    for (name, statement) in pinned.drain(..) {
+        assert_pinned(&proofs, &name, &statement, "Quot.sound, propext");
+    }
+    for (name, statement) in [
+        (
+            "call_device_webgpu_decides",
+            "(((Kernel.Call::callDevice device) = 1) <-> (((device =? 1) || (device =? 2)) = true))",
+        ),
+        (
+            "call_device_cpu_decides",
+            "(((Kernel.Call::callDevice device) = 2) <-> (((device =? 3) || (device =? 4)) = true))",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, "Classical.choice, Quot.sound, propext");
+    }
+    for (name, body) in [
+        (
+            "callDevice",
+            "body: (if (device =? 0) then 0 else (if (device <=? 2) then 1 else (if (device <=? 4) then 2 else 3)))",
+        ),
+        (
+            "callCode",
+            "(if (1 <=? sample) then 13 else (if (2 <=? beams) then 14 else (if (penalty =? 1) then (callDevice device) else 15)))",
+        ),
+        ("callAnswer", "((Foundation.Bytes::byteLength value) =? 7)"),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:
+{found}");
+    }
+    assert_routed(70, "Kernel.Call::callAnswer");
+}
+
 /// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
 #[test]
 fn kernel_kn_49() {

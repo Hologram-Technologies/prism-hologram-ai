@@ -51,6 +51,7 @@
     <option value="45">48. Kernel text</option>
     <option value="46">49. Config number</option>
     <option value="47">50. Rotary cache entry</option>
+    <option value="48">70. A transformers.js call</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -3066,6 +3067,121 @@
       "module": "Rotary",
       "name": "Rotary cache entry",
       "tag": 50
+    },
+    {
+      "asks": "Does this transformers.js call run here, and on which device?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "text-generation",
+              0
+            ],
+            [
+              "feature-extraction",
+              1
+            ],
+            [
+              "text-classification",
+              2
+            ]
+          ],
+          "name": "Task",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "choice": [
+            [
+              "auto",
+              0
+            ],
+            [
+              "webgpu",
+              1
+            ],
+            [
+              "gpu",
+              2
+            ],
+            [
+              "wasm",
+              3
+            ],
+            [
+              "cpu",
+              4
+            ]
+          ],
+          "name": "Device",
+          "value": 3,
+          "width": 1
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "auto",
+              0
+            ],
+            [
+              "q4f16",
+              1
+            ],
+            [
+              "q4",
+              2
+            ]
+          ],
+          "name": "dtype",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "choice": [
+            [
+              "false",
+              0
+            ],
+            [
+              "true",
+              1
+            ]
+          ],
+          "name": "do_sample",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 5,
+          "name": "num_beams",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 6,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Repetition penalty is 1",
+          "value": 1,
+          "width": 1
+        }
+      ],
+      "length": 7,
+      "module": "Call",
+      "name": "A transformers.js call",
+      "tag": 70
     }
   ],
   "request": 81

@@ -412,6 +412,14 @@ Feature: kernel
     And the summed excess of those logits over a bound is zero exactly when maxKey is at most the bound, so no logit's key is above the picked token's
     And the picked token is at most last, an index of the logits
 
+  @KN-70 @build
+  Scenario: A transformers.js pipeline call is answered the engine device it runs on, auto, webgpu or cpu, exactly when its task, device, dtype and generation options are ones the engine honours: webgpu and gpu name WebGPU, wasm and cpu name the integer CPU engine, q4f16, q4 and auto are the dtypes, decoding is greedy; any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
+    Given a request of the tag 70 carrying a task, a device, a dtype, whether to sample, a beam count and whether the repetition penalty is one, each in one byte, as transformers.js names them
+    When the kernel reads each code through Kernel.Call
+    Then the answer is auto, webgpu or cpu exactly when the task is one of the three, the device one of auto, webgpu, gpu, wasm and cpu, the dtype one of auto, q4f16 and q4, decoding greedy with one beam and no penalty
+    And webgpu and gpu answer webgpu, wasm and cpu answer cpu, and any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
+    And the theorems of Proofs.Call state it and are pinned with their axioms
+
   @KN-49 @build
   Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
     Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
