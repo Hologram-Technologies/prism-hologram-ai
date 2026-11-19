@@ -4064,6 +4064,153 @@ fn kernel_kn_45() {
     );
 }
 
+/// `KN-46`: A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it
+#[test]
+fn kernel_kn_46() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Template.lex.tex");
+    let proofs = model("app/src/Proofs/Template.lex.tex");
+    for (theorem, code, words) in [
+        (
+            "template_qwen25_decides",
+            1,
+            [
+                "8279920892041357147",
+                "1773128108353419947",
+                "11653179235714034099",
+                "12784695345153184910",
+            ],
+        ),
+        (
+            "template_qwen3_decides",
+            2,
+            [
+                "5043451083563981477",
+                "8438563855072365186",
+                "9276823912147443683",
+                "9407911508815075403",
+            ],
+        ),
+        (
+            "template_llama32_decides",
+            3,
+            [
+                "15723989467465989188",
+                "4968833967170122917",
+                "9281937141963328179",
+                "6782964158007752886",
+            ],
+        ),
+    ] {
+        let [a, b, c, d] = words;
+        assert_pinned(
+            &proofs,
+            theorem,
+            &format!("(((Kernel.Template::templateCode a b c d) = {code}) <-> ((((a = {a}) /\\ (b = {b})) /\\ (c = {c})) /\\ (d = {d})))"),
+            "Classical.choice, Quot.sound, propext",
+        );
+    }
+    assert_pinned(
+        &proofs,
+        "template_code_bounded",
+        "((Kernel.Template::templateCode a b c d) <= 3)",
+        "Quot.sound, propext",
+    );
+    // The words are the BLAKE3 of each template's text, as the exports carry it.
+    let templates = root().join("crates/conformance/tests/gpu/templates");
+    for (file, words) in [
+        (
+            "Qwen2.5-1.5B-Instruct.json",
+            "8279920892041357147 1773128108353419947 11653179235714034099 12784695345153184910",
+        ),
+        (
+            "Qwen3-0.6B-ONNX.json",
+            "5043451083563981477 8438563855072365186 9276823912147443683 9407911508815075403",
+        ),
+        (
+            "Llama-3.2-1B-Instruct-ONNX.json",
+            "15723989467465989188 4968833967170122917 9281937141963328179 6782964158007752886",
+        ),
+    ] {
+        let recorded: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(templates.join(file)).expect("the recorded template"),
+        )
+        .expect("JSON");
+        let text = recorded["template"].as_str().expect("a template");
+        let mut arriving = hologram_ai_download::Arriving::new();
+        arriving.take(text.as_bytes());
+        let hash = arriving.label().0;
+        let derived: Vec<String> = hash
+            .chunks(8)
+            .map(|w| u64::from_be_bytes(w.try_into().expect("eight bytes")).to_string())
+            .collect();
+        assert_eq!(
+            derived.join(" "),
+            words,
+            "{file}: the kernel names another template"
+        );
+        assert!(
+            kernel.contains(&derived.join(" ")),
+            "{file}: Kernel.Template does not list it"
+        );
+    }
+    let found = declaration(&kernel, "templateAnswer");
+    assert!(
+        found.contains("(if ((Foundation.Bytes::byteLength value) =? 33) then (templateText (templateCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "templateAnswer changed:\n{found}"
+    );
+    assert_routed(45, "Kernel.Template::templateAnswer");
+    // The claims cover every answer; the app recipe replays them in the guest.
+    use hologram_ai_kernel_client::template;
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("claims"),
+    )
+    .expect("claims.json is JSON");
+    let mine: Vec<(String, String)> = claims["claims"]
+        .as_array()
+        .expect("claims")
+        .iter()
+        .filter(|c| c["request"].as_str().is_some_and(|r| r.starts_with("2d")))
+        .map(|c| {
+            (
+                c["request"].as_str().expect("r").to_string(),
+                c["answer"].as_str().expect("a").to_string(),
+            )
+        })
+        .collect();
+    for answer in [
+        "qwen2.5",
+        "qwen3",
+        "llama3.2",
+        "refused: unknown template",
+        "invalid request",
+    ] {
+        assert!(
+            mine.iter().any(|(_, a)| a == answer),
+            "no decision-45 claim is answered `{answer}`"
+        );
+    }
+    for (request, answer) in &mine {
+        let bytes: Vec<u8> = (0..request.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&request[i..i + 2], 16).expect("hex"))
+            .collect();
+        if let Ok(address) = <[u8; 32]>::try_from(&bytes[1..]) {
+            assert_eq!(
+                template::request(&address).to_vec(),
+                bytes,
+                "a decision-45 claim is not the client's request"
+            );
+        }
+        assert_ne!(
+            template::answer(answer.as_bytes()),
+            template::Verdict::Unrecognised,
+            "the client does not read `{answer}`"
+        );
+    }
+}
+
 /// `KN-50`: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
 #[test]
 fn kernel_kn_50() {
