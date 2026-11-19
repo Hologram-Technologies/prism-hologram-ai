@@ -63,3 +63,7 @@ missing_safety_doc = "deny"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+# The page's module ships no function names: they are 250 KB of a module a
+# page may ask a visitor to fetch only 2 MiB of (xtask engine-size), and only
+# a debugger reads them.
+strip = "symbols"

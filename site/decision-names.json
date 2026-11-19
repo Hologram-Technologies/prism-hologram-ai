@@ -580,6 +580,10 @@
             [
               "fused",
               1
+            ],
+            [
+              "encoder",
+              2
             ]
           ],
           "value": 0
@@ -816,6 +820,14 @@
             [
               "text generation",
               0
+            ],
+            [
+              "feature extraction",
+              1
+            ],
+            [
+              "text classification",
+              2
             ]
           ],
           "value": 0
