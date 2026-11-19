@@ -511,3 +511,35 @@ type = "ExactError"
 variant = "DecimalRefused"
 suite = "engine"
 condition = "A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened"
+
+[[failure]]
+id = "FL-70"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "Unrecognised"
+suite = "engine"
+condition = "A role the encoder reads is missing, or its weight is not the shape or format the role needs"
+
+[[failure]]
+id = "FL-71"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "Exact"
+suite = "engine"
+condition = "An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number"
+
+[[failure]]
+id = "FL-72"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "NormRefused"
+suite = "engine"
+condition = "A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0"
+
+[[failure]]
+id = "FL-73"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "TokenOutOfRange"
+suite = "engine"
+condition = "A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table"
