@@ -423,9 +423,11 @@ name = "hologram-ai-wasm"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "hologram-ai-cpu-decode",
  "hologram-ai-download",
  "hologram-ai-exact",
  "hologram-ai-model-reader",
+ "hologram-ai-onnx-preflight",
  "hologram-ai-tokenizer",
  "serde_json",
 ]
