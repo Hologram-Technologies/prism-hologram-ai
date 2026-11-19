@@ -13,8 +13,8 @@
 //! table (EN-43, EN-44) and SiLU (EN-46). A stage that takes fixed point
 //! enters by one declared narrowing to units of `2^-16`, rounded half to even.
 //!
-//! What: [`read`] finds a Qwen3-shaped model's weights in its fused ONNX
-//! export by the nodes that read them; [`step`] runs one token through it and
+//! What: [`read`] finds a Qwen2-, Qwen3- or Llama-shaped model's weights in
+//! its ONNX export, fused or decomposed, by the nodes that read them; [`step`] runs one token through it and
 //! answers the logits; [`greedy`] picks the largest.
 
 #![forbid(unsafe_code)]
@@ -53,7 +53,7 @@ impl From<ExactError> for DecodeError {
 pub enum Role {
     /// The token embedding, read by `/model/embed_tokens/Gather`.
     Embedding,
-    /// A layer's attention, whose node gives the head counts.
+    /// A layer's attention: head counts the config and the graph disagree on.
     Attention,
     /// A layer's norm before attention.
     InputNorm,
@@ -90,9 +90,13 @@ pub struct Initializer<'a> {
     pub bytes: &'a [u8],
 }
 
-/// What a model's config gives that its graph does not.
+/// What a model's config gives that its graph may not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
+    /// `num_attention_heads`; a fused graph's attention node must agree.
+    pub heads: usize,
+    /// `num_key_value_heads`; likewise.
+    pub kv_heads: usize,
     /// `rope_theta`, a whole number.
     pub rope_theta: u64,
     /// `rms_norm_eps`, as binary32 bits.
@@ -125,9 +129,10 @@ struct Layer<'a> {
     query: Q4Matrix<'a>,
     key: Q4Matrix<'a>,
     value: Q4Matrix<'a>,
+    biases: Option<[&'a [u8]; 3]>,
     output: Q4Matrix<'a>,
-    query_norm: &'a [u8],
-    key_norm: &'a [u8],
+    query_norm: Option<&'a [u8]>,
+    key_norm: Option<&'a [u8]>,
     post_norm: &'a [u8],
     gate: Q4Matrix<'a>,
     up: Q4Matrix<'a>,
@@ -262,9 +267,47 @@ fn units32(bits: u32) -> Result<u64, DecodeError> {
     u64::try_from(shift_even(d.mantissa, d.exponent + 32)).map_err(|_| DecodeError::NormRefused)
 }
 
-/// Reads a Qwen3-shaped model from its fused ONNX export: each weight from
-/// the node that reads it, the sizes from the weights and the attention
-/// node, the rotary frequencies from `config` (EN-48).
+/// How an export names the nodes this pass reads: the fused style (Qwen3's
+/// and Llama's exports, `SkipSimplifiedLayerNormalization` and
+/// `GroupQueryAttention`) or the decomposed one (Qwen2.5's, norms as `Mul_1`
+/// and biases as `Add`).
+struct Style {
+    attention: &'static str,
+    fused: bool,
+}
+
+impl Style {
+    fn input_norm(&self, l: usize) -> String {
+        match (self.fused, l) {
+            (true, 0) => "/model/layers.0/input_layernorm/LayerNorm".to_string(),
+            (true, _) => format!("/model/layers.{l}/input_layernorm/SkipLayerNorm"),
+            (false, _) => format!("/model/layers.{l}/input_layernorm/Mul_1"),
+        }
+    }
+
+    fn post_norm(&self, l: usize) -> String {
+        let last = if self.fused { "SkipLayerNorm" } else { "Mul_1" };
+        format!("/model/layers.{l}/post_attention_layernorm/{last}")
+    }
+
+    fn final_norm(&self, layers: usize) -> String {
+        if self.fused {
+            format!("/model/layers.{layers}/final_norm_layernorm/SkipLayerNorm")
+        } else {
+            "/model/norm/Mul_1".to_string()
+        }
+    }
+
+    fn projection(&self, l: usize, p: &str) -> String {
+        format!("/model/layers.{l}/{}/{p}_proj/MatMul_Q4", self.attention)
+    }
+}
+
+/// Reads a Qwen2-, Qwen3- or Llama-shaped model from its ONNX export, fused
+/// or decomposed: each weight from the node that reads it, the sizes from the
+/// weights and `config`, the rotary frequencies from `config` (EN-48). Query
+/// and key norms and query, key and value biases are read where the graph
+/// has them.
 ///
 /// # Errors
 ///
@@ -279,32 +322,41 @@ pub fn read<'a>(
     let gather = node(nodes, "/model/embed_tokens/Gather", Role::Embedding)?;
     let embedding =
         weight(gather, initializers, 0).ok_or(DecodeError::Unrecognised(Role::Embedding))?;
+    let has = |name: &str| nodes.iter().any(|n| n.name == name);
+    let style = if has("/model/layers.0/attn/q_proj/MatMul_Q4") {
+        Style {
+            attention: "attn",
+            fused: true,
+        }
+    } else if has("/model/layers.0/self_attn/q_proj/MatMul_Q4") {
+        Style {
+            attention: "self_attn",
+            fused: false,
+        }
+    } else {
+        return Err(DecodeError::Unrecognised(Role::Query));
+    };
     let layers = (0..)
-        .take_while(|l| {
-            nodes
-                .iter()
-                .any(|n| n.name == format!("/model/layers.{l}/attn/GroupQueryAttention"))
-        })
+        .take_while(|&l| has(&style.projection(l, "q")))
         .count();
-    let attention = node(
-        nodes,
-        "/model/layers.0/attn/GroupQueryAttention",
-        Role::Attention,
-    )?;
     let refused = DecodeError::Unrecognised(Role::Attention);
-    let heads =
-        usize::try_from(int(attention, "num_heads").ok_or(refused)?).map_err(|_| refused)?;
-    let kv_heads =
-        usize::try_from(int(attention, "kv_num_heads").ok_or(refused)?).map_err(|_| refused)?;
+    let (heads, kv_heads) = (config.heads, config.kv_heads);
     if heads == 0 || kv_heads == 0 || !heads.is_multiple_of(kv_heads) {
         return Err(refused);
     }
-    let query = matrix(
-        nodes,
-        initializers,
-        "/model/layers.0/attn/q_proj/MatMul_Q4",
-        Role::Query,
-    )?;
+    if style.fused {
+        // The attention node states the head counts too; they must agree.
+        let attention = node(
+            nodes,
+            "/model/layers.0/attn/GroupQueryAttention",
+            Role::Attention,
+        )?;
+        let stated = |key: &str| int(attention, key).and_then(|v| usize::try_from(v).ok());
+        if stated("num_heads") != Some(heads) || stated("kv_num_heads") != Some(kv_heads) {
+            return Err(refused);
+        }
+    }
+    let query = matrix(nodes, initializers, &style.projection(0, "q"), Role::Query)?;
     let gate = matrix(
         nodes,
         initializers,
@@ -337,79 +389,83 @@ pub fn read<'a>(
         }
     };
     let mut read_layers = Vec::with_capacity(layers);
+    // Query and key norms are Qwen3's; biases are Qwen2's. A model has both
+    // or neither in every layer, as layer 0 has them.
+    let normed = has("/model/layers.0/attn/q_norm/SimplifiedLayerNormalization");
+    let biased = has(&format!("/model/layers.0/{}/q_proj/Add", style.attention));
     for l in 0..layers {
         let at = |rest: &str| format!("/model/layers.{l}/{rest}");
-        let input_norm_name = if l == 0 {
-            at("input_layernorm/LayerNorm")
-        } else {
-            at("input_layernorm/SkipLayerNorm")
-        };
         let kv = kv_heads * head_dim;
+        let head_norm = |p: &str, role: Role| -> Result<Option<&'a [u8]>, DecodeError> {
+            if normed {
+                Ok(Some(halves(
+                    nodes,
+                    initializers,
+                    &at(&format!("attn/{p}_norm/SimplifiedLayerNormalization")),
+                    role,
+                    head_dim,
+                )?))
+            } else {
+                Ok(None)
+            }
+        };
+        let biases = if biased {
+            let bias = |p: &str, role: Role, width: usize| {
+                halves(
+                    nodes,
+                    initializers,
+                    &at(&format!("{}/{p}_proj/Add", style.attention)),
+                    role,
+                    width,
+                )
+            };
+            Some([
+                bias("q", Role::Query, heads * head_dim)?,
+                bias("k", Role::Key, kv)?,
+                bias("v", Role::Value, kv)?,
+            ])
+        } else {
+            None
+        };
         read_layers.push(Layer {
             input_norm: halves(
                 nodes,
                 initializers,
-                &input_norm_name,
+                &style.input_norm(l),
                 Role::InputNorm,
                 hidden,
             )?,
             query: shaped(
-                matrix(
-                    nodes,
-                    initializers,
-                    &at("attn/q_proj/MatMul_Q4"),
-                    Role::Query,
-                )?,
+                matrix(nodes, initializers, &style.projection(l, "q"), Role::Query)?,
                 heads * head_dim,
                 hidden,
                 Role::Query,
             )?,
             key: shaped(
-                matrix(nodes, initializers, &at("attn/k_proj/MatMul_Q4"), Role::Key)?,
+                matrix(nodes, initializers, &style.projection(l, "k"), Role::Key)?,
                 kv,
                 hidden,
                 Role::Key,
             )?,
             value: shaped(
-                matrix(
-                    nodes,
-                    initializers,
-                    &at("attn/v_proj/MatMul_Q4"),
-                    Role::Value,
-                )?,
+                matrix(nodes, initializers, &style.projection(l, "v"), Role::Value)?,
                 kv,
                 hidden,
                 Role::Value,
             )?,
+            biases,
             output: shaped(
-                matrix(
-                    nodes,
-                    initializers,
-                    &at("attn/o_proj/MatMul_Q4"),
-                    Role::Output,
-                )?,
+                matrix(nodes, initializers, &style.projection(l, "o"), Role::Output)?,
                 hidden,
                 heads * head_dim,
                 Role::Output,
             )?,
-            query_norm: halves(
-                nodes,
-                initializers,
-                &at("attn/q_norm/SimplifiedLayerNormalization"),
-                Role::QueryNorm,
-                head_dim,
-            )?,
-            key_norm: halves(
-                nodes,
-                initializers,
-                &at("attn/k_norm/SimplifiedLayerNormalization"),
-                Role::KeyNorm,
-                head_dim,
-            )?,
+            query_norm: head_norm("q", Role::QueryNorm)?,
+            key_norm: head_norm("k", Role::KeyNorm)?,
             post_norm: halves(
                 nodes,
                 initializers,
-                &at("post_attention_layernorm/SkipLayerNorm"),
+                &style.post_norm(l),
                 Role::PostNorm,
                 hidden,
             )?,
@@ -446,7 +502,7 @@ pub fn read<'a>(
     let final_norm = halves(
         nodes,
         initializers,
-        &format!("/model/layers.{layers}/final_norm_layernorm/SkipLayerNorm"),
+        &style.final_norm(layers),
         Role::FinalNorm,
         hidden,
     )?;
@@ -607,16 +663,28 @@ pub fn step(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<
         let h = norm(&x, layer.input_norm, model.epsilon)?;
         let mut q = exact::q4_product_with(&h, &layer.query, SCHEME)?;
         let mut k = exact::q4_product_with(&h, &layer.key, SCHEME)?;
-        let v = exact::q4_product_with(&h, &layer.value, SCHEME)?;
-        for head in q.chunks_mut(head_dim) {
-            let normed = norm(head, layer.query_norm, model.epsilon)?;
-            head.copy_from_slice(&normed);
-            rotate(head, position, &model.frequencies)?;
+        let mut v = exact::q4_product_with(&h, &layer.value, SCHEME)?;
+        if let Some(biases) = layer.biases {
+            // As the export adds them: to the product, rounded once more.
+            for (projected, bias) in [
+                (&mut q, biases[0]),
+                (&mut k, biases[1]),
+                (&mut v, biases[2]),
+            ] {
+                for (i, x) in projected.iter_mut().enumerate() {
+                    let b = half(bias, i)?;
+                    *x = add(*x, exact::round_exact(b.mantissa, b.exponent))?;
+                }
+            }
         }
-        for head in k.chunks_mut(head_dim) {
-            let normed = norm(head, layer.key_norm, model.epsilon)?;
-            head.copy_from_slice(&normed);
-            rotate(head, position, &model.frequencies)?;
+        for (projected, head_norm) in [(&mut q, layer.query_norm), (&mut k, layer.key_norm)] {
+            for head in projected.chunks_mut(head_dim) {
+                if let Some(weights) = head_norm {
+                    let normed = norm(head, weights, model.epsilon)?;
+                    head.copy_from_slice(&normed);
+                }
+                rotate(head, position, &model.frequencies)?;
+            }
         }
         session.keys[l].extend_from_slice(&k);
         session.values[l].extend_from_slice(&v);

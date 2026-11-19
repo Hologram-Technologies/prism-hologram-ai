@@ -2712,3 +2712,76 @@ integer path took about 23 s for each prompt of about 20 tokens and 1.2 s per
 token after, one thread, release build: the exact products are not yet the
 fast path (step 8 of the plan). The measurement is the ledger's
 `OPEN-GREEDY-QWEN3-0.6B-INTEGER`.
+
+## EN-50 and EN-51, Qwen2.5's decomposed export and Llama's
+
+`read` takes both export styles onnx-community writes. The fused one (Qwen3,
+Llama) names norms `SkipSimplifiedLayerNormalization` and states the head
+counts on `GroupQueryAttention`, which must agree with the config's; the
+decomposed one (Qwen2.5) names norms `Mul_1`, adds query, key and value biases
+as `Add` nodes, and has no attention node, so the head counts are the config's.
+Query and key norms and the biases are read where layer 0 has them, and then
+required in every layer. A bias is added to its product as the export adds it,
+rounded once more. Llama's rotary scaling is EN-48's, from the config.
+
+### The gate: `engine_en_50` and `engine_en_51`
+
+| Fixture | Tokens equal to the float reference's | Largest logit gap |
+| --- | --- | --- |
+| Qwen2-shaped, decomposed, biases (EN-50) | 16 / 16 | 1.26e-3 |
+| Llama-shaped, fused, Llama 3 scaling 4, 1, 4, 64 (EN-51) | 16 / 16 | 1.93e-3 |
+| Qwen3-shaped, fused, query and key norms (EN-49) | 16 / 16 | 1.66e-3 |
+
+Planted against EN-50 and EN-51:
+
+| Planted defect | Result |
+| --- | --- |
+| biases not added | rejected: `qwen2: the integer path's tokens are not the float reference's` |
+| Llama 3 scaling read as none | rejected: `llama: the integer path's tokens are not the float reference's` |
+| none | passed |
+
+### Run over Qwen2.5-1.5B-Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen2.5-1.5B-Instruct at `d54957e` (BLAKE3 equal to the hub
+record's), with its own `tokenizer.json` and `config.json`, against ONNX
+Runtime 1.26.0 on the same file with graph optimisation off: its layer-norm
+fusion fails on this export with `GetIndexFromName ... InsertedPrecisionFreeCast`.
+
+| Prompt (Qwen2.5's template, default system line) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | **Q:** What is the capital of France? **A:** Paris | 15 | 15 / 15 | 15 | 0.22 |
+| Write one sentence about the sea. | ... **The sea is a vast and powerful body of water that plays a crucial role in shaping our planet's ecosystems and weather patterns.* ... (cut at 32) | 32 | 31 / 32 | 28 | 0.61 |
+| What is 12 times 7? | **Final answer**: 84 | 8 | 8 / 8 | 8 | 0.25 |
+
+The one difference is at a near tie: the float model's best two logits are
+0.026 apart at step 28, and its free run takes the other. The gaps are larger
+than Qwen3's because this export runs every activation in half precision in
+ONNX Runtime. About 52 s for each prompt of about 30 tokens and 2.3 s per
+token after, one thread. The ledger's `OPEN-GREEDY-QWEN2.5-1.5B-INTEGER`.
+
+### Run over Llama 3.2 1B Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` and `model_q4f16.onnx_data` of
+onnx-community/Llama-3.2-1B-Instruct-ONNX at `82ac693` (each BLAKE3 equal to
+the hub record's), with its own `tokenizer.json` and `config.json`. That
+config names no rope scaling, but the export's own cos and sin cache is Llama
+3's at factor 32, low 1, high 4, original 8192 (GPU-VERIFICATION.md, read
+2026-11-16), so the run takes those parameters, as the page's loader does
+after confirming them against the cache. The yardstick is ONNX Runtime 1.26.0
+on the same files with graph optimisation off.
+
+| Prompt (Llama 3.2's template) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is Paris. | 8 | 8 / 8 | 8 | 0.36 |
+| Write one sentence about the sea. | The vast expanse of the ocean, with its diverse marine life and intricate underwater ecosystems, continues to captivate and inspire people from all over the world. | 32 | 32 / 32 | 32 | 0.32 |
+| What is 12 times 7? | To find the answer, I'll multiply 12 by 7. 12 * 7 = 84 The answer is 84. | 29 | 29 / 29 | 29 | 0.50 |
+
+The gaps include ONNX Runtime's half-precision activations and its
+half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
+1.9 s per token after, one thread. The ledger's
+`OPEN-GREEDY-LLAMA-3.2-1B-INTEGER`.
+
+Reading the rotary parameters from the export's cache rather than taking the
+family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
+integer path takes them from its caller.
