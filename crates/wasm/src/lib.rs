@@ -51,7 +51,7 @@ use std::collections::BTreeMap;
 
 use hologram_ai_cpu_decode::{self as decode, Config, DecodeError, Initializer, Session};
 use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
-use hologram_ai_exact::RopeScaling;
+use hologram_ai_exact::{decimal_binary32, decimal_whole, ExactError, RopeScaling};
 use hologram_ai_exact::{request_product, Layout};
 use hologram_ai_model_reader::holk::Container;
 use hologram_ai_model_reader::onnx::{DataFile, File, Graph, ImportError, Imported, ReadFile};
@@ -992,10 +992,12 @@ pub extern "C" fn decode_tensor(at: u32, len: u32) -> u32 {
     })
 }
 
-/// Open the model the held nodes and weights make, with what its config says,
-/// as JSON: `heads`, `kv_heads`, `rope_theta`, `rms_norm_eps` (binary32 bits)
-/// and `scaling` (`null`, or Llama 3's `factor`, `low`, `high` and `original`).
-/// Starts a new run; answers the model's sizes as JSON.
+/// Open the model the held nodes and weights make, as JSON: `config`, the
+/// text of the model's config.json, and `scaling` (`null`, or Llama 3's
+/// `factor`, `low`, `high` and `original`). The head counts, `rope_theta` and
+/// `rms_norm_eps` are read from the config's own decimal text, whole numbers
+/// and binary32 exactly as decision 49 confirms them (KN-50, EN-58), so no
+/// float lies on the way. Starts a new run; answers the model's sizes as JSON.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
 #[no_mangle]
 pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
@@ -1003,6 +1005,20 @@ pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
         let given = taken(state, at, len)?;
         let c: serde_json::Value =
             serde_json::from_slice(&given).map_err(|_| CallError::NotText)?;
+        let text = c["config"].as_str().ok_or(CallError::NotText)?;
+        let fields: BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_str(text).map_err(|_| CallError::NotText)?;
+        let refused = || CallError::Decode(DecodeError::Exact(ExactError::DecimalRefused));
+        let number = |key: &str| {
+            fields
+                .get(key)
+                .map(|v| v.get().as_bytes())
+                .ok_or_else(refused)
+        };
+        let count = |key: &str| {
+            let n = decimal_whole(number(key)?).map_err(|e| CallError::Decode(e.into()))?;
+            usize::try_from(n).map_err(|_| CallError::WrongSize)
+        };
         let whole = |v: &serde_json::Value| v.as_u64().ok_or(CallError::NotText);
         let scaling = match &c["scaling"] {
             serde_json::Value::Null => RopeScaling::None,
@@ -1015,11 +1031,16 @@ pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
             },
         };
         let config = Config {
-            heads: usize::try_from(whole(&c["heads"])?).map_err(|_| CallError::WrongSize)?,
-            kv_heads: usize::try_from(whole(&c["kv_heads"])?).map_err(|_| CallError::WrongSize)?,
-            rope_theta: whole(&c["rope_theta"])?,
-            rms_norm_eps: u32::try_from(whole(&c["rms_norm_eps"])?)
-                .map_err(|_| CallError::WrongSize)?,
+            heads: count("num_attention_heads")?,
+            kv_heads: if fields.contains_key("num_key_value_heads") {
+                count("num_key_value_heads")?
+            } else {
+                count("num_attention_heads")?
+            },
+            rope_theta: decimal_whole(number("rope_theta")?)
+                .map_err(|e| CallError::Decode(e.into()))?,
+            rms_norm_eps: decimal_binary32(number("rms_norm_eps")?)
+                .map_err(|e| CallError::Decode(e.into()))?,
             scaling,
         };
         DECODE.with_borrow_mut(|d| {

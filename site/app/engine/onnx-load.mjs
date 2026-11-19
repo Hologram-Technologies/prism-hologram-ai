@@ -74,7 +74,7 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     if (!ok) throw new Error(`${p} is not the file the record names`);
     return bytes;
   };
-  const config = JSON.parse(text.decode(await small("config.json")));
+  const configText = text.decode(await small("config.json")), config = JSON.parse(configText);
   const generation = await small("generation_config.json", true);
   m.callWith("tokeniser_read", await small("tokenizer.json"));
   // The chat template is the model's own, from tokenizer_config.json, with the
@@ -170,7 +170,7 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     throw new Error(`rope: the config's scaling ${JSON.stringify(config.rope_scaling)} is not one this engine runs`);
   }
 
-  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read), { table, read, config, rope: { ...rope } });
+  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read), { table, read, config: configText, rope: { ...rope } });
   // The ids the model stops on, as its own files name them.
   const named = (generation ? JSON.parse(text.decode(generation)).eos_token_id : null) ?? config.eos_token_id;
   const stops = new Set([named].flat().filter((id) => Number.isInteger(id)));

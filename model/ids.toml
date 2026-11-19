@@ -780,6 +780,18 @@ suite = "engine"
 statement = "The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it"
 
 [[id]]
+id = "KN-50"
+level = "build"
+suite = "kernel"
+statement = "A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name"
+
+[[id]]
+id = "EN-58"
+level = "build"
+suite = "engine"
+statement = "No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included"
+
+[[id]]
 id = "GP-30"
 level = "build"
 suite = "gpu"

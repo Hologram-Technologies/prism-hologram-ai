@@ -736,6 +736,21 @@ Feature: engine
     Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
     And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
 
+  @EN-58 @build
+  Scenario: No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included
+    Given config.json's text handed to the page's module, and the files the integer path is computed in
+    When the module reads num_attention_heads, num_key_value_heads, rope_theta and rms_norm_eps from their decimal text through hologram-ai-exact
+    Then each is the whole number or the nearest binary32 the text names, equal to a correctly rounded parse, and the compiled guest answers decision 49 exact for each and differs for any other
+    And integer.mjs converts no number, and audit-float finds no float type, literal or conversion in crates/exact, crates/cpu-decode, crates/wasm or integer.mjs
+    And a float planted in Rust or in the page script is refused by audit-float
+
+  @FL-69 @build
+  Scenario: A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened
+    Given GP-19's Qwen3-shaped export imported in the page's module, with a config whose rms_norm_eps is 1e1000
+    When decode_open is called with that config's text
+    Then the call answers no, the module's answer is Decode(Exact(DecimalRefused)), and no model is opened
+    And a whole number asked of 1.5 is ExactError::DecimalRefused
+
   @EN-60 @build
   Scenario: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
     Given EN-47's rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1, each with biases drawn the same way

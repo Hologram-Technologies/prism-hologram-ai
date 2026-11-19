@@ -2826,6 +2826,51 @@ refused.
 | `prefix` keeping one token too many | rejected: `step 0 after the restore is not the first run's` |
 | none | passed |
 
+## EN-58, no float on the integer path
+
+Set by Ilya: no floating-point operation lies between the bytes admitted and
+the token ids. Two floats were left on the page's CPU device: `integer.mjs`
+rounded `rope_theta` with `Math.round` and turned `rms_norm_eps` into binary32
+through a `Float32Array`, both from numbers `JSON.parse` had already read as
+doubles. The page now hands the module config.json's text, and the module reads
+`num_attention_heads`, `num_key_value_heads`, `rope_theta` and `rms_norm_eps`
+from their own decimal text (serde_json's `RawValue` keeps it) through
+`hologram_ai_exact::decimal_whole` and `decimal_binary32`, each the Rust form of
+decision 49 (KN-50). `integer.mjs` is five lines shorter.
+
+`cargo xtask audit-float`, part of `validate`, reads every file the integer
+forward pass is computed in (`crates/exact/src`, `crates/cpu-decode/src`,
+`crates/wasm/src` and `site/app/engine/integer.mjs`, listed in
+`repo_model::floats`) and refuses an `f32` or `f64`, a literal with a fraction
+or an exponent, or, in the script, `Math.`, `parseFloat`, `Float64Array`, or a
+number turned into binary32. Comments and strings are not code, and a
+`Float32Array` view of bits the module wrote computes nothing, so neither is
+refused; the logits a caller asks for are read that way, after the token is
+chosen.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Each config number the module reads is the whole number or the nearest binary32 its text names | `engine_en_58`: 27 texts against Rust's correctly rounded parse, among them the epsilons and thetas real configs write, ties both ways, the subnormal range and the tie below its floor | tested |
+| The compiled guest confirms each | 62 claims, `exact` for the crate's answer and `differs` for one bit off, and each refusal by name | replayed on CI |
+| The module opens a model with the numbers as before | `engine_en_52`: the forward pass equal bit for bit to `hologram-ai-cpu-decode`'s run of the same model, opened now from config.json's text | tested |
+| No float on the integer path | `audit-float` in `validate`; `engine_en_58` runs it over the same files | tested |
+| `FL-69`: a config number outside decision 49 is refused and no model is opened | `engine_fl_69`: an epsilon of `1e1000` answers `Decode(Exact(DecimalRefused))` | tested |
+
+### What EN-58 does not establish
+
+- `onnx-preflight` still reads an ONNX node's real attributes as `f32`, which the page's role map uses; the integer pass reads none of them.
+- The loader still picks Llama 3 rope scaling by a float tolerance against the graph's caches when config.json names none (`confirmRope` in `onnx-roles.mjs`). `audit-float` reports it on every run as an open finding, with milestone 2's row 17 that removes it, and fails if the entry outlives the float.
+- The GPU device still runs the float engines; row 15 replaces them.
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate's long division stopped at 21 quotient bits | rejected: `1e-06: not the nearest binary32` |
+| the module opening with a default epsilon when the text is refused | rejected: `a config past the decimals decision 49 reads was opened` |
+| the removed `binary32` conversion put back in `integer.mjs` | rejected by `audit-float` (`integer.mjs:88`) and by `engine_en_58` |
+| none | passed |
+
 ## EN-60, LayerNorm in integers
 
 `layer_norm` takes values `x`, weights `g` and biases `b` in units of `2^-16`,
