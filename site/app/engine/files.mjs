@@ -265,13 +265,14 @@ export async function keepFiles({ record, open, module: m, kernel, root, name = 
     const restNamed = `rest-${file.blake3}`;
     const restHeld = restAt ? await heldAt(restNamed, restAt) : null;
     const local = (s) => (s.named ? s.held : restHeld);
-    // Room for what is new, asked of decision 26 once for the file.
+    // What this load reads from here is pinned before decision 26 is asked
+    // for room for what is new, once for the file.
+    for (const s of segments) if (s.held) touched.push({ dir: s.named });
+    if (restHeld) touched.push({ dir: restNamed });
     const fresh = segments.reduce((n, s) => n + (local(s) ? 0 : s.to - s.from), 0);
     const keep = fresh === 0 || (await room(fresh));
     if (!keep) counts.notKept++;
     else stored.add(path);
-    for (const s of segments) if (s.held) touched.push({ dir: s.named });
-    if (restHeld) touched.push({ dir: restNamed });
 
     // A writer for new bytes: a partial file named on admit.
     const partial = async (named) => {
