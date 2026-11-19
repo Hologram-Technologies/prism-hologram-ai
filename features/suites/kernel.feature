@@ -419,3 +419,10 @@ Feature: kernel
     Then the answer is auto, webgpu or cpu exactly when the task is one of the three, the device one of auto, webgpu, gpu, wasm and cpu, the dtype one of auto, q4f16 and q4, decoding greedy with one beam and no penalty
     And webgpu and gpu answer webgpu, wasm and cpu answer cpu, and any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
     And the theorems of Proofs.Call state it and are pinned with their axioms
+
+  @KN-49 @build
+  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+    Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
+    When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
+    Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
+    And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests

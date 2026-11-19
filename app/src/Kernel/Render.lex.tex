@@ -1,0 +1,52 @@
+\begin{lexlean}{Kernel.Render}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Code}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: printedWidth,
+  parameters: [width : Nat],
+  result: Bool,
+  body: ((width =? 128) || ((width =? 256) || ((width =? 1024) || ((width =? 1536) || ((width =? 2048) || ((width =? 3072) || ((width =? 8192) || (width =? 8960))))))))
+}
+
+definition{
+  name: renderValid,
+  parameters: [value : Bytes],
+  result: Bool,
+  body: ((((Kernel.Wire::fieldAt value 1 1) =? 1) && ((printedWidth (Kernel.Wire::fieldAt value 8 4)) && (((prim multiply (Kernel.Wire::fieldAt value 4 4) 32 : Nat) =? (Kernel.Wire::fieldAt value 8 4)) && (((Kernel.Wire::fieldAt value 12 4) =? 0) && ((Kernel.Wire::fieldAt value 16 1) =? 0))))) || (((Kernel.Wire::fieldAt value 1 1) =? 2) && ((((Kernel.Wire::fieldAt value 4 4) =? 0) && ((Kernel.Wire::fieldAt value 8 4) =? 0)) && (((Kernel.Wire::fieldAt value 12 4) =? 0) && ((Kernel.Wire::fieldAt value 16 1) =? 0))))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: renderText,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Kernel.Wire::fieldAt value 1 1) =? 1) then (Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) (match (Foundation.Bytes::sliceBytes value 4 8)
+    | Option.none => 0x
+    | Option.some params => params)) else (Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: renderPiece,
+  parameters: [text : Bytes, start : Nat],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength text) <=? start) then 0x else (match (Foundation.Bytes::sliceBytes text start (if ((prim subtract (Foundation.Bytes::byteLength text) start : Nat) <? 256) then (prim subtract (Foundation.Bytes::byteLength text) start : Nat) else 256))
+    | Option.none => 0x
+    | Option.some piece => piece))
+}
+
+definition{
+  name: renderAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 17) && (renderValid value)) then (renderPiece (renderText value) (prim multiply (Kernel.Wire::fieldAt value 2 2) 256 : Nat)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
