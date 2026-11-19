@@ -2125,6 +2125,71 @@ pub fn rope_angle(position: u32, frequency: u64) -> u32 {
     (whole + u64::from(up)) as u32
 }
 
+/// The tolerance a rotary cache entry is held to, in units of `2^-30`: `2^-9`,
+/// about `1.95e-3`. Llama 3.2's f16 cache agrees with its own parameters
+/// within about `2.4e-4` and with plain frequencies only to about 2.
+pub const ROTARY_TOLERANCE: u32 = 1 << 21;
+
+/// Whether the f16 `half` lies within `tolerance` of `reference`, both in
+/// units of `2^-30`, as decision 50 confirms it: the half read exactly as an
+/// integer times a power of two, compared in integers.
+///
+/// # Errors
+///
+/// [`ExactError::InputNotFinite`] for an infinity or a NaN.
+pub fn rotary_agrees(half: u16, reference: i32, tolerance: u32) -> Result<bool, ExactError> {
+    let d = Dyadic::from_binary16(half).ok_or(ExactError::InputNotFinite)?;
+    // A half's exponent is at least -24, so the shift is at least 6.
+    let value = d.mantissa << (d.exponent + 30);
+    Ok((value - i128::from(reference)).unsigned_abs() <= u128::from(tolerance))
+}
+
+/// The first of `candidates` whose rotary angles the export's own f16 cos and
+/// sin cache agree with, entry by entry, at each of `positions`: the engine's
+/// own frequencies (EN-48), angles and quarter-wave table (EN-45), each entry
+/// held to [`ROTARY_TOLERANCE`] by [`rotary_agrees`]. `width` is the cache's
+/// row length, half the head size. `Ok(None)` when none agrees.
+///
+/// # Errors
+///
+/// [`ExactError::LengthMismatch`] for a cache shorter than a position asks or
+/// a width other than half the head size, and [`ExactError::InputNotFinite`]
+/// for an entry that is not a finite number.
+pub fn rotary_confirm(
+    cos: &[u16],
+    sin: &[u16],
+    width: usize,
+    positions: &[u32],
+    head_dim: u32,
+    theta: u64,
+    candidates: &[RopeScaling],
+) -> Result<Option<usize>, ExactError> {
+    if width * 2 != head_dim as usize {
+        return Err(ExactError::LengthMismatch);
+    }
+    for (index, &scaling) in candidates.iter().enumerate() {
+        let Some(frequencies) = rope_frequencies(head_dim, theta, scaling) else {
+            continue;
+        };
+        let mut agrees = true;
+        for &position in positions {
+            let row = position as usize * width;
+            let (Some(c), Some(s)) = (cos.get(row..row + width), sin.get(row..row + width)) else {
+                return Err(ExactError::LengthMismatch);
+            };
+            for (i, &f) in frequencies.iter().enumerate() {
+                let angle = rope_angle(position, f);
+                agrees &= rotary_agrees(c[i], cosine_turn(angle), ROTARY_TOLERANCE)?
+                    && rotary_agrees(s[i], sine_turn(angle), ROTARY_TOLERANCE)?;
+            }
+        }
+        if agrees {
+            return Ok(Some(index));
+        }
+    }
+    Ok(None)
+}
+
 /// LayerNorm in integers. Values, weights and biases are in units of `2^-16`,
 /// below `2^31` in size, at most `2^16` of them; `epsilon` is in units of
 /// `2^-32`, below `2^32`. The centred values `n x - sum(x)` and the variance's

@@ -10619,6 +10619,173 @@ fn engine_fl_69() {
     );
 }
 
+/// `EN-59`: The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it
+#[test]
+fn engine_en_59() {
+    use hologram_ai_kernel_client::rotary_check::request;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    let mut want = |half: u16, reference: i32, tolerance: u32, answer: &str| {
+        let claim = (
+            enhex(&request(half, reference, tolerance)),
+            answer.to_string(),
+        );
+        if !claims.contains(&claim) {
+            missing.push(format!("{} -> {}", claim.0, claim.1));
+        }
+    };
+    let tol = exact::ROTARY_TOLERANCE;
+    let one = 1 << 30;
+    for (name, half, reference, tolerance, answer) in [
+        ("one against one", 0x3c00, one, 0, "agrees"),
+        (
+            "one, at the tolerance",
+            0x3c00,
+            one - (1 << 21),
+            tol,
+            "agrees",
+        ),
+        (
+            "one, past the tolerance",
+            0x3c00,
+            one - (1 << 21) - 1,
+            tol,
+            "disagrees",
+        ),
+        ("minus one against minus one", 0xbc00, -one, 0, "agrees"),
+        ("minus one against one", 0xbc00, one, tol, "disagrees"),
+        ("zero against minus five", 0x0000, -5, 5, "agrees"),
+        ("minus zero against four", 0x8000, 4, 3, "disagrees"),
+        ("the smallest subnormal, 64 units", 0x0001, 64, 0, "agrees"),
+        ("an infinity", 0x7c00, 0, tol, "not finite"),
+        ("a NaN", 0x7e00, 0, tol, "not finite"),
+    ] {
+        let got = exact::rotary_agrees(half, reference, tolerance);
+        let expected = match answer {
+            "agrees" => Ok(true),
+            "disagrees" => Ok(false),
+            _ => Err(exact::ExactError::InputNotFinite),
+        };
+        assert_eq!(got, expected, "{name}");
+        want(half, reference, tolerance, answer);
+    }
+
+    // Llama 3.2 1B's own cache rows, as onnx-community's export stores them.
+    let text = std::fs::read_to_string(
+        root().join("crates/conformance/tests/gpu/exports/Llama-3.2-1B-Instruct-ONNX.json"),
+    )
+    .expect("the recorded export");
+    let x: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    let width = 32;
+    let (mut cos, mut sin, mut positions) = (Vec::new(), Vec::new(), Vec::new());
+    for row in x["rope_rows"]["rows"].as_array().expect("rows") {
+        let position = row["position"].as_u64().expect("a position") as u32;
+        positions.push(position);
+        let end = (position as usize + 1) * width;
+        for (cache, key) in [(&mut cos, "cos"), (&mut sin, "sin")] {
+            cache.resize(end.max(cache.len()), 0);
+            for (i, v) in row[key].as_array().expect("values").iter().enumerate() {
+                cache[end - width + i] = half_bits(v.as_f64().expect("a number") as f32);
+            }
+        }
+    }
+    let llama3 = |factor| exact::RopeScaling::Llama3 {
+        factor,
+        low: 1,
+        high: 4,
+        original: 8192,
+    };
+    let all = [llama3(32), llama3(8), exact::RopeScaling::None];
+    let confirm = |candidates: &[exact::RopeScaling]| {
+        exact::rotary_confirm(&cos, &sin, width, &positions, 64, 500_000, candidates)
+    };
+    assert_eq!(
+        confirm(&all),
+        Ok(Some(0)),
+        "Llama's cache confirms Llama 3 scaling at factor 32"
+    );
+    assert_eq!(
+        confirm(&all[1..]),
+        Ok(None),
+        "factor 8 and plain frequencies do not agree"
+    );
+    assert_eq!(
+        exact::rotary_confirm(&cos, &sin, 31, &positions, 64, 500_000, &all),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // A sample of what the module asks of the kernel for this cache: entries
+    // that agree under factor 32, and the first that does not under plain
+    // frequencies.
+    let frequencies = |s| exact::rope_frequencies(64, 500_000, s).expect("frequencies");
+    let (scaled, plain) = (
+        frequencies(llama3(32)),
+        frequencies(exact::RopeScaling::None),
+    );
+    for position in [1u32, 8191] {
+        for i in [0usize, 31] {
+            let at = position as usize * width + i;
+            let angle = exact::rope_angle(position, scaled[i]);
+            want(cos[at], exact::cosine_turn(angle), tol, "agrees");
+            want(sin[at], exact::sine_turn(angle), tol, "agrees");
+        }
+    }
+    let (at, reference) = (0..width)
+        .map(|i| {
+            (
+                8191 * width + i,
+                exact::cosine_turn(exact::rope_angle(8191, plain[i])),
+            )
+        })
+        .find(|&(at, r)| exact::rotary_agrees(cos[at], r, tol) == Ok(false))
+        .expect("plain frequencies disagree somewhere at 8191");
+    want(cos[at], reference, tol, "disagrees");
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 50:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+
+    // The page's module answers the same from config.json's text.
+    let rows: Vec<serde_json::Value> = positions
+        .iter()
+        .map(|&p| {
+            let row = |c: &[u16]| c[p as usize * width..(p as usize + 1) * width].to_vec();
+            serde_json::json!([p, row(&cos), row(&sin)])
+        })
+        .collect();
+    let asked = serde_json::json!({
+        "config": "{\"rope_theta\": 500000.0}", "head_dim": 64, "width": width, "rows": rows,
+        "candidates": [
+            {"factor": 32, "low": 1, "high": 4, "original": 8192},
+            {"factor": 8, "low": 1, "high": 4, "original": 8192},
+            null
+        ],
+    })
+    .to_string();
+    let at = wasm::given(asked.as_bytes());
+    let status = wasm::rope_confirm(at, asked.len() as u32);
+    wasm::release(at);
+    assert_eq!(
+        status,
+        0,
+        "rope_confirm: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    assert_eq!(wasm::last_answer(), b"{\"chosen\":0}");
+
+    // The page asks the module and keeps no float check of its own.
+    let read = |path: &str| std::fs::read_to_string(root().join(path)).expect(path);
+    assert!(read("site/app/engine/onnx-load.mjs").contains("m.callWith(\"rope_confirm\""));
+    assert!(!read("site/app/engine/onnx-roles.mjs").contains("confirmRope"));
+    assert!(
+        repo_model::floats::OPEN.is_empty(),
+        "no float is left open on the way"
+    );
+}
+
 /// `EN-60`: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
 #[test]
 fn engine_en_60() {

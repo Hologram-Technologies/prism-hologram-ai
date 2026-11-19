@@ -1975,6 +1975,38 @@
           "value": 0
         }
       }
+    },
+    "50": {
+      "name": "Rotary cache entry",
+      "asks": "Does this f16 from the export's cos or sin cache lie within the tolerance of the engine's own value?",
+      "fields": {
+        "1": {
+          "name": "Cache entry, f16 bits",
+          "value": 15360
+        },
+        "3": {
+          "name": "Reference, 1 for negative",
+          "choice": [
+            [
+              "positive",
+              0
+            ],
+            [
+              "negative",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "4": {
+          "name": "Reference, units of 2^-30",
+          "value": 1073741824
+        },
+        "8": {
+          "name": "Tolerance, units of 2^-30",
+          "value": 2097152
+        }
+      }
     }
   }
 }

@@ -751,6 +751,13 @@ Feature: engine
     Then the call answers no, the module's answer is Decode(Exact(DecimalRefused)), and no model is opened
     And a whole number asked of 1.5 is ExactError::DecimalRefused
 
+  @EN-59 @build
+  Scenario: The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it
+    Given Llama 3.2 1B's own cos and sin cache rows at positions 1, 7, 1000 and 8191, and a config that names no scaling
+    When the page module compares each entry's f16 bits with cosine_turn and sine_turn of the engine's own angle for each candidate
+    Then Llama 3 scaling at factor 32 is chosen, factor 8 and plain frequencies are not, and the compiled guest answers decision 50 as the crate does for each entry asked
+    And onnx-load.mjs asks the module, onnx-roles.mjs holds no float check, and audit-float has no open finding left
+
   @EN-60 @build
   Scenario: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
     Given EN-47's rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1, each with biases drawn the same way

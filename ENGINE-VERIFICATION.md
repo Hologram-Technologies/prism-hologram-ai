@@ -2859,7 +2859,7 @@ chosen.
 ### What EN-58 does not establish
 
 - `onnx-preflight` still reads an ONNX node's real attributes as `f32`, which the page's role map uses; the integer pass reads none of them.
-- The loader still picks Llama 3 rope scaling by a float tolerance against the graph's caches when config.json names none (`confirmRope` in `onnx-roles.mjs`). `audit-float` reports it on every run as an open finding, with milestone 2's row 17 that removes it, and fails if the entry outlives the float.
+- The loader picked Llama 3 rope scaling by a float tolerance when config.json named none; EN-59 replaced that with integers.
 - The GPU device still runs the float engines; row 15 replaces them.
 
 ### Planted defects
@@ -2869,6 +2869,36 @@ chosen.
 | the crate's long division stopped at 21 quotient bits | rejected: `1e-06: not the nearest binary32` |
 | the module opening with a default epsilon when the text is refused | rejected: `a config past the decimals decision 49 reads was opened` |
 | the removed `binary32` conversion put back in `integer.mjs` | rejected by `audit-float` (`integer.mjs:88`) and by `engine_en_58` |
+| none | passed |
+
+## EN-59, rotary parameters confirmed in integers
+
+onnx-community's Llama 3.2 1B export bakes Llama 3 scaling into its cos and sin
+caches while its config.json names none, so the loader tries candidates
+against the cache. It used to compare the cache with `Math.cos` and
+`Math.sin` within `2e-3`. Now the page hands the module the cache rows' f16
+bits, and `hologram_ai_exact::rotary_confirm` takes, for each candidate, the
+engine's own frequencies (EN-48), angles and quarter-wave table (EN-45), and
+holds every entry to `2^-9` through `rotary_agrees`, the Rust form of decision
+50 (KN-51). `confirmRope` and the loader's f16-to-float helper are gone; the
+page's scripts are 26 lines shorter. The two GPU harnesses that used
+`confirmRope` drop it: `roles.mjs` no longer checks rope (EN-59 does, on the
+same recorded rows), and `run.mjs`, whose rows are its own reference's floats,
+keeps a float check of its own as a yardstick.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Llama 3.2's cache confirms Llama 3 scaling at factor 32, and not factor 8 or plain frequencies | `engine_en_59`, on the export's own rows at positions 1, 7, 1000 and 8191 | tested |
+| The module answers the same from config.json's text | `engine_en_59`, `rope_confirm` answering `{"chosen":0}` | tested |
+| The compiled guest confirms each entry asked | 19 claims for decision 50 | replayed on CI |
+| No float decides the rotary parameters | `audit-float` has no open finding, and `engine_en_59` asserts it | tested |
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate comparing magnitudes and dropping signs | rejected: `minus one against one` |
+| the loader calling the module by another name | rejected: onnx-load.mjs no longer asks `rope_confirm` |
 | none | passed |
 
 ## EN-60, LayerNorm in integers

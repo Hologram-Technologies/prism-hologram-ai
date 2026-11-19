@@ -1,0 +1,43 @@
+\begin{lexlean}{Proofs.Rotary}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Rotary}
+\importmodule{Kernel.Scale}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: rotary_agrees_decides,
+  parameters: [bits : Nat, sign : Nat, magnitude : Nat, tolerance : Nat],
+  statement: (((Kernel.Rotary::rotaryAgrees bits sign magnitude tolerance) = true) <-> ((Kernel.Rotary::rotaryDistance bits sign magnitude) <= tolerance)),
+  proof: linear_arithmetic{definitions: [Kernel.Rotary::rotaryAgrees]},
+  axioms: [propext]
+}
+
+theorem{
+  name: rotary_same_sign_is_difference,
+  parameters: [bits : Nat, sign : Nat, magnitude : Nat],
+  statement: (((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((prim subtract (Kernel.Rotary::rotaryCache bits) magnitude : Nat) + (prim subtract magnitude (Kernel.Rotary::rotaryCache bits) : Nat)))),
+  proof: linear_arithmetic{definitions: [Kernel.Rotary::rotaryDistance]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rotary_opposite_signs_add,
+  parameters: [bits : Nat, sign : Nat, magnitude : Nat],
+  statement: (((Kernel.Rotary::rotarySame bits sign) = 0) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((Kernel.Rotary::rotaryCache bits) + magnitude))),
+  proof: linear_arithmetic{definitions: [Kernel.Rotary::rotaryDistance]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rotary_exact_entry_agrees,
+  parameters: [bits : Nat, sign : Nat, tolerance : Nat],
+  statement: (((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryAgrees bits sign (Kernel.Rotary::rotaryCache bits) tolerance) = true)),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Rotary::rotaryAgrees, Kernel.Rotary::rotaryDistance]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

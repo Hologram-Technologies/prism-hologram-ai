@@ -352,7 +352,7 @@ Measured on 2026-11-19 from the hub's UOR index, which now lists every tensor of
 | 14 | A prompt and a model's files stream into the guest in chunks of any size, with the chunking theorem proved, and tokens leave one per step. |
 | 15 | The guest runs its integer kernels on WebGPU from the same LexLean definitions it runs on the CPU, with the printers proved, and CPU and GPU give the same integers over 256 tokens of three prompts. |
 | 16 | Measured on the published page, here and on the phone: warm time to first token under 300 ms on Qwen3-0.6B, at least 100 tokens per second on Qwen2.5-1.5B at 4 bits, guest call overhead under 50 µs warm, and the holo under 16 MB; a target missed is reported with the step that bounds it, not lowered. |
-| 17 | The loader picks Llama 3 rope scaling, when config.json names none, without a float: today `confirmRope` in `site/app/engine/onnx-roles.mjs` compares the export's cos and sin cache with `Math.cos` and `Math.sin` within a float tolerance. `cargo xtask audit-float` reports it as an open finding on every run until this row removes it (EN-58). |
+| 17 | The loader picks Llama 3 rope scaling, when config.json names none, without a float: the page module compares the export's f16 cos and sin cache with the engine's own integer angles, each entry confirmed by decision 50 (KN-51, EN-59), and `audit-float` has no open finding. |
 
 Aims, reported and not gated: under 300 ms to the first token for a short prompt with a warm cache; 100 tokens per second or more on Qwen2.5-1.5B at 4 bits. Both were set for the float engine and are measured again on the integer one; integer-only is the requirement and the aims move if it costs speed.
 

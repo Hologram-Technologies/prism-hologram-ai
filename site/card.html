@@ -48,6 +48,7 @@
     <option value="42">43. Square root</option>
     <option value="43">44. Rounded quotient</option>
     <option value="44">49. Config number</option>
+    <option value="45">50. Rotary cache entry</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2926,6 +2927,49 @@
       "module": "Config",
       "name": "Config number",
       "tag": 49
+    },
+    {
+      "asks": "Does this f16 from the export's cos or sin cache lie within the tolerance of the engine's own value?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "Cache entry, f16 bits",
+          "value": 15360,
+          "width": 2
+        },
+        {
+          "at": 3,
+          "choice": [
+            [
+              "positive",
+              0
+            ],
+            [
+              "negative",
+              1
+            ]
+          ],
+          "name": "Reference, 1 for negative",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 4,
+          "name": "Reference, units of 2^-30",
+          "value": 1073741824,
+          "width": 4
+        },
+        {
+          "at": 8,
+          "name": "Tolerance, units of 2^-30",
+          "value": 2097152,
+          "width": 4
+        }
+      ],
+      "length": 12,
+      "module": "Rotary",
+      "name": "Rotary cache entry",
+      "tag": 50
     }
   ],
   "request": 81
