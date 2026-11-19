@@ -729,3 +729,57 @@ Feature: engine
     When the importer takes their bytes in pieces of any size and asks the kernel about each whole file
     Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
     And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
+
+  @EN-60 @build
+  Scenario: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
+    Given EN-47's rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1, each with biases drawn the same way
+    When each row is put through hologram-ai-exact's layer_norm
+    Then r meets n^2 r^2 <= (V + n^2 epsilon) 2^32 < n^2 (r + 1)^2, worked out in the test by bisection
+    And every output y meets 2 |(n x - sum(x)) g 2^16 - (y - b) n r| <= n r, an exact tie giving the even y - b, and is within |y - b| / 2^20 plus one unit of the LayerNorm of the real numbers
+    And a row whose values are all equal with epsilon 0, an empty row, weights or biases of another length, a value at 2^31 and an epsilon at 2^32 are refused
+
+  @EN-61 @build
+  Scenario: GELU is integer: for x in units of 2^-16, gelu(x) is x at or above 8 and 0 at or below -8; between, with X = |x| and Y = X^2, erf(X / sqrt 2) is c X A / B for the positive series A = sum of Y^k / (2k+1)!! and B = sum of (Y / 2)^k / k!, each term cut down to 2^-40, and c, standing for sqrt(2 / pi), the integer square root of 2^121 / floor(2^40 pi) with pi by Machin's formula; the output (x + X erf) / 2 is rounded half to even once, in units of 2^-16, within one unit of x Phi(x), and gelu(x) - gelu(-x) is x within one unit, exactly x when x is even
+    Given 343 inputs: every eighth from -9 to 9, 160 drawn by a seeded generator between -9 and 9, 24 out to 2^20 units, the edges at 8 and -8, and inputs out to 2^47
+    When each is put through hologram-ai-exact's gelu
+    Then each output is within one unit of x Phi(x) computed by Python's math.erfc, recorded in the test
+    And an input at or above 8 gives itself and one at or below -8 gives 0
+    And gelu(x) - gelu(-x) is x within one unit, and exactly x for every even x
+
+  @EN-62 @build
+  Scenario: An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits
+    Given GP-13's BERT-shaped encoder, all-MiniLM-L6-v2's shape with q4f16 matrices and f16 tables, biases and norms, its weights by role, and the float reference's embeddings of its two sentences of 6 and 60 tokens
+    When hologram-ai-cpu-encode reads the weights and embeds each sentence twice
+    Then every component is within 2^-14 of the reference's and the embedding's length within 2^-20 of 1
+    And the second run gives the same bits
+
+  @EN-63 @build
+  Scenario: A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits
+    Given GP-14's DistilBERT-shaped classifier, SST-2's shape with two labels and an f16 dense head, and the float reference's scores for its two sentences
+    When hologram-ai-cpu-encode reads the weights and classifies each sentence twice
+    Then the label is the reference's and every score within 2^-10 of the reference's
+    And the second run gives the same bits
+
+  @FL-70 @build
+  Scenario: A role the encoder reads is missing, or its weight is not the shape or format the role needs
+    Given GP-13's encoder with its first layer's query matrix taken away, and with its first layer's feed-forward matrix given the wrong shape
+    When hologram-ai-cpu-encode reads the weights
+    Then each read is refused as Unrecognised, naming the attention and the feed-forward
+
+  @FL-71 @build
+  Scenario: An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number
+    Given GP-13's encoder with one scale of its first layer's query matrix stored as an f16 infinity
+    When a sentence is embedded
+    Then it is refused as Exact, naming ScaleNotFinite
+
+  @FL-72 @build
+  Scenario: A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0
+    Given GP-13's encoder with its word and position tables and its token-type row all zero, so every embedding row is equal
+    When a sentence is embedded with epsilon 0
+    Then it is refused as NormRefused at the embedding's LayerNorm
+
+  @FL-73 @build
+  Scenario: A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table
+    Given GP-13's encoder, whose vocabulary is 320 and position table 64
+    When an empty sentence, a sentence holding id 320, and one of 65 tokens are embedded
+    Then each is refused as TokenOutOfRange

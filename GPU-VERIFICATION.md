@@ -177,3 +177,32 @@ page:
 | the verifier's chain fact forced true | rejected: `sigstore.mjs is not the hub's file`; with that pin and `SIGSTORE_BLAKE3`'s taken out too, rejected: `foreignKey failed other checks` |
 | `hubRecord` reading the root without `openIndex` | rejected: the loader no longer has `index = await openIndex(base, policy, { hash });` |
 | none | passed |
+
+## The integer kernels on WebGPU, in LexLean
+
+Row 15 of the plan runs the integer stages on WebGPU. The kernels are written
+first in LexLean, in `app/src/Engine/Gpu.lex.tex`, outside the guest: a kernel
+is a statement over 32-bit words (`Expr`, `Stmt`), run by `exec` (in `app/src/Engine/GpuRun.lex.tex`) one
+invocation at a time (`runAll`), with a read past a buffer's end giving 0 and
+a store past it dropped. The same file holds the WGSL each kernel becomes,
+twice: as a term (`toWgsl`, with WGSL's own arithmetic in `wgslEval`) and as
+text (`renderKernel`).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every expression the kernels use computes the same word in WGSL's arithmetic as in the model's, so every program runs alike | `wgsl_preserves_eval` and `wgsl_runs_every_program_alike` in `app/src/Proofs/GpuWgsl.lex.tex`, for all machines, expressions, statements and fuel | proved |
+| The q4 group-sum kernel gives the exact sums of the crate's two q4 fixtures, zero point 8 and packed zero points | `q4_group_sums_zero_eight` and `q4_group_sums_packed_zeros` in `app/src/Proofs/GpuQ4.lex.tex`: two outputs each, worked out by Lean | checked on fixtures |
+| `exp2Neg` gives EN-43's `exp2_neg` on 19 inputs covering every branch: shift 0, 1 to 31, 32 and past it | `exp2_neg_matches_reference` in `app/src/Proofs/GpuExp2.lex.tex`; the expected words were worked out by a port of `exp2_neg`, not by the crate | checked on fixtures |
+| The text `renderKernel` writes is the WGSL that ran on WebGPU | not gated yet. Kernel 1 (q4 group sums, two units, zero point 8) and kernel 2 (`exp2Neg`), rendered by a port of `renderKernel`, compiled in Chrome's WebGPU and ran on AMD RDNA 3.5 and SwiftShader in the PrismPM bridge (UOR-Foundation/prismpm#732), equal to the CPU bit for bit. A guest decision that answers the text, so a replayed claim pins it, was built (decision 48) and taken out: with it the guest's export failed in CI (`PP5008`, its error cut off), and it returns with the next change | run once by hand |
+| Each kernel runs on WebGPU as `crates/exact` computes it | not yet: a test that renders every kernel through the guest and runs it on WebGPU beside the crate is the next change | not tested |
+| A kernel equals its stage for every input in bounds | not yet: the stages EN-43 to EN-47 are defined in Rust, not LexLean, and the step from 32-bit words to the stage's integers needs nonlinear arithmetic the proof forms do not have | not proved |
+
+The text follows the PrismPM WebGPU bridge's conventions: buffer i is
+`array<u32>` at `@group(0) @binding(i)`, read_write exactly when the kernel
+stores to it; entry `main`; `@workgroup_size(64)`; and a pipeline constant
+`invocations`, past which an invocation returns. Closed subexpressions are
+worked out while printing, since WGSL refuses constant overflow and constant
+division by zero, and shift amounts are masked to five bits, as the model's
+are. The GPU runs invocations at once and the model one after another; they
+agree when each invocation writes only its own outputs and reads no buffer it
+writes, which holds for these kernels and is not yet checked.

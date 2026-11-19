@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
+use hologram_ai_cpu_encode as encode;
 use hologram_ai_download as download;
 use hologram_ai_exact as exact;
 use hologram_ai_model_reader::{config, gguf as tensors, header, holk, onnx as import, Kernel};
@@ -10348,4 +10349,768 @@ fn engine_en_42() {
         "the question is the record's BLAKE3 against the arrived bytes' BLAKE3"
     );
     let _ = beside;
+}
+
+/// `EN-60`: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
+#[test]
+fn engine_en_60() {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut bias = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let magnitude = ((state >> 20) & ((1u64 << 31) - 1)) as i64;
+        if state & 1 == 0 {
+            magnitude
+        } else {
+            -magnitude
+        }
+    };
+    let mut checked = 0;
+    for (values, weights, epsilon) in en_47_rows() {
+        let biases: Vec<i64> = values.iter().map(|_| bias()).collect();
+        let n = values.len() as i128;
+        let sum: i128 = values.iter().map(|&x| i128::from(x)).sum();
+        let squares: i128 = values.iter().map(|&x| i128::from(x) * i128::from(x)).sum();
+        let v = (n * squares - sum * sum) as u128;
+        let total = v + (n * n) as u128 * u128::from(epsilon);
+        let r = en_47_root((total << 32) / (n * n) as u128);
+        let out = exact::layer_norm(&values, &weights, &biases, epsilon);
+        if r == 0 {
+            assert!(out.is_none(), "a row whose root is 0 was not refused");
+            continue;
+        }
+        let out = out.expect("the row is within bounds");
+        assert_eq!(out.len(), values.len());
+        let nn = (n * n) as u128;
+        assert!(
+            nn * r * r <= total << 32 && total << 32 < nn * (r + 1) * (r + 1),
+            "the root is not the largest with n^2 r^2 <= (V + n^2 epsilon) 2^32"
+        );
+        let mean = values.iter().map(|&x| x as f64 / 65536.0).sum::<f64>() / n as f64;
+        let var = values
+            .iter()
+            .map(|&x| (x as f64 / 65536.0 - mean).powi(2))
+            .sum::<f64>()
+            / n as f64;
+        let sigma = (var + epsilon as f64 / 4_294_967_296.0).sqrt();
+        let denominator = n * r as i128;
+        for (((&x, &g), &b), &y) in values.iter().zip(&weights).zip(&biases).zip(&out) {
+            let numerator = (n * i128::from(x) - sum) * i128::from(g) * (1i128 << 16);
+            let shifted = y - b;
+            let gap = (numerator - i128::from(shifted) * denominator).unsigned_abs();
+            assert!(
+                2 * gap <= denominator.unsigned_abs(),
+                "y - b = {shifted} is more than half a unit from {numerator} / {denominator}"
+            );
+            if 2 * gap == denominator.unsigned_abs() {
+                assert_eq!(
+                    shifted % 2,
+                    0,
+                    "a tie at {numerator} / {denominator} did not go to even"
+                );
+            }
+            // The yardstick, in the test only.
+            let real = (x as f64 / 65536.0 - mean) * (g as f64 / 65536.0) / sigma * 65536.0;
+            let bound = shifted.unsigned_abs() as f64 / 1_048_576.0 + 1.0;
+            assert!(
+                (shifted as f64 - real).abs() <= bound,
+                "y - b = {shifted} is more than {bound} from {real}"
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked > 20, "too few rows were within bounds: {checked}");
+    for (values, weights, biases, epsilon, why) in [
+        (
+            vec![5i64; 4],
+            vec![1i64; 4],
+            vec![0i64; 4],
+            0u64,
+            "a row of equal values with epsilon 0",
+        ),
+        (vec![], vec![], vec![], 1, "an empty row"),
+        (
+            vec![1, 2],
+            vec![1],
+            vec![0, 0],
+            1,
+            "weights of another length",
+        ),
+        (
+            vec![1, 2],
+            vec![1, 1],
+            vec![0],
+            1,
+            "biases of another length",
+        ),
+        (
+            vec![1i64 << 31, 0],
+            vec![1, 1],
+            vec![0, 0],
+            1,
+            "a value at 2^31",
+        ),
+        (
+            vec![1, 2],
+            vec![1, 1],
+            vec![0, 0],
+            1u64 << 32,
+            "an epsilon at 2^32",
+        ),
+    ] {
+        assert!(
+            exact::layer_norm(&values, &weights, &biases, epsilon).is_none(),
+            "{why} was not refused"
+        );
+    }
+}
+
+/// GELU of x (units of 2^-16), times 2^16, from Python's math.erfc: x Phi(x),
+/// Phi(t) = erfc(-t / sqrt 2) / 2. The yardstick, in the test only.
+const EN_61_REFERENCE: &[(i64, f64)] = &[
+    (-140737488355327, -0.0),
+    (-1099511627776, -0.0),
+    (-773598, -1.4367405830687347e-26),
+    (-675051, -2.366882998628203e-19),
+    (-606587, -6.4500137692779684e-15),
+    (-596886, -2.5099725545495367e-14),
+    (-589824, -6.65668527953319e-14),
+    (-582181, -1.8880317151683092e-13),
+    (-581652, -2.0282762486827732e-13),
+    (-581632, -2.033775571543569e-13),
+    (-575356, -4.734865677476623e-13),
+    (-573440, -6.117249976592353e-13),
+    (-567164, -1.4072049470749996e-12),
+    (-565248, -1.8114122396830412e-12),
+    (-565134, -1.838781977914937e-12),
+    (-563814, -2.1869932360307814e-12),
+    (-562560, -2.577718138001757e-12),
+    (-557056, -5.280631749917312e-12),
+    (-555743, -6.25936918071551e-12),
+    (-552767, -9.188790414707049e-12),
+    (-548864, -1.5155197589798326e-11),
+    (-540672, -4.2819742659903755e-11),
+    (-532480, -1.1910576880752065e-10),
+    (-524289, -3.261177040735148e-10),
+    (-524288, -3.2615749775638236e-10),
+    (-524287, -3.261972962189254e-10),
+    (-518290, -6.752155949952624e-10),
+    (-516593, -8.283059277552759e-10),
+    (-516096, -8.792801310545625e-10),
+    (-507904, -2.3336296531416955e-09),
+    (-505788, -2.9951769303769786e-09),
+    (-505585, -3.0675890017196045e-09),
+    (-499712, -6.097345563786061e-09),
+    (-495947, -9.431098719580601e-09),
+    (-495681, -9.725025741405336e-09),
+    (-493302, -1.278723720514285e-08),
+    (-491520, -1.5683870750691752e-08),
+    (-487558, -2.4629705912639022e-08),
+    (-483328, -3.971628268318545e-08),
+    (-475136, -9.901160300788162e-08),
+    (-472600, -1.3095436948159846e-07),
+    (-471541, -1.471080140344941e-07),
+    (-471149, -1.535701025442778e-07),
+    (-466944, -2.429992639021523e-07),
+    (-461771, -4.2493693056673294e-07),
+    (-458752, -5.871165641327146e-07),
+    (-451576, -1.2552792619665168e-06),
+    (-450560, -1.3965075443437405e-06),
+    (-445429, -2.383877186602414e-06),
+    (-442368, -3.2700982887462042e-06),
+    (-441725, -3.493628925453222e-06),
+    (-435934, -6.309727884446507e-06),
+    (-434176, -7.538341269803773e-06),
+    (-432556, -8.875613310327257e-06),
+    (-425984, -1.7107519927146452e-05),
+    (-423474, -2.1921745605090085e-05),
+    (-420235, -3.012283023544621e-05),
+    (-418131, -3.6981252766964176e-05),
+    (-417792, -3.822022875251009e-05),
+    (-416037, -4.531043868818938e-05),
+    (-413574, -5.746336322714352e-05),
+    (-409600, -8.406070989696828e-05),
+    (-409431, -8.54246071247913e-05),
+    (-401408, -0.00018200562565781096),
+    (-399901, -0.0002094403395984215),
+    (-393216, -0.0003879420474311449),
+    (-385024, -0.000814024187041546),
+    (-376832, -0.0016814893701486528),
+    (-373658, -0.0022178459689516667),
+    (-372436, -0.002465757002560883),
+    (-368640, -0.0034192829895085095),
+    (-363074, -0.0054887982592634445),
+    (-360573, -0.0067734429201651795),
+    (-360448, -0.006844749811704303),
+    (-358017, -0.008384811256278516),
+    (-356261, -0.009700256807632854),
+    (-352256, -0.013488354636869706),
+    (-345911, -0.022565702250612562),
+    (-345249, -0.02379745780252664),
+    (-344064, -0.02616593135145177),
+    (-337392, -0.04436827987606796),
+    (-335872, -0.049967298975321456),
+    (-327680, -0.09392998707337447),
+    (-323418, -0.12963288142645565),
+    (-319488, -0.173814978538879),
+    (-319193, -0.17765796861522648),
+    (-315003, -0.241837395767996),
+    (-311296, -0.31661394507866797),
+    (-309285, -0.36594699658571594),
+    (-304659, -0.5087641420435265),
+    (-304546, -0.512843260637261),
+    (-303436, -0.554604152477314),
+    (-303104, -0.5677113688522617),
+    (-295812, -0.9421083559942963),
+    (-294912, -1.002014576560392),
+    (-294780, -1.0110993078878334),
+    (-286720, -1.740856007856713),
+    (-278528, -2.9770537070409375),
+    (-277593, -3.161885716695091),
+    (-274326, -3.8962547613153076),
+    (-270336, -5.011147562390861),
+    (-267204, -6.0895026581524245),
+    (-262144, -8.3024260191014),
+    (-253952, -13.53877784399043),
+    (-245760, -21.7294320109496),
+    (-244382, -23.492619115344294),
+    (-239132, -31.493890999863396),
+    (-237568, -34.32399708615345),
+    (-235351, -38.73821152189322),
+    (-231705, -47.14572805228882),
+    (-229376, -53.35952763285259),
+    (-223569, -72.24861330097298),
+    (-221184, -81.63424883037659),
+    (-220070, -86.38641837679229),
+    (-218558, -93.23765714006547),
+    (-213579, -119.41484987996519),
+    (-212992, -122.90171782889433),
+    (-208932, -149.63302916038091),
+    (-207487, -160.33620079589627),
+    (-204800, -182.0723812574072),
+    (-203217, -196.07296043029754),
+    (-196608, -265.4007522027299),
+    (-195607, -277.5981068157759),
+    (-194874, -286.8397423843847),
+    (-188416, -380.6262253056659),
+    (-183316, -472.5041081046234),
+    (-182263, -493.6860558720745),
+    (-180224, -537.0248492744726),
+    (-172032, -745.319756785777),
+    (-167653, -882.031474665931),
+    (-166918, -906.8976067199582),
+    (-164969, -975.647589679753),
+    (-163840, -1017.3915669751626),
+    (-157357, -1286.1483320401583),
+    (-155648, -1365.7294997014853),
+    (-147456, -1802.5718398222716),
+    (-146034, -1888.2475810307276),
+    (-139264, -2338.7030292367763),
+    (-131615, -2935.8673286383732),
+    (-131072, -2981.905294711746),
+    (-122880, -3735.10493371532),
+    (-119406, -4087.0498399519884),
+    (-117132, -4327.455136307257),
+    (-114688, -4594.304582397454),
+    (-112370, -4855.117864855237),
+    (-106496, -5546.4479326032215),
+    (-104680, -5767.92401161378),
+    (-99721, -6387.32430812142),
+    (-98304, -6567.415113533825),
+    (-92733, -7282.80769420196),
+    (-90112, -7620.386372523564),
+    (-81920, -8654.829458788783),
+    (-73728, -9606.354159462644),
+    (-73194, -9663.719411085003),
+    (-70361, -9955.778601899945),
+    (-70227, -9969.04495738763),
+    (-69656, -10024.983049037162),
+    (-67298, -10245.25080040737),
+    (-66648, -10302.739769232187),
+    (-65536, -10397.63072165197),
+    (-57344, -10940.48702437437),
+    (-49152, -11139.187624027827),
+    (-48093, -11134.628045586836),
+    (-40960, -10894.767269834774),
+    (-39537, -10799.886404046223),
+    (-32825, -10117.695579430992),
+    (-32768, -10110.15806897314),
+    (-28848, -9516.994531593504),
+    (-24800, -8743.489510296002),
+    (-24576, -8695.731814251141),
+    (-20192, -7652.7890003284365),
+    (-19465, -7459.543690613765),
+    (-16494, -6608.235350577839),
+    (-16384, -6574.795560010978),
+    (-15993, -6454.811840250247),
+    (-14673, -6036.774287040416),
+    (-8192, -3688.544462191715),
+    (-7579, -3440.6114122260697),
+    (-3, -1.4999452136150762),
+    (-2, -0.9999756504955848),
+    (-1, -0.4999939126238955),
+    (0, 0.0),
+    (1, 0.5000060873761045),
+    (2, 1.0000243495044152),
+    (3, 1.5000547863849238),
+    (8192, 4503.455537808285),
+    (15489, 9191.434171210758),
+    (16384, 9809.204439989022),
+    (17927, 10895.718356681746),
+    (24576, 15880.268185748859),
+    (26284, 17237.382733163893),
+    (27313, 18069.576879869102),
+    (32768, 22657.84193102686),
+    (40960, 30065.232730165226),
+    (49152, 38012.81237597217),
+    (51684, 40563.53566673747),
+    (57344, 46403.512975625636),
+    (62136, 51477.55380669923),
+    (65536, 55138.36927834802),
+    (72982, 63295.699252926424),
+    (73728, 64121.645840537356),
+    (77022, 67783.60653486518),
+    (81920, 73265.1705412112),
+    (82263, 73650.31431998403),
+    (88958, 81189.43606154309),
+    (90112, 82491.61362747643),
+    (98304, 91736.58488646618),
+    (98618, 92090.58544894168),
+    (101031, 94809.09580737642),
+    (105050, 99327.46266334403),
+    (106496, 100949.55206739677),
+    (109265, 104049.54177493024),
+    (114688, 110093.69541760255),
+    (116291, 111872.6909441709),
+    (122880, 119144.89506628468),
+    (131072, 128090.09470528827),
+    (139264, 136925.29697076321),
+    (147456, 145653.42816017772),
+    (155648, 154282.2705002985),
+    (163840, 162822.60843302484),
+    (170848, 170067.5913146426),
+    (172032, 171286.68024321424),
+    (172237, 171497.6193715319),
+    (180224, 179686.9751507255),
+    (183207, 182732.34014398392),
+    (188416, 188035.37377469434),
+    (196608, 196342.59924779728),
+    (204800, 204617.92761874257),
+    (209079, 208930.41912368234),
+    (212992, 212869.0982821711),
+    (221184, 221102.36575116962),
+    (223943, 223872.13070783086),
+    (229376, 229322.64047236714),
+    (229423, 229369.77294445224),
+    (229595, 229542.2551750406),
+    (234096, 234054.53734453648),
+    (237568, 237533.67600291385),
+    (241523, 241495.41929328005),
+    (245760, 245738.27056798904),
+    (252257, 252242.04935639762),
+    (253952, 253938.46122215604),
+    (259962, 259952.52789466406),
+    (262144, 262135.6975739809),
+    (263890, 263882.53466890927),
+    (270336, 270330.9888524376),
+    (271534, 271529.35169822787),
+    (273062, 273057.7787009977),
+    (278528, 278525.02294629294),
+    (284156, 284153.9373049617),
+    (286720, 286718.25914399215),
+    (294912, 294910.9979854234),
+    (301622, 301621.3700967804),
+    (303104, 303103.43228863116),
+    (304361, 304360.4804111804),
+    (305843, 305842.53215801745),
+    (306676, 306675.55904714606),
+    (311296, 311295.68338605494),
+    (311888, 311887.69665392896),
+    (319488, 319487.8261850215),
+    (327680, 327679.90607001295),
+    (335872, 335871.950032701),
+    (337217, 337216.9550192296),
+    (344064, 344063.97383406863),
+    (351591, 351590.9857578899),
+    (352256, 352255.9865116454),
+    (356329, 356328.9903542011),
+    (356978, 356977.99085931154),
+    (360448, 360447.9931552502),
+    (362896, 362895.99442816136),
+    (364219, 364218.99501744955),
+    (368640, 368639.99658071704),
+    (370443, 370442.9970712753),
+    (373693, 373692.99778888625),
+    (376832, 376831.99831851065),
+    (382340, 382339.998965782),
+    (385024, 385023.9991859758),
+    (389971, 389970.9994787088),
+    (393216, 393215.99961205793),
+    (399775, 399774.9997880917),
+    (401408, 401407.9998179944),
+    (408484, 408483.9999065245),
+    (409600, 409599.9999159393),
+    (411021, 411020.9999265985),
+    (417792, 417791.99996177974),
+    (421131, 421130.9999724055),
+    (425984, 425983.9999828925),
+    (430800, 430799.999989413),
+    (432193, 432192.99999079434),
+    (434176, 434175.9999924617),
+    (440974, 440973.99999622634),
+    (442368, 442367.9999967299),
+    (444092, 444091.99999726244),
+    (447970, 447969.99999816937),
+    (450560, 450559.9999986035),
+    (453632, 453631.9999989891),
+    (458752, 458751.99999941286),
+    (461268, 461267.9999995515),
+    (463347, 463346.9999996413),
+    (466944, 466943.999999757),
+    (467272, 467271.99999976554),
+    (473118, 473117.9999998763),
+    (473947, 473946.9999998871),
+    (475136, 475135.999999901),
+    (483328, 483327.9999999603),
+    (489302, 489301.9999999798),
+    (489433, 489432.9999999801),
+    (491520, 491519.9999999843),
+    (492454, 492453.9999999859),
+    (493677, 493676.9999999877),
+    (499712, 499711.9999999939),
+    (506792, 506791.9999999973),
+    (506919, 506918.99999999744),
+    (507904, 507903.9999999976),
+    (515703, 515702.99999999907),
+    (516096, 516095.99999999907),
+    (518845, 518844.99999999936),
+    (524287, 524286.99999999965),
+    (524288, 524287.99999999965),
+    (524289, 524288.9999999997),
+    (532480, 532479.9999999999),
+    (540349, 540349.0),
+    (540672, 540672.0),
+    (543610, 543610.0),
+    (546875, 546875.0),
+    (548864, 548864.0),
+    (551698, 551698.0),
+    (556855, 556855.0),
+    (557056, 557056.0),
+    (565248, 565248.0),
+    (569210, 569210.0),
+    (572341, 572341.0),
+    (573440, 573440.0),
+    (575522, 575522.0),
+    (580990, 580990.0),
+    (581632, 581632.0),
+    (589824, 589824.0),
+    (600192, 600192.0),
+    (637464, 637464.0),
+    (683057, 683057.0),
+    (701947, 701947.0),
+    (730090, 730090.0),
+    (1099511627776, 1099511627776.0),
+    (140737488355327, 140737488355327.0),
+];
+/// `EN-61`: GELU is integer: for x in units of 2^-16, gelu(x) is x at or above 8 and 0 at or below -8; between, with X = |x| and Y = X^2, erf(X / sqrt 2) is c X A / B for the positive series A = sum of Y^k / (2k+1)!! and B = sum of (Y / 2)^k / k!, each term cut down to 2^-40, and c, standing for sqrt(2 / pi), the integer square root of 2^121 / floor(2^40 pi) with pi by Machin's formula; the output (x + X erf) / 2 is rounded half to even once, in units of 2^-16, within one unit of x Phi(x), and gelu(x) - gelu(-x) is x within one unit, exactly x when x is even
+#[test]
+fn engine_en_61() {
+    let eight = 8i64 << 16;
+    for &(x, real) in EN_61_REFERENCE {
+        let y = exact::gelu(x);
+        assert!(
+            (y as f64 - real).abs() <= 1.0,
+            "gelu({x}) = {y} is more than one unit from {real}"
+        );
+        if x >= eight {
+            assert_eq!(y, x, "gelu({x}) is not x at or above 8");
+        }
+        if x <= -eight {
+            assert_eq!(y, 0, "gelu({x}) is not 0 at or below -8");
+        }
+        let gap = y - exact::gelu(-x);
+        assert!((gap - x).abs() <= 1, "gelu({x}) - gelu(-{x}) = {gap}");
+        if x % 2 == 0 {
+            assert_eq!(gap, x, "gelu({x}) - gelu(-{x}) is not x for an even x");
+        }
+    }
+    assert_eq!(
+        EN_61_REFERENCE.len(),
+        343,
+        "the reference table changed size"
+    );
+}
+
+/// EN-62's bound on an embedding's component; 1.0e-5 measured on 2026-11-19.
+const EN_62_BOUND: f64 = 1.0 / 16384.0;
+/// EN-63's bound on a label score; 9.8e-5 measured on 2026-11-19.
+const EN_63_BOUND: f64 = 1.0 / 1024.0;
+
+/// GP-13 and GP-14's encoders and the float reference's outputs, from
+/// encoder-fixture.mjs: each tensor's bytes, kept so the model can borrow them.
+/// A tensor's bytes (codes and scales for a 4-bit matrix), rows, columns,
+/// and whether it is a 4-bit matrix.
+type En62Held = (Vec<u8>, Vec<u8>, usize, usize, bool);
+
+struct En62 {
+    bytes: BTreeMap<String, En62Held>,
+    heads: usize,
+    layers: usize,
+    sentences: Vec<Vec<u32>>,
+    reference: Vec<Vec<f64>>,
+}
+
+fn en_62_fixtures() -> (En62, En62) {
+    let ran = std::process::Command::new("node")
+        .arg(root().join("crates/conformance/tests/gpu/encoder-fixture.mjs"))
+        .output()
+        .expect("node runs");
+    assert!(
+        ran.status.success(),
+        "encoder-fixture.mjs failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(ran.stdout.trim_ascii_end())
+        .expect("encoder-fixture.mjs prints JSON");
+    let unhex = |v: &serde_json::Value| -> Vec<u8> {
+        let s = v.as_str().expect("hex");
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("hex"))
+            .collect()
+    };
+    let one = |kind: &str, outputs: &str| {
+        let f = &out[kind];
+        let bytes = f["tensors"]
+            .as_object()
+            .expect("tensors")
+            .iter()
+            .map(|(name, t)| {
+                let shape = (
+                    t["rows"].as_u64().expect("rows") as usize,
+                    t["columns"].as_u64().expect("columns") as usize,
+                );
+                let held = if t["kind"] == "q4" {
+                    (
+                        unhex(&t["codes"]),
+                        unhex(&t["scales"]),
+                        shape.0,
+                        shape.1,
+                        true,
+                    )
+                } else {
+                    (unhex(&t["bytes"]), Vec::new(), shape.0, shape.1, false)
+                };
+                (name.clone(), held)
+            })
+            .collect();
+        let numbers = |v: &serde_json::Value| -> Vec<Vec<f64>> {
+            v.as_array()
+                .expect("rows")
+                .iter()
+                .map(|r| {
+                    r.as_array()
+                        .expect("row")
+                        .iter()
+                        .map(|x| x.as_f64().expect("a number"))
+                        .collect()
+                })
+                .collect()
+        };
+        En62 {
+            bytes,
+            heads: f["dims"]["n_heads"].as_u64().expect("heads") as usize,
+            layers: f["dims"]["n_layers"].as_u64().expect("layers") as usize,
+            sentences: f["sentences"]
+                .as_array()
+                .expect("sentences")
+                .iter()
+                .map(|s| {
+                    s.as_array()
+                        .expect("ids")
+                        .iter()
+                        .map(|i| i.as_u64().expect("id") as u32)
+                        .collect()
+                })
+                .collect(),
+            reference: numbers(&f[outputs]),
+        }
+    };
+    (one("bert", "embed"), one("distil", "logits"))
+}
+
+fn en_62_tensors(f: &En62) -> BTreeMap<String, encode::Tensor<'_>> {
+    f.bytes
+        .iter()
+        .map(|(name, (a, b, rows, columns, q4))| {
+            let tensor = if *q4 {
+                encode::Tensor::Q4 {
+                    codes: a,
+                    scales: exact::Q4Scales::F16(b),
+                    rows: *rows,
+                    columns: *columns,
+                }
+            } else {
+                encode::Tensor::Dense {
+                    values: exact::Dense::F16(a),
+                    rows: *rows,
+                    columns: *columns,
+                }
+            };
+            (name.clone(), tensor)
+        })
+        .collect()
+}
+
+fn en_62_config(f: &En62) -> encode::Config {
+    // The fixtures' epsilon is 1e-12, 0 in units of 2^-32.
+    encode::Config {
+        heads: f.heads,
+        layers: f.layers,
+        epsilon: 0,
+    }
+}
+
+/// `EN-62`: An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits
+#[test]
+fn engine_en_62() {
+    let (bert, _) = en_62_fixtures();
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    let mut worst = 0f64;
+    for (ids, reference) in bert.sentences.iter().zip(&bert.reference) {
+        let embedding = encode::embed(&model, ids).expect("the sentence encodes");
+        assert_eq!(embedding.len(), reference.len());
+        let mut length = 0f64;
+        for (&bits, &want) in embedding.iter().zip(reference) {
+            // The yardstick, in the test only.
+            let got = f64::from(f32::from_bits(bits));
+            length += got * got;
+            worst = worst.max((got - want).abs());
+            assert!(
+                (got - want).abs() <= EN_62_BOUND,
+                "a component {got} is more than {EN_62_BOUND} from {want}"
+            );
+        }
+        assert!(
+            (length.sqrt() - 1.0).abs() <= 1.0 / 1_048_576.0,
+            "the embedding's length is {}",
+            length.sqrt()
+        );
+        assert_eq!(
+            encode::embed(&model, ids).expect("the sentence encodes again"),
+            embedding,
+            "a second run gave other bits"
+        );
+    }
+    println!("EN-62: largest component gap {worst:e}");
+}
+
+/// `EN-63`: A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits
+#[test]
+fn engine_en_63() {
+    let (_, distil) = en_62_fixtures();
+    let tensors = en_62_tensors(&distil);
+    let model = encode::read(&tensors, en_62_config(&distil)).expect("the classifier reads");
+    let mut worst = 0f64;
+    for (ids, reference) in distil.sentences.iter().zip(&distil.reference) {
+        let scores = encode::classify(&model, ids).expect("the sentence classifies");
+        assert_eq!(scores.len(), reference.len());
+        for (&bits, &want) in scores.iter().zip(reference) {
+            let got = f64::from(f32::from_bits(bits));
+            worst = worst.max((got - want).abs());
+            assert!(
+                (got - want).abs() <= EN_63_BOUND,
+                "a score {got} is more than {EN_63_BOUND} from {want}"
+            );
+        }
+        let want = reference.iter().enumerate().fold(
+            0,
+            |best, (i, &s)| if s > reference[best] { i } else { best },
+        );
+        assert_eq!(
+            encode::label(&scores),
+            Some(want as u32),
+            "the label is not the float reference's"
+        );
+        assert_eq!(
+            encode::classify(&model, ids).expect("the sentence classifies again"),
+            scores,
+            "a second run gave other bits"
+        );
+    }
+    println!("EN-63: largest score gap {worst:e}");
+}
+
+/// `FL-70`: A role the encoder reads is missing, or its weight is not the shape or format the role needs
+#[test]
+fn engine_fl_70() {
+    let (bert, _) = en_62_fixtures();
+    let mut tensors = en_62_tensors(&bert);
+    tensors.remove("l0.wq");
+    assert_eq!(
+        encode::read(&tensors, en_62_config(&bert)).err(),
+        Some(encode::EncodeError::Unrecognised(encode::Role::Attention))
+    );
+    let mut tensors = en_62_tensors(&bert);
+    if let Some(encode::Tensor::Q4 { rows, .. }) = tensors.get_mut("l0.w2") {
+        *rows += 1;
+    }
+    assert_eq!(
+        encode::read(&tensors, en_62_config(&bert)).err(),
+        Some(encode::EncodeError::Unrecognised(encode::Role::FeedForward))
+    );
+}
+
+/// `FL-71`: An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number
+#[test]
+fn engine_fl_71() {
+    let (mut bert, _) = en_62_fixtures();
+    if let Some((_, scales, ..)) = bert.bytes.get_mut("l0.wq") {
+        // An f16 infinity, 0x7c00, little-endian.
+        scales[0] = 0x00;
+        scales[1] = 0x7c;
+    }
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    assert_eq!(
+        encode::embed(&model, &bert.sentences[0]).err(),
+        Some(encode::EncodeError::Exact(
+            exact::ExactError::ScaleNotFinite
+        ))
+    );
+}
+
+/// `FL-72`: A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0
+#[test]
+fn engine_fl_72() {
+    let (mut bert, _) = en_62_fixtures();
+    for name in ["word", "position", "type"] {
+        if let Some((bytes, ..)) = bert.bytes.get_mut(name) {
+            bytes.fill(0);
+        }
+    }
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    assert_eq!(
+        encode::embed(&model, &bert.sentences[0]).err(),
+        Some(encode::EncodeError::NormRefused)
+    );
+}
+
+/// `FL-73`: A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table
+#[test]
+fn engine_fl_73() {
+    let (bert, _) = en_62_fixtures();
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    for ids in [vec![], vec![1, 320, 2], vec![1; 65]] {
+        assert_eq!(
+            encode::embed(&model, &ids).err(),
+            Some(encode::EncodeError::TokenOutOfRange),
+            "{} tokens were not refused",
+            ids.len()
+        );
+    }
 }
