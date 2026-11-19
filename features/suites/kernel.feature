@@ -103,6 +103,7 @@ Feature: kernel
     Then gpuUsable is true exactly when the adapter is present and the largest buffer is at most the binding limit
     And raising the binding limit never turns WebGPU into the CPU path
     And the answer to decision 12 is webgpu or cpu by that same gpuUsable
+    And the compiled guest answers cpu when the largest buffer is over the binding limit, and invalid request for a short request, as the claims it replays list
 
   @KN-13 @build
   Scenario: A weight block length is the one its format and shape imply, and a shape whose columns do not divide into the format groups is refused
@@ -110,6 +111,7 @@ Feature: kernel
     When the Lean kernel checks shaped_decides and group_bounds during lexlean verify in the gate
     Then a shape is accepted exactly when rows and columns are at least one and the columns divide into the format groups
     And the answer to decision 13 is the block length rows times groups times bytes per group, or bad shape
+    And the compiled guest answers bad shape when the columns do not divide into groups, and invalid request for an unknown format or a short request, as the claims it replays list
 
   @KN-14 @build
   Scenario: A claimed greedy pick is accepted exactly when its index is the first position holding the maximum score and the claimed score is that maximum
@@ -117,6 +119,7 @@ Feature: kernel
     When the Lean kernel checks standing_decides and holds_decides, the second by induction over the positions, during lexlean verify in the gate
     Then a claim is accepted exactly when every earlier score is below the claimed score, the score at the index equals it, and no later score is above it
     And the answer to decision 14 checks all n scores from position 0
+    And the compiled guest answers not first maximum when an earlier score ties the best, and invalid request for a short request, as the claims it replays list
 
   @KN-15 @build
   Scenario: A token is kept unpenalised exactly when no position inside the recent window holds it
@@ -124,12 +127,14 @@ Feature: kernel
     When the Lean kernel checks clear_decides and clear_from_decides, the second by induction over the history, during lexlean verify in the gate
     Then the token is kept exactly when no position at or after the window start holds it
     And the window starts window tokens before the end of the history, or at its start when the history is shorter
+    And the compiled guest answers penalise when the token is in the window, and invalid request for a short request, as the claims it replays list
 
   @KN-16 @build
   Scenario: A speculative commit count is accepted exactly when every draft before the last committed position equals its verified pick and the draft at that position, if any, differs
     Given the speculation model in app/src/Kernel/Speculate.lex.tex and its proofs in app/src/Proofs/Speculate.lex.tex
     When the Lean kernel checks agrees_decides and agrees_from_decides, the second by induction over the drafts, during lexlean verify in the gate
     Then a count is accepted exactly when it lies in 1 to k plus 1, every draft before the last committed position equals its verified pick, and the draft at that position, if any, differs
+    And the compiled guest answers wrong count when the count stops at a draft that agrees, and invalid request for a short request, as the claims it replays list
 
   @KN-17 @build
   Scenario: Unpacking a packed weight group returns the code packed at each place, for each format, and each code maps to its stated level
@@ -137,6 +142,7 @@ Feature: kernel
     When the Lean kernel checks the round trip theorems for nibbles, pairs, triples and bits during lexlean verify in the gate
     Then unpacking any place of a packed group gives back the code packed at that place, for every code below its base
     And the answer to decision 17 is that code minus the format offset, written with its sign
+    And the compiled guest answers invalid code for the unused 2-bit code, and invalid request for a short request, as the claims it replays list
 
   @KN-18 @build
   Scenario: An operator is supported exactly when its name is on the closed list of the export style asked about, and no name is supported under an unknown style
@@ -163,6 +169,7 @@ Feature: kernel
     When the Lean kernel checks nbits_shaped_decides, nbits_block_bounds, nbits_blocks_fewest_16, nbits_blocks_fewest_32, nbits_blocks_fewest_64, nbits_blocks_fewest_128 and nbits_blocks_fewest_256 during lexlean verify in the gate
     Then a shape is accepted exactly when rows and columns are between one and 16,777,215 and the block size is 16, 32, 64, 128 or 256, and the blocks of a row are the fewest that cover its columns
     And the answer to decision 20 is rows times blocks times the bytes of one block, which are half the block size for the 4-bit codes, 4 for f32 scales and 2 for f16 scales, or bad shape
+    And the compiled guest answers bad shape for a block size it does not take, and invalid request for a short request, as the claims it replays list
 
   @KN-21 @build
   Scenario: The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits
@@ -182,6 +189,7 @@ Feature: kernel
     And the CPU is answered exactly when gpuUsable does not hold and the model is at most the CPU ceiling
     And the model is refused exactly when gpuUsable does not hold and the model is above the CPU ceiling
     And the answer to decision 22 is webgpu, cpu or refused: too large for cpu by that same deviceCode
+    And the compiled guest answers refused: too large for cpu for a model over the CPU ceiling with no adapter, and invalid request for a short request, as the claims it replays list
 
   @KN-23 @build
   Scenario: A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file
@@ -190,6 +198,7 @@ Feature: kernel
     Then a file is declared exactly when the model declares at most 100 data files and the file's index is at most that count
     And a span is inside exactly when it starts at or after the previous span's end and ends within the file, and two spans accepted in order do not overlap
     And the answer to decision 23 is undeclared file, or accept or reject by that same chunkInside
+    And the compiled guest answers reject for a span past the end of the file, undeclared file for a file beyond those declared, and invalid request for a short request, as the claims it replays list
 
   @KN-24 @build
   Scenario: The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused
@@ -198,6 +207,7 @@ Feature: kernel
     Then a file is named exactly when the task is text generation, the precision is one of the four listed, at most 100 data files are declared and the part is at most that count
     And a part beyond the declared count is answered undeclared file
     And the answer to decision 24 is the graph file onnx/model, the precision's suffix and .onnx for part 0, that name with _data for part 1, and with _data_ and the part less one after it
+    And the compiled guest answers undeclared file, too many files, unsupported precision, unsupported task, and invalid request for a short request, as the claims it replays list
 
   @KN-25 @build
   Scenario: Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget
@@ -206,6 +216,7 @@ Feature: kernel
     Then no stop id is met exactly when every listed id differs from the token, by induction over the list
     And the budget is spent exactly when the tokens generated are at least the budget
     And the answer to decision 25 is stop: end token when a listed id is the token, otherwise stop: budget when the budget is spent, otherwise continue
+    And the compiled guest answers stop: end token, stop: budget, and invalid request for more stop ids than a request carries, as the claims it replays list
 
   @KN-26 @build
   Scenario: A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short
@@ -214,6 +225,7 @@ Feature: kernel
     Then evict is answered exactly when the block is not pinned, a candidate remains and the space free and freed is short of what is needed
     And does not fit is answered exactly when no candidate remains and space is still short, and enough exactly when it is not short
     And the answer to decision 26 is enough, evict, keep or does not fit by that same evictCode
+    And the compiled guest answers keep for a pinned block, does not fit when no candidate is left, and invalid request for a short request, as the claims it replays list
 
   @KN-27 @build
   Scenario: A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt
@@ -221,6 +233,7 @@ Feature: kernel
     When the Lean kernel checks reuse_shorter_decides and reusable_decides during lexlean verify in the gate
     Then a held prefix is reusable exactly when its label equals the label asked for, it holds at least one position and it is shorter than the prompt
     And the answer to decision 27 is reuse or recompute by that same reusable, over the labels at bytes 1 and 33
+    And the compiled guest answers recompute for a different label or a prefix as long as the prompt, and invalid request for a short request, as the claims it replays list
 
   @KN-28 @build
   Scenario: A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one
@@ -228,6 +241,7 @@ Feature: kernel
     When the Lean kernel checks manifest_complete_decides during lexlean verify in the gate
     Then a manifest is complete exactly when it lists at least one tensor and the tensors admitted are as many as it lists
     And the answer to decision 28 is refused when the label of the addresses admitted differs from the one the manifest gives, by the sameLabel of decision 5, and otherwise ready or incomplete by that same manifestComplete
+    And the compiled guest answers incomplete when a tensor is not yet admitted, refused for a different label, and invalid request for a short request, as the claims it replays list
 
   @KN-29 @build
   Scenario: An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it
@@ -235,6 +249,7 @@ Feature: kernel
     When the Lean kernel checks exact_fits_decides, exact_fits_wider and exact_fits_shorter during lexlean verify in the gate
     Then an accumulator is exact exactly when the activation and weight bits are at least one and the activation, weight and group bits sum to no more than the accumulator bits
     And the answer to decision 29 is exact or may overflow by that same exactFits, over the bit widths at bytes 1 to 4
+    And the compiled guest answers may overflow when the bits exceed the accumulator, and invalid request for a short request, as the claims it replays list
 
   @KN-30 @build
   Scenario: A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all
@@ -242,6 +257,7 @@ Feature: kernel
     When the Lean kernel checks class_everywhere_decides, class_same_hardware_decides, class_none_decides and comparable_decides during lexlean verify in the gate
     Then the class is everywhere exactly when products and every other stage are exact, same hardware exactly when it is not and the float reductions keep a fixed order, and none otherwise
     And the answer to decision 30 is everywhere, same hardware or none by that same classCode, and a run is comparable exactly when its class is everywhere or it is same hardware on the same adapter
+    And the compiled guest answers none for a run neither exact nor fixed in order, and invalid request for a short request, as the claims it replays list
 
   @KN-31 @build
   Scenario: A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable
@@ -249,6 +265,7 @@ Feature: kernel
     When the Lean kernel checks receipt_confirmed_decides, receipt_mismatch_decides and receipt_not_comparable_decides during lexlean verify in the gate
     Then a receipt is confirmed exactly when decision 28 found its model ready, the run is comparable by decision 30 and the output label equals its replay by the sameLabel of decision 5
     And the answer to decision 31 is confirmed, mismatch or not comparable by that same receiptCode, over the labels at bytes 1 and 33
+    And the compiled guest answers mismatch for a different replayed output, not comparable for a model not ready, and invalid request for a short request, as the claims it replays list
 
   @KN-32 @build
   Scenario: A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range
@@ -256,6 +273,7 @@ Feature: kernel
     When the Lean kernel checks probe_exact_decides, probe_approximate_decides and probe_out_of_range_decides during lexlean verify in the gate
     Then a probe replays exactly when its layer, position and component are each below their counts and the run is comparable by decision 30
     And the answer to decision 32 is exact replay, approximate replay or out of range by that same probeCode
+    And the compiled guest answers approximate replay for a run comparable on no hardware, out of range for a layer past the last, and invalid request for a short request, as the claims it replays list
 
   @KN-33 @build
   Scenario: A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable
@@ -263,6 +281,7 @@ Feature: kernel
     When the Lean kernel checks shareable_decides during lexlean verify in the gate
     Then a held prefix is shared exactly when decision 27 finds it reusable and it was computed on this device or the run is comparable by decision 30
     And the answer to decision 33 is reuse or recompute by that same shareable, over the labels at bytes 1 and 33
+    And the compiled guest answers recompute for a borrowed prefix from a run that is not comparable, and invalid request for a short request, as the claims it replays list
 
   @KN-34 @build
   Scenario: One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise
@@ -277,6 +296,7 @@ Feature: kernel
     When the Lean kernel checks address_blake3_decides and address_sha256_refused during lexlean verify in the gate
     Then a label's seven-byte prefix is admitted exactly when it is blake3:
     And the answer to decision 35 is blake3 for that prefix, not blake3 for sha256: or any other, and invalid request for any length but 8
+    And the compiled guest answers not blake3 for another address prefix, and invalid request for a short request, as the claims it replays list
 
   @KN-36 @build
   Scenario: A run may start exactly when its products and every other stage are exact, which is decision 30's class everywhere, and a run with a floating-point stage is refused whatever the order of its reductions
@@ -284,6 +304,7 @@ Feature: kernel
     When the Lean kernel checks integer_run_decides, integer_run_is_everywhere and integer_run_refuses_fixed_order_floats during lexlean verify in the gate
     Then a run is admitted exactly when its products and every other stage are exact, which is decision 30's class everywhere for any order of reductions
     And the answer to decision 36 is integer for such a run, refused: not integer for a run with a floating-point stage, and invalid request for any length but 3 or a field above 1
+    And the compiled guest answers refused: not integer when the rest is not exact, and invalid request for a short request, as the claims it replays list
 
   @KN-37 @build
   Scenario: One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite
@@ -299,6 +320,7 @@ Feature: kernel
     Then every stored value narrower than its format encodes back from its fields to exactly the stored bits
     And every field lies within its width, and fields within their widths read back unchanged from their encoding
     And the answer to decision 38 is the fields in decimal, and invalid request for an unknown format or a value wider than it
+    And the compiled guest answers invalid request, its only refusal, for a stored value too wide for its format and for a short request, as the claims it replays list
 
   @KN-39 @build
   Scenario: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
@@ -306,6 +328,7 @@ Feature: kernel
     When the Lean kernel checks narrow_accepted_decides during lexlean verify in the gate
     Then a narrowing is accepted exactly when its step is known, its input is 1 to 16 bits, its output 1 to 32 bits, and its certified error at most its declared bound
     And the answer to decision 39 is accept or refuse, and invalid request for an unknown step or any length but 12
+    And the compiled guest answers refuse when the certified bound exceeds the bound, and invalid request for a short request, as the claims it replays list
 
   @KN-40 @build
   Scenario: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
@@ -314,6 +337,7 @@ Feature: kernel
     Then a link is exact exactly when its positive parts plus the claim's negative part equal its negative parts plus the claim's positive part
     And two exact links compose into one, so a chain of links confirms the plain sum of every term in it
     And the answer to decision 40 is exact, differs, too wide when a partial reaches 2^62 or a term could reach 2^58, and invalid request for a sign above 1 or any length but 79
+    And the compiled guest answers differs for a wrong sum, too wide for a value past its range, and invalid request for a short request, as the claims it replays list
 
   @KN-41 @build
   Scenario: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
@@ -322,6 +346,7 @@ Feature: kernel
     Then a code below the step is within half a step of its input, a tie gives an even code, and at most one code is accepted for an input and its quotient
     And a power is accepted for the group only when its largest input is within 32767 at it and past 32767 at the next power
     And the answer to decision 41 is exact, differs, not the largest power, and invalid request for a direction or odd bit above 1 or any length but 62
+    And the compiled guest answers differs for a wrong code, not the largest power for a wrong scale, and invalid request for a short request, as the claims it replays list
 
   @KN-42 @build
   Scenario: A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude
@@ -337,6 +362,7 @@ Feature: kernel
     When the Lean kernel checks root_ok_decides during lexlean verify in the gate
     Then a root is accepted exactly when its square is at most the value and the value is below the square of the root plus one, so the accepted root is the floor square root
     And the answer to decision 43 is exact or differs, and invalid request for any length but 13, a value of 2^62 or more or a root of 2^31 or more, so no number it computes passes 64 bits
+    And the compiled guest answers differs for a wrong root, and invalid request for a short request, as the claims it replays list
 
   @KN-44 @build
   Scenario: A claimed quotient of a value below 2^62 by a divisor below 2^31, rounded half to even to a code of at most 32767, is confirmed exactly when it passes KN-41's rounding rule with the divisor as the step, so a norm and a softmax divide by one rule
@@ -345,6 +371,7 @@ Feature: kernel
     Then a quotient is accepted exactly when KN-41's rqDownOk accepts it with the divisor as the step and the quotient witness times the divisor as the product
     And so its code is within half a divisor of the value, a tie gives the even code, and one witness has at most one code
     And the answer to decision 44 is exact or differs, and invalid request for any length but 20, a value of 2^62 or more, a divisor of 0 or 2^31 or more, a half witness of 2^30 or more or an odd bit above 1, so no number it computes passes 64 bits
+    And the compiled guest answers differs for a quotient not rounded half to even, and invalid request for a short request, as the claims it replays list
 
   @KN-45 @build
   Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
@@ -353,6 +380,14 @@ Feature: kernel
     Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
+
+  @KN-46 @build
+  Scenario: A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it
+    Given the template model in app/src/Kernel/Template.lex.tex and its proofs in app/src/Proofs/Template.lex.tex
+    When the Lean kernel checks template_qwen25_decides, template_qwen3_decides, template_llama32_decides and template_code_bounded during lexlean verify in the gate
+    Then a template is named a family exactly when the four 8-byte words of its BLAKE3 are that family's, and no other code is given
+    And the app recipe replays decision 45 in the guest for the three templates, a template of the gate's own and a request of the wrong length
+    And the engine page asks decision 45 for the template its model's tokenizer_config.json carries, and stops by name on any other
 
   @KN-50 @build
   Scenario: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
