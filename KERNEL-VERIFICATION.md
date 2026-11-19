@@ -1696,32 +1696,39 @@ this for free.
 
 `Engine.Stage.HalfScale::run` is row 13's second matmul stage: it multiplies
 each group's sum, a two's complement word as S1 writes it, by the group's IEEE
-half scale, read low half first from words of two. Per group it writes three
-words: the sign, and the magnitude in units of 2^-24 as two little-endian
-limbs. The mantissa (with its implicit one when the exponent is not zero) is
-multiplied by the sum's magnitude with `Engine.Word::mulB` over eleven steps,
-row 15's shift-and-add product (KN-72), and the result is doubled once for each
-of the exponent's 29 steps below `exponent - 1`. The stage has no product of
-two variables, so no step from a proof to the shipped code is trusted: the
-proofs read the stage itself. The product runs once per group, not in the
-32-term sum, so mulB's eleven steps cost little. It exports through prod-export
-and prod-codegen with no external calls, opaque nodes or unsupported types.
+half scale, read low half first from words of two. Per group it writes four
+words: the sign; the product of the sum's magnitude and the half's significand
+(with its implicit one when the exponent is not zero), as two little-endian
+limbs; and the offset `max(exponent, 1) - 1`, the power of two at which that
+product stands in units of 2^-24. S3 places the product at bit
+`offset + 168 - e[u]` of its register, which is where GPU kernel
+`q4Accumulate` places it, so the two need no shift lemma between them. The
+product is `Engine.Word::mulB` over eleven steps, row 15's shift-and-add
+product (KN-72); `size`, the product doubled `offset` times in a fixed 29-step
+loop, is kept for the bound below. The stage has no product of two variables,
+so no step from a proof to the shipped code is trusted: the proofs read the
+stage itself. The product runs once per group, not in the 32-term sum. It
+exports through prod-export and prod-codegen with no external calls, opaque
+nodes or unsupported types.
 
-Lean proves, for every input: `size_bound`, that the magnitude is below 2^64
-unless the sum's magnitude is above 2^24 (S1's bound), for every half, even an
-infinity or a NaN, whose exponent the 29 steps cap; `limbs_rejoin`,
-`size_low_is_word` and `size_high_is_word`, that the two limbs are words that
-rejoin to a magnitude below 2^64; and `scaled_zero_is_not_negative`. A bound that
-needs a premise is stated in Bool as "the premise fails or the bound holds",
-which `simplify` can close from lemmas. That the magnitude equals the sum
-times the half's value is the definition of `mulB` and of doubling, not a
+Lean proves, for every input: `product_bound`, that the product is below 2^35
+unless the sum's magnitude is above 2^24 (S1's bound), and
+`product_high_below_eight`, that its high limb is then below 8;
+`offset_bound`, that the offset is at most 30; `size_bound`, that the product
+shifted by its offset is below 2^64 under the same condition, for every half,
+even an infinity or a NaN, whose shift the 29 steps cap; `limbs_rejoin`,
+`size_low_is_word` and `size_high_is_word`, that a value below 2^64 splits
+into two words that rejoin to it; and `scaled_zero_is_not_negative`. A bound
+that needs a premise is stated in Bool as "the premise fails or the bound
+holds", which `simplify` can close from lemmas. That the product equals the
+sum's magnitude times the significand is the definition of `mulB`, not a
 theorem: 0.3.0 cannot state it against `prim multiply`.
 
 ### The pinned test: `kernel_kn_58`
 
 | Planted defect | Result |
 | --- | --- |
-| `size` multiplying natively (`prim multiply (sumMag word) (mantissa half)`) | rejected: `size changed` |
+| `product` multiplying natively (`prim multiply (sumMag word) (mantissa half)`) | rejected: `product changed` |
 | `scaled_zero_is_not_negative` deleted | rejected: `scaled_zero_is_not_negative is not declared` |
 | none | passed |
 

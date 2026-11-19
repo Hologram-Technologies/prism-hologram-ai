@@ -65,17 +65,31 @@ definition{
 }
 
 definition{
+  name: product,
+  parameters: [word : Nat, half : Nat],
+  result: Nat,
+  body: (Engine.Word::mulB (eleven) (sumMag word) (mantissa half))
+}
+
+definition{
+  name: offset,
+  parameters: [half : Nat],
+  result: Nat,
+  body: (prim subtract (exponent half) 1 : Nat)
+}
+
+definition{
   name: size,
   parameters: [word : Nat, half : Nat],
   result: Nat,
-  body: (shiftSteps (Engine.Word::mulB (eleven) (sumMag word) (mantissa half)) (prim subtract (exponent half) 1 : Nat) 29)
+  body: (shiftSteps (product word half) (offset half) 29)
 }
 
 definition{
   name: sign,
   parameters: [word : Nat, half : Nat],
   result: Nat,
-  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 0 (size word half)) (prim remainder ((sumNeg word) + (halfNeg half)) 2 0 : Nat) 0)
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 0 (product word half)) (prim remainder ((sumNeg word) + (halfNeg half)) 2 0 : Nat) 0)
 }
 
 definition{
@@ -84,7 +98,7 @@ definition{
   result: (List Nat),
   body: (match remaining
     | Nat.zero => (nil Nat)
-    | Nat.succ rest => (cons (sign (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) (cons (prim remainder (size (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (cons (prim quotient (size (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (runFrom sums scales (g + 1) rest))))),
+    | Nat.succ rest => (cons (sign (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) (cons (prim remainder (product (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (cons (prim quotient (product (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (cons (offset (halfAt scales g)) (runFrom sums scales (g + 1) rest)))))),
   recursive_argument: remaining
 }
 

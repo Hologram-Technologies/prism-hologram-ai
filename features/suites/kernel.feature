@@ -479,9 +479,10 @@ Feature: kernel
     And times_exact proves the stage's native times equals Engine.Word::mulB over four bits for every multiplier up to 8
 
   @KN-58 @build
-  Scenario: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word and the magnitude in units of 2^-24 as two little-endian limbs, multiplying by Engine.Word::mulB and doubling for the exponent; Lean proves, for every input, that the magnitude is below 2^64 whenever the group sum's magnitude is at most 2^24, that the two limbs are words that rejoin to it, and that a zero product is never negative
+  Scenario: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative
     Given the stage in app/src/Engine/Stage/HalfScale.lex.tex and its proofs in app/src/Proofs/StageHalfScale.lex.tex, which are about the stage itself
     When lexlean verify checks Proofs.StageHalfScale in the gate
-    Then size_bound holds for every group sum word and every half: the magnitude is below 2^64 unless the sum's magnitude is above 2^24
-    And limbs_rejoin, size_low_is_word and size_high_is_word split a magnitude below 2^64 into two words that rejoin to it
+    Then product_bound holds for every group sum word and every half: the product is below 2^35 unless the sum's magnitude is above 2^24
+    And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
+    And size_bound bounds the product shifted by its offset by 2^64 under the same condition
     And scaled_zero_is_not_negative holds for every input

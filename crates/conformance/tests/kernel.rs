@@ -5096,12 +5096,30 @@ fn kernel_kn_57() {
     );
 }
 
-/// `KN-58`: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word and the magnitude in units of 2^-24 as two little-endian limbs, multiplying by Engine.Word::mulB and doubling for the exponent; Lean proves, for every input, that the magnitude is below 2^64 whenever the group sum's magnitude is at most 2^24, that the two limbs are words that rejoin to it, and that a zero product is never negative
+/// `KN-58`: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative
 #[test]
 fn kernel_kn_58() {
     assert_proofs_are_gated();
     let stage = model("app/src/Engine/Stage/HalfScale.lex.tex");
     let proofs = model("app/src/Proofs/StageHalfScale.lex.tex");
+    assert_pinned(
+        &proofs,
+        "product_bound",
+        "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::product w h) <? 34359738368)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_high_below_eight",
+        "((s < 34359738368) -> ((prim quotient s 4294967296 0 : Nat) < 8))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "offset_bound",
+        "((Engine.Stage.HalfScale::offset h) <= 30)",
+        "Quot.sound, propext",
+    );
     assert_pinned(
         &proofs,
         "size_bound",
@@ -5141,22 +5159,35 @@ fn kernel_kn_58() {
     assert_pinned(
         &proofs,
         "scaled_zero_is_not_negative",
-        "(((Engine.Stage.HalfScale::size w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0))",
+        "(((Engine.Stage.HalfScale::product w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0))",
         "Quot.sound, propext",
     );
     // The proofs read the stage itself, which has no product of two
-    // variables: its one multiply of a sum by a mantissa is Engine.Word::mulB,
-    // and the exponent is doubling.
+    // variables: its one multiply, of a sum by a significand, is
+    // Engine.Word::mulB, and the offset is doubling.
     assert!(
         proofs.contains("\\importmodule{Engine.Stage.HalfScale}")
-            && !proofs.contains("\n  name: size,"),
+            && !proofs.contains("\n  name: product,"),
         "the proofs must read the stage, not restate it"
     );
-    assert!(
-        declaration(&stage, "size").contains(
-            "body: (shiftSteps (Engine.Word::mulB (eleven) (sumMag word) (mantissa half)) (prim subtract (exponent half) 1 : Nat) 29)"
+    for (name, body) in [
+        (
+            "product",
+            "body: (Engine.Word::mulB (eleven) (sumMag word) (mantissa half))",
         ),
-        "size changed"
+        ("offset", "body: (prim subtract (exponent half) 1 : Nat)"),
+        (
+            "size",
+            "body: (shiftSteps (product word half) (offset half) 29)",
+        ),
+    ] {
+        assert!(declaration(&stage, name).contains(body), "{name} changed");
+    }
+    // Per group: the sign, the product's two limbs and the offset.
+    assert!(
+        declaration(&stage, "runFrom")
+            .contains("(cons (offset (halfAt scales g)) (runFrom sums scales (g + 1) rest))"),
+        "a group writes its sign, the product's limbs and the offset"
     );
     assert_eq!(
         stage.matches("prim multiply").count(),

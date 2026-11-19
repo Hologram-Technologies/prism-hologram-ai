@@ -187,7 +187,42 @@ theorem{
   name: size_bound,
   parameters: [w : Nat, h : Nat],
   statement: (((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::size w h) <? 18446744073709551616)) = true),
-  proof: simplify{definitions: [core_bound, shift_bound, size_given, Engine.Stage.HalfScale::size]},
+  proof: simplify{
+    definitions: [
+      core_bound,
+      shift_bound,
+      size_given,
+      Engine.Stage.HalfScale::offset,
+      Engine.Stage.HalfScale::product,
+      Engine.Stage.HalfScale::size
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: product_bound,
+  parameters: [w : Nat, h : Nat],
+  statement: (((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::product w h) <? 34359738368)) = true),
+  proof: simplify{definitions: [core_bound, Engine.Stage.HalfScale::product]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: product_high_below_eight,
+  parameters: [s : Nat],
+  statement: ((s < 34359738368) -> ((prim quotient s 4294967296 0 : Nat) < 8)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: offset_bound,
+  parameters: [h : Nat],
+  statement: ((Engine.Stage.HalfScale::offset h) <= 30),
+  proof: linear_arithmetic{
+    definitions: [Engine.Stage.HalfScale::exponent, Engine.Stage.HalfScale::offset]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -218,7 +253,7 @@ theorem{
 theorem{
   name: scaled_zero_is_not_negative,
   parameters: [w : Nat, h : Nat],
-  statement: (((Engine.Stage.HalfScale::size w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0)),
+  statement: (((Engine.Stage.HalfScale::product w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0)),
   proof: linear_arithmetic{
     definitions: [
       Engine.Stage.Greedy::below,

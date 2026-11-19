@@ -452,10 +452,13 @@
     {"name": "shift_bound", "module": "StageHalfScale", "statement": "(((34359738368 <=? x) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true)"},
     {"name": "size_given", "module": "StageHalfScale", "statement": "((((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) <? 34359738368)) = true) → ((((34359738368 <=? (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h))) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) (prim subtract (Engine.Stage.HalfScale::exponent h) 1 : Nat) 29) <? 18446744073709551616)) = true) → (((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) (prim subtract (Engine.Stage.HalfScale::exponent h) 1 : Nat) 29) <? 18446744073709551616)) = true)))"},
     {"name": "size_bound", "module": "StageHalfScale", "statement": "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::size w h) <? 18446744073709551616)) = true)"},
+    {"name": "product_bound", "module": "StageHalfScale", "statement": "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::product w h) <? 34359738368)) = true)"},
+    {"name": "product_high_below_eight", "module": "StageHalfScale", "statement": "((s < 34359738368) → ((prim quotient s 4294967296 0 : Nat) < 8))"},
+    {"name": "offset_bound", "module": "StageHalfScale", "statement": "((Engine.Stage.HalfScale::offset h) <= 30)"},
     {"name": "limbs_rejoin", "module": "StageHalfScale", "statement": "(((prim remainder s 4294967296 0 : Nat) + (prim multiply 4294967296 (prim quotient s 4294967296 0 : Nat) : Nat)) = s)"},
     {"name": "size_low_is_word", "module": "StageHalfScale", "statement": "((prim remainder s 4294967296 0 : Nat) < 4294967296)"},
     {"name": "size_high_is_word", "module": "StageHalfScale", "statement": "((s < 18446744073709551616) → ((prim quotient s 4294967296 0 : Nat) < 4294967296))"},
-    {"name": "scaled_zero_is_not_negative", "module": "StageHalfScale", "statement": "(((Engine.Stage.HalfScale::size w h) = 0) → ((Engine.Stage.HalfScale::sign w h) = 0))"}
+    {"name": "scaled_zero_is_not_negative", "module": "StageHalfScale", "statement": "(((Engine.Stage.HalfScale::product w h) = 0) → ((Engine.Stage.HalfScale::sign w h) = 0))"}
   ],
   "pinned": [
     {
