@@ -1451,7 +1451,9 @@ fn gpu_gp_28() {
     }
     let load = read("site/app/engine/onnx-load.mjs");
     assert!(
-        load.contains("engineTensors(weights, read), { table, read, config, rope: { ...rope } })"),
+        load.contains(
+            "engineTensors(weights, read), { table, read, config: configText, rope: { ...rope } })"
+        ),
         "onnx-load.mjs no longer hands the build the import's tensors and the config"
     );
     let journey = read("crates/conformance/tests/gpu/journey.mjs");

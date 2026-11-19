@@ -1931,6 +1931,50 @@
           "value": 333
         }
       }
+    },
+    "49": {
+      "name": "Config number",
+      "asks": "Is this the binary32, or the whole number, a config number written in decimal names?",
+      "fields": {
+        "1": {
+          "name": "Asked for",
+          "choice": [
+            [
+              "the nearest binary32",
+              0
+            ],
+            [
+              "a whole number",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "2": {
+          "name": "Claimed bits or whole number",
+          "value": 897988541
+        },
+        "10": {
+          "name": "Text, bytes 1 to 8",
+          "value": 3559300765593894912
+        },
+        "18": {
+          "name": "Text, bytes 9 to 16",
+          "value": 0
+        },
+        "26": {
+          "name": "Text, bytes 17 to 24",
+          "value": 0
+        },
+        "34": {
+          "name": "Text, bytes 25 to 32",
+          "value": 0
+        },
+        "42": {
+          "name": "Text, bytes 33 to 40",
+          "value": 0
+        }
+      }
     }
   }
 }

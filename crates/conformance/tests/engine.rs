@@ -10147,6 +10147,14 @@ fn engine_en_51() {
 /// GP-19's fixture imported through the page's module and opened there for
 /// the forward pass: the module's answer to `decode_open`.
 fn en_52_open(fixture: &En49) -> String {
+    let (status, said) = en_52_opened(fixture, &fixture.config.to_string());
+    assert_eq!(status, 0, "decode_open: {}", String::from_utf8_lossy(&said));
+    String::from_utf8(said).expect("the sizes are JSON")
+}
+
+/// GP-19's fixture imported through the page's module, then `decode_open`
+/// with `config` as config.json's text: its status and its answer.
+fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
     // The stand-in of EN-33, answering decision 20 for this fixture's shapes:
     // the codes are half a byte a weight, the scales one per block.
     let mut base = accepting();
@@ -10219,22 +10227,12 @@ fn en_52_open(fixture: &En49) -> String {
         );
         wasm::release(at);
     }
-    let c = en_49_config(fixture);
-    let config = serde_json::json!({
-        "heads": c.heads, "kv_heads": c.kv_heads, "rope_theta": c.rope_theta,
-        "rms_norm_eps": c.rms_norm_eps, "scaling": null,
-    })
-    .to_string();
-    let at = wasm::given(config.as_bytes());
-    let status = wasm::decode_open(at, config.len() as u32);
+    // The module reads the config's numbers from its text (KN-50, EN-58).
+    let opened = serde_json::json!({ "config": config, "scaling": null }).to_string();
+    let at = wasm::given(opened.as_bytes());
+    let status = wasm::decode_open(at, opened.len() as u32);
     wasm::release(at);
-    assert_eq!(
-        status,
-        0,
-        "decode_open: {}",
-        String::from_utf8_lossy(&wasm::last_answer())
-    );
-    String::from_utf8(wasm::last_answer()).expect("the sizes are JSON")
+    (status, wasm::last_answer())
 }
 
 /// `EN-52`: The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name
@@ -10411,4 +10409,211 @@ fn engine_en_42() {
         "the question is the record's BLAKE3 against the arrived bytes' BLAKE3"
     );
     let _ = beside;
+}
+
+/// `EN-58`: No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included
+#[test]
+fn engine_en_58() {
+    use hologram_ai_kernel_client::config_check::{request, Mode};
+
+    let claims = kernel_claims();
+    let hex = |bytes: [u8; 50]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut missing = Vec::new();
+    let mut want = |request: String, answer: &str| {
+        let claim = (request, answer.to_string());
+        if !claims.contains(&claim) {
+            missing.push(format!("{} -> {}", claim.0, claim.1));
+        }
+    };
+    for (text, mode, answer) in en_58_texts() {
+        let bytes = text.as_bytes();
+        match (mode, answer) {
+            (Mode::Binary32, "exact") => {
+                // The crate's bits, and a correctly rounded parse as the oracle.
+                let bits = exact::decimal_binary32(bytes).expect("a decimal in range");
+                let oracle = text.parse::<f32>().expect("Rust reads it").to_bits();
+                assert_eq!(bits, oracle, "{text}: not the nearest binary32");
+                want(
+                    hex(request(mode, bytes, u64::from(bits)).expect("short")),
+                    "exact",
+                );
+                want(
+                    hex(request(mode, bytes, u64::from(bits ^ 1)).expect("short")),
+                    "differs",
+                );
+            }
+            (Mode::Whole, "exact") => {
+                let whole = exact::decimal_whole(bytes).expect("a whole number");
+                let oracle = text.parse::<f64>().expect("Rust reads it");
+                assert_eq!(whole as f64, oracle, "{text}: not the whole number");
+                want(hex(request(mode, bytes, whole).expect("short")), "exact");
+                want(
+                    hex(request(mode, bytes, whole + 1).expect("short")),
+                    "differs",
+                );
+            }
+            (_, refusal) => {
+                let refused = match mode {
+                    Mode::Binary32 => exact::decimal_binary32(bytes).map(u64::from),
+                    Mode::Whole => exact::decimal_whole(bytes),
+                };
+                assert_eq!(refused, Err(exact::ExactError::DecimalRefused), "{text}");
+                want(hex(request(mode, bytes, 0).expect("short")), refusal);
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 49:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+
+    // The page hands the module config.json's text and converts no number.
+    let read = |path: &str| std::fs::read_to_string(root().join(path)).expect(path);
+    let integer = read("site/app/engine/integer.mjs");
+    for gone in ["rms_norm_eps", "rope_theta", "Math.round", "binary32("] {
+        assert!(!integer.contains(gone), "integer.mjs still converts {gone}");
+    }
+    assert!(integer.contains("const opened = {\n    config,\n"));
+
+    // The audit finds nothing on the path, and finds a float planted in it.
+    use repo_model::floats::{float_uses, RUST, SCRIPT};
+    for dir in RUST {
+        for entry in std::fs::read_dir(root().join(dir)).expect(dir) {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).expect("source");
+                let found = float_uses(&path.display().to_string(), &text, true);
+                assert!(
+                    found.is_empty(),
+                    "floats on the path:\n{}",
+                    found.join("\n")
+                );
+            }
+        }
+    }
+    let script = read(SCRIPT[0]);
+    assert!(float_uses(SCRIPT[0], &script, false).is_empty());
+    let planted = format!(
+        "{script}\nconst binary32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];\n"
+    );
+    assert_eq!(
+        float_uses(SCRIPT[0], &planted, false).len(),
+        1,
+        "a planted conversion"
+    );
+    for line in ["let s = 0.5;", "const e = 1e-6;", "Math.round(t)"] {
+        assert_eq!(
+            float_uses("p.mjs", line, false).len(),
+            1,
+            "{line} is a float"
+        );
+    }
+    for line in [
+        "pub fn planted(bits: u32) -> f32 { f32::from_bits(bits) }",
+        "let x = v as f64;",
+        "let half = 2.5e-3;",
+    ] {
+        assert_eq!(float_uses("p.rs", line, true).len(), 1, "{line} is a float");
+    }
+    for line in [
+        "1 => \"f32\".into(), // the element type's name",
+        "let range = 0..10;",
+        "let t = pair.0.1;",
+        "let h = 0x1e5;",
+    ] {
+        assert!(
+            float_uses("p.rs", line, true).is_empty(),
+            "{line} is not a float"
+        );
+    }
+    // A float still on the way is reported as open, with its plan row, never
+    // passed over: the rope check is one until milestone 2's row 17.
+    for (file, start, row) in repo_model::floats::OPEN {
+        let found = repo_model::floats::open_uses(file, &read(file), start)
+            .expect("the open finding's function is there");
+        assert!(
+            !found.is_empty(),
+            "{file} {start} is open and holds no float"
+        );
+        assert!(
+            read("docs/Q_ENGINE_PLAN.md").contains("| 17 | The loader picks Llama 3 rope scaling"),
+            "{row}"
+        );
+    }
+    let main = read("xtask/src/main.rs");
+    assert!(main.contains("\"audit-float\" => audit::audit_float(&root),"));
+    assert!(
+        main.contains("audit::audit_float(root)?;"),
+        "validate runs the audit"
+    );
+}
+
+/// The texts EN-58 converts, with the mode and the kernel's answer: the
+/// epsilons and thetas real configs write, ties broken both ways, the
+/// subnormal range and the tie below its floor, and the refusals.
+fn en_58_texts() -> Vec<(
+    &'static str,
+    hologram_ai_kernel_client::config_check::Mode,
+    &'static str,
+)> {
+    use hologram_ai_kernel_client::config_check::Mode::{Binary32, Whole};
+    vec![
+        ("1e-06", Binary32, "exact"),
+        ("1e-05", Binary32, "exact"),
+        ("1e-6", Binary32, "exact"),
+        ("0.000001", Binary32, "exact"),
+        ("9.999999974752427e-07", Binary32, "exact"),
+        ("1e-12", Binary32, "exact"),
+        ("16777217", Binary32, "exact"),
+        ("16777219", Binary32, "exact"),
+        ("33554434", Binary32, "exact"),
+        ("1.0000000596046448", Binary32, "exact"),
+        ("1.0000000596046447", Binary32, "exact"),
+        ("1e-45", Binary32, "exact"),
+        ("8e-46", Binary32, "exact"),
+        ("7.006492321624085e-46", Binary32, "exact"),
+        ("7.006492321624086e-46", Binary32, "exact"),
+        ("1e-40", Binary32, "exact"),
+        ("1.1754942e-38", Binary32, "exact"),
+        ("1.17549435e-38", Binary32, "exact"),
+        ("0.1", Binary32, "exact"),
+        ("0", Binary32, "exact"),
+        ("1e-72", Binary32, "exact"),
+        ("123456789012345678", Binary32, "exact"),
+        ("10000", Whole, "exact"),
+        ("1000000.0", Whole, "exact"),
+        ("500000.0", Whole, "exact"),
+        ("1e6", Whole, "exact"),
+        ("40", Whole, "exact"),
+        ("1.5", Whole, "not whole"),
+        ("1e-73", Binary32, "out of range"),
+        ("3.4028235e38", Binary32, "out of range"),
+        ("1e19", Whole, "out of range"),
+        ("-1", Binary32, "not a decimal"),
+        ("1e", Binary32, "not a decimal"),
+        ("1e1000", Binary32, "not a decimal"),
+        ("1.2.3", Whole, "not a decimal"),
+    ]
+}
+
+/// `FL-69`: A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened
+#[test]
+fn engine_fl_69() {
+    let fixture = en_49_fixture("qwen3");
+    let mut config = fixture.config.clone();
+    config["rms_norm_eps"] = serde_json::Value::String("PLANTED".into());
+    let text = config.to_string().replace("\"PLANTED\"", "1e1000");
+    let (status, said) = en_52_opened(&fixture, &text);
+    assert_eq!(
+        status, 1,
+        "a config past the decimals decision 49 reads was opened"
+    );
+    assert_eq!(said, b"Decode(Exact(DecimalRefused))");
+    assert_eq!(
+        exact::decimal_whole(b"1.5"),
+        Err(exact::ExactError::DecimalRefused)
+    );
 }

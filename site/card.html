@@ -47,6 +47,7 @@
     <option value="41">42. Round check</option>
     <option value="42">43. Square root</option>
     <option value="43">44. Rounded quotient</option>
+    <option value="44">49. Config number</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2864,6 +2865,67 @@
       "module": "Divide",
       "name": "Rounded quotient",
       "tag": 44
+    },
+    {
+      "asks": "Is this the binary32, or the whole number, a config number written in decimal names?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "the nearest binary32",
+              0
+            ],
+            [
+              "a whole number",
+              1
+            ]
+          ],
+          "name": "Asked for",
+          "value": 0,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Claimed bits or whole number",
+          "value": 897988541,
+          "width": 8
+        },
+        {
+          "at": 10,
+          "name": "Text, bytes 1 to 8",
+          "value": 3559300765593894912,
+          "width": 8
+        },
+        {
+          "at": 18,
+          "name": "Text, bytes 9 to 16",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 26,
+          "name": "Text, bytes 17 to 24",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 34,
+          "name": "Text, bytes 25 to 32",
+          "value": 0,
+          "width": 8
+        },
+        {
+          "at": 42,
+          "name": "Text, bytes 33 to 40",
+          "value": 0,
+          "width": 8
+        }
+      ],
+      "length": 50,
+      "module": "Config",
+      "name": "Config number",
+      "tag": 49
     }
   ],
   "request": 81

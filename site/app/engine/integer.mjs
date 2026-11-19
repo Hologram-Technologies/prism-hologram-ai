@@ -12,12 +12,11 @@
 const TYPES = { f32: 1, u8: 2, i8: 3, i32: 6, i64: 7, f16: 10, bf16: 16 };
 const le = (n) => new Uint8Array(new Uint32Array([n]).buffer);
 const word = (bytes, at = 0) => new DataView(bytes.buffer, bytes.byteOffset, bytes.length).getUint32(at, true);
-// The config's epsilon as the binary32 the export states it in.
-const binary32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
 
 // `module` is the page's module after the graph was imported through it;
 // `table` and `read` are the import's tensors and their bytes; `config` the
-// model's config.json; `rope` the rotary parameters the loader confirmed.
+// text of config.json, whose numbers the module reads exactly (KN-50, EN-58);
+// `rope` the rotary parameters the loader confirmed.
 export function createIntegerEngine({ module: m, table, read, config, rope = {}, capacity }) {
   const text = new TextEncoder();
   for (const [name, [element]] of Object.entries(table.tensors)) {
@@ -31,12 +30,8 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
     given.set(bytes, 8 + named.length);
     m.callWith("decode_tensor", given);
   }
-  const heads = config.num_attention_heads;
   const opened = {
-    heads,
-    kv_heads: config.num_key_value_heads ?? heads,
-    rope_theta: Math.round(config.rope_theta),
-    rms_norm_eps: binary32(config.rms_norm_eps),
+    config,
     scaling: rope.llama3 ? { factor: rope.llama3.factor, low: rope.llama3.low, high: rope.llama3.high, original: rope.llama3.orig } : null,
   };
   const sizes = JSON.parse(new TextDecoder().decode(m.callWith("decode_open", text.encode(JSON.stringify(opened)))));
