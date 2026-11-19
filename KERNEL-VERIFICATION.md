@@ -1652,6 +1652,39 @@ and another way outside.
 | a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
 | none | passed |
 
+## KN-58, the half-scale product
+
+`Engine.Stage.HalfScale::run` is row 13's second matmul stage: it multiplies
+each group's sum, a two's complement word as S1 writes it, by the group's IEEE
+half scale, read low half first from words of two. Per group it writes three
+words: the sign, and the magnitude in units of 2^-24 as two little-endian
+limbs. The mantissa (with its implicit one when the exponent is not zero) is
+multiplied by the sum's magnitude with `Engine.Word::mulB` over eleven steps,
+row 15's shift-and-add product (KN-72), and the result is doubled once for each
+of the exponent's 29 steps below `exponent - 1`. The stage has no product of
+two variables, so no step from a proof to the shipped code is trusted: the
+proofs read the stage itself. The product runs once per group, not in the
+32-term sum, so mulB's eleven steps cost little. It exports through prod-export
+and prod-codegen with no external calls, opaque nodes or unsupported types.
+
+Lean proves, for every input: `size_bound`, that the magnitude is below 2^64
+unless the sum's magnitude is above 2^24 (S1's bound), for every half, even an
+infinity or a NaN, whose exponent the 29 steps cap; `limbs_rejoin`,
+`size_low_is_word` and `size_high_is_word`, that the two limbs are words that
+rejoin to a magnitude below 2^64; and `scaled_zero_is_not_negative`. A bound that
+needs a premise is stated in Bool as "the premise fails or the bound holds",
+which `simplify` can close from lemmas. That the magnitude equals the sum
+times the half's value is the definition of `mulB` and of doubling, not a
+theorem: 0.3.0 cannot state it against `prim multiply`.
+
+### The pinned test: `kernel_kn_58`
+
+| Planted defect | Result |
+| --- | --- |
+| `size` multiplying natively (`prim multiply (sumMag word) (mantissa half)`) | rejected: `size changed` |
+| `scaled_zero_is_not_negative` deleted | rejected: `scaled_zero_is_not_negative is not declared` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the

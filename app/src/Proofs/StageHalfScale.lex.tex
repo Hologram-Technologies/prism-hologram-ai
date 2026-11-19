@@ -1,0 +1,232 @@
+\begin{lexlean}{Proofs.StageHalfScale}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\importmodule{Engine.Word}
+\importmodule{Proofs.Word}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: grow,
+  parameters: [x : Nat, steps : Nat],
+  result: Nat,
+  body: (match steps | Nat.zero => x | Nat.succ rest => (grow (prim multiply 2 x : Nat) rest)),
+  recursive_argument: steps
+}
+
+theorem{
+  name: shift_eleven_doubles,
+  parameters: [a : Nat],
+  statement: ((Engine.Word::shiftUp (Engine.Stage.HalfScale::eleven) a) = (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 a : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat)),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.HalfScale::eleven,
+      Engine.Word::shiftUp,
+      Proofs.Word::twice_is_double
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: eleven_doubles,
+  parameters: [a : Nat],
+  statement: ((prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 a : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) = (prim multiply 2048 a : Nat)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: eleven_shifts,
+  parameters: [a : Nat],
+  statement: ((prim multiply 2048 a : Nat) = (Engine.Word::shiftUp (Engine.Stage.HalfScale::eleven) a)),
+  proof: simplify{definitions: [eleven_doubles, shift_eleven_doubles]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_given,
+  parameters: [a : Nat, b : Nat],
+  statement: (((((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) a b) + a) + (Engine.Word::slack (Engine.Stage.HalfScale::eleven) a b)) = (Engine.Word::shiftUp (Engine.Stage.HalfScale::eleven) a)) -> (((prim multiply 2048 a : Nat) = (Engine.Word::shiftUp (Engine.Stage.HalfScale::eleven) a)) -> (((16777216 <? a) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) a b) <? 34359738368)) = true))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_bound,
+  parameters: [a : Nat, b : Nat],
+  statement: (((16777216 <? a) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) a b) <? 34359738368)) = true),
+  proof: simplify{definitions: [core_given, eleven_shifts, Proofs.Word::mul_bound_exact]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: picked_le,
+  parameters: [flag : Nat, x : Nat],
+  statement: ((Engine.Stage.Greedy::pick flag (prim multiply 2 x : Nat) x) <= (prim multiply 2 x : Nat)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: grow_mono_step,
+  parameters: [y : Nat, z : Nat, r : Nat],
+  statement: (((((prim multiply 2 z : Nat) <? (prim multiply 2 y : Nat)) || ((grow (prim multiply 2 y : Nat) r) <=? (grow (prim multiply 2 z : Nat) r))) = true) -> (((z <? y) || ((grow (prim multiply 2 y : Nat) r) <=? (grow (prim multiply 2 z : Nat) r))) = true)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: grow_mono,
+  parameters: [y : Nat, z : Nat, r : Nat],
+  statement: (((z <? y) || ((grow y r) <=? (grow z r))) = true),
+  proof: induction{
+    branches: [
+      {proof: linear_arithmetic{definitions: [grow]}, binders: [], constructor: zero},
+      {
+        proof: simplify{definitions: [grow, grow_mono_step, hypothesis]},
+        binders: [s, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [y, z],
+    scrutinee: r
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_step,
+  parameters: [x : Nat, k : Nat, r : Nat],
+  statement: ((((18446744073709551616 <=? (grow (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x) r)) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x) k r) <? 18446744073709551616)) = true) -> (((((prim multiply 2 x : Nat) <? (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x)) || ((grow (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x) r) <=? (grow (prim multiply 2 x : Nat) r))) = true) -> (((Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x) <= (prim multiply 2 x : Nat)) -> (((18446744073709551616 <=? (grow (prim multiply 2 x : Nat) r)) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below r k) (prim multiply 2 x : Nat) x) k r) <? 18446744073709551616)) = true)))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_in_grow,
+  parameters: [x : Nat, k : Nat, s : Nat],
+  statement: (((18446744073709551616 <=? (grow x s)) || ((Engine.Stage.HalfScale::shiftSteps x k s) <? 18446744073709551616)) = true),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.HalfScale::shiftSteps, grow]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            grow,
+            grow_mono,
+            hypothesis,
+            picked_le,
+            shift_step,
+            Engine.Stage.HalfScale::shiftSteps
+          ]
+        },
+        binders: [r, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [x],
+    scrutinee: s
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: grow_twenty_nine,
+  parameters: [x : Nat],
+  statement: ((prim multiply 536870912 x : Nat) = (grow x 29)),
+  proof: linear_arithmetic{definitions: [grow]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_bound_given,
+  parameters: [x : Nat, k : Nat],
+  statement: ((((18446744073709551616 <=? (grow x 29)) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true) -> (((prim multiply 536870912 x : Nat) = (grow x 29)) -> (((34359738368 <=? x) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_bound,
+  parameters: [x : Nat, k : Nat],
+  statement: (((34359738368 <=? x) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true),
+  proof: simplify{definitions: [grow_twenty_nine, shift_bound_given, shift_in_grow]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: size_given,
+  parameters: [w : Nat, h : Nat],
+  statement: ((((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) <? 34359738368)) = true) -> ((((34359738368 <=? (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h))) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) (prim subtract (Engine.Stage.HalfScale::exponent h) 1 : Nat) 29) <? 18446744073709551616)) = true) -> (((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::shiftSteps (Engine.Word::mulB (Engine.Stage.HalfScale::eleven) (Engine.Stage.HalfScale::sumMag w) (Engine.Stage.HalfScale::mantissa h)) (prim subtract (Engine.Stage.HalfScale::exponent h) 1 : Nat) 29) <? 18446744073709551616)) = true))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: size_bound,
+  parameters: [w : Nat, h : Nat],
+  statement: (((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::size w h) <? 18446744073709551616)) = true),
+  proof: simplify{definitions: [core_bound, shift_bound, size_given, Engine.Stage.HalfScale::size]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: limbs_rejoin,
+  parameters: [s : Nat],
+  statement: (((prim remainder s 4294967296 0 : Nat) + (prim multiply 4294967296 (prim quotient s 4294967296 0 : Nat) : Nat)) = s),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: size_low_is_word,
+  parameters: [s : Nat],
+  statement: ((prim remainder s 4294967296 0 : Nat) < 4294967296),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: size_high_is_word,
+  parameters: [s : Nat],
+  statement: ((s < 18446744073709551616) -> ((prim quotient s 4294967296 0 : Nat) < 4294967296)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scaled_zero_is_not_negative,
+  parameters: [w : Nat, h : Nat],
+  statement: (((Engine.Stage.HalfScale::size w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0)),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.HalfScale::sign
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
