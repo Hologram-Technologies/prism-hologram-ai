@@ -1,0 +1,48 @@
+\begin{lexlean}{Proofs.Call}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Call}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: call_runs_decides,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: (((Kernel.Call::callCode task device dtype sample beams penalty) <= 2) <-> ((task <= 2) /\ (device <= 4) /\ (dtype <= 2) /\ (sample = 0) /\ (beams <= 1) /\ (penalty = 1))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_runs_on_named_device,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: (((Kernel.Call::callCode task device dtype sample beams penalty) <= 2) -> ((Kernel.Call::callCode task device dtype sample beams penalty) = (Kernel.Call::callDevice device))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_device_webgpu_decides,
+  parameters: [device : Nat],
+  statement: (((Kernel.Call::callDevice device) = 1) <-> ((device = 1) \/ (device = 2))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_device_cpu_decides,
+  parameters: [device : Nat],
+  statement: (((Kernel.Call::callDevice device) = 2) <-> ((device = 3) \/ (device = 4))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: call_sampling_refused,
+  parameters: [task : Nat, device : Nat, dtype : Nat, sample : Nat, beams : Nat, penalty : Nat],
+  statement: ((1 <= sample) -> (10 <= (Kernel.Call::callCode task device dtype sample beams penalty))),
+  proof: linear_arithmetic{definitions: [Kernel.Call::callCode, Kernel.Call::callDevice]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
