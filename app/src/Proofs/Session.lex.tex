@@ -1,0 +1,129 @@
+\begin{lexlean}{Proofs.Session}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Address}
+\importmodule{Kernel.Determinism}
+\importmodule{Kernel.Integer}
+\importmodule{Engine.Session}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: session_ends_stay_ended,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    position : Nat,
+    capacity : Nat,
+    kind : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  statement: ((4 <= phase) -> ((phase <= 5) -> ((Engine.Session::sessionPhase phase admitted pages position capacity kind a b c d) = phase))),
+  proof: linear_arithmetic{definitions: [Engine.Session::sessionPhase]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: session_refuses_other_hashes,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    position : Nat,
+    capacity : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  statement: ((phase <= 3) -> (((Kernel.Address::addressBlake3 a b c) = false) -> ((Engine.Session::sessionPhase phase admitted pages position capacity 2 a b c d) = 5))),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Session::admits,
+      Engine.Session::sessionPhase,
+      Kernel.Address::addressBlake3
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: session_ready_only_with_every_page,
+  parameters: [
+    admitted : Nat,
+    pages : Nat,
+    position : Nat,
+    capacity : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  statement: ((((admitted + 1) = pages) -> (1 = 0)) -> (((Engine.Session::sessionPhase 1 admitted pages position capacity 2 a b c d) =? 2) = false)),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Session::admits,
+      Engine.Session::sessionPhase,
+      Kernel.Address::addressBlake3
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: session_refuses_floats,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    position : Nat,
+    capacity : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  statement: ((phase <= 3) -> ((((a = 1) /\ (b = 1)) -> (1 = 0)) -> ((Engine.Session::sessionPhase phase admitted pages position capacity 4 a b c d) = 5))),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Session::generates,
+      Engine.Session::live,
+      Engine.Session::sessionPhase,
+      Kernel.Determinism::classCode,
+      Kernel.Integer::integerRun
+    ]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: session_prompt_chunks_compose,
+  parameters: [phase : Nat, position : Nat, capacity : Nat, early : Nat, later : Nat, b : Nat],
+  statement: (((Engine.Session::live phase) = true) -> (((position + (early + later)) <= capacity) -> ((Engine.Session::sessionPosition phase (Engine.Session::sessionPosition phase position capacity 3 early b) capacity 3 later b) = (Engine.Session::sessionPosition phase position capacity 3 (early + later) b)))),
+  proof: linear_arithmetic{
+    definitions: [Engine.Session::live, Engine.Session::prompts, Engine.Session::sessionPosition]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: session_position_within_capacity,
+  parameters: [phase : Nat, position : Nat, capacity : Nat, kind : Nat, a : Nat, b : Nat],
+  statement: ((position <= capacity) -> ((Engine.Session::sessionPosition phase position capacity kind a b) <= (Engine.Session::sessionCapacity phase capacity kind a b))),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Session::generates,
+      Engine.Session::opens,
+      Engine.Session::prompts,
+      Engine.Session::sessionCapacity,
+      Engine.Session::sessionPosition
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
