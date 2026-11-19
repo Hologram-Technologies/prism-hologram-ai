@@ -1,0 +1,539 @@
+\begin{lexlean}{Proofs.Word}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Word}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: twice_is_double,
+  parameters: [a : Nat],
+  statement: ((Engine.Word::twice a) = (prim multiply 2 a : Nat)),
+  proof: linear_arithmetic{definitions: [Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: add_regroup,
+  parameters: [x : Nat, y : Nat, z : Nat],
+  statement: ((x + (y + z)) = ((x + y) + z)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: mul_splits,
+  parameters: [low : (List Nat), high : (List Nat), a : Nat, b : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::joined low high) a b) = ((Engine.Word::mulB low a b) + (Engine.Word::mulB high (Engine.Word::shiftUp low a) (Engine.Word::dropBits low b)))),
+  proof: induction{
+    scrutinee: low,
+    generalizing: [a, b],
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::dropBits, Engine.Word::joined, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [add_regroup, hypothesis, Engine.Word::dropBits, Engine.Word::joined, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_sixteen_doubles,
+  parameters: [a : Nat],
+  statement: ((Engine.Word::shiftUp (Engine.Word::sixteen) a) = (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 a : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat)),
+  proof: simplify{definitions: [twice_is_double, Engine.Word::shiftUp, Engine.Word::sixteen]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: sixteen_doubles,
+  parameters: [a : Nat],
+  statement: ((prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 (prim multiply 2 a : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) : Nat) = (prim multiply 65536 a : Nat)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_sixteen,
+  parameters: [a : Nat],
+  statement: ((Engine.Word::shiftUp (Engine.Word::sixteen) a) = (prim multiply 65536 a : Nat)),
+  proof: simplify{definitions: [shift_sixteen_doubles, sixteen_doubles]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: drop_sixteen,
+  parameters: [b : Nat],
+  statement: ((Engine.Word::dropBits (Engine.Word::sixteen) b) = (prim quotient b 65536 0 : Nat)),
+  proof: linear_arithmetic{definitions: [Engine.Word::dropBits, Engine.Word::sixteen]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: twice_additive,
+  parameters: [x : Nat, y : Nat],
+  statement: ((Engine.Word::twice (x + y)) = ((Engine.Word::twice x) + (Engine.Word::twice y))),
+  proof: linear_arithmetic{definitions: [Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bit_part_additive,
+  parameters: [b : Nat, x : Nat, y : Nat],
+  statement: ((Engine.Word::bitPart b (x + y)) = ((Engine.Word::bitPart b x) + (Engine.Word::bitPart b y))),
+  proof: linear_arithmetic{definitions: [Engine.Word::bitPart]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: add_swap_inner,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((a + b) + (c + d)) = ((a + c) + (b + d))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_left_additive,
+  parameters: [steps : (List Nat), b : Nat, x : Nat, y : Nat],
+  statement: ((Engine.Word::mulB steps (x + y) b) = ((Engine.Word::mulB steps x b) + (Engine.Word::mulB steps y b))),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [b, x, y],
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [add_swap_inner, bit_part_additive, hypothesis, twice_additive, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: twice_scale,
+  parameters: [x : Nat],
+  statement: ((Engine.Word::twice (prim multiply 65536 x : Nat)) = (prim multiply 65536 (Engine.Word::twice x) : Nat)),
+  proof: linear_arithmetic{definitions: [Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bit_part_scale,
+  parameters: [b : Nat, x : Nat],
+  statement: ((Engine.Word::bitPart b (prim multiply 65536 x : Nat)) = (prim multiply 65536 (Engine.Word::bitPart b x) : Nat)),
+  proof: linear_arithmetic{definitions: [Engine.Word::bitPart]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scale_factor,
+  parameters: [p : Nat, q : Nat],
+  statement: (((prim multiply 65536 p : Nat) + (prim multiply 65536 q : Nat)) = (prim multiply 65536 (p + q) : Nat)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: scale_zero,
+  parameters: [],
+  statement: ((prim multiply 65536 0 : Nat) = 0),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: mul_left_scale,
+  parameters: [steps : (List Nat), b : Nat, x : Nat],
+  statement: ((Engine.Word::mulB steps (prim multiply 65536 x : Nat) b) = (prim multiply 65536 (Engine.Word::mulB steps x b) : Nat)),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [b, x],
+    branches: [
+      {proof: simplify{definitions: [scale_zero, Engine.Word::mulB]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [bit_part_scale, hypothesis, scale_factor, twice_scale, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bit_zero,
+  parameters: [a : Nat],
+  statement: ((Engine.Word::bitPart 0 a) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Word::bitPart]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_zero,
+  parameters: [],
+  statement: ((prim quotient 0 2 0 : Nat) = 0),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: zero_plus,
+  parameters: [x : Nat],
+  statement: ((0 + x) = x),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_zero,
+  parameters: [steps : (List Nat), a : Nat],
+  statement: ((Engine.Word::mulB steps a 0) = 0),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [a],
+    branches: [
+      {proof: simplify{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [bit_zero, half_zero, hypothesis, zero_plus, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bound_step,
+  parameters: [step : Nat, rest : (List Nat), a : Nat, b : Nat],
+  statement: ((((Engine.Word::mulB (cons step rest) a b) + a) + (Engine.Word::slack (cons step rest) a b)) = (((Engine.Word::mulB rest (Engine.Word::twice a) (prim quotient b 2 0 : Nat)) + (Engine.Word::twice a)) + (Engine.Word::slack rest (Engine.Word::twice a) (prim quotient b 2 0 : Nat)))),
+  proof: linear_arithmetic{definitions: [Engine.Word::antiBit, Engine.Word::bitPart, Engine.Word::mulB, Engine.Word::slack, Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_bound_exact,
+  parameters: [steps : (List Nat), a : Nat, b : Nat],
+  statement: ((((Engine.Word::mulB steps a b) + a) + (Engine.Word::slack steps a b)) = (Engine.Word::shiftUp steps a)),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [a, b],
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::mulB, Engine.Word::shiftUp, Engine.Word::slack]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [bound_step, hypothesis, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: bound_sixteen_exact,
+  parameters: [a : Nat, b : Nat],
+  statement: ((((Engine.Word::mulB (Engine.Word::sixteen) a b) + a) + (Engine.Word::slack (Engine.Word::sixteen) a b)) = (prim multiply 65536 a : Nat)),
+  proof: simplify{definitions: [mul_bound_exact, shift_sixteen]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_below,
+  parameters: [x : Nat],
+  statement: ((prim remainder x 65536 0 : Nat) < 65536),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_product_fits_given,
+  parameters: [a : Nat, y : Nat],
+  statement: ((a < 65536) -> (((((Engine.Word::mulB (Engine.Word::sixteen) a y) + a) + (Engine.Word::slack (Engine.Word::sixteen) a y)) = (prim multiply 65536 a : Nat)) -> ((Engine.Word::mulB (Engine.Word::sixteen) a y) < 4294967296))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_product_fits,
+  parameters: [x : Nat, y : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder x 65536 0 : Nat) y) < 4294967296),
+  proof: simplify{definitions: [bound_sixteen_exact, half_below, half_product_fits_given]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_twice_out,
+  parameters: [steps : (List Nat), h : Nat],
+  statement: ((Engine.Word::shiftUp steps (Engine.Word::twice h)) = (Engine.Word::twice (Engine.Word::shiftUp steps h))),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [h],
+    branches: [
+      {proof: simplify{definitions: [Engine.Word::shiftUp]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [hypothesis, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: bit_after_high,
+  parameters: [c : Nat, x : Nat, a : Nat],
+  statement: ((Engine.Word::bitPart (c + (Engine.Word::twice x)) a) = (Engine.Word::bitPart c a)),
+  proof: linear_arithmetic{definitions: [Engine.Word::bitPart, Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_after_high,
+  parameters: [c : Nat, x : Nat],
+  statement: ((prim quotient (c + (Engine.Word::twice x)) 2 0 : Nat) = ((prim quotient c 2 0 : Nat) + x)),
+  proof: linear_arithmetic{definitions: [Engine.Word::twice]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_ignores_high,
+  parameters: [steps : (List Nat), a : Nat, c : Nat, h : Nat],
+  statement: ((Engine.Word::mulB steps a (c + (Engine.Word::shiftUp steps h))) = (Engine.Word::mulB steps a c)),
+  proof: induction{
+    scrutinee: steps,
+    generalizing: [a, c, h],
+    branches: [
+      {proof: simplify{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [bit_after_high, half_after_high, hypothesis, shift_twice_out, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_sixteen_back,
+  parameters: [h : Nat],
+  statement: ((prim multiply 65536 h : Nat) = (Engine.Word::shiftUp (Engine.Word::sixteen) h)),
+  proof: simplify{definitions: [shift_sixteen]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_ignores_high,
+  parameters: [a : Nat, c : Nat, h : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) a (c + (prim multiply 65536 h : Nat))) = (Engine.Word::mulB (Engine.Word::sixteen) a c)),
+  proof: simplify{definitions: [mul_ignores_high, shift_sixteen_back]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: halves_join,
+  parameters: [x : Nat],
+  statement: (((prim remainder x 65536 0 : Nat) + (prim multiply 65536 (prim quotient x 65536 0 : Nat) : Nat)) = x),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_is_rejoined,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) a (prim remainder b 65536 0 : Nat)) = (Engine.Word::mulB (Engine.Word::sixteen) a ((prim remainder b 65536 0 : Nat) + (prim multiply 65536 (prim quotient b 65536 0 : Nat) : Nat)))),
+  proof: simplify{definitions: [low_ignores_high]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_reads_low,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) a (prim remainder b 65536 0 : Nat)) = (Engine.Word::mulB (Engine.Word::sixteen) a b)),
+  proof: simplify{definitions: [halves_join, low_is_rejoined]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: product_by_low_and_high,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::thirtyTwo) a b) = ((Engine.Word::mulB (Engine.Word::sixteen) a b) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) a (prim quotient b 65536 0 : Nat)) : Nat))),
+  proof: simplify{definitions: [drop_sixteen, mul_left_scale, mul_splits, shift_sixteen, Engine.Word::thirtyTwo]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_scale_back,
+  parameters: [steps : (List Nat), b : Nat, x : Nat],
+  statement: ((prim multiply 65536 (Engine.Word::mulB steps x b) : Nat) = (Engine.Word::mulB steps (prim multiply 65536 x : Nat) b)),
+  proof: simplify{definitions: [mul_left_scale]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mul_add_back,
+  parameters: [steps : (List Nat), b : Nat, x : Nat, y : Nat],
+  statement: (((Engine.Word::mulB steps x b) + (Engine.Word::mulB steps y b)) = (Engine.Word::mulB steps (x + y) b)),
+  proof: simplify{definitions: [mul_left_additive]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: multiplicand_halves,
+  parameters: [a : Nat, y : Nat],
+  statement: (((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) y) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) y) : Nat)) = (Engine.Word::mulB (Engine.Word::sixteen) a y)),
+  proof: simplify{definitions: [halves_join, mul_add_back, mul_scale_back]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: product_from_halves,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::thirtyTwo) a b) = (((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) : Nat)) + (prim multiply 65536 ((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) : Nat)) : Nat))),
+  proof: simplify{definitions: [low_reads_low, multiplicand_halves, product_by_low_and_high]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: limbs_recombine,
+  parameters: [ll : Nat, lh : Nat, hl : Nat, hh : Nat],
+  statement: (((Engine.Word::productLow ll lh hl) + (prim multiply 4294967296 (Engine.Word::productHigh ll lh hl hh) : Nat)) = ((ll + (prim multiply 65536 hl : Nat)) + (prim multiply 65536 (lh + (prim multiply 65536 hh : Nat)) : Nat))),
+  proof: linear_arithmetic{definitions: [Engine.Word::productHigh, Engine.Word::productLow, Engine.Word::productMiddle]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: product_as_limbs,
+  parameters: [a : Nat, b : Nat],
+  statement: (((Engine.Word::productLow (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat))) + (prim multiply 4294967296 (Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat))) : Nat)) = (Engine.Word::mulB (Engine.Word::thirtyTwo) a b)),
+  proof: simplify{definitions: [limbs_recombine, product_from_halves]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_limb_is_word,
+  parameters: [ll : Nat, lh : Nat, hl : Nat],
+  statement: ((Engine.Word::productLow ll lh hl) < 4294967296),
+  proof: linear_arithmetic{definitions: [Engine.Word::productLow, Engine.Word::productMiddle]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: half_product_bound_given,
+  parameters: [a : Nat, y : Nat],
+  statement: ((a < 65536) -> (((((Engine.Word::mulB (Engine.Word::sixteen) a y) + a) + (Engine.Word::slack (Engine.Word::sixteen) a y)) = (prim multiply 65536 a : Nat)) -> ((Engine.Word::mulB (Engine.Word::sixteen) a y) <= 4294836225))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: high_half_below,
+  parameters: [x : Nat],
+  statement: ((prim quotient (prim remainder x 4294967296 0 : Nat) 65536 0 : Nat) < 65536),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_half_product_bound,
+  parameters: [x : Nat, y : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder x 65536 0 : Nat) y) <= 4294836225),
+  proof: simplify{definitions: [bound_sixteen_exact, half_below, half_product_bound_given]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: high_half_product_bound,
+  parameters: [x : Nat, y : Nat],
+  statement: ((Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder x 4294967296 0 : Nat) 65536 0 : Nat) y) <= 4294836225),
+  proof: simplify{definitions: [bound_sixteen_exact, half_product_bound_given, high_half_below]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: high_limb_given,
+  parameters: [ll : Nat, lh : Nat, hl : Nat, hh : Nat],
+  statement: ((ll <= 4294836225) -> ((lh <= 4294836225) -> ((hl <= 4294836225) -> ((hh <= 4294836225) -> ((Engine.Word::productHigh ll lh hl hh) < 4294967296))))),
+  proof: linear_arithmetic{definitions: [Engine.Word::productHigh, Engine.Word::productMiddle]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: high_limb_is_word,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat))) < 4294967296),
+  proof: simplify{definitions: [high_half_product_bound, high_limb_given, low_half_product_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: carry_weight_is_final_carry,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  statement: ((Engine.Word::carryWeight left right carry) = (Engine.Word::shifted left (Engine.Word::finalCarry left right carry))),
+  proof: induction{
+    scrutinee: left,
+    generalizing: [carry, right],
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::carryWeight, Engine.Word::finalCarry, Engine.Word::shifted]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [hypothesis, Engine.Word::carryWeight, Engine.Word::finalCarry, Engine.Word::shifted]}, binders: [low, high, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: both_true,
+  parameters: [],
+  statement: ((true && true) = true),
+  proof: reflexivity{}
+}
+
+theorem{
+  name: word_below,
+  parameters: [value : Nat],
+  statement: (((prim remainder value 4294967296 0 : Nat) <? 4294967296) = true),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: added_limbs_are_words,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  statement: ((Engine.Word::allWords (Engine.Word::addLimbs left right carry)) = true),
+  proof: induction{
+    scrutinee: left,
+    generalizing: [carry, right],
+    branches: [
+      {proof: simplify{definitions: [Engine.Word::addLimbs, Engine.Word::allWords]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [both_true, hypothesis, word_below, Engine.Word::addLimbs, Engine.Word::allWords]}, binders: [low, high, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: right_joins,
+  parameters: [right : (List Nat)],
+  statement: (((Engine.Word::headOr right) + (prim multiply 4294967296 (Engine.Word::limbsValue (Engine.Word::tailOf right)) : Nat)) = (Engine.Word::limbsValue right)),
+  proof: cases{
+    scrutinee: right,
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]}, binders: [], constructor: nil},
+      {proof: linear_arithmetic{definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]}, binders: [low, high], constructor: cons}
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: sum_steps,
+  parameters: [low : Nat, high : (List Nat), right : (List Nat), carry : Nat],
+  statement: ((Engine.Word::sumOf (cons low high) right carry) = ((prim remainder ((low + (Engine.Word::headOr right)) + carry) 4294967296 0 : Nat) + (prim multiply 4294967296 (Engine.Word::sumOf high (Engine.Word::tailOf right) (prim quotient ((low + (Engine.Word::headOr right)) + carry) 4294967296 0 : Nat)) : Nat))),
+  proof: linear_arithmetic{definitions: [Engine.Word::addLimbs, Engine.Word::carryWeight, Engine.Word::limbsValue, Engine.Word::sumOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: carry_closes,
+  parameters: [low : Nat, top : Nat, carry : Nat, rest : Nat, others : Nat],
+  statement: (((prim remainder ((low + top) + carry) 4294967296 0 : Nat) + (prim multiply 4294967296 ((rest + others) + (prim quotient ((low + top) + carry) 4294967296 0 : Nat)) : Nat)) = (((low + (prim multiply 4294967296 rest : Nat)) + (top + (prim multiply 4294967296 others : Nat))) + carry)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: limbs_add_with_carry,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  statement: ((Engine.Word::sumOf left right carry) = (((Engine.Word::limbsValue left) + (Engine.Word::limbsValue right)) + carry)),
+  proof: induction{
+    scrutinee: left,
+    generalizing: [carry, right],
+    branches: [
+      {proof: linear_arithmetic{definitions: [Engine.Word::addLimbs, Engine.Word::carryWeight, Engine.Word::limbsValue, Engine.Word::sumOf]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [carry_closes, hypothesis, right_joins, sum_steps, Engine.Word::limbsValue]}, binders: [low, high, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
