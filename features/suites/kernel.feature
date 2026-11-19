@@ -448,6 +448,13 @@ Feature: kernel
     Then feeding two chunks one after the other gives the state that feeding them joined gives, and the guest's loop over a chunk is that fold
     And the app recipe replays through the compiled guest the empty and one-byte official hashes, 1025 bytes in one call and in two calls of 1000 and 25 with the state carried, each equal to the official hash, and three refused requests
 
+  @KN-56 @build
+  Scenario: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even
+    Given the stage in app/src/Engine/Stage/Exp2.lex.tex and its proofs in app/src/Proofs/StageExp2.lex.tex, StageExp2Mid.lex.tex and StageExp2High.lex.tex
+    When the Lean kernel evaluates table_certified and rounded_at_shift_0 to rounded_at_shift_33 during lexlean verify in the gate
+    Then each of the 256 entries T at fraction j satisfies (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256
+    And for every shift s from 0 to 33 and every fraction, twice the distance between the output times 2^s and the entry is at most 2^s, and an exact tie gives an even output
+
   @KN-71 @build
   Scenario: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
     Given the pick in app/src/Engine/Step.lex.tex over KN-55's key in app/src/Engine/Stage/Greedy.lex.tex, decision 71 in app/src/Kernel/Step.lex.tex and its proofs in app/src/Proofs/Step.lex.tex
