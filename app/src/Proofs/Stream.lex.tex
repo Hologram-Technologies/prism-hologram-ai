@@ -1,0 +1,105 @@
+\begin{lexlean}{Proofs.Stream}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Blake3}
+\importmodule{Engine.Stream}
+\importmodule{Kernel.Stream}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: stream_cut,
+  parameters: [early : (List Nat), state : Engine.Stream::HashState, later : (List Nat)],
+  statement: ((Engine.Stream::feed (Engine.Stream::feed state early) later) = (Engine.Stream::feed state (Engine.Stream::join early later))),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stream::feed, Engine.Stream::join]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{definitions: [hypothesis, Engine.Stream::feed, Engine.Stream::join]},
+        binders: [head, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [state],
+    scrutinee: early
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: stream_reads_its_chunk,
+  parameters: [fuel : Nat, index : Nat, state : Engine.Stream::HashState, value : Bytes],
+  statement: ((Kernel.Stream::feedFrom fuel state value index) = (Engine.Stream::feed state (Kernel.Stream::chunkOf fuel value index))),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [Engine.Stream::feed, Kernel.Stream::chunkOf, Kernel.Stream::feedFrom]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            Engine.Stream::feed,
+            Kernel.Stream::chunkOf,
+            Kernel.Stream::feedFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [index, state],
+    scrutinee: fuel
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: blake3_official_0,
+  parameters: [],
+  statement: ((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 0)))) = 0x61663133343962396635663961316136613034303464656133366463633934393962636232356339616463313132623763633961393363616534316633323632),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: blake3_official_1,
+  parameters: [],
+  statement: ((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1)))) = 0x32643361646564666631316236316631346338383665333561666130333637333664636438376137346432376235633135313032323564306635393265323133),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: blake3_official_64,
+  parameters: [],
+  statement: ((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 64)))) = 0x34656564373134316561346135636434623738383630366264323366343665323132616639636163656261636463376431663463366463376632353131623938),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: blake3_official_65,
+  parameters: [],
+  statement: ((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 65)))) = 0x64653165356661306265373064663664326265386666666430653939636561613865623665386339336136336632643864316333306563623662323633646565),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: blake3_official_1025,
+  parameters: [],
+  statement: ((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1025)))) = 0x64303032373861653437656232376233346661656366363762346665323633663832643534313239313663316666643937633863623766623831346238343434),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

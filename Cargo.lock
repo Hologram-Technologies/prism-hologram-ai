@@ -424,6 +424,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hologram-ai-cpu-decode",
+ "hologram-ai-cpu-encode",
  "hologram-ai-download",
  "hologram-ai-exact",
  "hologram-ai-model-reader",

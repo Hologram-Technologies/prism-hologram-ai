@@ -8,15 +8,20 @@
 
 /// The Rust sources of the integer path: the exact stages, the forward pass
 /// over them, and the page's module that runs it.
-pub const RUST: [&str; 3] = [
+pub const RUST: [&str; 4] = [
     "crates/exact/src",
     "crates/cpu-decode/src",
+    "crates/cpu-encode/src",
     "crates/wasm/src",
 ];
 
 /// The page's side of the integer path: it hands the module bytes and text
-/// and reads back the token and the logits' binary32 bits.
-pub const SCRIPT: [&str; 1] = ["site/app/engine/integer.mjs"];
+/// and reads back the token and the logits' binary32 bits, or an encoder's
+/// embedding and label scores (row 9).
+pub const SCRIPT: [&str; 2] = [
+    "site/app/engine/integer.mjs",
+    "site/app/engine/integer-encoder.mjs",
+];
 
 /// Floats still on the way to the integer path, each reported on every run as
 /// an open finding with the plan row that removes it, so none passes

@@ -1,0 +1,57 @@
+{
+  "bert": [
+    {
+      "bits": "3817d2bdaa545ebd8d6312baab43873db1a208be9596303dd7f310be6b2b9d3da92d193cb0d2ca3b4ed9053dd5f409bdaabb00be5495003eb517313d67c179bd60829abc3a1375bdef5b783dc7e9203d6ea0403c643a11bdf2aac9bdc7bff03d733f50be0e1137bbd5cfeabd5ad1ecbd0f5da5bdd842013dd013a43dbba850be880a903ce0ff073e8af6d7bd876da2bd36a81e3d4628883dbfee06becc0ac23dba224abee42d82bd2c5d1cbef91eadbd4a3ebcbcaa83a4bcb1659b3c7b112abe4f11143e01e2ef3d3785b8bd6928533d0304253df5e9303e8727293ecc5bb73daa9b45bc2760afbd1f5b913deba033bd19fc0fbc62d04e3e245f05bdac1901bef6d691bda77fd8bce22118bd5262d9bd4985853c0d200bbdae9df6bd29c47a3d0212aebb3ce350bcefed55bcd868dd3c5412063e7d79b3bb17d63c3d70b122bdeb7c4b3e7be5e5bc346aa03d7be7993d133746bd2248bd3d77b6313da4c8debd0eda2a3d4f9d1f3d439c073e56ba4f3dab653bbee44b84bc2de7c03d472e913df9052d3d479c153cd287cf3dd6f5953dd5a3463ede26713d269722bd9b4b013dbd18c53b7c6ec13da66565bccb42853b1630aabd3066d43cb9f6ecbc128be13b8a0b35bdd1ae023e1d34df3ceacbdfbdfec7b13cf6ea143d9280063d2070023edf56a53d8bceea3d39a6843dcf7bc73d7cafdbbdaffdf6bc89a558bd1f095bbc",
+      "ids": [
+        2,
+        4,
+        5,
+        6,
+        7,
+        4,
+        8,
+        3
+      ],
+      "label": null,
+      "text": "the cat sat on the mat"
+    },
+    {
+      "bits": "ed2956be76b4e0bc6cd05c3c9f5cb33c9ce02abe044d863d9f110cbeedfcbf3d1304c73ca5fcc6bcc88d8b3de3ac843a7566ebbd96cb3d3de735c83d43be0ebd5913e1bd0c7c123dad11fd3c9b657d3c11aa44bdea0055bd3369273c0b51403d77304abe7851b0bc766f0dbe3bf9efbd244e97bdc3cfb63b506cc83c1aaf5fbe1bb021bd3c67243ea81f88bde24b49bd3d03b23c48f1bd3db1e092bd28950d3da231d6bd3ed2b7bd332f18be4a1b1dbdcfcebe3ce8f1b0bcc86bc0bce49bb5bdf143213e09cdef3df65128be0609aa3debfea53de9b6273e1afdf73d7fec9c3d42fd283cdb6379bd2d58d23d07f34f3b4090173c44341d3e642d40bc6d2feabddbf3a9bd8c1e43bde7d3a6bc456189bda750d9bc568a01bdc03303becf02ec3d499a36bb7de2dabca150d33a768fc63c7c44a53d46e2e2bc3dce2d3bbd7f0cbda5b82f3e843bc33cfec9cf3d6b28bbbc121d8bbde9c3123eee8aef3c77474bbee274323dfa590b3d102ee93dbc1bcb3de12124be62a9ef3cdcdbae3d6e89153dfa42033e2ff3733cb09cb33da30bad3d38492c3e7f8ea13db55bb6bdf809033c745149bd65bfbe3dd174a3bc395d92bdad2a25bd1ca3933d9c9dcfbc9af4e4baca5e7bbd9820273e84f5983c1a15d7bdd3fe9e3dda303f3d3bb76b3c6650f43df0f30a3e9345f63dc791db3cb191b83d305e29bd778d09bdb55c9bbd29d9ed3c",
+      "ids": [
+        2,
+        9,
+        11,
+        13,
+        3
+      ],
+      "label": null,
+      "text": "a bad day"
+    }
+  ],
+  "distil": [
+    {
+      "bits": "4d18b03d245f803e",
+      "ids": [
+        2,
+        9,
+        10,
+        12,
+        3
+      ],
+      "label": 1,
+      "text": "a good film"
+    },
+    {
+      "bits": "62f91a3e60c9703e",
+      "ids": [
+        2,
+        4,
+        11,
+        12,
+        3
+      ],
+      "label": 1,
+      "text": "the bad film"
+    }
+  ]
+}

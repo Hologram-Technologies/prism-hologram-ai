@@ -1917,12 +1917,12 @@ fn kernel_kn_18() {
     );
     let found = declaration(&kernel, "opnameListed");
     assert!(
-        found.contains("body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else false))"),
+        found.contains("body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else (if (style =? 2) then (opnameEncoder wa wb wc wd) else false)))"),
         "opnameListed changed:\n{found}"
     );
     let found = declaration(&kernel, "opnameAnswer");
     assert!(
-        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode \"supported\" : Bytes) else (prim utf8_encode \"unsupported operator\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 2)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode \"supported\" : Bytes) else (prim utf8_encode \"unsupported operator\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "opnameAnswer changed:\n{found}"
     );
     // Each listed operator is the four words of its name's bytes: the names are
@@ -2476,24 +2476,24 @@ fn kernel_kn_24() {
     assert_pinned(
         &proofs,
         "source_named_decides",
-        "(((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task = 0) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ (part <= declared)))))",
+        "(((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task <= 2) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ (part <= declared)))))",
         "Classical.choice, Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "source_undeclared_decides",
-        "(((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task = 0) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ ((declared + 1) <= part)))))",
+        "(((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task <= 2) /\\ ((precision <= 3) /\\ ((declared <= 100) /\\ ((declared + 1) <= part)))))",
         "Classical.choice, Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "source_task_decides",
-        "(((Kernel.Source::sourceCode task precision declared part) = 0) <-> (1 <= task))",
+        "(((Kernel.Source::sourceCode task precision declared part) = 0) <-> (3 <= task))",
         "Classical.choice, Quot.sound, propext",
     );
     let found = declaration(&kernel, "sourceCode");
     assert!(
-        found.contains("body: (if (task =? 0) then (if (precision <=? 3) then (if (declared <=? 100) then (if (part <=? declared) then 4 else 3) else 2) else 1) else 0)"),
+        found.contains("body: (if (task <=? 2) then (if (precision <=? 3) then (if (declared <=? 100) then (if (part <=? declared) then 4 else 3) else 2) else 1) else 0)"),
         "sourceCode changed:\n{found}"
     );
     let found = declaration(&kernel, "sourceGraph");
@@ -4365,6 +4365,132 @@ fn kernel_kn_51() {
     }
     assert_routed(50, "Kernel.Rotary::rotaryAnswer");
 }
+/// `KN-52`: An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english
+#[test]
+fn kernel_kn_52() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Opnames.lex.tex");
+    // Which list a style asks is the body of `opnameListed`, pinned by
+    // kernel_kn_18; it is not a theorem here, as KN-18's lists are not.
+    // The 25 names every node of the four graphs uses, read on 2026-11-19 from
+    // the node sections of onnx/model_q4f16.onnx and onnx/model_q4.onnx at the
+    // revisions the hub records (751bff3 and 0b6928e).
+    let names = [
+        "Add",
+        "Cast",
+        "Concat",
+        "Constant",
+        "Div",
+        "Equal",
+        "Erf",
+        "Expand",
+        "Gather",
+        "Gemm",
+        "MatMul",
+        "MatMulNBits",
+        "Mul",
+        "Pow",
+        "ReduceMean",
+        "Relu",
+        "Reshape",
+        "Shape",
+        "Slice",
+        "Softmax",
+        "Sqrt",
+        "Sub",
+        "Transpose",
+        "Unsqueeze",
+        "Where",
+    ];
+    let listed = declaration(&kernel, "opnameEncoder");
+    for name in names {
+        let mut bytes = [0u8; 32];
+        bytes[..name.len()].copy_from_slice(name.as_bytes());
+        let words: Vec<String> = bytes
+            .chunks(8)
+            .map(|w| u64::from_be_bytes(w.try_into().expect("eight bytes")).to_string())
+            .collect();
+        let wanted = format!("(opnameIs wa wb wc wd {})", words.join(" "));
+        assert!(
+            listed.contains(&wanted),
+            "{name} is not in opnameEncoder:\n{listed}"
+        );
+    }
+    assert_eq!(
+        listed.matches("(opnameIs ").count(),
+        names.len(),
+        "opnameEncoder lists a name the test does not"
+    );
+    // The compiled kernel supports GELU's Erf in an encoder graph, refuses it in
+    // a decoder's, refuses a decoder's fused attention in an encoder's, and
+    // answers a fourth style as no question.
+    {
+        use hologram_ai_kernel_client::opname::{self, Style};
+        let name = |n: &str| opname::name(n).expect("a short name");
+        let mut fourth = opname::request(Style::Encoder, &name("Erf"));
+        fourth[1] = 3;
+        assert_claimed(
+            18,
+            &[
+                (
+                    opname::request(Style::Encoder, &name("Erf")).to_vec(),
+                    "supported",
+                ),
+                (
+                    opname::request(Style::Encoder, &name("Gemm")).to_vec(),
+                    "supported",
+                ),
+                (
+                    opname::request(Style::Decomposed, &name("Erf")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Encoder, &name("GroupQueryAttention")).to_vec(),
+                    "unsupported operator",
+                ),
+                (fourth.to_vec(), "invalid request"),
+            ],
+        );
+    }
+    assert_routed(18, "Kernel.Opnames::opnameAnswer");
+}
+/// `KN-53`: Decision 24 names the files of feature extraction and text classification as it names those of text generation, and refuses any other task
+#[test]
+fn kernel_kn_53() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Source.lex.tex");
+    let found = declaration(&kernel, "sourceCode");
+    assert!(
+        found.contains("body: (if (task <=? 2) then"),
+        "sourceCode must name the files of tasks 0, 1 and 2:\n{found}"
+    );
+    // The compiled kernel names the same graph for an embedding and a
+    // classifier as for generation, and refuses a fourth task.
+    {
+        use hologram_ai_kernel_client::source::{self, Precision, Task};
+        let mut fourth = source::request_for(Task::TextGeneration, Precision::Q4F16, 0, 0);
+        fourth[1] = 3;
+        assert_claimed(
+            24,
+            &[
+                (
+                    source::request_for(Task::FeatureExtraction, Precision::Q4F16, 0, 0).to_vec(),
+                    "onnx/model_q4f16.onnx",
+                ),
+                (
+                    source::request_for(Task::TextClassification, Precision::Q4, 0, 0).to_vec(),
+                    "onnx/model_q4.onnx",
+                ),
+                (
+                    source::request_for(Task::FeatureExtraction, Precision::Q4F16, 0, 1).to_vec(),
+                    "undeclared file",
+                ),
+                (fourth.to_vec(), "unsupported task"),
+            ],
+        );
+    }
+    assert_routed(24, "Kernel.Source::sourceAnswer");
+}
 
 /// `KN-55`: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
 #[test]
@@ -4577,6 +4703,91 @@ fn kernel_kn_49() {
                 vec![48, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "invalid request",
             ),
+        ],
+    );
+}
+
+/// `KN-60`: A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
+#[test]
+fn kernel_kn_60() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Stream.lex.tex");
+    assert_pinned(
+        &proofs,
+        "stream_cut",
+        "((Engine.Stream::feed (Engine.Stream::feed state early) later) = (Engine.Stream::feed state (Engine.Stream::join early later)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "stream_reads_its_chunk",
+        "((Kernel.Stream::feedFrom fuel state value index) = (Engine.Stream::feed state (Kernel.Stream::chunkOf fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_0",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 0)))) = 0x61663133343962396635663961316136613034303464656133366463633934393962636232356339616463313132623763633961393363616534316633323632)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_1",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1)))) = 0x32643361646564666631316236316631346338383665333561666130333637333664636438376137346432376235633135313032323564306635393265323133)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_64",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 64)))) = 0x34656564373134316561346135636434623738383630366264323366343665323132616639636163656261636463376431663463366463376632353131623938)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_65",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 65)))) = 0x64653165356661306265373064663664326265386666666430653939636561613865623665386339336136336632643864316333306563623662323633646565)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_1025",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1025)))) = 0x64303032373861653437656232376233346661656366363762346665323633663832643534313239313663316666643937633863623766623831346238343434)",
+        "Quot.sound, propext",
+    );
+    let stream = model("app/src/Kernel/Stream.lex.tex");
+    let found = declaration(&stream, "streamAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (1748 + (prim multiply 1 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(hexValid 1744 value 0)")
+            && found.contains("(feedFrom (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 54 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    assert_routed(54, "Kernel.Stream::streamAnswer");
+    let hex = |bytes: &[u8]| -> Vec<u8> { bytes.to_vec() };
+    let request = |flags: u8, chunk: &[u8]| {
+        let mut r = vec![54, flags];
+        r.extend((chunk.len() as u16).to_be_bytes());
+        r.extend(std::iter::repeat_n(b'0', 1744));
+        r.extend(hex(chunk));
+        r
+    };
+    let pattern = |n: usize| (0..n).map(|i| (i % 251) as u8).collect::<Vec<u8>>();
+    assert_claimed(
+        54,
+        &[
+            (
+                request(2, &[]),
+                "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+            ),
+            (
+                request(2, &pattern(1)),
+                "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            ),
+            (
+                request(2, &pattern(1025)),
+                "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+            ),
+            (request(4, &[]), "invalid request"),
         ],
     );
 }

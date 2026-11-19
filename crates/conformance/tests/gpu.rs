@@ -976,6 +976,7 @@ fn gpu_gp_17() {
             "width",
             "shape: /encoder/layer.0/intermediate/dense/MatMul_Q4 rows",
         ),
+        ("floatIndex", "unplaced: Gather /embeddings/Gather"),
     ] {
         let got = result["refusals"][case].as_str().unwrap_or_default();
         assert!(
@@ -983,6 +984,13 @@ fn gpu_gp_17() {
             "{case}: refused with {got:?}, not {start:?}"
         );
     }
+    // MiniLM's int64 position ids, read by /embeddings/Gather, are an index,
+    // not a weight: the roles place the encoder with them in the graph.
+    assert!(
+        result["indexConstant"].is_null(),
+        "an int64 constant was refused: {}",
+        result["indexConstant"]
+    );
 
     let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
     assert!(
@@ -1114,7 +1122,7 @@ fn gpu_gp_19() {
     }
     let loader = read("site/app/engine/onnx-load.mjs");
     for wanted in [
-        "m.callWith(\"onnx_start\"",
+        "m.callWith(encoder ? \"onnx_start_encoder\" : \"onnx_start\", unhex(graph.blake3),",
         "m.callWith(\"onnx_take\", chunk)",
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
@@ -1411,7 +1419,7 @@ fn gpu_gp_25() {
     for wanted in [
         "const { pipeline } = await import(\"./engine/pipeline.mjs\");",
         "pipeline: the call's tokens",
-        "pipeline task: expected the kernel to refuse feature-extraction",
+        "pipeline task: expected the kernel to refuse summarization",
         "pipeline task: the call went on past the task",
     ] {
         assert!(
@@ -1481,7 +1489,7 @@ fn gpu_gp_26() {
     for wanted in [
         "throw new Error(`the record names no BLAKE3 for ${p}`);",
         "const ok = digest === file.blake3 && bytes.length === file.size;",
-        "m.callWith(\"onnx_start\", unhex(graph.blake3),",
+        "m.callWith(encoder ? \"onnx_start_encoder\" : \"onnx_start\", unhex(graph.blake3),",
         "m.callWith(\"onnx_data_start\", unhex(file.blake3),",
     ] {
         assert!(
@@ -1745,6 +1753,102 @@ fn gpu_gp_32() {
         ("crates/conformance/tests/gpu/journey.mjs", "a turn reported no time to first token"),
     ] {
         assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+}
+
+/// `GP-35`: pipeline("feature-extraction", model) loads a BERT encoder exported as Xenova's all-MiniLM-L6-v2 q4f16 export is, from its hub record and its own files, imports it with every operator asked of decision 18's encoder style and its file named by decision 24, places its weights by the node that reads them, int64 position ids left out, and answers each sentence's WordPiece ids and unit-length embedding from the module's integer encoder, bit for bit hologram-ai-cpu-encode's, on the CPU device decision 22 chose
+#[test]
+fn gpu_gp_35() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The journey runs the call in a browser (`just page-journey`); this test
+    // holds the page and the journey to what they must do.
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "const ENCODER_TASKS = new Set([\"feature-extraction\", \"text-classification\"]);",
+        "encoder: encoding,",
+        "const encoder = createIntegerEncoder({ module, ...loaded });",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let load = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "m.callWith(encoder ? \"wordpiece_read\" : \"tokeniser_read\"",
+        "m.callWith(encoder ? \"onnx_start_encoder\" : \"onnx_start\"",
+    ] {
+        assert!(
+            load.contains(wanted),
+            "onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let encoder = read("site/app/engine/integer-encoder.mjs");
+    for wanted in [
+        "m.callWith(\"encode_tensor\", given);",
+        "m.callWith(\"encode_open\", named.encode(config));",
+        "run(\"encode_embed\", tokens)",
+    ] {
+        assert!(
+            encoder.contains(wanted),
+            "integer-encoder.mjs no longer has `{wanted}`"
+        );
+    }
+    for float in ["Math.", "parseFloat", " * ", " / "] {
+        assert!(
+            !encoder.contains(float),
+            "integer-encoder.mjs computes a number of its own: `{float}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "[\"bert\", \"feature-extraction\"]",
+        "the page's bits are not hologram-ai-cpu-encode's",
+        "if (run.device !== \"cpu\" || run.dtype !== \"q4f16\")",
+        "no check names the module's integer encoder",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+    let export = read("crates/conformance/tests/gpu/encoder-export.mjs");
+    assert!(
+        export.contains(
+            "node(\"Gather\", \"/embeddings/Gather\", [hold(\"embeddings.position_ids\", \"i64\""
+        ),
+        "the fixture no longer carries MiniLM's int64 position ids"
+    );
+}
+
+/// `GP-36`: pipeline("text-classification", model) loads a DistilBERT classifier exported as Xenova's SST-2 q4f16 export is and answers each sentence's label, chosen by the module by comparing the scores' bits as integers and named by the config's id2label, and the scores, bit for bit hologram-ai-cpu-encode's
+#[test]
+fn gpu_gp_36() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let encoder = read("site/app/engine/integer-encoder.mjs");
+    for wanted in [
+        "const said = run(\"encode_classify\", tokens);",
+        "const index = said[0];",
+        "label: labels?.[index] ?? String(index)",
+    ] {
+        assert!(
+            encoder.contains(wanted),
+            "integer-encoder.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "[\"distil\", \"text-classification\"]",
+        "not label ${w.label}",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
     }
 }
 

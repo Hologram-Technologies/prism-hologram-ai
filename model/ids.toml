@@ -647,6 +647,12 @@ suite = "kernel"
 statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request"
 
 [[id]]
+id = "KN-60"
+level = "build"
+suite = "kernel"
+statement = "A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"
@@ -868,6 +874,36 @@ id = "EN-63"
 level = "build"
 suite = "engine"
 statement = "A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits"
+
+[[id]]
+id = "KN-52"
+level = "build"
+suite = "kernel"
+statement = "An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english"
+
+[[id]]
+id = "KN-53"
+level = "build"
+suite = "kernel"
+statement = "Decision 24 names the files of feature extraction and text classification as it names those of text generation, and refuses any other task"
+
+[[id]]
+id = "EN-64"
+level = "build"
+suite = "engine"
+statement = "The page's module runs an encoder through hologram-ai-cpu-encode: given each weight by the role the page placed it in and the config's text, whose head and layer counts are whole numbers and whose LayerNorm epsilon is read from its decimal text in units of 2^-32, it answers a sentence's embedding, or a classifier's label scores and the first largest label chosen by comparing their bits as integers, bit for bit as hologram-ai-cpu-encode answers the same ids; and the ids and bits the page's journey must show (encoder-expected.json) are those"
+
+[[id]]
+id = "GP-35"
+level = "build"
+suite = "gpu"
+statement = "pipeline(\"feature-extraction\", model) loads a BERT encoder exported as Xenova's all-MiniLM-L6-v2 q4f16 export is, from its hub record and its own files, imports it with every operator asked of decision 18's encoder style and its file named by decision 24, places its weights by the node that reads them, int64 position ids left out, and answers each sentence's WordPiece ids and unit-length embedding from the module's integer encoder, bit for bit hologram-ai-cpu-encode's, on the CPU device decision 22 chose"
+
+[[id]]
+id = "GP-36"
+level = "build"
+suite = "gpu"
+statement = "pipeline(\"text-classification\", model) loads a DistilBERT classifier exported as Xenova's SST-2 q4f16 export is and answers each sentence's label, chosen by the module by comparing the scores' bits as integers and named by the config's id2label, and the scores, bit for bit hologram-ai-cpu-encode's"
 
 [[id]]
 id = "KN-70"
