@@ -166,6 +166,48 @@ Split attention (each 64-position chunk of the cache its own workgroup, then a c
 
 Moved to milestone 2 on 2026-11-14. Set by Ilya earlier that day, replacing parity as the goal: Bonsai 1.7B ternary at 100 or more tokens per second and under 300 ms to the first token, cold: model loaded, nothing cached, a prompt of about 440 tokens, timed from send to first token. Cached time to first token is reported beside it, never instead of it. Tokens stay identical to the greedy reference at every step. The bounds allow it: about 390 tokens per second from bandwidth, and about 70 ms of weight reads for the prompt in blocks of 16; the remaining gap is this engine's kernels.
 
+### The integer CPU engine on Qwen3-0.6B, measured on 2026-11-19
+
+Why this matters: the CPU device is the integer engine (GP-28), and before GP-41 it ran on the page's thread and never yielded, so a reply froze the page for minutes. It now runs in a worker (`site/app/engine/integer-worker.mjs`); the page paints and takes input throughout, and each token arrives as its own message. The worker changed where the time is spent, not how much.
+
+Setup: Qwen3-0.6B-ONNX q4f16 (28 layers, width 1024, 16 query and 8 key-value heads, FFN 3072, vocabulary 151,936, head tied to the f16 embedding), Node 22.22.2 in WSL, one thread, this machine; the determinism run's "sky" prompt (23 prompt ids). Wall-clock numbers come from the shipped build (`engine.wasm` sha256 b42ff0f8...a247cb); the breakdown comes from the same source built with function names kept (`strip = "none"`; same code, different function layout), sampled every 200 µs over four decode steps at positions 27 to 30. The machine was busier than in the morning's determinism run, so the absolute numbers below run 15 to 40 percent slower than its 1.9 to 2.3 s per token.
+
+| Quantity | Value |
+| --- | --- |
+| One step, prompt or decode, shipped build | 2.5 to 2.8 s; 2.4 to 3.5 s with the profiler attached |
+| Through the worker, the full reply | first token 80.1 s for 23 ids, 3.28 s per token after; ids and text sha256 equal the determinism run's (c27da8e7..., 9ebc5906...) |
+| The page's thread during that reply | its longest unanswered stretch was 0.54 s, at the turn's start (chat template, tokeniser, kernel asks), none during the engine's steps |
+| Work per token | 440.4 M multiply-adds in the 4-bit projections (7 per layer, 28 layers), 155.6 M in the dense f16 head |
+| Achieved rate | about 0.23 G multiply-adds per second in the 4-bit projections, 0.20 in the head |
+| Module memory | 974 MiB on the page before; now 84 MiB on the page, with the weights in the worker only |
+
+Where one token's time goes, by stage (inclusive time):
+
+| Stage | Share | What inside it |
+| --- | --- | --- |
+| 4-bit matmul (`q4_product_with`, 196 per token) | 61.0% | group sums `q4_unit_sums` 58% of it; then the per-row recombination: scale products, `place_terms`, `full_magnitude`, `round_to_binary32` 25%; scale reads 5%; the input requantisation and allocation the rest |
+| Head (`dense_product_with`, the f16 embedding times the final norm) | 25.1% | 82% of it is the inner loop, which decodes each half weight to fixed point (`half_fixed`) and multiplies it, per element, per token |
+| Attention and the rest of `step` | 10.2% | Q·K, softmax, weighted V, rotary, residual adds, SiLU gating, the embedding row; inlined into `step`, so the sampler cannot split them. Attention grows with the context; here it is 27 to 30 positions |
+| RMSNorm | 3.0% | |
+| Outside the wasm step | 0.4% | the call and the answer's copy |
+
+By kind of cost: wasm arithmetic 96.4%; memory allocation and copies 3.2% (mostly the per-row `Vec` of terms in the recombination); JavaScript, including the crossings, 0.4%. Each token is one crossing (`decode_step`). Its answer, the greedy id and 151,936 logits (607,748 bytes), is copied out of wasm memory in 0.1 to 1.3 ms. Rebuilding the model view on every call (`with_model`, timed through `decode_reset`) costs 1.5 to 2.0 ms. Neither is worth fixing.
+
+The prompt costs what decoding costs: each prompt id is a full step, including the head, whose 151,936 logits are thrown away for every prompt position but the last.
+
+### Fixes, in order of gain
+
+All keep the arithmetic as it is: the same integers, the same tokens, each checked against the determinism hashes above. Gains are estimates from the shares above; none is measured yet.
+
+1. Threads: up to the core count on the matrix work, which is 86% of a token. Two routes. (a) SharedArrayBuffer needs cross-origin isolation. GitHub Pages cannot send COOP/COEP headers, but the page's own service worker (`site/app/sw.js`) can add them to every response it serves. That costs one reload on the first visit, and every cross-origin load must be CORS or carry CORP; the hub and Hugging Face fetches are CORS. (b) No shared memory: N workers each hold a row slice of every matrix (no copy of the weights), with one message per matmul, about 197 per token of 4 to 12 KB of activations. This needs `decode_step` split into per-matmul calls. On this machine's 12 logical cores, expect 4 to 8 times, less the messaging.
+2. Wasm SIMD128 in the two inner loops, the q4 group sums and the head's f16 products. Together they are 57% of a token. A group of 32 four-bit weights times int16 codes stays below 2^23, so `i32x4.dot_i16x8_s` computes it exactly. PrismPM #632 measured 15 G multiply-adds per second for a SIMD128 kernel against 0.6 for generated scalar code. At ten times on those loops, a token falls from about 3.1 s to about 1.5 s, and the recombination becomes the largest part. This belongs to row 13's stage code generation (S1, KN-57, PR #103 and S11). The head also needs its f16 weights read as integers without the per-element decode.
+3. Skip the head on prompt positions: a decode call that answers no logits, used for every prompt id but the last. This cuts time to first token by about 25%, roughly 15 s of the 60 s for the 23-id prompt, and leaves decoding unchanged. It is the smallest change on this list.
+4. The recombination after SIMD: build the 32 to 96 terms per row without a heap `Vec` (allocation is 3.2%), and stay in `place_terms`' single-i128 path. Expect 1.3 to 1.5 times on what remains after fix 2. This is row 13's (S2, S3).
+5. Batched prefill on the integer path: each 4-bit unit is decoded once for a block of positions. Before fix 2 the loop is compute-bound, so expect little. After fix 2, weight decode and memory reads become the cost and batching shares them. Not measured.
+6. Crossings and copies: nothing to gain; together they are under 0.5%.
+
+Fixes 1 and 2 multiply. With both, the morning's 1.9 to 2.3 s per token would come to roughly 0.1 to 0.3 s; that is an estimate, to be replaced by a measurement.
+
 ## Checkpoint: Qwen2.5-1.5B-Instruct in the browser
 
 Asked by Ilya on 2026-11-14, part of milestone 1, ahead of further Bonsai speed work: the new engine runs Qwen2.5-1.5B-Instruct at 4 bits in the browser, and both engines are measured on it.
