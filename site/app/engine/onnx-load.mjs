@@ -170,7 +170,7 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     throw new Error(`rope: the config's scaling ${JSON.stringify(config.rope_scaling)} is not one this engine runs`);
   }
 
-  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read));
+  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read), { table, read, config, rope: { ...rope } });
   // The ids the model stops on, as its own files name them.
   const named = (generation ? JSON.parse(text.decode(generation)).eos_token_id : null) ?? config.eos_token_id;
   const stops = new Set([named].flat().filter((id) => Number.isInteger(id)));

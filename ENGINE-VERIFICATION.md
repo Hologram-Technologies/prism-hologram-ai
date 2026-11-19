@@ -2810,6 +2810,22 @@ cent of the 2,097,152 a page may ask for, 607,877 gzipped.
 | the logits answered big-endian | rejected: `the module's logits are not the native run's, bit for bit` |
 | none | passed |
 
+## EN-53, a run kept and restored in the module
+
+`Session::prefix` cuts a run back to its first `n` tokens. The module keeps one
+(`decode_save`, which answers its number), carries on from it
+(`decode_restore`), and starts again (`decode_reset`). `engine_en_53` steps
+GP-19's fixture through its prompt and eight greedy tokens, keeps the run at
+the prompt's length, steps on, restores it and steps the same tokens again,
+then resets and steps the prompt again: every step answers the token and
+logits the first run did, bit for bit, and a run kept past what it has seen is
+refused.
+
+| Planted defect | Result |
+| --- | --- |
+| `prefix` keeping one token too many | rejected: `step 0 after the restore is not the first run's` |
+| none | passed |
+
 ## EN-60, LayerNorm in integers
 
 `layer_norm` takes values `x`, weights `g` and biases `b` in units of `2^-16`,

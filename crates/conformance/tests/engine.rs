@@ -10303,6 +10303,69 @@ fn engine_fl_59() {
     assert_eq!(wasm::decode_clear(), 0);
 }
 
+/// `EN-53`: The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it
+#[test]
+fn engine_en_53() {
+    let fixture = en_49_fixture("qwen3");
+    en_52_open(&fixture);
+    let step = |token: u32| {
+        assert_eq!(
+            wasm::decode_step(token),
+            0,
+            "decode_step: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+        wasm::last_answer()
+    };
+    let greedy = |said: &[u8]| u32::from_le_bytes([said[0], said[1], said[2], said[3]]);
+    let mut first = Vec::new();
+    for &id in &fixture.prompt {
+        first.push(step(id));
+    }
+    let mut next = greedy(first.last().expect("a prompt"));
+    let mut picked = Vec::new();
+    for _ in 0..8 {
+        picked.push(next);
+        let said = step(next);
+        next = greedy(&said);
+        first.push(said);
+    }
+    // Kept at the prompt's length, restored, and the same tokens again.
+    let length = fixture.prompt.len() as u32;
+    assert_eq!(
+        wasm::decode_save(length),
+        0,
+        "decode_save: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    let id = wasm::last_answer();
+    let id = u32::from_le_bytes([id[0], id[1], id[2], id[3]]);
+    step(7);
+    assert_eq!(wasm::decode_restore(id), 0, "decode_restore");
+    for (i, &token) in picked.iter().enumerate() {
+        assert_eq!(
+            step(token),
+            first[fixture.prompt.len() + i],
+            "step {i} after the restore is not the first run's"
+        );
+    }
+    // Started again from the first token.
+    assert_eq!(wasm::decode_reset(), 0, "decode_reset");
+    for (i, &token) in fixture.prompt.iter().enumerate() {
+        assert_eq!(
+            step(token),
+            first[i],
+            "prompt step {i} after the reset is not the first run's"
+        );
+    }
+    assert_eq!(
+        wasm::decode_save(10_000),
+        1,
+        "a run was kept past what it has seen"
+    );
+    assert_eq!(wasm::decode_clear(), 0);
+}
+
 /// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
 #[test]
 fn engine_en_42() {
