@@ -1704,3 +1704,48 @@ fn gpu_gp_32() {
         assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
     }
 }
+
+/// `GP-40`: Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs
+#[test]
+fn gpu_gp_40() {
+    // The journey calls transformers.js's own surface on a page with no page
+    // code in between (`just page-journey`); this test reads that the surface
+    // puts every call to decision 70 before it loads or runs, answers
+    // transformers.js's shapes, and that the journey checks each of them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let surface = read("site/app/engine/transformers.mjs");
+    for wanted in [
+        "export async function pipeline(task = \"text-generation\", model, options = {}) {",
+        "export class TextStreamer {",
+        "const device = await ask(\"call\", \"a transformers.js pipeline call (decision 70)\", callRequest(task, options), RUNS);",
+        "await ask(\"call\", \"a transformers.js generation call (decision 70)\", callRequest(task, options, generation), RUNS);",
+        "return [{ generated_text: [...input, { role: \"assistant\", content: turn.text }] }];",
+        "return [{ generated_text: return_full_text ? input + turn.text : turn.text }];",
+    ] {
+        assert!(
+            surface.contains(wanted),
+            "site/app/engine/transformers.mjs no longer has `{wanted}`"
+        );
+    }
+    let first_ask = surface.find("await ask(\"call\"").expect("no call to decision 70");
+    let first_load = surface.find("await engine(").expect("no load");
+    assert!(first_ask < first_load, "the surface loads before decision 70 answers");
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "const { pipeline, TextStreamer } = await import(\"./engine/transformers.mjs\");",
+        "transformers: a messages call must answer",
+        "transformers: a string call must answer",
+        "transformers: the streamer received",
+        "[\"dtype\", \"refused: unsupported dtype\"]",
+        "[\"device\", \"refused: unsupported device\"]",
+        "[\"sampling\", \"refused: sampling\"]",
+        "transformers dtype: the load went on past decision 70",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
