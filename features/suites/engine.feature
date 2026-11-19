@@ -674,3 +674,19 @@ Feature: engine
     When the importer takes their bytes in pieces of any size and asks the kernel about each whole file
     Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
     And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
+
+  @EN-60 @build
+  Scenario: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
+    Given EN-47's rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1, each with biases drawn the same way
+    When each row is put through hologram-ai-exact's layer_norm
+    Then r meets n^2 r^2 <= (V + n^2 epsilon) 2^32 < n^2 (r + 1)^2, worked out in the test by bisection
+    And every output y meets 2 |(n x - sum(x)) g 2^16 - (y - b) n r| <= n r, an exact tie giving the even y - b, and is within |y - b| / 2^20 plus one unit of the LayerNorm of the real numbers
+    And a row whose values are all equal with epsilon 0, an empty row, weights or biases of another length, a value at 2^31 and an epsilon at 2^32 are refused
+
+  @EN-61 @build
+  Scenario: GELU is integer: for x in units of 2^-16, gelu(x) is x at or above 8 and 0 at or below -8; between, with X = |x| and Y = X^2, erf(X / sqrt 2) is c X A / B for the positive series A = sum of Y^k / (2k+1)!! and B = sum of (Y / 2)^k / k!, each term cut down to 2^-40, and c, standing for sqrt(2 / pi), the integer square root of 2^121 / floor(2^40 pi) with pi by Machin's formula; the output (x + X erf) / 2 is rounded half to even once, in units of 2^-16, within one unit of x Phi(x), and gelu(x) - gelu(-x) is x within one unit, exactly x when x is even
+    Given 343 inputs: every eighth from -9 to 9, 160 drawn by a seeded generator between -9 and 9, 24 out to 2^20 units, the edges at 8 and -8, and inputs out to 2^47
+    When each is put through hologram-ai-exact's gelu
+    Then each output is within one unit of x Phi(x) computed by Python's math.erfc, recorded in the test
+    And an input at or above 8 gives itself and one at or below -8 gives 0
+    And gelu(x) - gelu(-x) is x within one unit, and exactly x for every even x
