@@ -4201,3 +4201,62 @@ fn kernel_kn_51() {
     }
     assert_routed(50, "Kernel.Rotary::rotaryAnswer");
 }
+
+/// `KN-55`: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
+#[test]
+fn kernel_kn_55() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Greedy.lex.tex");
+    let proofs = model("app/src/Proofs/StageGreedy.lex.tex");
+    assert_pinned(
+        &proofs,
+        "greedy_key_is_max",
+        "((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last)) = (Engine.Stage.Greedy::maxKey logits last))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "exceed_zero_decides",
+        "(((Engine.Stage.Greedy::exceed logits last bound) = 0) <-> ((Engine.Stage.Greedy::maxKey logits last) <= bound))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "none_above_greedy",
+        "((Engine.Stage.Greedy::exceed logits last (Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last))) = 0)",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "greedy_in_range",
+        "((Engine.Stage.Greedy::bestIn logits last) <= last)",
+        "Quot.sound, propext",
+    );
+    // A negative logit's key is 2^32 less its bits, so -0 (2^31) and +0 meet at
+    // 2^31 and a larger magnitude sorts lower, as the binary32 order has it.
+    let found = declaration(&stage, "key");
+    assert!(
+        found.contains("body: (pick (below bits 2147483648) (2147483648 + bits) (prim subtract 4294967296 bits : Nat))"),
+        "key changed:\n{found}"
+    );
+    // A strict comparison keeps the earlier index on a tie.
+    let found = declaration(&stage, "bestIn");
+    assert!(
+        found.contains("(pick (below (keyAt logits (bestIn logits rest)) (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))"),
+        "bestIn changed:\n{found}"
+    );
+    // exceed sums each key's excess over the bound, so it is zero exactly when
+    // no key is above the bound.
+    let found = declaration(&stage, "exceed");
+    assert!(
+        found.contains(
+            "((prim subtract (keyAt logits (rest + 1)) bound : Nat) + (exceed logits rest bound))"
+        ),
+        "exceed changed:\n{found}"
+    );
+    let found = declaration(&stage, "greedy");
+    assert!(
+        found.contains("body: (bestIn logits (prim subtract (size logits) 1 : Nat))"),
+        "greedy changed:\n{found}"
+    );
+}
