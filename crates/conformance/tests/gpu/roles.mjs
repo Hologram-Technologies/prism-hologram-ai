@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
-const { roles, ropeCandidates, confirmRope } = await import(pathToFileURL(join(root, "site/app/engine/onnx-roles.mjs")).href);
+const { roles } = await import(pathToFileURL(join(root, "site/app/engine/onnx-roles.mjs")).href);
 const load = (name) => JSON.parse(readFileSync(join(root, "crates/conformance/tests/gpu/exports", `${name}.json`), "utf8"));
 const refusal = (f) => {
   try {
@@ -26,9 +26,8 @@ for (const name of ["Qwen2.5-1.5B-Instruct", "Qwen3-0.6B-ONNX", "Llama-3.2-1B-In
   const { dims, weights } = roles(x, x.config);
   const formats = {};
   for (const w of weights.values()) formats[w.fmt] = (formats[w.fmt] ?? 0) + 1;
-  const rope = x.rope_rows ? confirmRope(ropeCandidates(x.config), dims, x.rope_rows.rows) : null;
   exports[name] = {
-    revision: x.revision, dims, placed: weights.size, formats, rope: rope && rope.dims, ropeWorst: rope && rope.worst,
+    revision: x.revision, dims, placed: weights.size, formats,
     // Qwen2.5's layer 3 query weight, by its export's own name.
     q3: weights.get("l3.wq")?.parts, embed: weights.get("embed")?.from, head: weights.has("lm_head"),
   };
@@ -49,7 +48,6 @@ const refusals = {
   heads: refusal(() => { const x = qwen3(); x.config.num_key_value_heads = 4; roles(x, x.config); }),
   family: refusal(() => { const x = qwen25(); x.config.model_type = "gemma"; roles(x, x.config); }),
   layers: refusal(() => { const x = qwen25(); x.config.num_hidden_layers = 27; roles(x, x.config); }),
-  rope: refusal(() => { const x = llama(); const { dims } = roles(x, x.config); confirmRope([{ kind: "plain" }], dims, x.rope_rows.rows); }),
   interleaved: refusal(() => { const x = qwen3(); node(x, (n) => n[0] === "RotaryEmbedding")[3].interleaved = 1; roles(x, x.config); }),
 };
 console.log(JSON.stringify({ exports, refusals }));

@@ -118,6 +118,9 @@ pub enum ExactError {
     /// `FL-54`: the stored format has no exact codec here, so it is refused
     /// rather than run approximately.
     NoExactCodec,
+    /// : a config number is not a decimal decision 49 reads, is past
+    /// its range, or is not the whole number it must be.
+    DecimalRefused,
 }
 
 /// A number that is exactly `mantissa * 2^exponent`. Read from a float, the
@@ -273,6 +276,158 @@ pub fn round_to_binary32(row: &Row) -> u32 {
         return sign | INFINITY;
     }
     sign | bits
+}
+
+/// A decimal's text as `Kernel.Config` reads it (decision 49): digits, an
+/// optional fraction after `.`, an optional exponent after `e` or `E` with an
+/// optional sign. The value is `mantissa * 10^up / 10^down`.
+struct Decimal {
+    mantissa: u64,
+    up: u32,
+    down: u32,
+}
+
+/// The longest text decision 49 reads.
+pub const DECIMAL_TEXT: usize = 40;
+
+/// Reads a decimal as the kernel's scan does, phase by phase: 0 the whole
+/// digits, 1 the fraction, 2 just after the `e`, 3 the exponent's digits.
+fn read_decimal(text: &[u8]) -> Result<Decimal, ExactError> {
+    if text.is_empty() || text.len() > DECIMAL_TEXT {
+        return Err(ExactError::DecimalRefused);
+    }
+    let (mut phase, mut mantissa, mut places, mut negative) = (0u8, 0u64, 0u32, false);
+    let (mut exponent, mut digits, mut written) = (0u32, 0u32, 0u32);
+    for &c in text {
+        let digit = c.is_ascii_digit();
+        if digit && phase <= 1 {
+            if mantissa >= 922_337_203_685_477_580 {
+                return Err(ExactError::DecimalRefused);
+            }
+            mantissa = mantissa * 10 + u64::from(c - b'0');
+            places += u32::from(phase == 1);
+            digits += 1;
+        } else if c == b'.' && phase == 0 {
+            phase = 1;
+        } else if matches!(c, b'e' | b'E') && phase <= 1 && digits >= 1 {
+            phase = 2;
+        } else if matches!(c, b'+' | b'-') && phase == 2 {
+            negative = c == b'-';
+            phase = 3;
+        } else if digit && (2..=3).contains(&phase) && exponent < 100 {
+            exponent = exponent * 10 + u32::from(c - b'0');
+            written += 1;
+            phase = 3;
+        } else {
+            return Err(ExactError::DecimalRefused);
+        }
+    }
+    if digits == 0 || phase == 2 || (phase == 3 && written == 0) {
+        return Err(ExactError::DecimalRefused);
+    }
+    let (up, down) = if negative {
+        (0, places + exponent)
+    } else {
+        (
+            exponent.saturating_sub(places),
+            places.saturating_sub(exponent),
+        )
+    };
+    Ok(Decimal { mantissa, up, down })
+}
+
+impl Decimal {
+    /// `mantissa * 10^up`, when it is below 2^63.
+    fn fed(&self) -> Result<u64, ExactError> {
+        if self.mantissa == 0 {
+            return Ok(0);
+        }
+        10u64
+            .checked_pow(self.up)
+            .filter(|_| self.up <= 18)
+            .and_then(|p| self.mantissa.checked_mul(p))
+            .filter(|&v| v <= i64::MAX as u64)
+            .ok_or(ExactError::DecimalRefused)
+    }
+}
+
+/// The binary32 bits nearest a decimal's text, ties to even, as decision 49
+/// confirms them: the text's mantissa, its bits fed one at a time from the
+/// top and then zeros, passes through four long divisions by at most 10^18
+/// each, chained bit by bit, until 53 quotient bits stand; a remainder or an
+/// unread bit left over sets the bit below them, and the one rounding is
+/// [`round_to_binary32`]'s. Nothing here is a float.
+///
+/// # Errors
+///
+/// [`ExactError::DecimalRefused`] for text that is not such a decimal, for a
+/// mantissa of 19 digits or more, an exponent past 999, a value past 2^63,
+/// or more than 72 places below the point.
+pub fn decimal_binary32(text: &[u8]) -> Result<u32, ExactError> {
+    let decimal = read_decimal(text)?;
+    let fed = decimal.fed()?;
+    if decimal.down > 72 {
+        return Err(ExactError::DecimalRefused);
+    }
+    let stage = |skipped: u32| 10u64.pow(decimal.down.saturating_sub(skipped).min(18));
+    let divisors = [stage(0), stage(18), stage(36), stage(54)];
+    let mut left = [0u64; 4];
+    let (mut quotient, mut step) = (0u64, 0u32);
+    while step < 420 && quotient < 1 << 52 {
+        let mut bit = if step < 64 {
+            (fed >> (63 - step)) & 1
+        } else {
+            0
+        };
+        for (carried, divisor) in left.iter_mut().zip(divisors) {
+            let t = 2 * *carried + bit;
+            bit = u64::from(t >= divisor);
+            *carried = if t >= divisor { t - divisor } else { t };
+        }
+        quotient = 2 * quotient + bit;
+        step += 1;
+    }
+    let unread = match step {
+        0 => fed != 0,
+        1..=63 => fed & ((1u64 << (64 - step)) - 1) != 0,
+        _ => false,
+    };
+    let sticky = left.iter().any(|&r| r != 0) || unread;
+    // The value is (2 quotient + sticky) * 2^(63 - step); below 2^-246 it is
+    // zero, as the kernel's rounding makes it.
+    let exponent = 63 - step as i32;
+    if exponent < -300 {
+        return Ok(0);
+    }
+    let mut row = Row::ZERO;
+    row.add_scaled(
+        u128::from(2 * quotient + u64::from(sticky)),
+        exponent,
+        false,
+    );
+    Ok(round_to_binary32(&row))
+}
+
+/// The whole number a decimal's text names, as decision 49 confirms it: the
+/// mantissa times a power of ten, or divided by one that divides it exactly.
+///
+/// # Errors
+///
+/// [`ExactError::DecimalRefused`] for text that is not a decimal, a value
+/// past 2^63, or one that is not whole.
+pub fn decimal_whole(text: &[u8]) -> Result<u64, ExactError> {
+    let decimal = read_decimal(text)?;
+    let fed = decimal.fed()?;
+    if fed == 0 || decimal.down == 0 {
+        return Ok(fed);
+    }
+    let divisor = 10u64
+        .checked_pow(decimal.down)
+        .filter(|_| decimal.down <= 18);
+    match divisor {
+        Some(d) if fed % d == 0 => Ok(fed / d),
+        _ => Err(ExactError::DecimalRefused),
+    }
 }
 
 /// An input vector on eight-bit integers: `codes[i] * 2^-exponent` stands for
@@ -1968,6 +2123,71 @@ pub fn rope_angle(position: u32, frequency: u64) -> u32 {
     let (whole, rest) = (turns >> 32, turns & 0xffff_ffff);
     let up = rest > 1 << 31 || (rest == 1 << 31 && whole & 1 == 1);
     (whole + u64::from(up)) as u32
+}
+
+/// The tolerance a rotary cache entry is held to, in units of `2^-30`: `2^-9`,
+/// about `1.95e-3`. Llama 3.2's f16 cache agrees with its own parameters
+/// within about `2.4e-4` and with plain frequencies only to about 2.
+pub const ROTARY_TOLERANCE: u32 = 1 << 21;
+
+/// Whether the f16 `half` lies within `tolerance` of `reference`, both in
+/// units of `2^-30`, as decision 50 confirms it: the half read exactly as an
+/// integer times a power of two, compared in integers.
+///
+/// # Errors
+///
+/// [`ExactError::InputNotFinite`] for an infinity or a NaN.
+pub fn rotary_agrees(half: u16, reference: i32, tolerance: u32) -> Result<bool, ExactError> {
+    let d = Dyadic::from_binary16(half).ok_or(ExactError::InputNotFinite)?;
+    // A half's exponent is at least -24, so the shift is at least 6.
+    let value = d.mantissa << (d.exponent + 30);
+    Ok((value - i128::from(reference)).unsigned_abs() <= u128::from(tolerance))
+}
+
+/// The first of `candidates` whose rotary angles the export's own f16 cos and
+/// sin cache agree with, entry by entry, at each of `positions`: the engine's
+/// own frequencies (EN-48), angles and quarter-wave table (EN-45), each entry
+/// held to [`ROTARY_TOLERANCE`] by [`rotary_agrees`]. `width` is the cache's
+/// row length, half the head size. `Ok(None)` when none agrees.
+///
+/// # Errors
+///
+/// [`ExactError::LengthMismatch`] for a cache shorter than a position asks or
+/// a width other than half the head size, and [`ExactError::InputNotFinite`]
+/// for an entry that is not a finite number.
+pub fn rotary_confirm(
+    cos: &[u16],
+    sin: &[u16],
+    width: usize,
+    positions: &[u32],
+    head_dim: u32,
+    theta: u64,
+    candidates: &[RopeScaling],
+) -> Result<Option<usize>, ExactError> {
+    if width * 2 != head_dim as usize {
+        return Err(ExactError::LengthMismatch);
+    }
+    for (index, &scaling) in candidates.iter().enumerate() {
+        let Some(frequencies) = rope_frequencies(head_dim, theta, scaling) else {
+            continue;
+        };
+        let mut agrees = true;
+        for &position in positions {
+            let row = position as usize * width;
+            let (Some(c), Some(s)) = (cos.get(row..row + width), sin.get(row..row + width)) else {
+                return Err(ExactError::LengthMismatch);
+            };
+            for (i, &f) in frequencies.iter().enumerate() {
+                let angle = rope_angle(position, f);
+                agrees &= rotary_agrees(c[i], cosine_turn(angle), ROTARY_TOLERANCE)?
+                    && rotary_agrees(s[i], sine_turn(angle), ROTARY_TOLERANCE)?;
+            }
+        }
+        if agrees {
+            return Ok(Some(index));
+        }
+    }
+    Ok(None)
 }
 
 /// LayerNorm in integers. Values, weights and biases are in units of `2^-16`,

@@ -1931,6 +1931,82 @@
           "value": 333
         }
       }
+    },
+    "49": {
+      "name": "Config number",
+      "asks": "Is this the binary32, or the whole number, a config number written in decimal names?",
+      "fields": {
+        "1": {
+          "name": "Asked for",
+          "choice": [
+            [
+              "the nearest binary32",
+              0
+            ],
+            [
+              "a whole number",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "2": {
+          "name": "Claimed bits or whole number",
+          "value": 897988541
+        },
+        "10": {
+          "name": "Text, bytes 1 to 8",
+          "value": 3559300765593894912
+        },
+        "18": {
+          "name": "Text, bytes 9 to 16",
+          "value": 0
+        },
+        "26": {
+          "name": "Text, bytes 17 to 24",
+          "value": 0
+        },
+        "34": {
+          "name": "Text, bytes 25 to 32",
+          "value": 0
+        },
+        "42": {
+          "name": "Text, bytes 33 to 40",
+          "value": 0
+        }
+      }
+    },
+    "50": {
+      "name": "Rotary cache entry",
+      "asks": "Does this f16 from the export's cos or sin cache lie within the tolerance of the engine's own value?",
+      "fields": {
+        "1": {
+          "name": "Cache entry, f16 bits",
+          "value": 15360
+        },
+        "3": {
+          "name": "Reference, 1 for negative",
+          "choice": [
+            [
+              "positive",
+              0
+            ],
+            [
+              "negative",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "4": {
+          "name": "Reference, units of 2^-30",
+          "value": 1073741824
+        },
+        "8": {
+          "name": "Tolerance, units of 2^-30",
+          "value": 2097152
+        }
+      }
     }
   }
 }
