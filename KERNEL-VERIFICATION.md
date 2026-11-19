@@ -1672,24 +1672,24 @@ not negative; and `pos_sum_32` and `neg_sum_32`, that each side is at most
 sum can overflow. The bound counts an activation as at most 2^16, so it is
 twice the real one; it is still far inside 2^31.
 
-### Trusted, not proved: mulB is the native multiply
+### The product is proved, not trusted
 
-The pinned lexlean 0.3.0 cannot reason about `prim multiply` of two variables.
-So the shipped stage multiplies natively through one definition, `times`, and
-the proofs are about a copy of the stage in which `times` is
-`Engine.Word::mulB` over four bits, the shift-and-add product of row 15's
-library (KN-72). `kernel_kn_57` checks that every other definition of the copy
-is the stage's, word for word. The step from the copy to the shipped stage is
-the assumption that `mulB` over four bits equals the native product for a
-multiplier below 16. It is trusted, not proved, as decided on 2026-11-19; a
-pinned LexLean that can reason about `prim multiply` would let it be proved.
+The pinned lexlean 0.3.0 cannot reason about `prim multiply` of two
+variables, but it can about a product by a numeral: `omega` reads `a * 3` as
+`3a`. S1's multiplier is a weight magnitude of at most 8, so `times_exact`
+splits on it nine ways (an induction nine deep) and proves, for every `a`, that
+the stage's native `times a w` equals `Engine.Word::mulB` over four bits, row
+15's shift-and-add product (KN-72); `times_bound` bounds it the same way. So the
+proofs are about the shipped stage itself, and no step from a proof copy to the
+shipped code is trusted. A stage whose multiplier is not small does not get
+this for free.
 
 ### The pinned test: `kernel_kn_57`
 
 | Planted defect | Result |
 | --- | --- |
-| the stage's `weightMag` changed (`n - 7`) and the copy left as it was | rejected: `the proofs' weightMag is not the stage's` |
-| the copy's `times` made the native multiply | rejected: `the proofs' copy multiplies by mulB` |
+| `times_exact` deleted | rejected: `times_exact is not declared` |
+| the stage's product changed to `prim multiply w a` | rejected: `the stage multiplies natively` |
 | none | passed |
 
 ## The examples in the compiled guest
