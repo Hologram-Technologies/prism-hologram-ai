@@ -252,12 +252,20 @@ definition{
 }
 
 definition{
+  name: chatLlamaTurn,
+  parameters: [role : Nat, content : Bytes],
+  result: Bytes,
+  body: (chatJoin (chatJoin (chatJoin (chatJoin (prim utf8_encode "<|start_header_id|>" : Bytes) (chatRoleName role)) (prim utf8_encode "<|end_header_id|>\n\n" : Bytes)) (chatTrim content)) (prim utf8_encode "<|eot_id|>" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
   name: chatLlamaTurns,
   parameters: [value : Bytes, index : Nat, remaining : Nat],
   result: Bytes,
   body: (match remaining
     | Nat.zero => (prim utf8_encode "" : Bytes)
-    | Nat.succ rest => (chatJoin (if ((index =? 0) && ((chatRoleAt value index) =? 0)) then (prim utf8_encode "" : Bytes) else (chatJoin (chatJoin (chatJoin (chatJoin (prim utf8_encode "<|start_header_id|>" : Bytes) (chatRoleName (chatRoleAt value index))) (prim utf8_encode "<|end_header_id|>\n\n" : Bytes)) (chatTrim (chatContentAt value index))) (prim utf8_encode "<|eot_id|>" : Bytes))) (chatLlamaTurns value (index + 1) rest))),
+    | Nat.succ rest => (chatJoin (if ((index =? 0) && ((chatRoleAt value index) =? 0)) then (prim utf8_encode "" : Bytes) else (chatLlamaTurn (chatRoleAt value index) (chatContentAt value index))) (chatLlamaTurns value (index + 1) rest))),
   axioms: [Quot.sound, propext],
   recursive_argument: remaining
 }
