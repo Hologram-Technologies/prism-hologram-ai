@@ -690,3 +690,41 @@ Feature: engine
     Then each output is within one unit of x Phi(x) computed by Python's math.erfc, recorded in the test
     And an input at or above 8 gives itself and one at or below -8 gives 0
     And gelu(x) - gelu(-x) is x within one unit, and exactly x for every even x
+
+  @EN-62 @build
+  Scenario: An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits
+    Given GP-13's BERT-shaped encoder, all-MiniLM-L6-v2's shape with q4f16 matrices and f16 tables, biases and norms, its weights by role, and the float reference's embeddings of its two sentences of 6 and 60 tokens
+    When hologram-ai-cpu-encode reads the weights and embeds each sentence twice
+    Then every component is within 2^-14 of the reference's and the embedding's length within 2^-20 of 1
+    And the second run gives the same bits
+
+  @EN-63 @build
+  Scenario: A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits
+    Given GP-14's DistilBERT-shaped classifier, SST-2's shape with two labels and an f16 dense head, and the float reference's scores for its two sentences
+    When hologram-ai-cpu-encode reads the weights and classifies each sentence twice
+    Then the label is the reference's and every score within 2^-10 of the reference's
+    And the second run gives the same bits
+
+  @FL-70 @build
+  Scenario: A role the encoder reads is missing, or its weight is not the shape or format the role needs
+    Given GP-13's encoder with its first layer's query matrix taken away, and with its first layer's feed-forward matrix given the wrong shape
+    When hologram-ai-cpu-encode reads the weights
+    Then each read is refused as Unrecognised, naming the attention and the feed-forward
+
+  @FL-71 @build
+  Scenario: An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number
+    Given GP-13's encoder with one scale of its first layer's query matrix stored as an f16 infinity
+    When a sentence is embedded
+    Then it is refused as Exact, naming ScaleNotFinite
+
+  @FL-72 @build
+  Scenario: A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0
+    Given GP-13's encoder with its word and position tables and its token-type row all zero, so every embedding row is equal
+    When a sentence is embedded with epsilon 0
+    Then it is refused as NormRefused at the embedding's LayerNorm
+
+  @FL-73 @build
+  Scenario: A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table
+    Given GP-13's encoder, whose vocabulary is 320 and position table 64
+    When an empty sentence, a sentence holding id 320, and one of 65 tokens are embedded
+    Then each is refused as TokenOutOfRange

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use hologram_ai_chat as chat;
+use hologram_ai_cpu_encode as encode;
 use hologram_ai_download as download;
 use hologram_ai_exact as exact;
 use hologram_ai_model_reader::{config, gguf as tensors, header, holk, onnx as import, Kernel};
@@ -10424,4 +10425,277 @@ fn engine_en_61() {
         343,
         "the reference table changed size"
     );
+}
+
+/// EN-62's bound on an embedding's component; 1.0e-5 measured on 2026-11-19.
+const EN_62_BOUND: f64 = 1.0 / 16384.0;
+/// EN-63's bound on a label score; 9.8e-5 measured on 2026-11-19.
+const EN_63_BOUND: f64 = 1.0 / 1024.0;
+
+/// GP-13 and GP-14's encoders and the float reference's outputs, from
+/// encoder-fixture.mjs: each tensor's bytes, kept so the model can borrow them.
+/// A tensor's bytes (codes and scales for a 4-bit matrix), rows, columns,
+/// and whether it is a 4-bit matrix.
+type En62Held = (Vec<u8>, Vec<u8>, usize, usize, bool);
+
+struct En62 {
+    bytes: BTreeMap<String, En62Held>,
+    heads: usize,
+    layers: usize,
+    sentences: Vec<Vec<u32>>,
+    reference: Vec<Vec<f64>>,
+}
+
+fn en_62_fixtures() -> (En62, En62) {
+    let ran = std::process::Command::new("node")
+        .arg(root().join("crates/conformance/tests/gpu/encoder-fixture.mjs"))
+        .output()
+        .expect("node runs");
+    assert!(
+        ran.status.success(),
+        "encoder-fixture.mjs failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(ran.stdout.trim_ascii_end())
+        .expect("encoder-fixture.mjs prints JSON");
+    let unhex = |v: &serde_json::Value| -> Vec<u8> {
+        let s = v.as_str().expect("hex");
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("hex"))
+            .collect()
+    };
+    let one = |kind: &str, outputs: &str| {
+        let f = &out[kind];
+        let bytes = f["tensors"]
+            .as_object()
+            .expect("tensors")
+            .iter()
+            .map(|(name, t)| {
+                let shape = (
+                    t["rows"].as_u64().expect("rows") as usize,
+                    t["columns"].as_u64().expect("columns") as usize,
+                );
+                let held = if t["kind"] == "q4" {
+                    (
+                        unhex(&t["codes"]),
+                        unhex(&t["scales"]),
+                        shape.0,
+                        shape.1,
+                        true,
+                    )
+                } else {
+                    (unhex(&t["bytes"]), Vec::new(), shape.0, shape.1, false)
+                };
+                (name.clone(), held)
+            })
+            .collect();
+        let numbers = |v: &serde_json::Value| -> Vec<Vec<f64>> {
+            v.as_array()
+                .expect("rows")
+                .iter()
+                .map(|r| {
+                    r.as_array()
+                        .expect("row")
+                        .iter()
+                        .map(|x| x.as_f64().expect("a number"))
+                        .collect()
+                })
+                .collect()
+        };
+        En62 {
+            bytes,
+            heads: f["dims"]["n_heads"].as_u64().expect("heads") as usize,
+            layers: f["dims"]["n_layers"].as_u64().expect("layers") as usize,
+            sentences: f["sentences"]
+                .as_array()
+                .expect("sentences")
+                .iter()
+                .map(|s| {
+                    s.as_array()
+                        .expect("ids")
+                        .iter()
+                        .map(|i| i.as_u64().expect("id") as u32)
+                        .collect()
+                })
+                .collect(),
+            reference: numbers(&f[outputs]),
+        }
+    };
+    (one("bert", "embed"), one("distil", "logits"))
+}
+
+fn en_62_tensors(f: &En62) -> BTreeMap<String, encode::Tensor<'_>> {
+    f.bytes
+        .iter()
+        .map(|(name, (a, b, rows, columns, q4))| {
+            let tensor = if *q4 {
+                encode::Tensor::Q4 {
+                    codes: a,
+                    scales: exact::Q4Scales::F16(b),
+                    rows: *rows,
+                    columns: *columns,
+                }
+            } else {
+                encode::Tensor::Dense {
+                    values: exact::Dense::F16(a),
+                    rows: *rows,
+                    columns: *columns,
+                }
+            };
+            (name.clone(), tensor)
+        })
+        .collect()
+}
+
+fn en_62_config(f: &En62) -> encode::Config {
+    // The fixtures' epsilon is 1e-12, 0 in units of 2^-32.
+    encode::Config {
+        heads: f.heads,
+        layers: f.layers,
+        epsilon: 0,
+    }
+}
+
+/// `EN-62`: An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits
+#[test]
+fn engine_en_62() {
+    let (bert, _) = en_62_fixtures();
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    let mut worst = 0f64;
+    for (ids, reference) in bert.sentences.iter().zip(&bert.reference) {
+        let embedding = encode::embed(&model, ids).expect("the sentence encodes");
+        assert_eq!(embedding.len(), reference.len());
+        let mut length = 0f64;
+        for (&bits, &want) in embedding.iter().zip(reference) {
+            // The yardstick, in the test only.
+            let got = f64::from(f32::from_bits(bits));
+            length += got * got;
+            worst = worst.max((got - want).abs());
+            assert!(
+                (got - want).abs() <= EN_62_BOUND,
+                "a component {got} is more than {EN_62_BOUND} from {want}"
+            );
+        }
+        assert!(
+            (length.sqrt() - 1.0).abs() <= 1.0 / 1_048_576.0,
+            "the embedding's length is {}",
+            length.sqrt()
+        );
+        assert_eq!(
+            encode::embed(&model, ids).expect("the sentence encodes again"),
+            embedding,
+            "a second run gave other bits"
+        );
+    }
+    println!("EN-62: largest component gap {worst:e}");
+}
+
+/// `EN-63`: A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits
+#[test]
+fn engine_en_63() {
+    let (_, distil) = en_62_fixtures();
+    let tensors = en_62_tensors(&distil);
+    let model = encode::read(&tensors, en_62_config(&distil)).expect("the classifier reads");
+    let mut worst = 0f64;
+    for (ids, reference) in distil.sentences.iter().zip(&distil.reference) {
+        let scores = encode::classify(&model, ids).expect("the sentence classifies");
+        assert_eq!(scores.len(), reference.len());
+        for (&bits, &want) in scores.iter().zip(reference) {
+            let got = f64::from(f32::from_bits(bits));
+            worst = worst.max((got - want).abs());
+            assert!(
+                (got - want).abs() <= EN_63_BOUND,
+                "a score {got} is more than {EN_63_BOUND} from {want}"
+            );
+        }
+        let want = reference.iter().enumerate().fold(
+            0,
+            |best, (i, &s)| if s > reference[best] { i } else { best },
+        );
+        assert_eq!(
+            encode::label(&scores),
+            Some(want as u32),
+            "the label is not the float reference's"
+        );
+        assert_eq!(
+            encode::classify(&model, ids).expect("the sentence classifies again"),
+            scores,
+            "a second run gave other bits"
+        );
+    }
+    println!("EN-63: largest score gap {worst:e}");
+}
+
+/// `FL-70`: A role the encoder reads is missing, or its weight is not the shape or format the role needs
+#[test]
+fn engine_fl_70() {
+    let (bert, _) = en_62_fixtures();
+    let mut tensors = en_62_tensors(&bert);
+    tensors.remove("l0.wq");
+    assert_eq!(
+        encode::read(&tensors, en_62_config(&bert)).err(),
+        Some(encode::EncodeError::Unrecognised(encode::Role::Attention))
+    );
+    let mut tensors = en_62_tensors(&bert);
+    if let Some(encode::Tensor::Q4 { rows, .. }) = tensors.get_mut("l0.w2") {
+        *rows += 1;
+    }
+    assert_eq!(
+        encode::read(&tensors, en_62_config(&bert)).err(),
+        Some(encode::EncodeError::Unrecognised(encode::Role::FeedForward))
+    );
+}
+
+/// `FL-71`: An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number
+#[test]
+fn engine_fl_71() {
+    let (mut bert, _) = en_62_fixtures();
+    if let Some((_, scales, ..)) = bert.bytes.get_mut("l0.wq") {
+        // An f16 infinity, 0x7c00, little-endian.
+        scales[0] = 0x00;
+        scales[1] = 0x7c;
+    }
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    assert_eq!(
+        encode::embed(&model, &bert.sentences[0]).err(),
+        Some(encode::EncodeError::Exact(
+            exact::ExactError::ScaleNotFinite
+        ))
+    );
+}
+
+/// `FL-72`: A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0
+#[test]
+fn engine_fl_72() {
+    let (mut bert, _) = en_62_fixtures();
+    for name in ["word", "position", "type"] {
+        if let Some((bytes, ..)) = bert.bytes.get_mut(name) {
+            bytes.fill(0);
+        }
+    }
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    assert_eq!(
+        encode::embed(&model, &bert.sentences[0]).err(),
+        Some(encode::EncodeError::NormRefused)
+    );
+}
+
+/// `FL-73`: A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table
+#[test]
+fn engine_fl_73() {
+    let (bert, _) = en_62_fixtures();
+    let tensors = en_62_tensors(&bert);
+    let model = encode::read(&tensors, en_62_config(&bert)).expect("the encoder reads");
+    for ids in [vec![], vec![1, 320, 2], vec![1; 65]] {
+        assert_eq!(
+            encode::embed(&model, &ids).err(),
+            Some(encode::EncodeError::TokenOutOfRange),
+            "{} tokens were not refused",
+            ids.len()
+        );
+    }
 }

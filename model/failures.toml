@@ -463,3 +463,35 @@ type = "ExactError"
 variant = "NoExactCodec"
 suite = "engine"
 condition = "A stored format has no exact codec, so it is refused by name instead of run approximately"
+
+[[failure]]
+id = "FL-70"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "Unrecognised"
+suite = "engine"
+condition = "A role the encoder reads is missing, or its weight is not the shape or format the role needs"
+
+[[failure]]
+id = "FL-71"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "Exact"
+suite = "engine"
+condition = "An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number"
+
+[[failure]]
+id = "FL-72"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "NormRefused"
+suite = "engine"
+condition = "A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0"
+
+[[failure]]
+id = "FL-73"
+crate = "cpu-encode"
+type = "EncodeError"
+variant = "TokenOutOfRange"
+suite = "engine"
+condition = "A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table"
