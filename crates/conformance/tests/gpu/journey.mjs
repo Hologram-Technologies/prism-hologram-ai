@@ -480,6 +480,15 @@ try {
     results.store.again = await onnxVisit(context, { variant: "store" });
     results.store.victim = victim.address;
     await context.close();
+    // With no free storage: the q4 graph after the q4f16 one. Decision 26 may
+    // drop kept tensors this load does not read, never one it reads.
+    {
+      const short = await browser.newContext();
+      await onnxVisit(short, { variant: "store" });
+      const noRoom = async (page) => page.addInitScript(() => { StorageManager.prototype.estimate = async () => ({ quota: 1000000, usage: 1000000 }); });
+      results.store.short = await onnxVisit(short, { variant: "store", precision: "q4", before: noRoom });
+      await short.close();
+    }
     for (const variant of ["unlisted", "lie"]) {
       const alone = await browser.newContext();
       results.store[variant] = await onnxVisit(alone, { variant });
@@ -834,6 +843,13 @@ const storeSaid = (run) => /^(\d+) tensors read here \((\d+) bytes\), (\d+) down
   answered("store again", again);
   const a = storeSaid(again);
   if (!a || a[2] < 1) fail(`store again: expected the forgotten tensors downloaded again, saw ${detail(again, "store")}`);
+  // Short of room: what the q4 load reads stays pinned; it answers.
+  const { short } = results.store;
+  answered("store short", short, onnx.q4.model);
+  const dropped = /, (\d+) dropped for room/.exec(detail(short, "kept"))?.[1];
+  if (!(Number(dropped) > 0)) fail(`store short: expected kept tensors the load does not read dropped for room, saw ${detail(short, "kept")}`);
+  const heldNames = new Set(short.held.map(([n]) => n));
+  for (const x of shared) if (!heldNames.has(x.address)) fail(`store short: ${x.name}, read by this load, was dropped for room`);
   if (unlisted.phase !== "failed" || !new RegExp(`^no tensor manifest: the hub's UOR index lists no tensors for ${onnx.repo}`).test(unlisted.error ?? "")) fail(`store unlisted: expected the model refused by name for want of a manifest, saw ${unlisted.phase}: ${unlisted.error}`);
   if (unlisted.checks.some((c) => ["file", "kept", "import"].includes(c.step)) || unlisted.sent.length) fail("store unlisted: the load read a file of a model the index does not list");
   if (lie.phase !== "failed" || !/decision 28 answered "refused"/.test(lie.error ?? "")) fail(`store lie: expected decision 28 to refuse an index whose address is not the bytes', saw ${lie.phase}: ${lie.error}`);

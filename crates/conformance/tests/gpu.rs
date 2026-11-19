@@ -1671,6 +1671,8 @@ fn gpu_gp_31() {
         ("crates/conformance/tests/gpu/journey.mjs", "store tampered: the changed tensor is still kept"),
         ("crates/conformance/tests/gpu/journey.mjs", "store unlisted: expected the model refused by name for want of a manifest"),
         ("crates/conformance/tests/gpu/journey.mjs", "store lie: bytes were kept from a load decision 28 refused"),
+        ("crates/conformance/tests/gpu/journey.mjs", "read by this load, was dropped for room"),
+        ("site/app/engine/files.mjs", "// What this load reads from here is pinned before decision 26 is asked"),
     ] {
         assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
     }
