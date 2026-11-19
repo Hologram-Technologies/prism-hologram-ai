@@ -6114,16 +6114,16 @@ fn import_model() -> (Vec<u8>, Vec<u8>, BTreeMap<&'static str, Vec<u8>>) {
 }
 
 /// The record of a file: its name, index, the data files declared, and the
-/// SHA-256 and length of `bytes`.
+/// BLAKE3 and length of `bytes`.
 fn import_record(name: &str, index: u8, bytes: &[u8]) -> import::File {
-    let mut whole = download::Whole::new();
+    let mut whole = download::Arriving::new();
     whole.take(bytes);
     import::File {
         name: name.to_string(),
         index,
         declared: 1,
         length: bytes.len() as u64,
-        root: whole.root(),
+        address: whole.label(),
     }
 }
 
@@ -6156,7 +6156,7 @@ fn blake3_of(bytes: &[u8]) -> download::Label {
     arriving.label()
 }
 
-/// `EN-31`: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives
+/// `EN-31`: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the BLAKE3 its record gives
 #[test]
 fn engine_en_31() {
     use hologram_ai_kernel_client::{admission, chunk, nbits, opname};
@@ -6223,9 +6223,9 @@ fn engine_en_31() {
     let (q4, scales) = (&model.tensors[0], &model.tensors[1]);
     let name = |n: &str| opname::name(n).expect("a short name");
     let roots = |bytes: &[u8]| {
-        let mut whole = download::Whole::new();
+        let mut whole = download::Arriving::new();
         whole.take(bytes);
-        whole.root().0
+        whole.label().0
     };
     let wanted: Vec<Vec<u8>> = vec![
         chunk::request(graph_file, q4.offset, 1024, 0).to_vec(),
@@ -6341,12 +6341,12 @@ fn engine_fl_44() {
     }
 }
 
-/// `FL-45`: The kernel refuses a whole file against the SHA-256 and length its record gives
+/// `FL-45`: The kernel refuses a whole file against the BLAKE3 and length its record gives
 #[test]
 fn engine_fl_45() {
     use hologram_ai_kernel_client::admission;
     let (graph, beside, _) = import_model();
-    // A record naming another SHA-256: the import puts the file's own to the
+    // A record naming another BLAKE3: the import puts the file's own to the
     // kernel beside it, and carries the kernel's refusal.
     let refuse = examples()
         .into_iter()
@@ -6363,7 +6363,7 @@ fn engine_fl_45() {
         }
     });
     let mut record = import_record("model.onnx", 0, &graph);
-    record.root = download::Root([7; 32]);
+    record.address = download::Label([7; 32]);
     let mut reading = import::Graph::new(record);
     reading.take(&graph, &mut kernel).expect("it reads");
     assert!(matches!(
@@ -6381,12 +6381,12 @@ fn engine_fl_45() {
     assert_eq!(
         &asked[1..33],
         &[7; 32],
-        "the record's SHA-256 is the expected one"
+        "the record's BLAKE3 is the expected one"
     );
     assert_eq!(
         &asked[33..65],
-        &import_record("model.onnx", 0, &graph).root.0,
-        "the file's own SHA-256 is the observed one"
+        &import_record("model.onnx", 0, &graph).address.0,
+        "the file's own BLAKE3 is the observed one"
     );
     let _ = beside;
 }
@@ -6840,7 +6840,7 @@ fn import_through_module(
         calls.push((name.to_string(), status, wasm::last_answer()));
         status == 0
     };
-    let root = import_record("model.onnx", 0, graph).root.0;
+    let root = import_record("model.onnx", 0, graph).address.0;
     let at = wasm::given(&root);
     let mut going = record(
         "onnx_start",
@@ -6856,7 +6856,7 @@ fn import_through_module(
         wasm::release(at);
     }
     if going && record("onnx_graph_finish", wasm::onnx_graph_finish()) {
-        let root = import_record("model.onnx_data", 1, beside).root.0;
+        let root = import_record("model.onnx_data", 1, beside).address.0;
         let at = wasm::given(&root);
         going = record(
             "onnx_data_start",
@@ -9885,4 +9885,52 @@ fn engine_en_48() {
         exact::rope_frequencies(64, 500_000, flat).is_none(),
         "a Llama 3 scaling with high at low was not refused"
     );
+}
+
+/// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
+#[test]
+fn engine_en_42() {
+    use hologram_ai_kernel_client::admission;
+    let (graph, beside, _) = import_model();
+    // The record gives the graph's BLAKE3; the import asks the kernel with it
+    // and with the BLAKE3 of the bytes that arrived, fed in pieces.
+    let record = import_record("model.onnx", 0, &graph);
+    let mut arriving = download::Arriving::new();
+    arriving.take(&graph);
+    assert_eq!(
+        record.address,
+        arriving.label(),
+        "the record names the graph by its BLAKE3"
+    );
+    let mut whole = download::Whole::new();
+    whole.take(&graph);
+    assert_ne!(
+        record.address.0,
+        whole.root().0,
+        "the address is not the graph's SHA-256"
+    );
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(record.clone());
+    for piece in graph.chunks(37) {
+        reading.take(piece, &mut kernel).expect("it reads");
+    }
+    reading
+        .finish(&mut kernel)
+        .expect("the kernel admits the graph");
+    let asked = kernel
+        .asked
+        .iter()
+        .find(|r| r[0] == 5)
+        .expect("the graph was asked about");
+    assert_eq!(
+        &asked[..],
+        &admission::request(
+            &record.address.0,
+            &arriving.label().0,
+            graph.len() as u64,
+            graph.len() as u64
+        )[..],
+        "the question is the record's BLAKE3 against the arrived bytes' BLAKE3"
+    );
+    let _ = beside;
 }

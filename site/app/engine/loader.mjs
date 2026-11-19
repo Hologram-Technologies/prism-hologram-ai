@@ -4,6 +4,8 @@
 // tokeniser are the wasm module's (crates/wasm); the verdicts are the kernel's
 // (app.holo). This module moves bytes between them and keeps the record.
 
+import { HubClientError, openIndex, readRecord } from "./hub/hub-client.mjs";
+
 const text = new TextDecoder();
 
 // The wasm module's calls, with bytes in and out through its linear memory.
@@ -115,21 +117,37 @@ export function asker(kernel, checks) {
   };
 }
 
-// The hub's record for a model, checked against the index root by the record's
-// SHA-256. The root's own signature is not checked here yet: that waits on the
-// hub's importable client.
+// The hub's record for a model, by the hub's own client (hub/VENDOR.md): the
+// index root checked by its Sigstore signature against the trust policy this
+// page pins (hub/policy.json, the hub model's own anchors), and the record by
+// the BLAKE3 the root names. A policy fetched from the hub would be vouched for
+// by the thing it is meant to check, so the page carries its own.
 export async function hubRecord({ indexBase, repo, checks }) {
-  const [owner, name] = repo.split("/");
-  const recordBytes = new Uint8Array(await (await fetch(`${indexBase}/models/${owner}/${name}.json`)).arrayBuffer());
-  const root = await (await fetch(`${indexBase}/root.json`)).json();
-  const entry = (root.records ?? []).find((r) => r.repo === repo);
-  const record = JSON.parse(text.decode(recordBytes));
-  const digest = await sha256(recordBytes);
-  const ok = !!entry && entry.sha256 === digest && entry.revision === record.revision;
-  checks.add("record", "hub record matches the index root", ok ? "pass" : "fail", `record sha256 ${digest}${entry ? "" : " (not in root)"}`);
-  checks.add("record", "index root signature", "not checked", "waits on the hub's client module");
-  if (!ok) throw new Error("the hub record does not match its index root");
-  return record;
+  const policy = await (await fetch(new URL("./hub/policy.json", import.meta.url))).json();
+  const { blake3Hex } = await import("../../vendor/prism-code/src/blake3.mjs");
+  const hash = async (input) => {
+    if (input instanceof Uint8Array) return blake3Hex(input);
+    const parts = [];
+    for await (const chunk of input) parts.push(chunk);
+    const whole = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    parts.reduce((at, p) => (whole.set(p, at), at + p.length), 0);
+    return blake3Hex(whole);
+  };
+  const base = new URL(`${indexBase.replace(/\/$/, "")}/`, location.href);
+  let index = null;
+  try {
+    index = await openIndex(base, policy, { hash });
+    checks.add("record", "index root signature", "pass", `signed by ${policy.identity}, logged at ${index.facts.signedAt}`);
+    const record = await readRecord(index, repo);
+    const entry = index.root.records.find((r) => r.repo.toLowerCase() === repo.toLowerCase());
+    checks.add("record", "hub record matches the index root", "pass", `record blake3 ${entry.blake3}`);
+    return record;
+  } catch (error) {
+    if (!(error instanceof HubClientError)) throw error;
+    const subject = index ? "hub record matches the index root" : "index root signature";
+    checks.add("record", subject, "fail", `${error.code}: ${error.message}`);
+    throw new Error(`${error.code}: ${error.message}`);
+  }
 }
 
 // Load the container at `url` (size and whole-file SHA-256 from the record)

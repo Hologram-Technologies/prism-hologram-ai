@@ -341,3 +341,11 @@ Feature: kernel
     Then a quotient is accepted exactly when KN-41's rqDownOk accepts it with the divisor as the step and the quotient witness times the divisor as the product
     And so its code is within half a divisor of the value, a tie gives the even code, and one witness has at most one code
     And the answer to decision 44 is exact or differs, and invalid request for any length but 20, a value of 2^62 or more, a divisor of 0 or 2^31 or more, a half witness of 2^30 or more or an odd bit above 1, so no number it computes passes 64 bits
+
+  @KN-45 @build
+  Scenario: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
+    Given the engine session in app/src/Engine/Session.lex.tex, built on decisions 35 and 36, and its proofs in app/src/Proofs/Session.lex.tex
+    When the Lean kernel checks the six session theorems during lexlean verify in the gate
+    Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
+    And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
+    And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change

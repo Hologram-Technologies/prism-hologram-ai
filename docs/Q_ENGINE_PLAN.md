@@ -355,13 +355,13 @@ Aims, reported and not gated: under 300 ms to the first token for a short prompt
 
 Kept in milestone 2: Qwen3-0.6B (now row 3), the browser-storage cache and the importable module of checkpoint 2 (rows 4 and 5), the 100 tokens per second aim. Moved to milestone 3: GGUF and safetensors import without a repack, Bonsai's own speed target, mixture of experts, diffusion, E8 codebook weights, layer streaming, constrained output and Bonsai 8B. Hologram AI's items (the proof carried by the package, the 25 examples, the SDK upgrade) keep their owner and are not displaced.
 
-### Open, for Ilya
+### Answered by Ilya on 2026-11-18
 
-1. A model with no manifest on the hub: refused (proposed), or addressed in the browser on first use and checked against Hugging Face's file hash only. The manifests themselves come from the hub index, whose first phase covers GGUF records and five ONNX ones; the ONNX repositories this milestone names must be among them. uor-addr has realisations for GGUF and ONNX and none yet for safetensors; that gap is the authority's to close (the hub plans an upstream change), and no local address is invented for safetensors meanwhile. Whether the browser re-derives a model's label itself (uor-addr compiled into the engine module, a new dependency) or takes it from the hub's attested row and checks only the tensors is open.
-2. The output head: ONNX 4-bit files keep it at 16 or 32 bits, about 470 MB read per token on Qwen2.5-1.5B by arithmetic, not yet measured. Proposed: the file as it is by default, and a 4-bit head derived in the browser as a measured option under its own address.
-3. The CPU path: GitHub Pages cannot enable threads, so a few tokens per second on a 0.5B model is expected. A size floor, and the named phone and its model.
-4. New dependencies: a Jinja library for chat templates; transformers.js and ONNX Runtime for comparison only.
-5. Download size: Qwen2.5-1.5B's ONNX q4 file is 1.79 GB and q4f16 1.22 GB, against 0.95 GB for the repacked container.
+1. A model with no manifest on the hub is refused by name (R5). No model is addressed in the browser on first use, and no local address is invented for safetensors while uor-addr has no realisation for it. Whether the browser re-derives a model's label itself or takes it from the hub's attested row and checks only the tensors is still open.
+2. The output head runs as the file has it, at 16 or 32 bits, by default. A 4-bit head derived in the browser is a measured option under its own address, never a silent replacement.
+3. Ilya will name the phone. Until he does, rows 8, 11 and 16 stay open. Qwen3-0.6B is the proposed model for the CPU path.
+4. Chat templates are defined and proved in LexLean: the subset the supported families use, with any other template refused by name. No Jinja library is added. transformers.js and ONNX Runtime are still used for comparison only.
+5. Download size stays informational: Qwen2.5-1.5B's ONNX q4 file is 1.79 GB and q4f16 1.22 GB, against 0.95 GB for the repacked container.
 
 ## Later milestones
 
