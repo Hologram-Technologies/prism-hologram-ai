@@ -3850,3 +3850,88 @@ fn kernel_kn_49() {
         ],
     );
 }
+
+/// `KN-70`: A file streams into the guest in chunks of any size, from 0 to 65535 bytes, and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
+#[test]
+fn kernel_kn_70() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Stream.lex.tex");
+    assert_pinned(
+        &proofs,
+        "stream_cut",
+        "((Engine.Stream::feed (Engine.Stream::feed state early) later) = (Engine.Stream::feed state (Engine.Stream::join early later)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "stream_reads_its_chunk",
+        "((Kernel.Stream::feedFrom fuel state value index) = (Engine.Stream::feed state (Kernel.Stream::chunkOf fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_0",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 0)))) = 0x61663133343962396635663961316136613034303464656133366463633934393962636232356339616463313132623763633961393363616534316633323632)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_1",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1)))) = 0x32643361646564666631316236316631346338383665333561666130333637333664636438376137346432376235633135313032323564306635393265323133)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_64",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 64)))) = 0x34656564373134316561346135636434623738383630366264323366343665323132616639636163656261636463376431663463366463376632353131623938)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_65",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 65)))) = 0x64653165356661306265373064663664326265386666666430653939636561613865623665386339336136336632643864316333306563623662323633646565)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "blake3_official_1025",
+        "((Engine.Blake3::hexDigest (Engine.Stream::digestOf (Engine.Stream::feed (Engine.Stream::initialState) (Engine.Stream::pattern 0 1025)))) = 0x64303032373861653437656232376233346661656366363762346665323633663832643534313239313663316666643937633863623766623831346238343434)",
+        "Quot.sound, propext",
+    );
+    let stream = model("app/src/Kernel/Stream.lex.tex");
+    let found = declaration(&stream, "streamAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (1748 + (prim multiply 1 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(hexValid 1744 value 0)")
+            && found.contains("(feedFrom (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 54 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    assert_routed(54, "Kernel.Stream::streamAnswer");
+    let hex = |bytes: &[u8]| -> Vec<u8> { bytes.to_vec() };
+    let request = |flags: u8, chunk: &[u8]| {
+        let mut r = vec![54, flags];
+        r.extend((chunk.len() as u16).to_be_bytes());
+        r.extend(std::iter::repeat_n(b'0', 1744));
+        r.extend(hex(chunk));
+        r
+    };
+    let pattern = |n: usize| (0..n).map(|i| (i % 251) as u8).collect::<Vec<u8>>();
+    assert_claimed(
+        54,
+        &[
+            (
+                request(2, &[]),
+                "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+            ),
+            (
+                request(2, &pattern(1)),
+                "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+            ),
+            (
+                request(2, &pattern(1025)),
+                "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+            ),
+            (request(4, &[]), "invalid request"),
+        ],
+    );
+}

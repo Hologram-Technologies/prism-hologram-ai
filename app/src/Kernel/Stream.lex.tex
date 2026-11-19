@@ -1,0 +1,107 @@
+\begin{lexlean}{Kernel.Stream}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Blake3}
+\importmodule{Engine.Stream}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: stateChar,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (4 + (prim multiply 1 index : Nat)) 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chunkByte,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (1748 + (prim multiply 1 index : Nat)) 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: nibble,
+  parameters: [char : Nat],
+  result: Nat,
+  body: (if (char <? 58) then (prim subtract char 48 : Nat) else (prim subtract char 87 : Nat))
+}
+
+definition{
+  name: hexValid,
+  parameters: [fuel : Nat, value : Bytes, index : Nat],
+  result: Bool,
+  body: (match fuel
+    | Nat.zero => true
+    | Nat.succ rest => (if (((47 <? (stateChar value index)) && ((stateChar value index) <? 58)) || ((96 <? (stateChar value index)) && ((stateChar value index) <? 103))) then (hexValid rest value (index + 1)) else false)),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: wordAt,
+  parameters: [value : Bytes, word : Nat],
+  result: Nat,
+  body: ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 0))) 16 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 1))) 1 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 2))) 4096 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 3))) 256 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 4))) 1048576 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 5))) 65536 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 6))) 268435456 : Nat) + (prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 7))) 16777216 : Nat)))))))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: digestAt,
+  parameters: [value : Bytes, origin : Nat],
+  result: Engine.Blake3::Digest,
+  body: (record Engine.Blake3::Digest {h0 := (Engine.Blake3::word32 (wordAt value (origin + 0))), h1 := (Engine.Blake3::word32 (wordAt value (origin + 1))), h2 := (Engine.Blake3::word32 (wordAt value (origin + 2))), h3 := (Engine.Blake3::word32 (wordAt value (origin + 3))), h4 := (Engine.Blake3::word32 (wordAt value (origin + 4))), h5 := (Engine.Blake3::word32 (wordAt value (origin + 5))), h6 := (Engine.Blake3::word32 (wordAt value (origin + 6))), h7 := (Engine.Blake3::word32 (wordAt value (origin + 7)))}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: bankOf,
+  parameters: [value : Bytes, origin : Nat],
+  result: Engine.Stream::Bank,
+  body: (record Engine.Stream::Bank {d0 := (digestAt value (origin + 0)), d1 := (digestAt value (origin + 8)), d2 := (digestAt value (origin + 16)), d3 := (digestAt value (origin + 24)), d4 := (digestAt value (origin + 32)), d5 := (digestAt value (origin + 40)), d6 := (digestAt value (origin + 48)), d7 := (digestAt value (origin + 56))}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: stateOf,
+  parameters: [value : Bytes],
+  result: Engine.Stream::HashState,
+  body: (record Engine.Stream::HashState {total := ((wordAt value 0) + (prim multiply (wordAt value 1) 4294967296 : Nat)), cv := (digestAt value 2), block := (record Engine.Blake3::Words {w0 := (Engine.Blake3::word32 (wordAt value 10)), w1 := (Engine.Blake3::word32 (wordAt value 11)), w2 := (Engine.Blake3::word32 (wordAt value 12)), w3 := (Engine.Blake3::word32 (wordAt value 13)), w4 := (Engine.Blake3::word32 (wordAt value 14)), w5 := (Engine.Blake3::word32 (wordAt value 15)), w6 := (Engine.Blake3::word32 (wordAt value 16)), w7 := (Engine.Blake3::word32 (wordAt value 17)), w8 := (Engine.Blake3::word32 (wordAt value 18)), w9 := (Engine.Blake3::word32 (wordAt value 19)), w10 := (Engine.Blake3::word32 (wordAt value 20)), w11 := (Engine.Blake3::word32 (wordAt value 21)), w12 := (Engine.Blake3::word32 (wordAt value 22)), w13 := (Engine.Blake3::word32 (wordAt value 23)), w14 := (Engine.Blake3::word32 (wordAt value 24)), w15 := (Engine.Blake3::word32 (wordAt value 25))}), b0 := (bankOf value 26), b1 := (bankOf value 90), b2 := (bankOf value 154)}),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: feedFrom,
+  parameters: [fuel : Nat, state : Engine.Stream::HashState, value : Bytes, index : Nat],
+  result: Engine.Stream::HashState,
+  body: (match fuel
+    | Nat.zero => state
+    | Nat.succ rest => (feedFrom rest (Engine.Stream::step state (chunkByte value index)) value (index + 1))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: chunkOf,
+  parameters: [fuel : Nat, value : Bytes, index : Nat],
+  result: (List Nat),
+  body: (match fuel
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (chunkByte value index) (chunkOf rest value (index + 1)))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: streamAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? (1748 + (prim multiply 1 (Kernel.Wire::fieldAt value 2 2) : Nat))) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && (hexValid 1744 value 0)) then (if ((prim quotient (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (Engine.Blake3::hexDigest (Engine.Stream::digestOf (feedFrom (Kernel.Wire::fieldAt value 2 2) (if ((prim remainder (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (stateOf value) else (Engine.Stream::initialState)) value 0))) else (Engine.Stream::stateHex (feedFrom (Kernel.Wire::fieldAt value 2 2) (if ((prim remainder (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (stateOf value) else (Engine.Stream::initialState)) value 0))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

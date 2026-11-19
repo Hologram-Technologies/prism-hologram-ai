@@ -1,0 +1,223 @@
+\begin{lexlean}{Engine.Stream}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Blake3}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+structure{
+  name: Bank,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: d0, type: Engine.Blake3::Digest},
+    {name: d1, type: Engine.Blake3::Digest},
+    {name: d2, type: Engine.Blake3::Digest},
+    {name: d3, type: Engine.Blake3::Digest},
+    {name: d4, type: Engine.Blake3::Digest},
+    {name: d5, type: Engine.Blake3::Digest},
+    {name: d6, type: Engine.Blake3::Digest},
+    {name: d7, type: Engine.Blake3::Digest}
+  ]
+}
+
+structure{
+  name: HashState,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: total, type: Nat},
+    {name: cv, type: Engine.Blake3::Digest},
+    {name: block, type: Engine.Blake3::Words},
+    {name: b0, type: Bank},
+    {name: b1, type: Bank},
+    {name: b2, type: Bank}
+  ]
+}
+
+definition{
+  name: zeroDigest,
+  parameters: [],
+  result: Engine.Blake3::Digest,
+  body: (record Engine.Blake3::Digest {h0 := (0 : UInt32), h1 := (0 : UInt32), h2 := (0 : UInt32), h3 := (0 : UInt32), h4 := (0 : UInt32), h5 := (0 : UInt32), h6 := (0 : UInt32), h7 := (0 : UInt32)})
+}
+
+definition{
+  name: zeroWords,
+  parameters: [],
+  result: Engine.Blake3::Words,
+  body: (record Engine.Blake3::Words {w0 := (0 : UInt32), w1 := (0 : UInt32), w2 := (0 : UInt32), w3 := (0 : UInt32), w4 := (0 : UInt32), w5 := (0 : UInt32), w6 := (0 : UInt32), w7 := (0 : UInt32), w8 := (0 : UInt32), w9 := (0 : UInt32), w10 := (0 : UInt32), w11 := (0 : UInt32), w12 := (0 : UInt32), w13 := (0 : UInt32), w14 := (0 : UInt32), w15 := (0 : UInt32)})
+}
+
+definition{
+  name: zeroBank,
+  parameters: [],
+  result: Bank,
+  body: (record Bank {d0 := (zeroDigest), d1 := (zeroDigest), d2 := (zeroDigest), d3 := (zeroDigest), d4 := (zeroDigest), d5 := (zeroDigest), d6 := (zeroDigest), d7 := (zeroDigest)})
+}
+
+definition{
+  name: initialState,
+  parameters: [],
+  result: HashState,
+  body: (record HashState {total := 0, cv := (Engine.Blake3::initial), block := (zeroWords), b0 := (zeroBank), b1 := (zeroBank), b2 := (zeroBank)})
+}
+
+definition{
+  name: bankWith,
+  parameters: [bank : Bank, index : Nat, chain : Engine.Blake3::Digest],
+  result: Bank,
+  body: (record Bank {d0 := (if (index =? 0) then chain else (project bank d0)), d1 := (if (index =? 1) then chain else (project bank d1)), d2 := (if (index =? 2) then chain else (project bank d2)), d3 := (if (index =? 3) then chain else (project bank d3)), d4 := (if (index =? 4) then chain else (project bank d4)), d5 := (if (index =? 5) then chain else (project bank d5)), d6 := (if (index =? 6) then chain else (project bank d6)), d7 := (if (index =? 7) then chain else (project bank d7))})
+}
+
+definition{
+  name: bankAt,
+  parameters: [bank : Bank, index : Nat],
+  result: Engine.Blake3::Digest,
+  body: (if (index =? 0) then (project bank d0) else (if (index =? 1) then (project bank d1) else (if (index =? 2) then (project bank d2) else (if (index =? 3) then (project bank d3) else (if (index =? 4) then (project bank d4) else (if (index =? 5) then (project bank d5) else (if (index =? 6) then (project bank d6) else (project bank d7))))))))
+}
+
+definition{
+  name: withHot,
+  parameters: [
+    state : HashState,
+    total : Nat,
+    cv : Engine.Blake3::Digest,
+    block : Engine.Blake3::Words
+  ],
+  result: HashState,
+  body: (record HashState {total := total, cv := cv, block := block, b0 := (project state b0), b1 := (project state b1), b2 := (project state b2)})
+}
+
+definition{
+  name: withSlot,
+  parameters: [state : HashState, index : Nat, chain : Engine.Blake3::Digest],
+  result: HashState,
+  body: (record HashState {total := (project state total), cv := (project state cv), block := (project state block), b0 := (if ((prim quotient index 8 0 : Nat) =? 0) then (bankWith (project state b0) (prim remainder index 8 0 : Nat) chain) else (project state b0)), b1 := (if ((prim quotient index 8 0 : Nat) =? 1) then (bankWith (project state b1) (prim remainder index 8 0 : Nat) chain) else (project state b1)), b2 := (if ((prim quotient index 8 0 : Nat) =? 2) then (bankWith (project state b2) (prim remainder index 8 0 : Nat) chain) else (project state b2))})
+}
+
+definition{
+  name: slotAt,
+  parameters: [state : HashState, index : Nat],
+  result: Engine.Blake3::Digest,
+  body: (if ((prim quotient index 8 0 : Nat) =? 0) then (bankAt (project state b0) (prim remainder index 8 0 : Nat)) else (if ((prim quotient index 8 0 : Nat) =? 1) then (bankAt (project state b1) (prim remainder index 8 0 : Nat)) else (bankAt (project state b2) (prim remainder index 8 0 : Nat))))
+}
+
+definition{
+  name: byteWord,
+  parameters: [byte : Nat, at : Nat],
+  result: UInt32,
+  body: (Engine.Blake3::shiftLeft (Engine.Blake3::wordBits 8 byte (1 : UInt32) (0 : UInt32)) (if ((prim remainder at 4 0 : Nat) =? 0) then (0 : UInt32) else (if ((prim remainder at 4 0 : Nat) =? 1) then (8 : UInt32) else (if ((prim remainder at 4 0 : Nat) =? 2) then (16 : UInt32) else (24 : UInt32))))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: placed,
+  parameters: [word : UInt32, fresh : Bool, here : Bool, put : UInt32],
+  result: UInt32,
+  body: (if here then (prim bit_or (if fresh then (0 : UInt32) else word) put : UInt32) else (if fresh then (0 : UInt32) else word)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: placeByte,
+  parameters: [block : Engine.Blake3::Words, at : Nat, byte : Nat, fresh : Bool],
+  result: Engine.Blake3::Words,
+  body: (let put : UInt32 := (byteWord byte at); (record Engine.Blake3::Words {w0 := (placed (project block w0) fresh ((prim quotient at 4 0 : Nat) =? 0) put), w1 := (placed (project block w1) fresh ((prim quotient at 4 0 : Nat) =? 1) put), w2 := (placed (project block w2) fresh ((prim quotient at 4 0 : Nat) =? 2) put), w3 := (placed (project block w3) fresh ((prim quotient at 4 0 : Nat) =? 3) put), w4 := (placed (project block w4) fresh ((prim quotient at 4 0 : Nat) =? 4) put), w5 := (placed (project block w5) fresh ((prim quotient at 4 0 : Nat) =? 5) put), w6 := (placed (project block w6) fresh ((prim quotient at 4 0 : Nat) =? 6) put), w7 := (placed (project block w7) fresh ((prim quotient at 4 0 : Nat) =? 7) put), w8 := (placed (project block w8) fresh ((prim quotient at 4 0 : Nat) =? 8) put), w9 := (placed (project block w9) fresh ((prim quotient at 4 0 : Nat) =? 9) put), w10 := (placed (project block w10) fresh ((prim quotient at 4 0 : Nat) =? 10) put), w11 := (placed (project block w11) fresh ((prim quotient at 4 0 : Nat) =? 11) put), w12 := (placed (project block w12) fresh ((prim quotient at 4 0 : Nat) =? 12) put), w13 := (placed (project block w13) fresh ((prim quotient at 4 0 : Nat) =? 13) put), w14 := (placed (project block w14) fresh ((prim quotient at 4 0 : Nat) =? 14) put), w15 := (placed (project block w15) fresh ((prim quotient at 4 0 : Nat) =? 15) put)})),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: pushChunk,
+  parameters: [
+    fuel : Nat,
+    index : Nat,
+    count : Nat,
+    chain : Engine.Blake3::Digest,
+    state : HashState
+  ],
+  result: HashState,
+  body: (match fuel
+    | Nat.zero => state
+    | Nat.succ rest => (if ((prim remainder count 2 0 : Nat) =? 0) then (withSlot state index chain) else (pushChunk rest (index + 1) (prim quotient count 2 0 : Nat) (Engine.Blake3::parent (slotAt state index) chain false) state))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: step,
+  parameters: [state : HashState, byte : Nat],
+  result: HashState,
+  body: (let moved : HashState := (if ((0 <? (project state total)) && ((prim remainder (project state total) 1024 0 : Nat) =? 0)) then (pushChunk 24 0 (prim subtract (prim quotient (project state total) 1024 0 : Nat) 1 : Nat) (Engine.Blake3::compress (project state cv) (project state block) (prim subtract (prim quotient (project state total) 1024 0 : Nat) 1 : Nat) (64 : UInt32) (2 : UInt32)) (withHot state (project state total) (Engine.Blake3::initial) (project state block))) else (if ((0 <? (project state total)) && ((prim remainder (project state total) 64 0 : Nat) =? 0)) then (withHot state (project state total) (Engine.Blake3::compress (project state cv) (project state block) (prim quotient (prim subtract (project state total) 64 : Nat) 1024 0 : Nat) (64 : UInt32) (if ((prim remainder (prim subtract (project state total) 64 : Nat) 1024 0 : Nat) =? 0) then (1 : UInt32) else (0 : UInt32))) (project state block)) else state)); (withHot moved ((project state total) + 1) (project moved cv) (placeByte (project moved block) (prim remainder (project state total) 64 0 : Nat) byte ((prim remainder (project state total) 64 0 : Nat) =? 0)))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: collapseSlots,
+  parameters: [
+    fuel : Nat,
+    index : Nat,
+    bits : Nat,
+    chain : Engine.Blake3::Digest,
+    state : HashState
+  ],
+  result: Engine.Blake3::Digest,
+  body: (match fuel
+    | Nat.zero => chain
+    | Nat.succ rest => (if (bits =? 0) then chain else (if ((prim remainder bits 2 0 : Nat) =? 1) then (if ((prim quotient bits 2 0 : Nat) =? 0) then (Engine.Blake3::parent (slotAt state index) chain true) else (collapseSlots rest (index + 1) (prim quotient bits 2 0 : Nat) (Engine.Blake3::parent (slotAt state index) chain false) state)) else (collapseSlots rest (index + 1) (prim quotient bits 2 0 : Nat) chain state)))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: digestOf,
+  parameters: [state : HashState],
+  result: Engine.Blake3::Digest,
+  body: (if ((project state total) =? 0) then (Engine.Blake3::compress (Engine.Blake3::initial) (zeroWords) 0 (0 : UInt32) (11 : UInt32)) else (if ((prim quotient (prim subtract (project state total) 1 : Nat) 1024 0 : Nat) =? 0) then (Engine.Blake3::compress (project state cv) (project state block) 0 (Engine.Blake3::word32 ((prim remainder (prim subtract (project state total) 1 : Nat) 64 0 : Nat) + 1)) (if ((prim remainder (prim subtract (project state total) 1 : Nat) 1024 0 : Nat) <? 64) then (11 : UInt32) else (10 : UInt32))) else (collapseSlots 24 0 (prim quotient (prim subtract (project state total) 1 : Nat) 1024 0 : Nat) (Engine.Blake3::compress (project state cv) (project state block) (prim quotient (prim subtract (project state total) 1 : Nat) 1024 0 : Nat) (Engine.Blake3::word32 ((prim remainder (prim subtract (project state total) 1 : Nat) 64 0 : Nat) + 1)) (if ((prim remainder (prim subtract (project state total) 1 : Nat) 1024 0 : Nat) <? 64) then (3 : UInt32) else (2 : UInt32))) state))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: feed,
+  parameters: [state : HashState, bytes : (List Nat)],
+  result: HashState,
+  body: (match bytes | List.nil => state | List.cons head tail => (feed (step state head) tail)),
+  axioms: [Quot.sound, propext],
+  recursive_argument: bytes
+}
+
+definition{
+  name: join,
+  parameters: [early : (List Nat), later : (List Nat)],
+  result: (List Nat),
+  body: (match early | List.nil => later | List.cons head tail => (cons head (join tail later))),
+  recursive_argument: early
+}
+
+definition{
+  name: pattern,
+  parameters: [from : Nat, count : Nat],
+  result: (List Nat),
+  body: (match count
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (prim remainder from 251 0 : Nat) (pattern (from + 1) rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: bankHex,
+  parameters: [bank : Bank],
+  result: Bytes,
+  body: (prim append (prim append (prim append (Engine.Blake3::hexDigest (project bank d0)) (Engine.Blake3::hexDigest (project bank d1)) : Bytes) (prim append (Engine.Blake3::hexDigest (project bank d2)) (Engine.Blake3::hexDigest (project bank d3)) : Bytes) : Bytes) (prim append (prim append (Engine.Blake3::hexDigest (project bank d4)) (Engine.Blake3::hexDigest (project bank d5)) : Bytes) (prim append (Engine.Blake3::hexDigest (project bank d6)) (Engine.Blake3::hexDigest (project bank d7)) : Bytes) : Bytes) : Bytes),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: stateHex,
+  parameters: [state : HashState],
+  result: Bytes,
+  body: (prim append (prim append (prim append (prim append (Engine.Blake3::hexWord (Engine.Blake3::word32 (prim remainder (project state total) 4294967296 0 : Nat))) (Engine.Blake3::hexWord (Engine.Blake3::word32 (prim quotient (project state total) 4294967296 0 : Nat))) : Bytes) (prim append (Engine.Blake3::hexDigest (project state cv)) (prim append (Engine.Blake3::hexWord (project (project state block) w0)) (Engine.Blake3::hexWord (project (project state block) w1)) : Bytes) : Bytes) : Bytes) (prim append (prim append (Engine.Blake3::hexWord (project (project state block) w2)) (prim append (Engine.Blake3::hexWord (project (project state block) w3)) (Engine.Blake3::hexWord (project (project state block) w4)) : Bytes) : Bytes) (prim append (Engine.Blake3::hexWord (project (project state block) w5)) (prim append (Engine.Blake3::hexWord (project (project state block) w6)) (Engine.Blake3::hexWord (project (project state block) w7)) : Bytes) : Bytes) : Bytes) : Bytes) (prim append (prim append (prim append (Engine.Blake3::hexWord (project (project state block) w8)) (Engine.Blake3::hexWord (project (project state block) w9)) : Bytes) (prim append (Engine.Blake3::hexWord (project (project state block) w10)) (prim append (Engine.Blake3::hexWord (project (project state block) w11)) (Engine.Blake3::hexWord (project (project state block) w12)) : Bytes) : Bytes) : Bytes) (prim append (prim append (Engine.Blake3::hexWord (project (project state block) w13)) (prim append (Engine.Blake3::hexWord (project (project state block) w14)) (Engine.Blake3::hexWord (project (project state block) w15)) : Bytes) : Bytes) (prim append (bankHex (project state b0)) (prim append (bankHex (project state b1)) (bankHex (project state b2)) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
