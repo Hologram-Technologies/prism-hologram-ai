@@ -5041,3 +5041,72 @@ fn kernel_kn_72() {
         "a product of two variables must be mulB, not prim multiply"
     );
 }
+
+/// `KN-58`: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word and the magnitude in units of 2^-24 as two little-endian limbs, multiplying by Engine.Word::mulB and doubling for the exponent; Lean proves, for every input, that the magnitude is below 2^64 whenever the group sum's magnitude is at most 2^24, that the two limbs are words that rejoin to it, and that a zero product is never negative
+#[test]
+fn kernel_kn_58() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/HalfScale.lex.tex");
+    let proofs = model("app/src/Proofs/StageHalfScale.lex.tex");
+    assert_pinned(
+        &proofs,
+        "size_bound",
+        "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::size w h) <? 18446744073709551616)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "core_bound",
+        "(((16777216 <? a) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) a b) <? 34359738368)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "shift_bound",
+        "(((34359738368 <=? x) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "limbs_rejoin",
+        "(((prim remainder s 4294967296 0 : Nat) + (prim multiply 4294967296 (prim quotient s 4294967296 0 : Nat) : Nat)) = s)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "size_low_is_word",
+        "((prim remainder s 4294967296 0 : Nat) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "size_high_is_word",
+        "((s < 18446744073709551616) -> ((prim quotient s 4294967296 0 : Nat) < 4294967296))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "scaled_zero_is_not_negative",
+        "(((Engine.Stage.HalfScale::size w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0))",
+        "Quot.sound, propext",
+    );
+    // The proofs read the stage itself, which has no product of two
+    // variables: its one multiply of a sum by a mantissa is Engine.Word::mulB,
+    // and the exponent is doubling.
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.HalfScale}")
+            && !proofs.contains("\n  name: size,"),
+        "the proofs must read the stage, not restate it"
+    );
+    assert!(
+        declaration(&stage, "size").contains(
+            "body: (shiftSteps (Engine.Word::mulB (eleven) (sumMag word) (mantissa half)) (prim subtract (exponent half) 1 : Nat) 29)"
+        ),
+        "size changed"
+    );
+    assert_eq!(
+        stage.matches("prim multiply").count(),
+        stage.matches("(prim multiply 2 value : Nat)").count(),
+        "the stage multiplies only by 2"
+    );
+}

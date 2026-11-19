@@ -469,3 +469,11 @@ Feature: kernel
     Then mul_splits, mul_left_additive, mul_left_scale and low_reads_low hold for every list of steps and every operand
     And product_from_halves and product_as_limbs hold for every two numbers, and low_limb_is_word, high_limb_is_word and the half-product bounds bound the limbs
     And limbs_add_with_carry, carry_weight_is_final_carry and added_limbs_are_words hold for every two lists of limbs and every carry
+
+  @KN-58 @build
+  Scenario: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word and the magnitude in units of 2^-24 as two little-endian limbs, multiplying by Engine.Word::mulB and doubling for the exponent; Lean proves, for every input, that the magnitude is below 2^64 whenever the group sum's magnitude is at most 2^24, that the two limbs are words that rejoin to it, and that a zero product is never negative
+    Given the stage in app/src/Engine/Stage/HalfScale.lex.tex and its proofs in app/src/Proofs/StageHalfScale.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageHalfScale in the gate
+    Then size_bound holds for every group sum word and every half: the magnitude is below 2^64 unless the sum's magnitude is above 2^24
+    And limbs_rejoin, size_low_is_word and size_high_is_word split a magnitude below 2^64 into two words that rejoin to it
+    And scaled_zero_is_not_negative holds for every input
