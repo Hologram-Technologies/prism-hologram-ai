@@ -38,3 +38,10 @@ id = "AUTH-UOR-MATMUL"
 level = "some-true"
 statement = "uor-matmul 0.1.0 returns the sum of products of two sequences of integers exactly (dot_ref, over i8 and i16), decodes a Grid code through its table, and its Offset codec subtracts a zero point within a checked bound; its Complete register adds a magnitude times a power of two with every bit kept. EN-34, EN-37 and EN-40 check the sums against sums written out independently; the other claims of the library are not established here."
 authority = "UOR-MATMUL"
+
+[[claim]]
+id = "OPEN-ENCODERS-INTEGER-AGREEMENT"
+level = "open"
+statement = "Row 9's encoders on hologram-ai-cpu-encode (EN-62, EN-63) against the float reference in crates/conformance/tests/gpu/encoder-reference.mjs (double precision, epsilon 1e-12, the same weights decoded exactly and the same ids), on the real exports Xenova/all-MiniLM-L6-v2@751bff3 and Xenova/distilbert-base-uncased-finetuned-sst-2-english@0b6928e, onnx/model_q4f16.onnx, each file checked against the BLAKE3 its hub record names, the weights placed by the page's encoderRoles (GP-17), five English sentences of 8 to 33 tokens tokenised by hologram-ai-tokenizer's WordPiece, 2026-11-19, WSL, release build, one thread. all-MiniLM-L6-v2 embedding: largest component gap 3.1e-5 to 5.4e-5, cosine to the float embedding 0.999999949 to 0.999999978. DistilBERT SST-2: the label equal to the float reference's on all five (POSITIVE, POSITIVE, NEGATIVE, POSITIVE, NEGATIVE), largest score gap 2.2e-5 to 5.8e-4. Every second run the same bits. 0.3 to 1.3 s per sentence for all-MiniLM-L6-v2 and 0.9 to 3.5 s for DistilBERT. The float reference is this repository's, not transformers.js or ONNX Runtime; the integer epsilon is 0, as 1e-12 is below one unit of 2^-32."
+sample_size = 10
+
