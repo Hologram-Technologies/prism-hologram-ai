@@ -551,3 +551,11 @@ type = "EncodeError"
 variant = "TokenOutOfRange"
 suite = "engine"
 condition = "A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table"
+
+[[failure]]
+id = "FL-74"
+crate = "wasm"
+type = "CallError"
+variant = "Encode"
+suite = "engine"
+condition = "An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure"

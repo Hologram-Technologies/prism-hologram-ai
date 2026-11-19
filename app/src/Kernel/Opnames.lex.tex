@@ -28,17 +28,24 @@ definition{
 }
 
 definition{
+  name: opnameEncoder,
+  parameters: [wa : Nat, wb : Nat, wc : Nat, wd : Nat],
+  result: Bool,
+  body: ((opnameIs wa wb wc wd 4712001061299159040 0 0 0) || ((opnameIs wa wb wc wd 4855288815335505920 0 0 0) || ((opnameIs wa wb wc wd 4859223896071864320 0 0 0) || ((opnameIs wa wb wc wd 4859223965108891252 0 0 0) || ((opnameIs wa wb wc wd 4929601009505796096 0 0 0) || ((opnameIs wa wb wc wd 5003909722269548544 0 0 0) || ((opnameIs wa wb wc wd 5004174286148075520 0 0 0) || ((opnameIs wa wb wc wd 5005874549588492288 0 0 0) || ((opnameIs wa wb wc wd 5143520241161207808 0 0 0) || ((opnameIs wa wb wc wd 5144638464259522560 0 0 0) || ((opnameIs wa wb wc wd 5575865689692700672 0 0 0) || ((opnameIs wa wb wc wd 5575865689692720706 7598824915118063616 0 0) || ((opnameIs wa wb wc wd 5581486060451397632 0 0 0) || ((opnameIs wa wb wc wd 5795982087332823040 0 0 0) || ((opnameIs wa wb wc wd 5937262139099401573 7020548869117181952 0 0) || ((opnameIs wa wb wc wd 5937270933524840448 0 0 0) || ((opnameIs wa wb wc wd 5937278575906415872 0 0 0) || ((opnameIs wa wb wc wd 6010160838084657152 0 0 0) || ((opnameIs wa wb wc wd 6011295478249947136 0 0 0) || ((opnameIs wa wb wc wd 6012136677800245248 0 0 0) || ((opnameIs wa wb wc wd 6012712820058095616 0 0 0) || ((opnameIs wa wb wc wd 6013820629562687488 0 0 0) || ((opnameIs wa wb wc wd 6085033173542006643 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6155984671800124794 7277816997830721536 0 0) || ((opnameIs wa wb wc wd 6298395620872814592 0 0 0) || false)))))))))))))))))))))))))
+}
+
+definition{
   name: opnameListed,
   parameters: [style : Nat, wa : Nat, wb : Nat, wc : Nat, wd : Nat],
   result: Bool,
-  body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else false))
+  body: (if (style =? 0) then (opnameDecomposed wa wb wc wd) else (if (style =? 1) then (opnameFused wa wb wc wd) else (if (style =? 2) then (opnameEncoder wa wb wc wd) else false)))
 }
 
 definition{
   name: opnameAnswer,
   parameters: [value : Bytes],
   result: Bytes,
-  body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode "supported" : Bytes) else (prim utf8_encode "unsupported operator" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 2)) then (if (opnameListed (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8)) then (prim utf8_encode "supported" : Bytes) else (prim utf8_encode "unsupported operator" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
   axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}

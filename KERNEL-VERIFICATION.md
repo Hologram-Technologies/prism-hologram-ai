@@ -54,7 +54,7 @@ The inherited gates and their own planted defects are in
 | `KN-22`: WebGPU exactly when `gpuUsable` holds, the CPU exactly when it does not and the model is within the ceiling, refused otherwise | `device_webgpu_decides`, `device_cpu_decides` and `device_refused_decides`, checked by the Lean kernel | proved |
 | The CPU ceiling is a size a CPU path can run usefully | the ceiling is a number the caller states; no CPU path exists yet to measure it against | not proved |
 | `KN-23`: a span is accepted exactly when its file is declared, it starts at or after the previous span's end and it ends within the file; two spans accepted in order do not overlap | `chunk_declared_decides`, `chunk_inside_decides` and `chunk_spans_disjoint`, checked by the Lean kernel | proved |
-| `KN-24`: a file is named exactly when the task is text generation, the precision is listed, at most 100 data files are declared and the part is at most that count | `source_named_decides`, `source_undeclared_decides` and `source_task_decides`, checked by the Lean kernel | proved |
+| `KN-24`: a file is named exactly when the task is text generation, feature extraction or text classification (0 to 2, KN-53), the precision is listed, at most 100 data files are declared and the part is at most that count | `source_named_decides`, `source_undeclared_decides` and `source_task_decides`, checked by the Lean kernel | proved |
 | The names are the ones transformers.js 4.3.2 reads: `onnx/model`, the precision's suffix, `.onnx`, then `_data` and `_data_1` onward | `sourceGraph` and `sourceName`, pinned by `kernel_kn_24`; text is outside the proof forms | tested, not proved |
 | `KN-25`: no stop id is met exactly when every listed id differs from the token; the budget is spent exactly when the tokens generated reach it | `stop_differs_decides`, `stop_none_from_decides` by induction over the list, and `stop_spent_decides`, checked by the Lean kernel | proved |
 | `KN-26`: evict exactly when the block is not pinned, a candidate remains and space is short; does not fit exactly when none remains and space is short; enough exactly when it is not short | `evict_decides`, `evict_does_not_fit_decides`, `evict_enough_decides` and `evict_short_decides`, checked by the Lean kernel | proved |
@@ -1462,10 +1462,13 @@ a request after close) are the proved theorems `session_refuses_*`.
 
 Decisions 49 and 50 (KN-50, KN-51) reached main after the audit with their
 refusals already in `claims.json`: `not a decimal`, `not whole` and `out of
-range` for decision 49, `not finite` for decision 50. Decisions registered in
-open pull requests are their authors' to cover: KN-46 and decision 45 (#85),
-KN-47 (#86), KN-49 and decision 48 (#96), KN-55 (#95), KN-70 (#97); and KN-52
-and KN-53 come with row 9's pull request.
+range` for decision 49, `not finite` for decision 50. So did decision 45
+(KN-46, #85), with `refused: unknown template`; KN-55 (#95) is a stage, not a
+routed decision. KN-52 and KN-53, decisions 18 and 24 widened, are covered in
+their section. Decision 70 (KN-70, #97) came with its refusals: unsupported
+task, device and dtype, sampling, beam search and repetition penalty. Decisions
+registered in open pull requests are their authors' to cover: KN-47 (#86), and
+KN-49 and decision 48 (#96).
 
 Planted defect: the claim that decision 12 answers `cpu` for a largest buffer
 over the binding limit was changed to `webgpu`.
@@ -1478,6 +1481,39 @@ kernel replay: 1 of 195 claims answered otherwise
 
 Exit 1. Restored, the same command prints `kernel replay: the guest answers all
 195 claims as listed`.
+
+## KN-52 and KN-53, an encoder's operators and files
+
+Row 9 runs an embedding model and a classifier from the page, so their graphs
+must pass decision 18 and their files be named by decision 24.
+
+Decision 18 gains a third export style, 2, the encoder's: 25 operator names,
+the union of every node of Xenova's `onnx/model_q4f16.onnx` and
+`onnx/model_q4.onnx` for all-MiniLM-L6-v2 (751bff3) and
+distilbert-base-uncased-finetuned-sst-2-english (0b6928e), read on 2026-11-19
+from the graphs' node sections alone by Range request (the initializers begin
+inside the first 512 KB of all four; the bytes were deleted). Style 3 or more
+is still no question. The importer asks style 2 only when its caller says the
+graph is an encoder's (`onnx_start_encoder`), since an encoder's 4-bit weights
+name the fused domain as a decoder's do.
+
+Decision 24 names the files of tasks 1 (feature extraction) and 2 (text
+classification) as it names text generation's: Xenova's exports use the same
+`onnx/model<suffix>.onnx`. A task of 3 or more is answered `unsupported task`.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Style 2 asks exactly the encoder's list, and no style past 2 lists any name | the body of `opnameListed`, pinned by `kernel_kn_18`; the name comparison itself is `opname_is_decides`, proved. Two theorems were tried on the hosted verifier (tasks 102 to 137): each needs `if false = true` reduced, which `simplify` here will not do with the rewrites it admits, and `linear_arithmetic` does not split on a Boolean result. As for KN-18's two lists, the dispatch is not a theorem | tested, not proved |
+| The 25 names are the four graphs' | `kernel_kn_52` holds the names and checks the model's numbers are their bytes and that it lists no other | tested, not proved |
+| A file is named exactly for tasks 0 to 2; a task of 3 or more is refused | `source_named_decides`, `source_undeclared_decides`, `source_task_decides`, restated | proved (hosted verifier, task-135) |
+| Decisions 18 and 24 answer the new requests in the compiled guest | 9 claims in `claims.json`: `Erf` and `Gemm` supported in an encoder graph, `Erf` refused in a decomposed one and `GroupQueryAttention` in an encoder's, style 3 invalid; the two tasks' graph names, an undeclared part, task 3 refused | replayed on CI |
+
+### The pinned tests: `kernel_kn_52`, `kernel_kn_53`
+
+| Planted defect | Result |
+| --- | --- |
+| `Erf` taken out of `opnameEncoder` | rejected: `Erf is not in opnameEncoder` |
+| none | passed, with `kernel_kn_18` and `kernel_kn_24` pinning the widened bodies |
 
 ## KN-70, a transformers.js call
 
@@ -1506,6 +1542,45 @@ asks it before it loads and before each generation; it decides nothing itself.
 `gpu_gp_40` rejected a messages call answering a bare string (`transformers.mjs
 no longer has return [{ generated_text: [...input, ...] }]`), and passed once
 restored.
+
+## KN-60, a file streamed into the guest
+
+Row 14 of the plan: a model's files stream into the guest in chunks of any
+size, and the guest hashes them itself. The guest keeps no state between calls
+under the pinned SDK, so the state travels in the request: decision 54 reads
+`[54][flags][count, 2 bytes][state, 1744 lowercase hex characters][count
+bytes]`, folds the chunk into the state, and answers the next state as hex, or
+the file's BLAKE3 when flags say the chunk is the last. A page passes each
+answer back unchanged with the next chunk. A request is at most 8 KiB, so a
+chunk holds up to 6,444 bytes; `requestMaximum` and `guestAllocationMaximum`
+are 8,192 and `responseMaximum` 1,744. PrismPM requires one acceptance vector
+exactly at the allocation limit (PP2009), so the all-zero vector is 8,192
+bytes; a 64 KiB limit would put 128 KB of hex in the kernel's source.
+
+The hasher is BLAKE3 written as one step per byte (`Engine.Stream::step`), so
+where the chunks are cut cannot change the state. Its compression is LexLean
+stdlib's `Blake3` (LexLean main, not in the pinned 0.3.0), rewritten in
+`Engine.Blake3` so PrismPM's guest exporter takes it: the seven rounds
+unrolled rather than a lambda in `prim iterate`, a wrapping add from 16-bit
+halves rather than `checked_convert` between widths, and Nat to word by a bit
+loop. The tree of chunk chaining values is kept in 24 slots, slot `i` holding
+the subtree of `2^i` chunks when bit `i` of the chunk count is set, which
+covers files up to 16 GiB.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Feeding two lists of bytes one after the other gives the state that feeding them joined gives, for every state | `stream_cut` in `app/src/Proofs/Stream.lex.tex`, induction over the first list | proved by Lean in the gate |
+| The guest's loop over a request's chunk is that fold over the chunk's bytes | `stream_reads_its_chunk`, induction over the count | proved by Lean in the gate |
+| The digest is BLAKE3's | `blake3_official_0`, `_1`, `_64`, `_65` and `_1025`: BLAKE3 1.5.5's official vectors, worked out by Lean; 2,049 bytes took 2 min 55 s locally and is left to the replay | checked on five vectors |
+| The compiled guest gives BLAKE3's hash at any chunk size | all 35 official vectors (0 to 102,400 bytes) through the generated Rust of decision 54, in chunks of 1 (up to 9,000 bytes), 7, 61, 64, 1,024, 1,025 and 65,535 bytes (the last past the 6,444-byte cap a request now has; the fold itself has none): 242 runs, 242 equal, locally; 8 claims in `claims.json` replayed through the compiled guest on CI, among them 1,025 bytes in one call and in calls of 1,000 and 25 | replayed on CI, run locally |
+| A maximal request fits the guest | 33,736 bytes allocated for a 65,535-byte chunk (ten times today's cap) by the generated Rust, against a bump allocator of 32 pages | measured locally |
+
+### The pinned test: `kernel_kn_60`
+
+| Planted defect | Result |
+| --- | --- |
+| the carried state checked for 1,743 hex characters instead of 1,744 | rejected: `decision 54 must check its length and state, and fold exactly its chunk` |
+| none | passed |
 
 ## The examples in the compiled guest
 
@@ -1600,9 +1675,10 @@ The answer has a ceiling of its own. The app declared `responseMaximum` 256,
 and the compiled guest traps on a longer answer: three Llama claims, 298, 312
 and 359 bytes long, failed the replay as `unreachable` while the rest passed.
 A render is at most 465 bytes (four turns of 14 bytes, the longest role
-name, the assistant prompt on), so the maximum is 512. Before it was raised,
-the guest was built locally with PrismPM's vendored exporter and code
-generator under lexlean 0.3.0, and it answered all 345 claims as listed.
+name, the assistant prompt on). Main has since raised `responseMaximum` to
+1744 for decision 54, which covers it. At 512, a guest built locally with
+PrismPM's vendored exporter and code generator under lexlean 0.3.0 answered
+all 345 claims then listed as listed.
 
 What is proved is the shape of the guards, not the render: that the
 definition renders a request as transformers does is checked on examples, in

@@ -41,5 +41,13 @@ const refusals = {
   labels: refusal(() => { const x = distil(); x.config.id2label = { 0: "NEGATIVE", 1: "NEUTRAL", 2: "POSITIVE" }; encoderRoles(x, x.config); }),
   unplaced: refusal(() => { const x = minilm(); const n = structuredClone(node(x, (n) => n[1] === "/encoder/layer.1/intermediate/dense/MatMul_Q4")); n[1] = "/encoder/layer.1/extra/dense/MatMul_Q4"; x.nodes.push(n); encoderRoles(x, x.config); }),
   width: refusal(() => { const x = minilm(); x.config.intermediate_size = 1024; encoderRoles(x, x.config); }),
+  // A float weight read by an unplaced Gather is refused, as any weight is.
+  floatIndex: refusal(() => { const x = minilm(); x.tensors.position_ids = ["f16", [1, 512]]; x.nodes.push(["Gather", "/embeddings/Gather", ["position_ids", null]]); encoderRoles(x, x.config); }),
 };
-console.log(JSON.stringify({ exports, refusals }));
+// The real export's position ids: an int64 constant /embeddings/Gather reads,
+// which indexes a weight and is not one, so it is placed nowhere and refused never.
+const indexed = minilm();
+indexed.tensors.position_ids = ["i64", [1, 512]];
+indexed.nodes.push(["Gather", "/embeddings/Gather", ["position_ids", null]]);
+const kept = refusal(() => encoderRoles(indexed, indexed.config));
+console.log(JSON.stringify({ exports, refusals, indexConstant: kept }));

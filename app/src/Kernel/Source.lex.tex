@@ -10,7 +10,7 @@ definition{
   name: sourceCode,
   parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
   result: Nat,
-  body: (if (task =? 0) then (if (precision <=? 3) then (if (declared <=? 100) then (if (part <=? declared) then 4 else 3) else 2) else 1) else 0)
+  body: (if (task <=? 2) then (if (precision <=? 3) then (if (declared <=? 100) then (if (part <=? declared) then 4 else 3) else 2) else 1) else 0)
 }
 
 definition{

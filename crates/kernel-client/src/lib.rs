@@ -743,6 +743,9 @@ pub mod opname {
         Decomposed,
         /// Those written as the runtime's fused extension operators.
         Fused,
+        /// A BERT-style encoder: layer norms written out, GELU by `Erf`, and
+        /// the classifier's dense layers as `Gemm`.
+        Encoder,
     }
 
     /// The kernel's verdict on an operator.
@@ -776,6 +779,7 @@ pub mod opname {
         out[1] = match style {
             Style::Decomposed => 0,
             Style::Fused => 1,
+            Style::Encoder => 2,
         };
         out[2..34].copy_from_slice(name);
         out
@@ -1102,13 +1106,35 @@ pub mod source {
         Invalid,
     }
 
+    /// The task the files are for, in decision 24's code.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Task {
+        /// `text-generation`.
+        TextGeneration,
+        /// `feature-extraction`: a sentence embedding.
+        FeatureExtraction,
+        /// `text-classification`: label scores.
+        TextClassification,
+    }
+
     /// The request for part `part` (0 the graph, then the data files) of the
     /// text-generation files at `precision`, with `declared` data files.
     #[must_use]
     pub fn request(precision: Precision, declared: u8, part: u8) -> [u8; 5] {
+        request_for(Task::TextGeneration, precision, declared, part)
+    }
+
+    /// The request for part `part` of `task`'s files at `precision`, with
+    /// `declared` data files.
+    #[must_use]
+    pub fn request_for(task: Task, precision: Precision, declared: u8, part: u8) -> [u8; 5] {
         [
             24,
-            0,
+            match task {
+                Task::TextGeneration => 0,
+                Task::FeatureExtraction => 1,
+                Task::TextClassification => 2,
+            },
             match precision {
                 Precision::Q4F16 => 0,
                 Precision::Q4 => 1,

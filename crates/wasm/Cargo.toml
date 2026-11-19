@@ -22,6 +22,7 @@ crate-type = ["cdylib", "rlib"]
 blake3 = { workspace = true }
 hologram-ai-download = { workspace = true }
 hologram-ai-cpu-decode = { workspace = true }
+hologram-ai-cpu-encode = { workspace = true }
 hologram-ai-exact = { workspace = true }
 hologram-ai-onnx-preflight = { workspace = true }
 hologram-ai-model-reader = { workspace = true }

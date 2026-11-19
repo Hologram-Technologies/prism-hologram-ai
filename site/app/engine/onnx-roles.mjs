@@ -34,6 +34,7 @@ const RULES = [
 // Operators that read a weight; one of these that no rule places is refused,
 // so no weight is silently left out.
 const WEIGHT_READERS = new Set(["MatMulNBits", "MatMul", "Gather", "Gemm"]);
+const INDEX_TYPES = new Set(["i64", "i32"]);
 
 const FAMILIES = new Set(["qwen2", "qwen3", "llama"]);
 
@@ -256,7 +257,9 @@ export function encoderRoles({ nodes, tensors }, config) {
   for (const [op, name, inputs, attr = {}] of nodes) {
     const rule = rules.find(([o, pattern]) => o === op && pattern.test(name));
     if (!rule) {
-      if (WEIGHT_READERS.has(op) && inputs.some(Boolean)) throw new Error(`unplaced: ${op} ${name} reads a weight no engine role takes`);
+      // An integer constant a node reads (MiniLM's position ids, read by
+      // /embeddings/Gather) indexes a weight; it is not one.
+      if (WEIGHT_READERS.has(op) && inputs.some((input) => input && !INDEX_TYPES.has(tensors[input]?.[0]))) throw new Error(`unplaced: ${op} ${name} reads a weight no engine role takes`);
       continue;
     }
     const m = name.match(rule[1]);

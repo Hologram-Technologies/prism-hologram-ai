@@ -823,3 +823,16 @@ Feature: engine
     Given GP-13's encoder, whose vocabulary is 320 and position table 64
     When an empty sentence, a sentence holding id 320, and one of 65 tokens are embedded
     Then each is refused as TokenOutOfRange
+
+  @EN-64 @build
+  Scenario: The page's module runs an encoder through hologram-ai-cpu-encode: given each weight by the role the page placed it in and the config's text, whose head and layer counts are whole numbers and whose LayerNorm epsilon is read from its decimal text in units of 2^-32, it answers a sentence's embedding, or a classifier's label scores and the first largest label chosen by comparing their bits as integers, bit for bit as hologram-ai-cpu-encode answers the same ids; and the ids and bits the page's journey must show (encoder-expected.json) are those
+    Given GP-13 and GP-14's encoders (seed 5) and the WordPiece tokenizer and config.json their page fixtures carry
+    When the page's module is handed every weight by its role and the config's text, and each fixture sentence's ids
+    Then encode_embed answers the embedding and encode_classify the label and the scores, bit for bit as hologram-ai-cpu-encode answers the same ids
+    And crates/conformance/tests/gpu/encoder-expected.json holds exactly those ids and bits, and an epsilon that is not a number is refused
+
+  @FL-74 @build
+  Scenario: An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure
+    Given GP-13's encoder with its first layer's query projection left out
+    When the page's module is asked to open it
+    Then encode_open says no with Encode(Unrecognised(Attention)), the encoder's own failure, where the page reads answers

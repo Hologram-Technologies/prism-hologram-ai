@@ -411,6 +411,20 @@ Feature: kernel
     Then the answer is agrees exactly when the two lie within the tolerance, and disagrees otherwise
     And an infinity or a NaN is answered not finite, and the theorems of Proofs.Rotary state the distance and are pinned with their axioms
 
+  @KN-52 @build
+  Scenario: An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english
+    Given the operator model in app/src/Kernel/Opnames.lex.tex and its proofs in app/src/Proofs/Opnames.lex.tex
+    When the kernel's tests read opnameEncoder and opnameListed, and the Lean kernel checks opname_is_decides during lexlean verify in the gate
+    Then style 2 asks the encoder list of 25 names, each the bytes of a name the four graphs use, and no style past 2 lists any name
+    And the compiled guest answers supported for Erf and Gemm in an encoder graph, unsupported operator for Erf in a decomposed graph and for GroupQueryAttention in an encoder graph, and invalid request for style 3, as the claims it replays list
+
+  @KN-53 @build
+  Scenario: Decision 24 names the files of feature extraction and text classification as it names those of text generation, and refuses any other task
+    Given the source model in app/src/Kernel/Source.lex.tex and its proofs in app/src/Proofs/Source.lex.tex
+    When the Lean kernel checks source_named_decides and source_task_decides during lexlean verify in the gate
+    Then tasks 0, 1 and 2 are named alike and a task of 3 or more is answered unsupported task
+    And the compiled guest answers onnx/model_q4f16.onnx for feature extraction and onnx/model_q4.onnx for text classification, as the claims it replays list
+
   @KN-55 @build
   Scenario: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
     Given the greedy stage in app/src/Engine/Stage/Greedy.lex.tex and its proofs in app/src/Proofs/StageGreedy.lex.tex
@@ -433,3 +447,10 @@ Feature: kernel
     When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
     Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
     And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests
+
+  @KN-60 @build
+  Scenario: A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
+    Given BLAKE3's compression in app/src/Engine/Blake3.lex.tex, the hasher as one step per byte in app/src/Engine/Stream.lex.tex, decision 54 in app/src/Kernel/Stream.lex.tex and its proofs in app/src/Proofs/Stream.lex.tex
+    When the Lean kernel checks stream_cut, stream_reads_its_chunk and the official vectors of 0, 1, 64, 65 and 1025 bytes during lexlean verify in the gate
+    Then feeding two chunks one after the other gives the state that feeding them joined gives, and the guest's loop over a chunk is that fold
+    And the app recipe replays through the compiled guest the empty and one-byte official hashes, 1025 bytes in one call and in two calls of 1000 and 25 with the state carried, each equal to the official hash, and three refused requests

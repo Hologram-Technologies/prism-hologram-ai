@@ -8,7 +8,7 @@
 theorem{
   name: source_named_decides,
   parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
-  statement: (((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task = 0) /\ ((precision <= 3) /\ ((declared <= 100) /\ (part <= declared))))),
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 4) <-> ((task <= 2) /\ ((precision <= 3) /\ ((declared <= 100) /\ (part <= declared))))),
   proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
@@ -16,7 +16,7 @@ theorem{
 theorem{
   name: source_undeclared_decides,
   parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
-  statement: (((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task = 0) /\ ((precision <= 3) /\ ((declared <= 100) /\ ((declared + 1) <= part))))),
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 3) <-> ((task <= 2) /\ ((precision <= 3) /\ ((declared <= 100) /\ ((declared + 1) <= part))))),
   proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
@@ -24,7 +24,7 @@ theorem{
 theorem{
   name: source_task_decides,
   parameters: [task : Nat, precision : Nat, declared : Nat, part : Nat],
-  statement: (((Kernel.Source::sourceCode task precision declared part) = 0) <-> (1 <= task)),
+  statement: (((Kernel.Source::sourceCode task precision declared part) = 0) <-> (3 <= task)),
   proof: linear_arithmetic{definitions: [Kernel.Source::sourceCode]},
   axioms: [Classical.choice, Quot.sound, propext]
 }
