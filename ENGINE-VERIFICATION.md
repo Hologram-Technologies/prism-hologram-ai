@@ -3119,7 +3119,7 @@ the module (GP-50).
 | --- | --- | --- |
 | A | WSL, `~/seal-a`, cargo home `~/.cargo` | `blake3:4eccff67…a706bfb6`, 2,028,201 bytes |
 | B | WSL, `~/seal-long-path-b`, a fresh cargo home `~/cargo-home-fresh-b`, `RUSTFLAGS="-C target-cpu=native"` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` in its environment | identical to A |
-| C | CI, `engine.yml` in the SDK image | CI_RESULT |
+| C, D | CI, `engine.yml` run 44635472863 in the SDK image (`/tmp` cargo homes, the runner's checkout path) | both identical to A: `two builds are the same 2028201 bytes`, `blake3:4eccff67…a706bfb6` |
 
 ### The gate: `just engine-twice`, run by `.github/workflows/engine.yml`
 
@@ -3134,6 +3134,8 @@ address, and anything else is a miss that builds twice in full.
 
 | Planted | Result |
 | --- | --- |
+| the registry remap left out of `engine-build` (commit ddfd5e5, reverted by 31c9882) | rejected on CI, `engine.yml` run 44636062255: `engine-twice: two builds of one tree differ (330796 bytes)` |
+| none, CI, run 44635472863 | passed: `two builds are the same 2028201 bytes`, `engine-seal` found the sealed address |
 | none, WSL, `just engine-twice` with two fresh cargo homes | passed: `two builds are the same 2028201 bytes`, `engine-seal` found `blake3:4eccff67…a706bfb6` |
 
 `cargo test -p repo-conformance --test engine -- engine_en_90 engine_en_26`
