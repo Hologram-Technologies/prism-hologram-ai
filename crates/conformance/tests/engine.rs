@@ -10174,7 +10174,7 @@ fn en_52_open(fixture: &En49) -> String {
     let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
     wasm::install_kernel(Box::new(Shared(kept)));
     let graph = &fixture.graph;
-    let root = import_record("model.onnx", 0, graph).root.0;
+    let root = import_record("model.onnx", 0, graph).address.0;
     let at = wasm::given(&root);
     assert_eq!(
         wasm::onnx_start(at, 32, graph.len() as u64, 0),
