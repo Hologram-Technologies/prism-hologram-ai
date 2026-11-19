@@ -62,6 +62,22 @@ fn assert_proofs_are_gated() {
         "app/src/Kernel holds the wire format and one module per decision: {found:?}"
     );
     modules.extend(found);
+    // The engine modules a decision imports are compiled into the same guest.
+    let mut at = 0;
+    while at < modules.len() {
+        for line in model(&modules[at]).lines() {
+            if let Some(engine) = line
+                .strip_prefix("\\importmodule{Engine.")
+                .and_then(|rest| rest.strip_suffix('}'))
+            {
+                let path = format!("app/src/Engine/{}.lex.tex", engine.replace('.', "/"));
+                if !modules.contains(&path) {
+                    modules.push(path);
+                }
+            }
+        }
+        at += 1;
+    }
 
     // The generated guest puts every executable module's declarations in one
     // Rust namespace, so a name declared in two of them does not compile.
@@ -75,7 +91,8 @@ fn assert_proofs_are_gated() {
         for line in text.lines() {
             let Some(name) = line
                 .strip_prefix("  name: ")
-                .and_then(|rest| rest.strip_suffix(','))
+                .or_else(|| line.strip_prefix("definition{name: "))
+                .and_then(|rest| rest.split(',').next())
             else {
                 continue;
             };
@@ -146,6 +163,14 @@ fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
 /// The lowercase hex of `text`, as an example's response is written in the model.
 fn hex(text: &str) -> String {
     text.bytes().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The bytes of lowercase hex `text`, for a request no crate builds yet.
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex"))
+        .collect()
 }
 
 /// `KN-05`: A buffer is admitted exactly when its expected and observed labels are equal and its declared and observed lengths are equal
@@ -1536,6 +1561,21 @@ fn kernel_kn_12() {
             && answer.contains("(if (gpuUsable (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8)) then (prim utf8_encode \"webgpu\" : Bytes) else (prim utf8_encode \"cpu\" : Bytes))"),
         "decision 12 must read 18 bytes at offsets 1, 2 and 10 and answer by gpuUsable:\n{answer}"
     );
+    // Decision 12 answers cpu when the largest buffer is over the binding limit, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            12,
+            &[
+                (unhex("0c0100000000000003e800000000000001f4"), "webgpu"),
+                (unhex("0c0100000000000001f400000000000003e8"), "cpu"),
+                (
+                    unhex("0c0100000000000003e800000000000001"),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(12, "Kernel.Backend::backendAnswer");
 }
 
@@ -1577,6 +1617,19 @@ fn kernel_kn_13() {
             && answer.contains("(prim utf8_encode \"bad shape\" : Bytes)"),
         "decision 13 must read 18 bytes at offsets 1, 2 and 10 and answer the length or bad shape:\n{answer}"
     );
+    // Decision 13 refuses columns that do not divide into groups with bad shape, and an unknown format or a short request as invalid.
+    {
+        use hologram_ai_kernel_client::blocks;
+        assert_claimed(
+            13,
+            &[
+                (blocks::request(0, 2, 64).to_vec(), "80"),
+                (blocks::request(0, 2, 33).to_vec(), "bad shape"),
+                (blocks::request(255, 2, 64).to_vec(), "invalid request"),
+                (blocks::request(0, 2, 64)[..17].to_vec(), "invalid request"),
+            ],
+        );
+    }
     assert_routed(13, "Kernel.Blocks::blockAnswer");
 }
 
@@ -1622,6 +1675,18 @@ fn kernel_kn_14() {
             .contains("(Kernel.Wire::fieldAt value (7 + (prim multiply 4 position : Nat)) 4)"),
         "score i is the four bytes at 7 + 4i"
     );
+    // Decision 14 answers not first maximum when an earlier score ties the best, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            14,
+            &[
+                (unhex("0e0000000005020000000500000003"), "first maximum"),
+                (unhex("0e0100000005020000000500000005"), "not first maximum"),
+                (unhex("0e00000000050200000005000000"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(14, "Kernel.Pick::pickAnswer");
 }
 
@@ -1655,6 +1720,18 @@ fn kernel_kn_15() {
         answer.contains("(if (clearFrom value 0 (Kernel.Wire::fieldAt value 7 1) (prim subtract (Kernel.Wire::fieldAt value 7 1) (Kernel.Wire::fieldAt value 1 2) : Nat) (Kernel.Wire::fieldAt value 3 4)) then (prim utf8_encode \"keep\" : Bytes) else (prim utf8_encode \"penalise\" : Bytes))"),
         "decision 15 must check the whole history against the window:\n{answer}"
     );
+    // Decision 15 answers penalise when the token is in the window, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            15,
+            &[
+                (unhex("0f000100000007020000000700000003"), "keep"),
+                (unhex("0f000100000007020000000300000007"), "penalise"),
+                (unhex("0f0001000000070200000007000000"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(15, "Kernel.Penalty::penaltyAnswer");
 }
 
@@ -1687,6 +1764,27 @@ fn kernel_kn_16() {
             && answer.contains("(if (agreesFrom value (Kernel.Wire::fieldAt value 1 1) 0 (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode \"commit\" : Bytes)"),
         "decision 16 must bound the count to 1..k+1 and check every draft:\n{answer}"
     );
+    // Decision 16 answers wrong count when the count stops at a draft that agrees, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            16,
+            &[
+                (
+                    unhex("1002030000000100000002000000010000000200000009"),
+                    "commit",
+                ),
+                (
+                    unhex("1002010000000100000002000000010000000200000009"),
+                    "wrong count",
+                ),
+                (
+                    unhex("10020300000001000000020000000100000002000000"),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(16, "Kernel.Speculate::speculateAnswer");
 }
 
@@ -1774,6 +1872,18 @@ fn kernel_kn_17() {
         "(signedText (ternaryCode (bitAt (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 2 1)) (bitAt (Kernel.Wire::fieldAt value 4 1) (Kernel.Wire::fieldAt value 2 1))) 1)",
     ] {
         assert!(answer.contains(wanted), "decision 17 must answer {wanted}:\n{answer}");
+    }
+    // Decision 17 answers invalid code for the unused 2-bit code, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            17,
+            &[
+                (unhex("1100000000000f"), "7"),
+                (unhex("11020000000003"), "invalid code"),
+                (unhex("11000000000f"), "invalid request"),
+            ],
+        );
     }
     assert_routed(17, "Kernel.Quant::quantAnswer");
 }
@@ -2129,6 +2239,21 @@ fn kernel_kn_20() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 12) then (if (nbitsShaped (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2)) then (Kernel.Wire::decimal (nbitsLength (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 2))) else (prim utf8_encode \"bad shape\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "nbitsAnswer changed:\n{found}"
     );
+    // Decision 20 refuses a block size it does not take with bad shape, and a short request as invalid.
+    {
+        use hologram_ai_kernel_client::nbits::{self, Part};
+        assert_claimed(
+            20,
+            &[
+                (nbits::request(Part::Codes, 2, 64, 32).to_vec(), "64"),
+                (nbits::request(Part::Codes, 2, 64, 48).to_vec(), "bad shape"),
+                (
+                    nbits::request(Part::Codes, 2, 64, 32)[..11].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(20, "Kernel.Nbits::nbitsAnswer");
 }
 /// `KN-21`: The precision chosen is the first offered one in the stated order that fits the budget, and none is chosen exactly when no offered one fits
@@ -2253,6 +2378,28 @@ fn kernel_kn_22() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 34) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (deviceText (deviceCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "deviceAnswer changed:\n{found}"
     );
+    // Decision 22 refuses a model with no adapter that is over the CPU ceiling, and a short request as invalid.
+    {
+        use hologram_ai_kernel_client::device;
+        assert_claimed(
+            22,
+            &[
+                (
+                    device::request(true, 1000, 500, 2000, 100).to_vec(),
+                    "webgpu",
+                ),
+                (device::request(false, 1000, 500, 50, 100).to_vec(), "cpu"),
+                (
+                    device::request(false, 1000, 500, 200, 100).to_vec(),
+                    "refused: too large for cpu",
+                ),
+                (
+                    device::request(false, 1000, 500, 200, 100)[..33].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(22, "Kernel.Device::deviceAnswer");
 }
 /// `KN-23`: A span in a model stored as several files is accepted exactly when its file is one the model declares, it follows the previous span, and it ends inside that file
@@ -2294,6 +2441,30 @@ fn kernel_kn_23() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 35) then (if (chunkDeclared (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (if (chunkInside (Kernel.Wire::fieldAt value 3 8) (Kernel.Wire::fieldAt value 11 8) (Kernel.Wire::fieldAt value 19 8) (Kernel.Wire::fieldAt value 27 8)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"reject\" : Bytes)) else (prim utf8_encode \"undeclared file\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "chunkAnswer changed:\n{found}"
     );
+    // Decision 23 rejects a span past the end of the file, refuses a file beyond those declared, and a short request as invalid.
+    {
+        use hologram_ai_kernel_client::chunk::{self, File};
+        let file = |index| File {
+            declared: 1,
+            index,
+            length: 100,
+        };
+        assert_claimed(
+            23,
+            &[
+                (chunk::request(file(1), 10, 20, 0).to_vec(), "accept"),
+                (chunk::request(file(1), 90, 20, 0).to_vec(), "reject"),
+                (
+                    chunk::request(file(2), 10, 20, 0).to_vec(),
+                    "undeclared file",
+                ),
+                (
+                    chunk::request(file(1), 10, 20, 0)[..34].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(23, "Kernel.Chunks::chunkAnswer");
 }
 /// `KN-24`: The file named for a task, precision and part is the one the export convention gives, and a part beyond the declared count is refused
@@ -2345,6 +2516,34 @@ fn kernel_kn_24() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 5) then (sourceText (sourceCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 1)) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 4 1)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "sourceAnswer changed:\n{found}"
     );
+    // Decision 24 refuses an undeclared part, too many files, a precision and a task it has no files for, and a short request.
+    {
+        use hologram_ai_kernel_client::source::{self, Precision};
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            24,
+            &[
+                (
+                    source::request(Precision::Q4, 1, 1).to_vec(),
+                    "onnx/model_q4.onnx_data",
+                ),
+                (
+                    source::request(Precision::Q4, 1, 2).to_vec(),
+                    "undeclared file",
+                ),
+                (
+                    source::request(Precision::Q4, 101, 1).to_vec(),
+                    "too many files",
+                ),
+                (unhex("1800ff0101"), "unsupported precision"),
+                (unhex("18ff010101"), "unsupported task"),
+                (
+                    source::request(Precision::Q4, 1, 1)[..4].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(24, "Kernel.Source::sourceAnswer");
 }
 /// `KN-25`: Generation stops exactly when the token is one of the stop ids of the model or the budget is spent, and a stop id is reported before the budget
@@ -2400,6 +2599,28 @@ fn kernel_kn_25() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? (14 + (prim multiply 4 (Kernel.Wire::fieldAt value 1 1) : Nat))) && ((Kernel.Wire::fieldAt value 1 1) <=? 16)) then (if (stopNoneFrom value 0 (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) then (if (stopSpent (Kernel.Wire::fieldAt value 6 4) (Kernel.Wire::fieldAt value 10 4)) then (prim utf8_encode \"stop: budget\" : Bytes) else (prim utf8_encode \"continue\" : Bytes)) else (prim utf8_encode \"stop: end token\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "stopAnswer changed:\n{found}"
     );
+    // Decision 25 stops on an end token or a spent budget, and refuses more stop ids than a request carries as invalid.
+    {
+        use hologram_ai_kernel_client::stop;
+        assert_claimed(
+            25,
+            &[
+                (stop::request(5, 1, 10, &[2]).bytes().to_vec(), "continue"),
+                (
+                    stop::request(2, 1, 10, &[2]).bytes().to_vec(),
+                    "stop: end token",
+                ),
+                (
+                    stop::request(5, 10, 10, &[2]).bytes().to_vec(),
+                    "stop: budget",
+                ),
+                (
+                    stop::request(5, 1, 10, &[2; 17]).bytes().to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(25, "Kernel.Stop::stopAnswer");
 }
 /// `KN-26`: A cached block is evicted exactly when it is not pinned and space is still short, and does not fit is answered exactly when no candidate remains and space is still short
@@ -2452,6 +2673,26 @@ fn kernel_kn_26() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 30) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (evictText (evictCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4) (Kernel.Wire::fieldAt value 6 8) (Kernel.Wire::fieldAt value 14 8) (Kernel.Wire::fieldAt value 22 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "evictAnswer changed:\n{found}"
     );
+    // Decision 26 keeps a pinned block, answers does not fit when no candidate is left, and refuses a short request.
+    {
+        use hologram_ai_kernel_client::evict;
+        assert_claimed(
+            26,
+            &[
+                (evict::request(false, 3, 10, 10, 0).to_vec(), "enough"),
+                (evict::request(false, 3, 100, 10, 0).to_vec(), "evict"),
+                (evict::request(true, 3, 100, 10, 0).to_vec(), "keep"),
+                (
+                    evict::request(false, 0, 100, 10, 0).to_vec(),
+                    "does not fit",
+                ),
+                (
+                    evict::request(false, 3, 100, 10, 0)[..29].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(26, "Kernel.Evict::evictAnswer");
 }
 /// `KN-27`: A computed prefix is reused exactly when its address equals the one asked for and it is shorter than the prompt
@@ -2487,6 +2728,28 @@ fn kernel_kn_27() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 73) then (if (reusable (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 4) (Kernel.Wire::fieldAt value 69 4)) then (prim utf8_encode \"reuse\" : Bytes) else (prim utf8_encode \"recompute\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "reuseAnswer changed:\n{found}"
     );
+    // Decision 27 recomputes under a different label or a prefix as long as the prompt, and refuses a short request.
+    {
+        use hologram_ai_kernel_client::reuse;
+        assert_claimed(
+            27,
+            &[
+                (reuse::request(&[1; 32], &[1; 32], 4, 10).to_vec(), "reuse"),
+                (
+                    reuse::request(&[1; 32], &[2; 32], 4, 10).to_vec(),
+                    "recompute",
+                ),
+                (
+                    reuse::request(&[1; 32], &[1; 32], 10, 10).to_vec(),
+                    "recompute",
+                ),
+                (
+                    reuse::request(&[1; 32], &[1; 32], 4, 10)[..72].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(27, "Kernel.Reuse::reuseAnswer");
 }
 /// `KN-28`: A model is ready exactly when the addresses admitted are the ones its manifest lists, every listed tensor is admitted, and it lists at least one
@@ -2511,6 +2774,31 @@ fn kernel_kn_28() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 81) then (if (Kernel.Admission::sameLabel (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33)) then (if (manifestComplete (Kernel.Wire::fieldAt value 65 8) (Kernel.Wire::fieldAt value 73 8)) then (prim utf8_encode \"ready\" : Bytes) else (prim utf8_encode \"incomplete\" : Bytes)) else (prim utf8_encode \"refused\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "manifestAnswer changed:\n{found}"
     );
+    // Decision 28 answers incomplete for a tensor not yet admitted, refused for a different label, and refuses a short request.
+    {
+        use hologram_ai_kernel_client::manifest;
+        assert_claimed(
+            28,
+            &[
+                (
+                    manifest::request(&[1; 32], &[1; 32], 3, 3).to_vec(),
+                    "ready",
+                ),
+                (
+                    manifest::request(&[1; 32], &[1; 32], 3, 2).to_vec(),
+                    "incomplete",
+                ),
+                (
+                    manifest::request(&[1; 32], &[2; 32], 3, 3).to_vec(),
+                    "refused",
+                ),
+                (
+                    manifest::request(&[1; 32], &[1; 32], 3, 3)[..80].to_vec(),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(28, "Kernel.Manifest::manifestAnswer");
 }
 /// `KN-29`: An exact sum is accepted exactly when the activation, weight and group bits together are no wider than the accumulator, and a wider accumulator or a shorter group never loses it
@@ -2547,6 +2835,18 @@ fn kernel_kn_29() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 5) then (if (exactFits (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 1)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"may overflow\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "exactAnswer changed:\n{found}"
     );
+    // Decision 29 answers may overflow when the bits exceed the accumulator, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            29,
+            &[
+                (unhex("1d08040520"), "exact"),
+                (unhex("1d08081120"), "may overflow"),
+                (unhex("1d080405"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(29, "Kernel.Exact::exactAnswer");
 }
 /// `KN-30`: A run is reproducible everywhere exactly when its products and every other stage are exact, on the same hardware exactly when it is not and its float reductions keep a fixed order, and otherwise not at all
@@ -2594,6 +2894,19 @@ fn kernel_kn_30() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 4) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1))) then (classText (classCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "classAnswer changed:\n{found}"
     );
+    // Decision 30 answers none for a run neither exact nor fixed in order, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            30,
+            &[
+                (unhex("1e010100"), "everywhere"),
+                (unhex("1e000101"), "same hardware"),
+                (unhex("1e000000"), "none"),
+                (unhex("1e0101"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(30, "Kernel.Determinism::classAnswer");
 }
 /// `KN-31`: A receipt is confirmed exactly when its model is ready, the run is comparable and the replayed output has the label it claims, a mismatch exactly when only the output differs, and otherwise not comparable
@@ -2630,6 +2943,19 @@ fn kernel_kn_31() {
         found.contains("body: (if (((((Foundation.Bytes::byteLength value) =? 68) && ((Kernel.Wire::fieldAt value 65 1) <=? 1)) && ((Kernel.Wire::fieldAt value 66 1) <=? 2)) && ((Kernel.Wire::fieldAt value 67 1) <=? 1)) then (receiptText (receiptCode (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 1) (Kernel.Wire::fieldAt value 66 1) (Kernel.Wire::fieldAt value 67 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "receiptAnswer changed:\n{found}"
     );
+    // Decision 31 answers mismatch for another output, not comparable for a model not ready, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            31,
+            &[
+                (unhex("1f01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010200"), "confirmed"),
+                (unhex("1f01010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202010200"), "mismatch"),
+                (unhex("1f01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101000200"), "not comparable"),
+                (unhex("1f010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010102"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(31, "Kernel.Receipt::receiptAnswer");
 }
 /// `KN-32`: A probe of a past answer replays exactly when its layer, position and component lie within the run and the run is comparable, approximately when they lie within it and the run is not, and is otherwise out of range
@@ -2673,6 +2999,31 @@ fn kernel_kn_32() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 21) && ((Kernel.Wire::fieldAt value 19 1) <=? 2)) && ((Kernel.Wire::fieldAt value 20 1) <=? 1)) then (probeText (probeCode (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 1) (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 1))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "probeAnswer changed:\n{found}"
     );
+    // Decision 32 answers approximate replay, out of range for a layer past the last, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            32,
+            &[
+                (
+                    unhex("200000000000000002000000000000000400010200"),
+                    "exact replay",
+                ),
+                (
+                    unhex("200000000000000002000000000000000400010100"),
+                    "approximate replay",
+                ),
+                (
+                    unhex("200000000200000002000000000000000400010200"),
+                    "out of range",
+                ),
+                (
+                    unhex("2000000000000000020000000000000004000102"),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(32, "Kernel.Probe::probeAnswer");
 }
 /// `KN-33`: A computed prefix is shared exactly when decision 27 reuses it and it was computed on this device or in a run that is comparable
@@ -2697,6 +3048,18 @@ fn kernel_kn_33() {
         found.contains("body: (if (((((Foundation.Bytes::byteLength value) =? 76) && ((Kernel.Wire::fieldAt value 73 1) <=? 1)) && ((Kernel.Wire::fieldAt value 74 1) <=? 2)) && ((Kernel.Wire::fieldAt value 75 1) <=? 1)) then (if (shareable (Kernel.Admission::labelAt value 1) (Kernel.Admission::labelAt value 33) (Kernel.Wire::fieldAt value 65 4) (Kernel.Wire::fieldAt value 69 4) (Kernel.Wire::fieldAt value 73 1) (Kernel.Wire::fieldAt value 74 1) (Kernel.Wire::fieldAt value 75 1)) then (prim utf8_encode \"reuse\" : Bytes) else (prim utf8_encode \"recompute\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "shareAnswer changed:\n{found}"
     );
+    // Decision 33 recomputes a borrowed prefix from a run that is not comparable, and refuses a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            33,
+            &[
+                (unhex("2101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101000000040000000a000000"), "reuse"),
+                (unhex("2101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101000000040000000a010000"), "recompute"),
+                (unhex("2101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101000000040000000a0000"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(33, "Kernel.Share::shareAnswer");
 }
 /// `KN-34`: One 32-wide block of signed 4-bit weight codes times int8 activations is confirmed exact exactly when the claimed sum, offset by 32768, equals the sum the kernel recomputes from the block, and differs otherwise
@@ -2848,6 +3211,18 @@ fn kernel_kn_35() {
         found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 8) then (if (addressBlake3 (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 2) (Kernel.Wire::fieldAt value 7 1)) then (prim utf8_encode \"blake3\" : Bytes) else (prim utf8_encode \"not blake3\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "addressAnswer changed:\n{found}"
     );
+    // Decision 35 answers not blake3 for another prefix, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            35,
+            &[
+                (unhex("23626c616b65333a"), "blake3"),
+                (unhex("237368613235363a"), "not blake3"),
+                (unhex("23626c616b6533"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(35, "Kernel.Address::addressAnswer");
 }
 
@@ -2885,6 +3260,18 @@ fn kernel_kn_36() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 3) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) && ((Kernel.Wire::fieldAt value 2 1) <=? 1)) then (if (integerRun (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1)) then (prim utf8_encode \"integer\" : Bytes) else (prim utf8_encode \"refused: not integer\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "integerAnswer changed:\n{found}"
     );
+    // Decision 36 answers refused: not integer when the rest is not exact, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            36,
+            &[
+                (unhex("240101"), "integer"),
+                (unhex("240100"), "refused: not integer"),
+                (unhex("2401"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(36, "Kernel.Integer::integerAnswer");
 }
 
@@ -3119,6 +3506,18 @@ fn kernel_kn_38() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 6) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && ((Kernel.Wire::fieldAt value 2 4) <? (codecWidth (Kernel.Wire::fieldAt value 1 1)))) then (codecText (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 4)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "codecAnswer changed:\n{found}"
     );
+    // Decision 38 refuses only as invalid request: a stored value too wide for its format, and a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            38,
+            &[
+                (unhex("260000000025"), "5 2"),
+                (unhex("260000000100"), "invalid request"),
+                (unhex("2600000025"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(38, "Kernel.Codec::codecAnswer");
 }
 /// `KN-39`: A step that narrows a value, exp, reciprocal square root, sine and cosine, SiLU, GELU or requantising, is accepted exactly when its input is at most 16 bits so its table is finite, its output is 1 to 32 bits, and its certified error is within its declared bound
@@ -3143,6 +3542,18 @@ fn kernel_kn_39() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 1 1) <=? 5)) then (if (narrowAccepted (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode \"accept\" : Bytes) else (prim utf8_encode \"refuse\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "narrowAnswer changed:\n{found}"
     );
+    // Decision 39 answers refuse when the certified bound exceeds the bound, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            39,
+            &[
+                (unhex("270108100000006400000032"), "accept"),
+                (unhex("2701081000000064000000c8"), "refuse"),
+                (unhex("2701081000000064000032"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(39, "Kernel.Narrow::narrowAnswer");
 }
 /// `KN-40`: One link of a row's exact recombination is confirmed exactly when the partial before it plus its up to six terms, each a unit sum times a scale mantissa times a power of two, signed, equals the claimed partial after it; a link whose numbers could pass 64 bits is too wide, and two confirmed links compose, so a chain of them confirms the plain sum
@@ -3252,6 +3663,19 @@ fn kernel_kn_40() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 79) && (((((((((Kernel.Wire::fieldAt value 1 1) <=? 1) && ((Kernel.Wire::fieldAt value 10 1) <=? 1)) && ((Kernel.Wire::fieldAt value 19 1) <=? 1)) && ((Kernel.Wire::fieldAt value 29 1) <=? 1)) && ((Kernel.Wire::fieldAt value 39 1) <=? 1)) && ((Kernel.Wire::fieldAt value 49 1) <=? 1)) && ((Kernel.Wire::fieldAt value 59 1) <=? 1)) && ((Kernel.Wire::fieldAt value 69 1) <=? 1))) then (if (((((((((Kernel.Wire::fieldAt value 2 8) <? 4611686018427387904) && ((Kernel.Wire::fieldAt value 11 8) <? 4611686018427387904)) && (rowsTermFits (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1))) && (rowsTermFits (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1))) then (if (rowsAccepts (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 0) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 0)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 0)) (((((((rowsPart (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 8) 1) + (rowsTermPart (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 20 4) (Kernel.Wire::fieldAt value 24 4) (Kernel.Wire::fieldAt value 28 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 29 1) (Kernel.Wire::fieldAt value 30 4) (Kernel.Wire::fieldAt value 34 4) (Kernel.Wire::fieldAt value 38 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 39 1) (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 4) (Kernel.Wire::fieldAt value 48 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 49 1) (Kernel.Wire::fieldAt value 50 4) (Kernel.Wire::fieldAt value 54 4) (Kernel.Wire::fieldAt value 58 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 4) (Kernel.Wire::fieldAt value 64 4) (Kernel.Wire::fieldAt value 68 1) 1)) + (rowsTermPart (Kernel.Wire::fieldAt value 69 1) (Kernel.Wire::fieldAt value 70 4) (Kernel.Wire::fieldAt value 74 4) (Kernel.Wire::fieldAt value 78 1) 1)) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 0) (rowsPart (Kernel.Wire::fieldAt value 10 1) (Kernel.Wire::fieldAt value 11 8) 1)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"too wide\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "rowsAnswer changed:\n{found}"
     );
+    // Decision 40 answers differs for a wrong sum, too wide for a value past its range, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            40,
+            &[
+                (unhex("28000000000000000005000000000000000011000000000200000003010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "exact"),
+                (unhex("28000000000000000005000000000000000012000000000200000003010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "differs"),
+                (unhex("28004000000000000000000000000000000011000000000200000003010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "too wide"),
+                (unhex("280000000000000000050000000000000000110000000002000000030100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(40, "Kernel.Rows::rowsAnswer");
 }
 /// `KN-41`: Up to five inputs of one group are confirmed put on sixteen-bit codes exactly when the group's power of two is the largest that keeps its largest input within 32767, and each code is its input at that power rounded to the nearest, ties to even, so within half a step of it; an input far below the step is code zero
@@ -3352,6 +3776,19 @@ fn kernel_kn_41() {
         found.contains("body: (if ((((((((Foundation.Bytes::byteLength value) =? 62) && ((Kernel.Wire::fieldAt value 5 1) <=? 1)) && (((Kernel.Wire::fieldAt value 11 1) <=? 1) && ((Kernel.Wire::fieldAt value 15 1) <=? 1))) && (((Kernel.Wire::fieldAt value 22 1) <=? 1) && ((Kernel.Wire::fieldAt value 26 1) <=? 1))) && (((Kernel.Wire::fieldAt value 33 1) <=? 1) && ((Kernel.Wire::fieldAt value 37 1) <=? 1))) && (((Kernel.Wire::fieldAt value 44 1) <=? 1) && ((Kernel.Wire::fieldAt value 48 1) <=? 1))) && (((Kernel.Wire::fieldAt value 55 1) <=? 1) && ((Kernel.Wire::fieldAt value 59 1) <=? 1))) then (if (rqLargest (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 1) (Kernel.Wire::fieldAt value 6 1)) then (if (((((rqElementOk (Kernel.Wire::fieldAt value 7 4) (Kernel.Wire::fieldAt value 11 1) (Kernel.Wire::fieldAt value 12 1) (Kernel.Wire::fieldAt value 13 2) (Kernel.Wire::fieldAt value 15 1) (Kernel.Wire::fieldAt value 16 2)) && (rqElementOk (Kernel.Wire::fieldAt value 18 4) (Kernel.Wire::fieldAt value 22 1) (Kernel.Wire::fieldAt value 23 1) (Kernel.Wire::fieldAt value 24 2) (Kernel.Wire::fieldAt value 26 1) (Kernel.Wire::fieldAt value 27 2))) && (rqElementOk (Kernel.Wire::fieldAt value 29 4) (Kernel.Wire::fieldAt value 33 1) (Kernel.Wire::fieldAt value 34 1) (Kernel.Wire::fieldAt value 35 2) (Kernel.Wire::fieldAt value 37 1) (Kernel.Wire::fieldAt value 38 2))) && (rqElementOk (Kernel.Wire::fieldAt value 40 4) (Kernel.Wire::fieldAt value 44 1) (Kernel.Wire::fieldAt value 45 1) (Kernel.Wire::fieldAt value 46 2) (Kernel.Wire::fieldAt value 48 1) (Kernel.Wire::fieldAt value 49 2))) && (rqElementOk (Kernel.Wire::fieldAt value 51 4) (Kernel.Wire::fieldAt value 55 1) (Kernel.Wire::fieldAt value 56 1) (Kernel.Wire::fieldAt value 57 2) (Kernel.Wire::fieldAt value 59 1) (Kernel.Wire::fieldAt value 60 2))) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"not the largest power\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "rqAnswer changed:\n{found}"
     );
+    // Decision 41 answers differs for a wrong code, not the largest power for a wrong scale, and invalid request for a short one.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            41,
+            &[
+                (unhex("2900000000000000000005010200000000140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "exact"),
+                (unhex("2900000000000000000005010200000000150000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "differs"),
+                (unhex("2900000001010000000005010200000000140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "not the largest power"),
+                (unhex("29000000000000000000050102000000001400000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(41, "Kernel.Requant::rqAnswer");
 }
 
@@ -3523,6 +3960,18 @@ fn kernel_kn_43() {
         found.contains("body: (if ((((Foundation.Bytes::byteLength value) =? 13) && ((Kernel.Wire::fieldAt value 1 8) <? 4611686018427387904)) && ((Kernel.Wire::fieldAt value 9 4) <? 2147483648)) then (if (rootOk (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 4)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "rootAnswer changed:\n{found}"
     );
+    // Decision 43 answers differs for a wrong root, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            43,
+            &[
+                (unhex("2b000000000000000a00000003"), "exact"),
+                (unhex("2b000000000000000a00000004"), "differs"),
+                (unhex("2b000000000000000a000003"), "invalid request"),
+            ],
+        );
+    }
     assert_routed(43, "Kernel.Root::rootAnswer");
 }
 
@@ -3553,6 +4002,21 @@ fn kernel_kn_44() {
         found.contains("body: (if ((((((Foundation.Bytes::byteLength value) =? 20) && ((Kernel.Wire::fieldAt value 1 8) <? 4611686018427387904)) && ((0 <? (Kernel.Wire::fieldAt value 9 4)) && ((Kernel.Wire::fieldAt value 9 4) <? 2147483648))) && ((Kernel.Wire::fieldAt value 13 4) <? 1073741824)) && ((Kernel.Wire::fieldAt value 17 1) <=? 1)) then (if (divideOk (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 18 2)) then (prim utf8_encode \"exact\" : Bytes) else (prim utf8_encode \"differs\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "divideAnswer changed:\n{found}"
     );
+    // Decision 44 answers differs for a quotient not rounded half to even, and invalid request for a short request.
+    {
+        // No crate builds this request yet, so the bytes follow the model's wire format.
+        assert_claimed(
+            44,
+            &[
+                (unhex("2c00000000000000070000000200000001010004"), "exact"),
+                (unhex("2c00000000000000070000000200000001010003"), "differs"),
+                (
+                    unhex("2c000000000000000700000002000000010100"),
+                    "invalid request",
+                ),
+            ],
+        );
+    }
     assert_routed(44, "Kernel.Divide::divideAnswer");
 }
 
@@ -3615,6 +4079,153 @@ fn kernel_kn_45() {
             && session.contains("\\importmodule{Kernel.Integer}"),
         "the session no longer builds on decisions 35 and 36"
     );
+}
+
+/// `KN-46`: A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it
+#[test]
+fn kernel_kn_46() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Template.lex.tex");
+    let proofs = model("app/src/Proofs/Template.lex.tex");
+    for (theorem, code, words) in [
+        (
+            "template_qwen25_decides",
+            1,
+            [
+                "8279920892041357147",
+                "1773128108353419947",
+                "11653179235714034099",
+                "12784695345153184910",
+            ],
+        ),
+        (
+            "template_qwen3_decides",
+            2,
+            [
+                "5043451083563981477",
+                "8438563855072365186",
+                "9276823912147443683",
+                "9407911508815075403",
+            ],
+        ),
+        (
+            "template_llama32_decides",
+            3,
+            [
+                "15723989467465989188",
+                "4968833967170122917",
+                "9281937141963328179",
+                "6782964158007752886",
+            ],
+        ),
+    ] {
+        let [a, b, c, d] = words;
+        assert_pinned(
+            &proofs,
+            theorem,
+            &format!("(((Kernel.Template::templateCode a b c d) = {code}) <-> ((((a = {a}) /\\ (b = {b})) /\\ (c = {c})) /\\ (d = {d})))"),
+            "Classical.choice, Quot.sound, propext",
+        );
+    }
+    assert_pinned(
+        &proofs,
+        "template_code_bounded",
+        "((Kernel.Template::templateCode a b c d) <= 3)",
+        "Quot.sound, propext",
+    );
+    // The words are the BLAKE3 of each template's text, as the exports carry it.
+    let templates = root().join("crates/conformance/tests/gpu/templates");
+    for (file, words) in [
+        (
+            "Qwen2.5-1.5B-Instruct.json",
+            "8279920892041357147 1773128108353419947 11653179235714034099 12784695345153184910",
+        ),
+        (
+            "Qwen3-0.6B-ONNX.json",
+            "5043451083563981477 8438563855072365186 9276823912147443683 9407911508815075403",
+        ),
+        (
+            "Llama-3.2-1B-Instruct-ONNX.json",
+            "15723989467465989188 4968833967170122917 9281937141963328179 6782964158007752886",
+        ),
+    ] {
+        let recorded: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(templates.join(file)).expect("the recorded template"),
+        )
+        .expect("JSON");
+        let text = recorded["template"].as_str().expect("a template");
+        let mut arriving = hologram_ai_download::Arriving::new();
+        arriving.take(text.as_bytes());
+        let hash = arriving.label().0;
+        let derived: Vec<String> = hash
+            .chunks(8)
+            .map(|w| u64::from_be_bytes(w.try_into().expect("eight bytes")).to_string())
+            .collect();
+        assert_eq!(
+            derived.join(" "),
+            words,
+            "{file}: the kernel names another template"
+        );
+        assert!(
+            kernel.contains(&derived.join(" ")),
+            "{file}: Kernel.Template does not list it"
+        );
+    }
+    let found = declaration(&kernel, "templateAnswer");
+    assert!(
+        found.contains("(if ((Foundation.Bytes::byteLength value) =? 33) then (templateText (templateCode (Kernel.Wire::fieldAt value 1 8) (Kernel.Wire::fieldAt value 9 8) (Kernel.Wire::fieldAt value 17 8) (Kernel.Wire::fieldAt value 25 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "templateAnswer changed:\n{found}"
+    );
+    assert_routed(45, "Kernel.Template::templateAnswer");
+    // The claims cover every answer; the app recipe replays them in the guest.
+    use hologram_ai_kernel_client::template;
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("claims"),
+    )
+    .expect("claims.json is JSON");
+    let mine: Vec<(String, String)> = claims["claims"]
+        .as_array()
+        .expect("claims")
+        .iter()
+        .filter(|c| c["request"].as_str().is_some_and(|r| r.starts_with("2d")))
+        .map(|c| {
+            (
+                c["request"].as_str().expect("r").to_string(),
+                c["answer"].as_str().expect("a").to_string(),
+            )
+        })
+        .collect();
+    for answer in [
+        "qwen2.5",
+        "qwen3",
+        "llama3.2",
+        "refused: unknown template",
+        "invalid request",
+    ] {
+        assert!(
+            mine.iter().any(|(_, a)| a == answer),
+            "no decision-45 claim is answered `{answer}`"
+        );
+    }
+    for (request, answer) in &mine {
+        let bytes: Vec<u8> = (0..request.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&request[i..i + 2], 16).expect("hex"))
+            .collect();
+        if let Ok(address) = <[u8; 32]>::try_from(&bytes[1..]) {
+            assert_eq!(
+                template::request(&address).to_vec(),
+                bytes,
+                "a decision-45 claim is not the client's request"
+            );
+        }
+        assert_ne!(
+            template::answer(answer.as_bytes()),
+            template::Verdict::Unrecognised,
+            "the client does not read `{answer}`"
+        );
+    }
 }
 
 /// `KN-50`: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
@@ -3753,6 +4364,65 @@ fn kernel_kn_51() {
         assert!(found.contains(body), "{name} changed:\n{found}");
     }
     assert_routed(50, "Kernel.Rotary::rotaryAnswer");
+}
+
+/// `KN-55`: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
+#[test]
+fn kernel_kn_55() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Greedy.lex.tex");
+    let proofs = model("app/src/Proofs/StageGreedy.lex.tex");
+    assert_pinned(
+        &proofs,
+        "greedy_key_is_max",
+        "((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last)) = (Engine.Stage.Greedy::maxKey logits last))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "exceed_zero_decides",
+        "(((Engine.Stage.Greedy::exceed logits last bound) = 0) <-> ((Engine.Stage.Greedy::maxKey logits last) <= bound))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "none_above_greedy",
+        "((Engine.Stage.Greedy::exceed logits last (Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last))) = 0)",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "greedy_in_range",
+        "((Engine.Stage.Greedy::bestIn logits last) <= last)",
+        "Quot.sound, propext",
+    );
+    // A negative logit's key is 2^32 less its bits, so -0 (2^31) and +0 meet at
+    // 2^31 and a larger magnitude sorts lower, as the binary32 order has it.
+    let found = declaration(&stage, "key");
+    assert!(
+        found.contains("body: (pick (below bits 2147483648) (2147483648 + bits) (prim subtract 4294967296 bits : Nat))"),
+        "key changed:\n{found}"
+    );
+    // A strict comparison keeps the earlier index on a tie.
+    let found = declaration(&stage, "bestIn");
+    assert!(
+        found.contains("(pick (below (keyAt logits (bestIn logits rest)) (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))"),
+        "bestIn changed:\n{found}"
+    );
+    // exceed sums each key's excess over the bound, so it is zero exactly when
+    // no key is above the bound.
+    let found = declaration(&stage, "exceed");
+    assert!(
+        found.contains(
+            "((prim subtract (keyAt logits (rest + 1)) bound : Nat) + (exceed logits rest bound))"
+        ),
+        "exceed changed:\n{found}"
+    );
+    let found = declaration(&stage, "greedy");
+    assert!(
+        found.contains("body: (bestIn logits (prim subtract (size logits) 1 : Nat))"),
+        "greedy changed:\n{found}"
+    );
 }
 
 /// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request

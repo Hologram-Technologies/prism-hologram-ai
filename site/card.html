@@ -47,9 +47,10 @@
     <option value="41">42. Round check</option>
     <option value="42">43. Square root</option>
     <option value="43">44. Rounded quotient</option>
-    <option value="44">48. Kernel text</option>
-    <option value="45">49. Config number</option>
-    <option value="46">50. Rotary cache entry</option>
+    <option value="44">45. Chat template</option>
+    <option value="45">48. Kernel text</option>
+    <option value="46">49. Config number</option>
+    <option value="47">50. Rotary cache entry</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2867,6 +2868,39 @@
       "module": "Divide",
       "name": "Rounded quotient",
       "tag": 44
+    },
+    {
+      "asks": "Which chat template is this, by the BLAKE3 of its text?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The template's BLAKE3, bytes 1 to 8",
+          "value": "8279920892041357147",
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "The template's BLAKE3, bytes 9 to 16",
+          "value": "1773128108353419947",
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "The template's BLAKE3, bytes 17 to 24",
+          "value": "11653179235714034099",
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "The template's BLAKE3, bytes 25 to 32",
+          "value": "12784695345153184910",
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Template",
+      "name": "Chat template",
+      "tag": 45
     },
     {
       "asks": "What is this piece of the kernel's WGSL?",
