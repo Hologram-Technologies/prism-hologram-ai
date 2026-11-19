@@ -14,6 +14,7 @@ repo-model = { workspace = true }
 [dev-dependencies]
 hologram-ai-chat = { workspace = true }
 hologram-ai-download = { workspace = true }
+hologram-ai-cpu-decode = { workspace = true }
 hologram-ai-exact = { workspace = true }
 hologram-ai-kernel-client = { workspace = true }
 hologram-ai-model-reader = { workspace = true }

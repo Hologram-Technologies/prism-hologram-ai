@@ -1,0 +1,19 @@
+[package]
+name = "hologram-ai-cpu-decode"
+description = "Token ids to logits on the CPU in integers only: a Qwen3-shaped model read from its fused ONNX export, every stage exact or rounded once, half to even, so the same prompt gives the same bits on every machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+hologram-ai-exact = { workspace = true }
+hologram-ai-onnx-preflight = { workspace = true }
+
+[lints]
+workspace = true

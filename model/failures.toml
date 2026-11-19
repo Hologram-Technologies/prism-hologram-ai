@@ -465,6 +465,38 @@ suite = "engine"
 condition = "A stored format has no exact codec, so it is refused by name instead of run approximately"
 
 [[failure]]
+id = "FL-55"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "Unrecognised"
+suite = "engine"
+condition = "The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs"
+
+[[failure]]
+id = "FL-56"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "Exact"
+suite = "engine"
+condition = "An exact stage refuses its operands, as a 4-bit matrix whose block has no exact codec"
+
+[[failure]]
+id = "FL-57"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "NormRefused"
+suite = "engine"
+condition = "A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately"
+
+[[failure]]
+id = "FL-58"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "TokenOutOfRange"
+suite = "engine"
+condition = "A token id at or past the vocabulary is refused before any weight is read"
+
+[[failure]]
 id = "FL-70"
 crate = "cpu-encode"
 type = "EncodeError"

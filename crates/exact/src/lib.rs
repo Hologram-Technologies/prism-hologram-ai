@@ -1777,7 +1777,7 @@ fn divide_even(n: u128, d: u128) -> u128 {
 
 /// The integer square root, `r^2 <= value < (r + 1)^2`, as decision 43 decides it,
 /// digit by digit.
-fn integer_root(value: u128) -> u128 {
+pub fn integer_root(value: u128) -> u128 {
     let (mut rest, mut root, mut bit) = (value, 0u128, 1u128 << 126);
     while bit > value {
         bit >>= 2;
