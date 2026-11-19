@@ -1325,6 +1325,40 @@ It pins the six statements and their axioms, that the five state functions are
 declared, and that the session imports decisions 35 and 36. 37 kernel tests
 pass.
 
+## KN-55, the greedy token
+
+Row 13 of milestone 2 moves the inference arithmetic out of Rust and JavaScript
+into LexLean, one stage at a time. The greedy pick is the first stage written
+as a computing definition rather than a checker: `Engine.Stage.Greedy::greedy`
+returns the index of the largest logit, where `hologram-ai-cpu-decode::greedy`
+and the page did it before. A logit is a binary32 bit pattern. `key` orders it
+by sign and magnitude: a negative pattern maps to `2^32 - bits`, a positive one
+to `2^31 + bits`, so both zeros meet at `2^31` and a larger negative magnitude
+sorts lower. `bestIn` walks indices 0 to `last` and replaces its pick only on a
+strictly larger key, so the earliest index wins a tie, as the Rust did.
+
+Lean proves, for every list of logits and every `last`: the picked index's key
+is `maxKey` (`greedy_key_is_max`); the summed excess of the keys over a bound is
+zero exactly when `maxKey` is at most the bound (`exceed_zero_decides`), so no
+key is above the pick (`none_above_greedy`); and the pick is at most `last`
+(`greedy_in_range`). The tie order is not proved: a pick that took the last of
+equal keys would satisfy the same theorems. The pinned `bestIn` text holds it.
+
+The proof forms set the shape of the definitions. `omega` does not split an
+`if` unless a hypothesis decides it, so every branch is `pick c a b`, a match
+on a Boolean, split with `cases`. `linear_arithmetic` cannot cite a theorem, so
+the maximum is the arithmetic `kept + (next - kept)` and the "none above" fold
+is a sum of truncated differences, which the induction hypothesis carries as
+arithmetic. `simplify` cites the `pick` lemmas as conditional rewrites.
+
+### The pinned test: `kernel_kn_55`
+
+| Planted defect | Result |
+| --- | --- |
+| a tie taken by the later index (`<=?` for `<?` in `bestIn`) | rejected: `bestIn changed` |
+| negative logits keyed as positive (`2^31 + bits` on both branches of `key`) | rejected: `key changed` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
