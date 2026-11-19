@@ -1465,8 +1465,10 @@ refusals already in `claims.json`: `not a decimal`, `not whole` and `out of
 range` for decision 49, `not finite` for decision 50. So did decision 45
 (KN-46, #85), with `refused: unknown template`; KN-55 (#95) is a stage, not a
 routed decision. KN-52 and KN-53, decisions 18 and 24 widened, are covered in
-their section. Decisions registered in open pull requests are their authors' to
-cover: KN-47 (#86), KN-49 and decision 48 (#96), KN-70 (#97).
+their section. Decision 70 (KN-70, #97) came with its refusals: unsupported
+task, device and dtype, sampling, beam search and repetition penalty. Decisions
+registered in open pull requests are their authors' to cover: KN-47 (#86), and
+KN-49 and decision 48 (#96).
 
 Planted defect: the claim that decision 12 answers `cpu` for a largest buffer
 over the binding limit was changed to `webgpu`.
@@ -1512,6 +1514,34 @@ classification) as it names text generation's: Xenova's exports use the same
 | --- | --- |
 | `Erf` taken out of `opnameEncoder` | rejected: `Erf is not in opnameEncoder` |
 | none | passed, with `kernel_kn_18` and `kernel_kn_24` pinning the widened bodies |
+
+## KN-70, a transformers.js call
+
+A 7-byte request carries a transformers.js call as codes: the task (0 text
+generation, 1 feature extraction, 2 text classification), the device (0 auto,
+1 webgpu, 2 gpu, 3 wasm, 4 cpu), the dtype (0 auto, 1 q4f16, 2 q4), whether to
+sample, the number of beams, and whether the repetition penalty is 1. Any name
+outside a table is sent as 255. The kernel answers the device the engine runs
+on (`auto`, `webgpu` or `cpu`), or refuses by name, checking task, device,
+dtype, sampling, beams and penalty in that order. `site/app/engine/transformers.mjs`
+asks it before it loads and before each generation; it decides nothing itself.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| A supported call runs on the device its name maps to; webgpu and gpu map to WebGPU and wasm and cpu to the CPU, and nothing else does; an unsupported task, device or dtype, sampling, beam search or a repetition penalty is refused | `call_supported_runs`, `call_device_webgpu_decides`, `call_device_cpu_decides`, `call_task_refused`, `call_device_refused`, `call_dtype_refused`, `call_sampling_refused`, `call_beams_refused`, `call_penalty_refused` | proved (lexlean 0.4.0 verify in WSL with a scratch relock, 2026-11-19; the acceptance run is the canonical check) |
+| Decision 70 answers as its definition does in the compiled guest | 18 claims in `claims.json`, replayed by `replay.mjs`; a Python port of the module gave each | replayed on CI |
+
+### The pinned test: `kernel_kn_70`
+
+| Planted defect | Result |
+| --- | --- |
+| `cpu` (device 4) no longer mapped to the CPU | rejected: `callDevice changed` |
+| decision 70 routed to decision 44's answer | rejected: `decision 70 must be routed to Kernel.Call::callAnswer` |
+| none | passed |
+
+`gpu_gp_40` rejected a messages call answering a bare string (`transformers.mjs
+no longer has return [{ generated_text: [...input, ...] }]`), and passed once
+restored.
 
 ## The examples in the compiled guest
 

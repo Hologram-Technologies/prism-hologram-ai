@@ -425,3 +425,11 @@ Feature: kernel
     Then the key of the token bestIn picks from logits 0 to last is maxKey of those logits
     And the summed excess of those logits over a bound is zero exactly when maxKey is at most the bound, so no logit's key is above the picked token's
     And the picked token is at most last, an index of the logits
+
+  @KN-70 @build
+  Scenario: A transformers.js pipeline call is answered the engine device it runs on, auto, webgpu or cpu, exactly when its task, device, dtype and generation options are ones the engine honours: webgpu and gpu name WebGPU, wasm and cpu name the integer CPU engine, q4f16, q4 and auto are the dtypes, decoding is greedy; any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
+    Given a request of the tag 70 carrying a task, a device, a dtype, whether to sample, a beam count and whether the repetition penalty is one, each in one byte, as transformers.js names them
+    When the kernel reads each code through Kernel.Call
+    Then the answer is auto, webgpu or cpu exactly when the task is one of the three, the device one of auto, webgpu, gpu, wasm and cpu, the dtype one of auto, q4f16 and q4, decoding greedy with one beam and no penalty
+    And webgpu and gpu answer webgpu, wasm and cpu answer cpu, and any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
+    And the theorems of Proofs.Call state it and are pinned with their axioms

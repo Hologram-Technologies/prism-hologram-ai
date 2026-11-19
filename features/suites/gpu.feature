@@ -261,3 +261,12 @@ Feature: gpu
     Given GP-14's classifier written as Xenova's SST-2 DistilBERT export is
     When `just page-journey` calls pipeline("text-classification", the export, { index }) and runs it on each sentence
     Then every sentence's ids, label, label name and score bits are encoder-expected.json's
+
+  @GP-40 @build
+  Scenario: Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs
+    Given GP-19's Qwen3-shaped ONNX export and its hub record, served to one page
+    When `just page-journey` imports site/app/engine/transformers.mjs on the engine page and calls it as transformers.js is called
+    Then pipeline("text-generation", repo, { device, dtype, progress_callback }) is answered by decision 70 before it loads, and progress_callback reports ready
+    And a messages list answers [{ generated_text: [...messages, { role: "assistant", content }] }] with the one call's text, and a TextStreamer receives that text as it is made
+    And a string answers [{ generated_text: prompt + completion }]
+    And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read

@@ -233,9 +233,11 @@ export function turner(session) {
     : `<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
   // An ONNX export's turn is written by its own chat template (Qwen3's with
   // thinking off, as the engine answers directly).
-  const framing = (content) => session.chat
-    ? session.chat.render({ ...session.chat.specials, messages: [{ role: "user", content }], add_generation_prompt: true, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
-    : frame(content);
+  // A turn is a user's text or, as transformers.js takes it, a list of messages.
+  const render = (messages, add_generation_prompt = true) => session.chat
+    ? session.chat.render({ ...session.chat.specials, messages, add_generation_prompt, enable_thinking: false, strftime_now: (format) => strftime(new Date(), format) })
+    : frame(messages.at(-1).content);
+  const framing = (input) => render(Array.isArray(input) ? input : [{ role: "user", content: input }]);
   // How many ids two prompts open with in common.
   const opening = (a, b) => {
     let n = 0;
@@ -255,8 +257,9 @@ export function turner(session) {
   let head = null;
   let held = null;
 
-  async function generate(text, { max_new_tokens = 256, onToken = () => {} } = {}) {
-    const prompt = encode(framing(text));
+  // `template: false` runs the text as it is, as transformers.js runs a string.
+  async function generate(text, { max_new_tokens = 256, onToken = () => {}, template = true } = {}) {
+    const prompt = encode(template ? framing(text) : text);
     // The model stops on the ids its own files name (EN-28); a file naming
     // none runs to the turn's budget.
     const said = session.stops ? null : m.call("tokeniser_stops_at");
@@ -303,5 +306,5 @@ export function turner(session) {
       tokensPerSecond: tokens.length > 1 ? (tokens.length - 1) / ((end - firstAt) / 1000) : 0,
     };
   }
-  return generate;
+  return Object.assign(generate, { render, decode });
 }

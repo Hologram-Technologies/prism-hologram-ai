@@ -122,6 +122,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-32` | `build` | Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token |
 | `GP-35` | `build` | pipeline("feature-extraction", model) loads a BERT encoder exported as Xenova's all-MiniLM-L6-v2 q4f16 export is, from its hub record and its own files, imports it with every operator asked of decision 18's encoder style and its file named by decision 24, places its weights by the node that reads them, int64 position ids left out, and answers each sentence's WordPiece ids and unit-length embedding from the module's integer encoder, bit for bit hologram-ai-cpu-encode's, on the CPU device decision 22 chose |
 | `GP-36` | `build` | pipeline("text-classification", model) loads a DistilBERT classifier exported as Xenova's SST-2 q4f16 export is and answers each sentence's label, chosen by the module by comparing the scores' bits as integers and named by the config's id2label, and the scores, bit for bit hologram-ai-cpu-encode's |
+| `GP-40` | `build` | Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs |
 
 ## kernel
 
@@ -178,6 +179,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-51` | `build` | A cache entry, an f16, is confirmed to agree with a reference rotary value in units of 2^-30 exactly when the f16 read exactly as an integer times a power of two lies within the tolerance of it, compared in integers; an infinity or a NaN is answered not finite |
 | `KN-52` | `build` | An operator of an encoder graph is supported exactly when its name is on the encoder style's closed list, read from Xenova's q4f16 and q4 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english |
 | `KN-53` | `build` | Decision 24 names the files of feature extraction and text classification as it names those of text generation, and refuses any other task |
+| `KN-70` | `build` | A transformers.js pipeline call is answered the engine device it runs on, auto, webgpu or cpu, exactly when its task, device, dtype and generation options are ones the engine honours: webgpu and gpu name WebGPU, wasm and cpu name the integer CPU engine, q4f16, q4 and auto are the dtypes, decoding is greedy; any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name |
 
 ## Public failures
 

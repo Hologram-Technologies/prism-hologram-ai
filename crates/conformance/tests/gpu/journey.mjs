@@ -372,6 +372,44 @@ try {
     await page.close();
   }
 
+  // GP-40: transformers.js's own calls, unchanged, through decision 70: a
+  // messages list and a string on one generator, and three calls refused by
+  // name before anything loads or runs.
+  {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ repo }) => {
+      const { pipeline, TextStreamer } = await import("./engine/transformers.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const refused = async (options, generation) => {
+        const checks = checklist();
+        try {
+          const g = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, ...options });
+          if (generation) await g([{ role: "user", content: "hi" }], generation);
+          return { error: null, checks: checks.items };
+        } catch (e) {
+          return { error: String(e.message ?? e), checks: checks.items };
+        }
+      };
+      const checks = checklist();
+      const progress = [];
+      const generator = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device: "auto", dtype: "q4f16", progress_callback: (p) => progress.push(p.status) });
+      const streamed = [];
+      const chat = await generator([{ role: "user", content: "hi" }], { max_new_tokens: 16, streamer: new TextStreamer(generator.tokenizer, { skip_prompt: true, callback_function: (t) => streamed.push(t) }) });
+      const text = await generator("hi", { max_new_tokens: 4, return_full_text: true });
+      return {
+        chat, text, streamed, progress, checks: checks.items,
+        dtype: await refused({ dtype: "fp32" }),
+        device: await refused({ device: "tpu" }),
+        sampling: await refused({}, { do_sample: true, max_new_tokens: 4 }),
+      };
+    }, { repo: onnx.repo }).catch((e) => ({ failed: String(e.message ?? e) }));
+    results.onnx.transformers = { ...run, errors };
+    await page.close();
+  }
+
   // GP-21: four visits in one profile. The first downloads and keeps the
   // files; the second, with the origin serving none, reads them all from the
   // browser; the third meets a kept graph with one byte flipped, which the
@@ -800,6 +838,29 @@ for (const kind of ["bert", "distil"]) {
     if (kind === "distil" && (got.label !== w.label || got.name !== ["NEGATIVE", "POSITIVE"][w.label])) fail(`${what}: "${got.text}" is ${got.name} (${got.label}), not label ${w.label}`);
   });
   if (run.errors.length) fail(`${what}: page errors: ${run.errors.join(" | ")}`);
+}
+
+// GP-40: transformers.js's shapes, and its refusals by decision 70.
+{
+  const run = results.onnx.transformers;
+  const reference = results.onnx.pipeline.output?.text;
+  if (run.failed) fail(`transformers: the call failed: ${run.failed}`);
+  else {
+    const said = run.chat?.[0]?.generated_text;
+    if (!Array.isArray(said) || said.length !== 2 || said[0].content !== "hi" || said[1].role !== "assistant") fail(`transformers: a messages call must answer [{ generated_text: [...messages, { role: "assistant", content }] }], saw ${JSON.stringify(run.chat)}`);
+    else if (said[1].content !== reference) fail(`transformers: the assistant's text ${JSON.stringify(said[1].content)} is not the one call's ${JSON.stringify(reference)}`);
+    if (run.streamed.join("") !== said?.[1]?.content) fail(`transformers: the streamer received ${JSON.stringify(run.streamed.join(""))}, not the answer`);
+    if (typeof run.text?.[0]?.generated_text !== "string" || !run.text[0].generated_text.startsWith("hi")) fail(`transformers: a string call must answer [{ generated_text: prompt + completion }], saw ${JSON.stringify(run.text)}`);
+    if (!run.progress.includes("ready")) fail(`transformers: progress_callback never said ready: ${run.progress}`);
+    const call = run.checks.find((c) => c.step === "call");
+    if (call?.verdict !== "pass" || !/kernel answered "(auto|webgpu|cpu)"/.test(call.detail)) fail(`transformers: the call was not put to decision 70: ${call?.detail}`);
+    for (const [name, answer] of [["dtype", "refused: unsupported dtype"], ["device", "refused: unsupported device"], ["sampling", "refused: sampling"]]) {
+      const c = run[name].checks.find((x) => x.step === "call" && x.verdict === "fail");
+      if (!c || c.detail !== `kernel answered "${answer}"`) fail(`transformers ${name}: expected decision 70 to answer "${answer}", saw ${JSON.stringify(run[name])}`);
+    }
+    if (run.dtype.checks.some((c) => ["record", "file", "import"].includes(c.step))) fail("transformers dtype: the load went on past decision 70");
+  }
+  if (run.errors?.length) fail(`transformers: page errors: ${run.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.

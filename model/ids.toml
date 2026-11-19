@@ -886,3 +886,15 @@ id = "GP-36"
 level = "build"
 suite = "gpu"
 statement = "pipeline(\"text-classification\", model) loads a DistilBERT classifier exported as Xenova's SST-2 q4f16 export is and answers each sentence's label, chosen by the module by comparing the scores' bits as integers and named by the config's id2label, and the scores, bit for bit hologram-ai-cpu-encode's"
+
+[[id]]
+id = "KN-70"
+level = "build"
+suite = "kernel"
+statement = "A transformers.js pipeline call is answered the engine device it runs on, auto, webgpu or cpu, exactly when its task, device, dtype and generation options are ones the engine honours: webgpu and gpu name WebGPU, wasm and cpu name the integer CPU engine, q4f16, q4 and auto are the dtypes, decoding is greedy; any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name"
+
+[[id]]
+id = "GP-40"
+level = "build"
+suite = "gpu"
+statement = "Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs"
