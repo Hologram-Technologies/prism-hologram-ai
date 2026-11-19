@@ -77,6 +77,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-51` | `build` | The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits |
 | `EN-52` | `build` | The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name |
 | `EN-53` | `build` | The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it |
+| `EN-58` | `build` | No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included |
 
 ## gpu
 
@@ -160,6 +161,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `KN-45` | `build` | The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended |
 | `KN-37` | `build` | One group's sum times its IEEE half scale is confirmed exact exactly when the claimed sign and magnitude, in units of 2^-24, equal the product the kernel recomputes from the half's exponent and fraction, a zero product is never negative, and a scale that is an infinity or a NaN is answered not finite |
 | `KN-42` | `build` | A claimed binary32 is confirmed exact exactly when it is the bits the kernel rounds magnitude times 2 to the exponent to: the nearest, ties to even, from the leading bit, 24 bits or fewer below the normal range, infinity past the largest finite value, and zero for a zero magnitude |
+| `KN-50` | `build` | A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name |
 
 ## Public failures
 
@@ -228,6 +230,7 @@ not that the test provokes the failure.
 | `FL-57` | `cpu-decode` | `DecodeError::NormRefused` | A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately |
 | `FL-58` | `cpu-decode` | `DecodeError::TokenOutOfRange` | A token id at or past the vocabulary is refused before any weight is read |
 | `FL-59` | `wasm` | `CallError::Decode` | The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it |
+| `FL-69` | `exact` | `ExactError::DecimalRefused` | A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened |
 
 ## Cited authorities
 

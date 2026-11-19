@@ -735,3 +735,18 @@ Feature: engine
     When the importer takes their bytes in pieces of any size and asks the kernel about each whole file
     Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
     And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
+
+  @EN-58 @build
+  Scenario: No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included
+    Given config.json's text handed to the page's module, and the files the integer path is computed in
+    When the module reads num_attention_heads, num_key_value_heads, rope_theta and rms_norm_eps from their decimal text through hologram-ai-exact
+    Then each is the whole number or the nearest binary32 the text names, equal to a correctly rounded parse, and the compiled guest answers decision 49 exact for each and differs for any other
+    And integer.mjs converts no number, and audit-float finds no float type, literal or conversion in crates/exact, crates/cpu-decode, crates/wasm or integer.mjs
+    And a float planted in Rust or in the page script is refused by audit-float
+
+  @FL-69 @build
+  Scenario: A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened
+    Given GP-19's Qwen3-shaped export imported in the page's module, with a config whose rms_norm_eps is 1e1000
+    When decode_open is called with that config's text
+    Then the call answers no, the module's answer is Decode(Exact(DecimalRefused)), and no model is opened
+    And a whole number asked of 1.5 is ExactError::DecimalRefused
