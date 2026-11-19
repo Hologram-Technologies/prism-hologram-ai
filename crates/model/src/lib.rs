@@ -12,6 +12,7 @@
 #![deny(missing_docs)]
 
 pub mod codegen;
+pub mod floats;
 pub mod registry;
 
 pub use registry::{

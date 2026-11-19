@@ -40,8 +40,8 @@ const MICROSOFT = new Set(["MatMulNBits", "GroupQueryAttention", "RotaryEmbeddin
 const TYPES = { f32: 1, u8: 2, f16: 10 };
 
 // The model written as onnx-community's fused exports are, and its bytes.
-export function onnxFile(model, family) {
-  const exp = asExport(model, "fused", family);
+export function onnxFile(model, family, style = "fused") {
+  const exp = asExport(model, style, family);
   let activation = 0;
   const nodes = exp.nodes.map(([op, name, inputs, attributes = {}]) => {
     const parts = [];

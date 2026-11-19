@@ -698,6 +698,67 @@ fn gather_all(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Fail> {
     Ok(())
 }
 
+/// EN-58: no float on the integer path. Every file [`repo_model::floats`]
+/// names is read, and any floating-point type, literal or conversion in its
+/// code is refused, so a float cannot come back between the bytes admitted
+/// and the token ids without this gate saying where.
+pub fn audit_float(root: &Path) -> Result<(), Fail> {
+    use repo_model::floats::{float_uses, RUST, SCRIPT};
+    let mut files: Vec<(PathBuf, bool)> = Vec::new();
+    for dir in RUST {
+        let mut found = Vec::new();
+        gather_all(&root.join(dir), &mut found)?;
+        files.extend(
+            found
+                .into_iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "rs"))
+                .map(|p| (p, true)),
+        );
+    }
+    files.extend(SCRIPT.iter().map(|f| (root.join(f), false)));
+    let mut violations = Vec::new();
+    for (path, rust) in files {
+        let text =
+            std::fs::read_to_string(&path).map_err(|why| format!("{}: {why}", path.display()))?;
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        violations.extend(float_uses(&rel, &text, rust));
+    }
+    if !violations.is_empty() {
+        return Err(format!(
+            "EN-58: inference uses integers only. No float type, literal or \
+             conversion may lie on the integer path:\n\n{}",
+            violations.join("\n")
+        )
+        .into());
+    }
+    // Each open finding is reported, and one that is no longer there must be
+    // taken off the list rather than reported as open.
+    for (file, start, row) in repo_model::floats::OPEN {
+        let text =
+            std::fs::read_to_string(root.join(file)).map_err(|why| format!("{file}: {why}"))?;
+        match repo_model::floats::open_uses(file, &text, start) {
+            Some(found) if !found.is_empty() => {
+                for f in found {
+                    println!("audit-float: open, removed by {row}: {f}");
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "EN-58: the open finding {file} `{start}` ({row}) holds no float now; \
+                     take it off repo_model::floats::OPEN"
+                )
+                .into())
+            }
+        }
+    }
+    println!("audit-float: no float on the integer path (EN-58)");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

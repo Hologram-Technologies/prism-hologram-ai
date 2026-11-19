@@ -448,7 +448,7 @@ Feature: engine
     And every answer text in each decision's kernel module reads as a verdict, and text the kernel never gives does not
 
   @EN-31 @build
-  Scenario: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives
+  Scenario: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the BLAKE3 its record gives
     Given a fused-style model of one 4-bit projection and a multiply, its codes and scales inside the graph file and two tensors in a data file beside it, and each file's record
     When it is imported fed in pieces of 1, 7, 64 and 4096 bytes and whole, against a kernel answering in its own words
     Then every tensor whose data is bytes is listed with its file, offset and length and named by the BLAKE3 of exactly those bytes
@@ -469,11 +469,11 @@ Feature: engine
     Then it returns ImportError::SpanRefused with that tensor's name and the kernel's own verdict
 
   @FL-45 @build
-  Scenario: The kernel refuses a whole file against the SHA-256 and length its record gives
-    Given the graph of EN-31 under a record that names another SHA-256, and a kernel that refuses it
+  Scenario: The kernel refuses a whole file against the BLAKE3 and length its record gives
+    Given the graph of EN-31 under a record that names another BLAKE3, and a kernel that refuses it
     When it is imported
     Then it returns ImportError::FileRefused with the file's name and the kernel's verdict
-    And the question carried the record's SHA-256 as expected and the file's own as observed
+    And the question carried the record's BLAKE3 as expected and the file's own as observed
 
   @FL-46 @build
   Scenario: The kernel refuses an operator the graph names
@@ -658,3 +658,156 @@ Feature: engine
     Then r meets n r^2 <= v 2^32 < n (r + 1)^2 for v the sum of x^2 plus n epsilon, worked out in the test by bisection
     And every output y meets 2 |x g 2^16 - y r| <= r, an exact tie giving the even y, and is within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon)
     And a row of zeros with epsilon 0, an empty row, a row and weights of different lengths, and a value at 2^31 are refused
+
+  @EN-48 @build
+  Scenario: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^6 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
+    Given the head sizes and thetas of Qwen3-0.6B, Qwen2.5-1.5B and Llama 3.2 1B, and 64 at 10,000
+    When hologram-ai-exact's rope_frequencies generates each pair's frequency, with Llama 3 scaling where the config names it
+    Then each unscaled frequency F meets ((F - 2^6) 2 pi)^b theta^a < 2^(64b) < ((F + 2^6) 2 pi)^b theta^a for 2i/d = a/b, with pi from Machin's formula in the test
+    And each Llama 3 frequency is the test's own keep, divide or blend of the unscaled one, rounded half to even, and within 10^-12 of the float formula's
+    And rope_angle is position times frequency modulo 2^64 rounded half to even to 2^-32 of a turn, and cosine_turn and sine_turn of it are within 10^-4 of cos and sin of position theta^(-2i/d)
+    And an odd or zero head size, a theta below 2, and a Llama 3 scaling with high at or below low are refused
+
+  @EN-49 @build
+  Scenario: The CPU path is integer from token ids to logits: hologram-ai-cpu-decode reads a Qwen3-shaped model from its fused q4f16 ONNX export by the nodes that read each weight, holds the residual stream as binary32 bit patterns touched only by integer code, and runs every stage on the exact products and the integer stages EN-43 to EN-48, each result rounded once, half to even; on GP-19's fixture its greedy tokens after the prompt are the float reference's sixteen, every logit within 2^-7 of the reference's, and a second run gives the same bits
+    Given GP-19's Qwen3-shaped model as its fused q4f16 export, its config's rope_theta and rms_norm_eps, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, and every logit is within 2^-7 of the reference's
+    And a second run from a new session gives the same logits, bit for bit
+
+  @FL-55 @build
+  Scenario: The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs
+    Given the fixture's graph with layer 0's query norm and without layer 1's
+    When it is read
+    Then the read is refused as DecodeError::Unrecognised(Role::QueryNorm)
+
+  @FL-56 @build
+  Scenario: An exact stage refuses its operands, as a 4-bit matrix whose block has no exact codec
+    Given the fixture's graph with layer 0's query projection given a block size of 8
+    When it is read
+    Then the read is refused as DecodeError::Exact(ExactError::NoExactCodec)
+
+  @FL-57 @build
+  Scenario: A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately
+    Given the fixture model read with rms_norm_eps 2, past RMSNorm's bound on epsilon of 1
+    When one token is stepped
+    Then the step is refused as DecodeError::NormRefused
+
+  @FL-58 @build
+  Scenario: A token id at or past the vocabulary is refused before any weight is read
+    Given the fixture model
+    When a token id equal to its vocabulary is stepped
+    Then the step is refused as DecodeError::TokenOutOfRange
+
+  @EN-50 @build
+  Scenario: The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Qwen2-shaped model with biases written as Qwen2.5's decomposed q4f16 export, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph with the config's head counts and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
+  @EN-51 @build
+  Scenario: The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Llama-shaped model written as Llama's fused q4f16 export with Llama 3 rope scaling in its config, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
+  @EN-52 @build
+  Scenario: The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name
+    Given GP-19's Qwen3-shaped export imported through the page's module, and each of its weights handed to decode_tensor
+    When decode_open is given its config and decode_step is called for the prompt and sixteen greedy tokens
+    Then every step's greedy token and logits are hologram-ai-cpu-decode's for the same model, bit for bit
+
+  @FL-59 @build
+  Scenario: The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it
+    Given GP-19's Qwen3-shaped export opened in the page's module
+    When decode_step is called with a token id equal to the vocabulary
+    Then the call answers no, and the module's answer is Decode(TokenOutOfRange)
+
+  @EN-53 @build
+  Scenario: The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it
+    Given GP-19's Qwen3-shaped export opened in the page's module and stepped through its prompt and eight greedy tokens
+    When the run is kept at the prompt's length, stepped on, restored, and stepped again with the same tokens, and then reset and stepped through the prompt again
+    Then every step after the restore and after the reset answers the token and logits the first run did, bit for bit
+
+  @EN-42 @build
+  Scenario: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
+    Given an ONNX graph and its data file, and records giving each file's BLAKE3
+    When the importer takes their bytes in pieces of any size and asks the kernel about each whole file
+    Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
+    And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
+
+  @EN-58 @build
+  Scenario: No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included
+    Given config.json's text handed to the page's module, and the files the integer path is computed in
+    When the module reads num_attention_heads, num_key_value_heads, rope_theta and rms_norm_eps from their decimal text through hologram-ai-exact
+    Then each is the whole number or the nearest binary32 the text names, equal to a correctly rounded parse, and the compiled guest answers decision 49 exact for each and differs for any other
+    And integer.mjs converts no number, and audit-float finds no float type, literal or conversion in crates/exact, crates/cpu-decode, crates/wasm or integer.mjs
+    And a float planted in Rust or in the page script is refused by audit-float
+
+  @FL-69 @build
+  Scenario: A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened
+    Given GP-19's Qwen3-shaped export imported in the page's module, with a config whose rms_norm_eps is 1e1000
+    When decode_open is called with that config's text
+    Then the call answers no, the module's answer is Decode(Exact(DecimalRefused)), and no model is opened
+    And a whole number asked of 1.5 is ExactError::DecimalRefused
+
+  @EN-59 @build
+  Scenario: The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it
+    Given Llama 3.2 1B's own cos and sin cache rows at positions 1, 7, 1000 and 8191, and a config that names no scaling
+    When the page module compares each entry's f16 bits with cosine_turn and sine_turn of the engine's own angle for each candidate
+    Then Llama 3 scaling at factor 32 is chosen, factor 8 and plain frequencies are not, and the compiled guest answers decision 50 as the crate does for each entry asked
+    And onnx-load.mjs asks the module, onnx-roles.mjs holds no float check, and audit-float has no open finding left
+
+  @EN-60 @build
+  Scenario: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused
+    Given EN-47's rows of 1 to 8,192 values and weights drawn by xorshift up to 2^31 in size, one spike, all equal, and epsilon from 0 to 2^32 - 1, each with biases drawn the same way
+    When each row is put through hologram-ai-exact's layer_norm
+    Then r meets n^2 r^2 <= (V + n^2 epsilon) 2^32 < n^2 (r + 1)^2, worked out in the test by bisection
+    And every output y meets 2 |(n x - sum(x)) g 2^16 - (y - b) n r| <= n r, an exact tie giving the even y - b, and is within |y - b| / 2^20 plus one unit of the LayerNorm of the real numbers
+    And a row whose values are all equal with epsilon 0, an empty row, weights or biases of another length, a value at 2^31 and an epsilon at 2^32 are refused
+
+  @EN-61 @build
+  Scenario: GELU is integer: for x in units of 2^-16, gelu(x) is x at or above 8 and 0 at or below -8; between, with X = |x| and Y = X^2, erf(X / sqrt 2) is c X A / B for the positive series A = sum of Y^k / (2k+1)!! and B = sum of (Y / 2)^k / k!, each term cut down to 2^-40, and c, standing for sqrt(2 / pi), the integer square root of 2^121 / floor(2^40 pi) with pi by Machin's formula; the output (x + X erf) / 2 is rounded half to even once, in units of 2^-16, within one unit of x Phi(x), and gelu(x) - gelu(-x) is x within one unit, exactly x when x is even
+    Given 343 inputs: every eighth from -9 to 9, 160 drawn by a seeded generator between -9 and 9, 24 out to 2^20 units, the edges at 8 and -8, and inputs out to 2^47
+    When each is put through hologram-ai-exact's gelu
+    Then each output is within one unit of x Phi(x) computed by Python's math.erfc, recorded in the test
+    And an input at or above 8 gives itself and one at or below -8 gives 0
+    And gelu(x) - gelu(-x) is x within one unit, and exactly x for every even x
+
+  @EN-62 @build
+  Scenario: An encoder is integer from token ids to a sentence embedding: hologram-ai-cpu-encode reads a BERT- or DistilBERT-shaped encoder from its weights by the roles the page places them in, holds the hidden states as binary32 bit patterns touched only by integer code, runs every stage on the exact products, softmax (EN-43, EN-44), LayerNorm (EN-60) and GELU (EN-61), each result rounded once, half to even, with every token attending to every other, and pools the tokens' sum to unit length by the integer square root; on GP-13's fixture every component is within 2^-14 of the float reference's embedding, the length within 2^-20 of 1, and a second run gives the same bits
+    Given GP-13's BERT-shaped encoder, all-MiniLM-L6-v2's shape with q4f16 matrices and f16 tables, biases and norms, its weights by role, and the float reference's embeddings of its two sentences of 6 and 60 tokens
+    When hologram-ai-cpu-encode reads the weights and embeds each sentence twice
+    Then every component is within 2^-14 of the reference's and the embedding's length within 2^-20 of 1
+    And the second run gives the same bits
+
+  @EN-63 @build
+  Scenario: A classifier is integer from token ids to label scores: the first token's hidden state through the dense pre-classifier and its bias, ReLU, and the dense classifier and its bias, each product and each bias rounded once, and the label the first largest score; on GP-14's fixture the label is the float reference's, every score within 2^-10 of the reference's, and a second run gives the same bits
+    Given GP-14's DistilBERT-shaped classifier, SST-2's shape with two labels and an f16 dense head, and the float reference's scores for its two sentences
+    When hologram-ai-cpu-encode reads the weights and classifies each sentence twice
+    Then the label is the reference's and every score within 2^-10 of the reference's
+    And the second run gives the same bits
+
+  @FL-70 @build
+  Scenario: A role the encoder reads is missing, or its weight is not the shape or format the role needs
+    Given GP-13's encoder with its first layer's query matrix taken away, and with its first layer's feed-forward matrix given the wrong shape
+    When hologram-ai-cpu-encode reads the weights
+    Then each read is refused as Unrecognised, naming the attention and the feed-forward
+
+  @FL-71 @build
+  Scenario: An exact stage of the encoder refuses its operands, as a stored scale that is not a finite number
+    Given GP-13's encoder with one scale of its first layer's query matrix stored as an f16 infinity
+    When a sentence is embedded
+    Then it is refused as Exact, naming ScaleNotFinite
+
+  @FL-72 @build
+  Scenario: A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0
+    Given GP-13's encoder with its word and position tables and its token-type row all zero, so every embedding row is equal
+    When a sentence is embedded with epsilon 0
+    Then it is refused as NormRefused at the embedding's LayerNorm
+
+  @FL-73 @build
+  Scenario: A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table
+    Given GP-13's encoder, whose vocabulary is 320 and position table 64
+    When an empty sentence, a sentence holding id 320, and one of 65 tokens are embedded
+    Then each is refused as TokenOutOfRange

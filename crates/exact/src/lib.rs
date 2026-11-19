@@ -118,6 +118,9 @@ pub enum ExactError {
     /// `FL-54`: the stored format has no exact codec here, so it is refused
     /// rather than run approximately.
     NoExactCodec,
+    /// : a config number is not a decimal decision 49 reads, is past
+    /// its range, or is not the whole number it must be.
+    DecimalRefused,
 }
 
 /// A number that is exactly `mantissa * 2^exponent`. Read from a float, the
@@ -273,6 +276,158 @@ pub fn round_to_binary32(row: &Row) -> u32 {
         return sign | INFINITY;
     }
     sign | bits
+}
+
+/// A decimal's text as `Kernel.Config` reads it (decision 49): digits, an
+/// optional fraction after `.`, an optional exponent after `e` or `E` with an
+/// optional sign. The value is `mantissa * 10^up / 10^down`.
+struct Decimal {
+    mantissa: u64,
+    up: u32,
+    down: u32,
+}
+
+/// The longest text decision 49 reads.
+pub const DECIMAL_TEXT: usize = 40;
+
+/// Reads a decimal as the kernel's scan does, phase by phase: 0 the whole
+/// digits, 1 the fraction, 2 just after the `e`, 3 the exponent's digits.
+fn read_decimal(text: &[u8]) -> Result<Decimal, ExactError> {
+    if text.is_empty() || text.len() > DECIMAL_TEXT {
+        return Err(ExactError::DecimalRefused);
+    }
+    let (mut phase, mut mantissa, mut places, mut negative) = (0u8, 0u64, 0u32, false);
+    let (mut exponent, mut digits, mut written) = (0u32, 0u32, 0u32);
+    for &c in text {
+        let digit = c.is_ascii_digit();
+        if digit && phase <= 1 {
+            if mantissa >= 922_337_203_685_477_580 {
+                return Err(ExactError::DecimalRefused);
+            }
+            mantissa = mantissa * 10 + u64::from(c - b'0');
+            places += u32::from(phase == 1);
+            digits += 1;
+        } else if c == b'.' && phase == 0 {
+            phase = 1;
+        } else if matches!(c, b'e' | b'E') && phase <= 1 && digits >= 1 {
+            phase = 2;
+        } else if matches!(c, b'+' | b'-') && phase == 2 {
+            negative = c == b'-';
+            phase = 3;
+        } else if digit && (2..=3).contains(&phase) && exponent < 100 {
+            exponent = exponent * 10 + u32::from(c - b'0');
+            written += 1;
+            phase = 3;
+        } else {
+            return Err(ExactError::DecimalRefused);
+        }
+    }
+    if digits == 0 || phase == 2 || (phase == 3 && written == 0) {
+        return Err(ExactError::DecimalRefused);
+    }
+    let (up, down) = if negative {
+        (0, places + exponent)
+    } else {
+        (
+            exponent.saturating_sub(places),
+            places.saturating_sub(exponent),
+        )
+    };
+    Ok(Decimal { mantissa, up, down })
+}
+
+impl Decimal {
+    /// `mantissa * 10^up`, when it is below 2^63.
+    fn fed(&self) -> Result<u64, ExactError> {
+        if self.mantissa == 0 {
+            return Ok(0);
+        }
+        10u64
+            .checked_pow(self.up)
+            .filter(|_| self.up <= 18)
+            .and_then(|p| self.mantissa.checked_mul(p))
+            .filter(|&v| v <= i64::MAX as u64)
+            .ok_or(ExactError::DecimalRefused)
+    }
+}
+
+/// The binary32 bits nearest a decimal's text, ties to even, as decision 49
+/// confirms them: the text's mantissa, its bits fed one at a time from the
+/// top and then zeros, passes through four long divisions by at most 10^18
+/// each, chained bit by bit, until 53 quotient bits stand; a remainder or an
+/// unread bit left over sets the bit below them, and the one rounding is
+/// [`round_to_binary32`]'s. Nothing here is a float.
+///
+/// # Errors
+///
+/// [`ExactError::DecimalRefused`] for text that is not such a decimal, for a
+/// mantissa of 19 digits or more, an exponent past 999, a value past 2^63,
+/// or more than 72 places below the point.
+pub fn decimal_binary32(text: &[u8]) -> Result<u32, ExactError> {
+    let decimal = read_decimal(text)?;
+    let fed = decimal.fed()?;
+    if decimal.down > 72 {
+        return Err(ExactError::DecimalRefused);
+    }
+    let stage = |skipped: u32| 10u64.pow(decimal.down.saturating_sub(skipped).min(18));
+    let divisors = [stage(0), stage(18), stage(36), stage(54)];
+    let mut left = [0u64; 4];
+    let (mut quotient, mut step) = (0u64, 0u32);
+    while step < 420 && quotient < 1 << 52 {
+        let mut bit = if step < 64 {
+            (fed >> (63 - step)) & 1
+        } else {
+            0
+        };
+        for (carried, divisor) in left.iter_mut().zip(divisors) {
+            let t = 2 * *carried + bit;
+            bit = u64::from(t >= divisor);
+            *carried = if t >= divisor { t - divisor } else { t };
+        }
+        quotient = 2 * quotient + bit;
+        step += 1;
+    }
+    let unread = match step {
+        0 => fed != 0,
+        1..=63 => fed & ((1u64 << (64 - step)) - 1) != 0,
+        _ => false,
+    };
+    let sticky = left.iter().any(|&r| r != 0) || unread;
+    // The value is (2 quotient + sticky) * 2^(63 - step); below 2^-246 it is
+    // zero, as the kernel's rounding makes it.
+    let exponent = 63 - step as i32;
+    if exponent < -300 {
+        return Ok(0);
+    }
+    let mut row = Row::ZERO;
+    row.add_scaled(
+        u128::from(2 * quotient + u64::from(sticky)),
+        exponent,
+        false,
+    );
+    Ok(round_to_binary32(&row))
+}
+
+/// The whole number a decimal's text names, as decision 49 confirms it: the
+/// mantissa times a power of ten, or divided by one that divides it exactly.
+///
+/// # Errors
+///
+/// [`ExactError::DecimalRefused`] for text that is not a decimal, a value
+/// past 2^63, or one that is not whole.
+pub fn decimal_whole(text: &[u8]) -> Result<u64, ExactError> {
+    let decimal = read_decimal(text)?;
+    let fed = decimal.fed()?;
+    if fed == 0 || decimal.down == 0 {
+        return Ok(fed);
+    }
+    let divisor = 10u64
+        .checked_pow(decimal.down)
+        .filter(|_| decimal.down <= 18);
+    match divisor {
+        Some(d) if fed % d == 0 => Ok(fed / d),
+        _ => Err(ExactError::DecimalRefused),
+    }
 }
 
 /// An input vector on eight-bit integers: `codes[i] * 2^-exponent` stands for
@@ -1777,7 +1932,7 @@ fn divide_even(n: u128, d: u128) -> u128 {
 
 /// The integer square root, `r^2 <= value < (r + 1)^2`, as decision 43 decides it,
 /// digit by digit.
-fn integer_root(value: u128) -> u128 {
+pub fn integer_root(value: u128) -> u128 {
     let (mut rest, mut root, mut bit) = (value, 0u128, 1u128 << 126);
     while bit > value {
         bit >>= 2;
@@ -1837,4 +1992,308 @@ pub fn rms_norm(values: &[i64], weights: &[i64], epsilon: u64) -> Option<Vec<i64
             })
             .collect(),
     )
+}
+
+/// One in the fixed point rotary frequencies are generated in: `2^-62`.
+const ROPE_ONE: u128 = 1 << 62;
+
+/// `log2(x)` for `x >= 1` in units of `2^-62`, `x` too: the whole part by
+/// halving, then one bit per squaring, cut down at each step.
+fn log2_fixed(x: u128) -> u128 {
+    let (mut m, mut result) = (x, 0u128);
+    while m >= 2 * ROPE_ONE {
+        m >>= 1;
+        result += ROPE_ONE;
+    }
+    for bit in (0..62).rev() {
+        m = (m * m) >> 62;
+        if m >= 2 * ROPE_ONE {
+            m >>= 1;
+            result |= 1 << bit;
+        }
+    }
+    result
+}
+
+/// `2^e` for `e` in units of `2^-62`, `e` below `2^64` and `2^e` below
+/// `2^64`: the fraction as a product of `2^(2^-j)`, each the integer square
+/// root of the one before, then shifted by the whole part.
+fn pow2_fixed(e: u128) -> Option<u64> {
+    let (whole, fraction) = (e >> 62, e & (ROPE_ONE - 1));
+    let (mut power, mut product) = (2 * ROPE_ONE, ROPE_ONE);
+    for bit in (0..62).rev() {
+        power = integer_root(power << 62);
+        if (fraction >> bit) & 1 == 1 {
+            product = (product * power) >> 62;
+        }
+    }
+    let shifted = if whole >= 62 {
+        product.checked_shl((whole - 62) as u32)?
+    } else {
+        product >> (62 - whole)
+    };
+    u64::try_from(shifted).ok()
+}
+
+/// How a model scales its rotary frequencies, as its config names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RopeScaling {
+    /// The frequencies as `theta` gives them.
+    None,
+    /// Llama 3's: kept above `high / original` turns per position, divided by
+    /// `factor` below `low / original`, and blended linearly between.
+    Llama3 {
+        /// `factor`, a whole number.
+        factor: u32,
+        /// `low_freq_factor`, a whole number.
+        low: u32,
+        /// `high_freq_factor`, a whole number above `low`.
+        high: u32,
+        /// `original_max_position_embeddings`.
+        original: u32,
+    },
+}
+
+/// Llama 3's scaling of one frequency `f`, in units of `2^-64` of a turn per
+/// position, rounded half to even where it divides.
+fn llama3_scale(f: u64, factor: u32, low: u32, high: u32, original: u32) -> Option<u64> {
+    let (f, factor) = (u128::from(f), u128::from(factor));
+    let reach = f * u128::from(original);
+    if reach > u128::from(high) << 64 {
+        return u64::try_from(f).ok();
+    }
+    if reach < u128::from(low) << 64 {
+        return u64::try_from(divide_even(f, factor)).ok();
+    }
+    // s = (original f - low 2^64) / ((high - low) 2^64), and
+    // f' = f ((1 - s) / factor + s) = f (D - N + N factor) / (factor D).
+    let numerator = reach - (u128::from(low) << 64);
+    let denominator = u128::from(high - low) << 64;
+    let blend = denominator.checked_add(numerator.checked_mul(factor - 1)?)?;
+    let scaled = f.checked_mul(blend)?;
+    u64::try_from(divide_even(scaled, factor.checked_mul(denominator)?)).ok()
+}
+
+/// The rotary frequency of each of a head's `head_dim / 2` pairs, in units of
+/// `2^-64` of a turn per position: `theta^(-2i / head_dim) / (2 pi)`, generated
+/// in integers over `2^62` (logarithms by squaring, powers by square roots,
+/// `pi` by Machin's formula), then scaled as the config names. `None` for an
+/// odd or zero head size, a `theta` below 2, or a scaling past its bounds.
+pub fn rope_frequencies(head_dim: u32, theta: u64, scaling: RopeScaling) -> Option<Vec<u64>> {
+    if head_dim == 0 || head_dim % 2 == 1 || head_dim > 1024 || theta < 2 {
+        return None;
+    }
+    if let RopeScaling::Llama3 {
+        factor,
+        low,
+        high,
+        original,
+    } = scaling
+    {
+        if factor == 0 || low == 0 || high <= low || original == 0 {
+            return None;
+        }
+    }
+    let pi = (16 * atan_inverse(5) - 4 * atan_inverse(239)) >> 58;
+    let (log_theta, log_pi) = (log2_fixed(u128::from(theta) << 62), log2_fixed(pi));
+    let half = u128::from(head_dim / 2);
+    (0..half)
+        .map(|i| {
+            // 2^64 theta^(-i / half) / (2 pi) = 2^(63 - (i / half) log2 theta - log2 pi).
+            let exponent = (63 * ROPE_ONE).checked_sub(i * log_theta / half + log_pi)?;
+            let f = pow2_fixed(exponent)?;
+            match scaling {
+                RopeScaling::None => Some(f),
+                RopeScaling::Llama3 {
+                    factor,
+                    low,
+                    high,
+                    original,
+                } => llama3_scale(f, factor, low, high, original),
+            }
+        })
+        .collect()
+}
+
+/// The rotary angle of `position` at frequency `frequency`, in units of
+/// `2^-32` of a turn: `position * frequency` modulo a whole turn, rounded half
+/// to even to `2^-32` of a turn, which EN-45's `sine_turn` and `cosine_turn` read.
+pub fn rope_angle(position: u32, frequency: u64) -> u32 {
+    let turns = (u128::from(position) * u128::from(frequency)) as u64;
+    let (whole, rest) = (turns >> 32, turns & 0xffff_ffff);
+    let up = rest > 1 << 31 || (rest == 1 << 31 && whole & 1 == 1);
+    (whole + u64::from(up)) as u32
+}
+
+/// The tolerance a rotary cache entry is held to, in units of `2^-30`: `2^-9`,
+/// about `1.95e-3`. Llama 3.2's f16 cache agrees with its own parameters
+/// within about `2.4e-4` and with plain frequencies only to about 2.
+pub const ROTARY_TOLERANCE: u32 = 1 << 21;
+
+/// Whether the f16 `half` lies within `tolerance` of `reference`, both in
+/// units of `2^-30`, as decision 50 confirms it: the half read exactly as an
+/// integer times a power of two, compared in integers.
+///
+/// # Errors
+///
+/// [`ExactError::InputNotFinite`] for an infinity or a NaN.
+pub fn rotary_agrees(half: u16, reference: i32, tolerance: u32) -> Result<bool, ExactError> {
+    let d = Dyadic::from_binary16(half).ok_or(ExactError::InputNotFinite)?;
+    // A half's exponent is at least -24, so the shift is at least 6.
+    let value = d.mantissa << (d.exponent + 30);
+    Ok((value - i128::from(reference)).unsigned_abs() <= u128::from(tolerance))
+}
+
+/// The first of `candidates` whose rotary angles the export's own f16 cos and
+/// sin cache agree with, entry by entry, at each of `positions`: the engine's
+/// own frequencies (EN-48), angles and quarter-wave table (EN-45), each entry
+/// held to [`ROTARY_TOLERANCE`] by [`rotary_agrees`]. `width` is the cache's
+/// row length, half the head size. `Ok(None)` when none agrees.
+///
+/// # Errors
+///
+/// [`ExactError::LengthMismatch`] for a cache shorter than a position asks or
+/// a width other than half the head size, and [`ExactError::InputNotFinite`]
+/// for an entry that is not a finite number.
+pub fn rotary_confirm(
+    cos: &[u16],
+    sin: &[u16],
+    width: usize,
+    positions: &[u32],
+    head_dim: u32,
+    theta: u64,
+    candidates: &[RopeScaling],
+) -> Result<Option<usize>, ExactError> {
+    if width * 2 != head_dim as usize {
+        return Err(ExactError::LengthMismatch);
+    }
+    for (index, &scaling) in candidates.iter().enumerate() {
+        let Some(frequencies) = rope_frequencies(head_dim, theta, scaling) else {
+            continue;
+        };
+        let mut agrees = true;
+        for &position in positions {
+            let row = position as usize * width;
+            let (Some(c), Some(s)) = (cos.get(row..row + width), sin.get(row..row + width)) else {
+                return Err(ExactError::LengthMismatch);
+            };
+            for (i, &f) in frequencies.iter().enumerate() {
+                let angle = rope_angle(position, f);
+                agrees &= rotary_agrees(c[i], cosine_turn(angle), ROTARY_TOLERANCE)?
+                    && rotary_agrees(s[i], sine_turn(angle), ROTARY_TOLERANCE)?;
+            }
+        }
+        if agrees {
+            return Ok(Some(index));
+        }
+    }
+    Ok(None)
+}
+
+/// LayerNorm in integers. Values, weights and biases are in units of `2^-16`,
+/// below `2^31` in size, at most `2^16` of them; `epsilon` is in units of
+/// `2^-32`, below `2^32`. The centred values `n x - sum(x)` and the variance's
+/// numerator `V = n sum(x^2) - sum(x)^2` are exact; `r` is the largest integer
+/// with `n^2 r^2 <= (V + n^2 epsilon) 2^32`; each output is
+/// `(n x - sum(x)) g 2^16 / (n r)` rounded half to even, plus `b`, in units of
+/// `2^-16`. `None` for a row past the bounds or whose root is 0.
+pub fn layer_norm(
+    values: &[i64],
+    weights: &[i64],
+    biases: &[i64],
+    epsilon: u64,
+) -> Option<Vec<i64>> {
+    let limit = 1u64 << 31;
+    if values.is_empty()
+        || values.len() > 1 << 16
+        || values.len() != weights.len()
+        || values.len() != biases.len()
+        || epsilon >= 1 << 32
+        || values
+            .iter()
+            .chain(weights)
+            .chain(biases)
+            .any(|v| v.unsigned_abs() >= limit)
+    {
+        return None;
+    }
+    let n = values.len() as i128;
+    let sum: i128 = values.iter().map(|&x| i128::from(x)).sum();
+    let squares: u128 = values
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs()).pow(2))
+        .sum();
+    // n sum(x^2) >= sum(x)^2 (Cauchy-Schwarz), so V is never negative.
+    let v = (n as u128) * squares - sum.unsigned_abs().pow(2);
+    let nn = (n * n) as u128;
+    // The floor root of the floored quotient is the floor root of the quotient: one narrowing.
+    let r = integer_root(((v + nn * u128::from(epsilon)) << 32) / nn);
+    if r == 0 {
+        return None;
+    }
+    let denominator = n as u128 * r;
+    Some(
+        values
+            .iter()
+            .zip(weights)
+            .zip(biases)
+            .map(|((&x, &g), &b)| {
+                let numerator = (n * i128::from(x) - sum) * i128::from(g) * (1i128 << 16);
+                let magnitude = divide_even(numerator.unsigned_abs(), denominator) as i64;
+                b + if numerator < 0 { -magnitude } else { magnitude }
+            })
+            .collect(),
+    )
+}
+
+/// The fraction GELU's series are carried in: `2^-40`.
+const GELU_FRACTION: u32 = 40;
+
+/// `sqrt(2 / pi)` in units of `2^-40`: the integer square root of
+/// `2^121 / floor(2^40 pi)`, `pi` by Machin's formula.
+fn gelu_constant() -> u128 {
+    let pi = (16 * atan_inverse(5) - 4 * atan_inverse(239)) >> 80;
+    integer_root((1u128 << 121) / pi)
+}
+
+/// GELU, `x Phi(x)`, for `x` in units of `2^-16`, in the same units. At or
+/// above 8 it is `x` and at or below -8 it is 0, each within `2^-40` of the
+/// true value. Between, with `X = |x|` and `Y = X^2`,
+/// `erf(X / sqrt 2) = sqrt(2 / pi) X A / B` for the positive series
+/// `A = sum Y^k / (2k+1)!!` and `B = e^(Y/2) = sum (Y/2)^k / k!`, every term cut
+/// down to `2^-40`, so nothing cancels; the output `(x + X erf) / 2` is rounded
+/// half to even once.
+pub fn gelu(x: i64) -> i64 {
+    let eight = 8i64 << SILU_FRACTION;
+    if x >= eight {
+        return x;
+    }
+    if x <= -eight {
+        return 0;
+    }
+    let one = 1u128 << GELU_FRACTION;
+    let magnitude = u128::from(x.unsigned_abs());
+    // Y in units of 2^-32, below 2^38.
+    let y = magnitude * magnitude;
+    let (mut a, mut b) = (one, one);
+    let (mut sum_a, mut sum_b) = (one, one);
+    let mut k = 1u128;
+    while a > 0 || b > 0 {
+        a = a * y / ((2 * k + 1) << 32);
+        b = b * y / (k << 33);
+        sum_a += a;
+        sum_b += b;
+        k += 1;
+    }
+    let ratio = (sum_a << GELU_FRACTION) / sum_b;
+    // erf(X / sqrt 2) in units of 2^-40.
+    let erf = (gelu_constant() * magnitude * ratio) >> (GELU_FRACTION + SILU_FRACTION);
+    // (x + X erf) / 2, in units of 2^-56 before the one narrowing.
+    let doubled = (i128::from(x) << GELU_FRACTION) + (magnitude * erf) as i128;
+    let rounded = divide_even(doubled.unsigned_abs(), 1u128 << (GELU_FRACTION + 1)) as i64;
+    if doubled < 0 {
+        -rounded
+    } else {
+        rounded
+    }
 }

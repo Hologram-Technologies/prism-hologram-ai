@@ -2593,3 +2593,425 @@ it, as for EN-44.
 | the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
 | values and weights not bounded | rejected: `a value at 2^31 was not refused` |
 | none | passed |
+
+## EN-48, rotary angles in integers
+
+Each pair `i` of a head of size `d` turns by `theta^(-2i/d)` radians per
+position. `rope_frequencies` holds that rate as `F`, in units of `2^-64` of a
+turn per position, so a position's angle is `position * F` modulo `2^64`,
+exact, and `rope_angle` rounds it half to even to `2^-32` of a turn for
+EN-45's `sine_turn` and `cosine_turn`.
+
+`F` is `2^(63 - (2i/d) log2 theta - log2 pi)`, generated in integers over
+`2^62`: `log2` by repeated squaring, one bit per square, the power of two as a
+product of `2^(2^-j)`, each the integer square root of the one before, and
+`pi` by Machin's formula. Every machine gets the same `F`.
+
+Llama 3 scaling, which Llama 3.2 1B names, is rational in `F`: a pair above
+`high / original` turns per position is kept, one below `low / original` is
+divided by `factor`, and one between is blended,
+`F (D - N + N factor) / (factor D)` with `N = original F - low 2^64` and
+`D = (high - low) 2^64`, rounded half to even. The factors are taken as whole
+numbers, as the three models' configs give them. YaRN, which none of
+milestone 2's models uses, is refused by name where the config is read.
+
+What the test establishes, for Qwen3-0.6B and Qwen2.5-1.5B (128 at
+1,000,000), Llama 3.2 1B (64 at 500,000, Llama 3 scaling 32, 1, 4, 8192), and
+64 at 10,000:
+
+- every unscaled `F` is within `2^6` units of `2^64 theta^(-2i/d) / (2 pi)`,
+  certified as `((F - 2^6) 2 pi)^b theta^a < 2^(64b) < ((F + 2^6) 2 pi)^b theta^a`
+  for `2i/d = a/b`, with the test's own Machin `pi` and integers of any
+  width; the largest miss is pair 0's, 26 units, and `2^4` fails;
+- every Llama 3 frequency is the test's own keep, divide or blend, rounded
+  half to even, and within `10^-12` of the reference's float formula;
+- every angle is `position * F` modulo `2^64` rounded half to even, and its
+  cosine and sine are within `10^-4` of `cos` and `sin` of
+  `position theta^(-2i/d)` for positions below 32,768.
+
+The float comparisons are yardsticks, in the test only. `2^6` units of
+`2^-64` of a turn per position move a position's angle by under `2^-38` of a
+turn at a million positions.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_48`
+
+| Planted defect | Result |
+| --- | --- |
+| `pi` from `atan(1/240)` | rejected: `pair 0's frequency 2935825336898657179 is not within 2^6 ...` |
+| half of `log2 pi` left out of the exponent | rejected: `pair 0's frequency 5203730428379116568 is not within 2^6 ...` |
+| the Llama 3 blend rounded down | rejected: `Llama 3.2 1B: pair 16's scaled frequency is not the rounded keep, divide or blend` |
+| the keep and divide bands swapped | rejected: the blend overflows and the config is refused |
+| the angle truncated | rejected: `rope_angle(97, 2935890503282001200) is not rounded half to even` |
+| none | passed |
+
+## EN-49, the CPU path is integer from token ids to logits
+
+`hologram-ai-cpu-decode` runs a Qwen3-shaped model from its fused q4f16 ONNX
+export with no floating-point operation. The residual stream is binary32 bit
+patterns held as `u32` (Ilya, 2026-11-18); each stage reads them exactly and
+rounds its result back once, half to even:
+
+| Stage | How |
+| --- | --- |
+| Embedding | the half read exactly, as binary32 |
+| RMSNorm (input, query, key, post-attention, final) | each value enters EN-47 in units of `2^-16`, half to even; the normalised value times its half weight, rounded once |
+| Query, key, value, output, gate, up, down | `q4_product_with`, 16-bit activation codes per group of 32 (EN-37 to EN-41) |
+| Rotary positions | EN-48's angle, EN-45's cosine and sine; each rotated pair summed exactly and rounded once |
+| Scores | the exact dot product of query and key, rounded once; its softmax exponent `score log2(e) / sqrt(d)` in units of `2^-8`, from `LOG2_E` and `floor(2^40 / sqrt(d))` (KN-43's root), half to even |
+| Softmax | EN-44 on EN-43's table |
+| Attention output | the exact sum of weights times values, rounded once |
+| Residual adds | exact, rounded once |
+| SiLU and gate | the gate enters EN-46 in units of `2^-16`; times up, rounded once |
+| Logits | the tied half embedding, `dense_product_with` |
+| Greedy | the largest logit by the order of binary32 read from its bits, the first on a tie |
+
+The graph is read by the nodes that read each weight, by their names in
+onnx-community's fused export, so the same reading serves GP-19's fixture and
+the published export; a role the graph lacks, or whose weight is not the shape
+the role needs, is refused as `DecodeError::Unrecognised` (FL-55). The f16
+`cos_cache` and `sin_cache` the export carries are not read: positions come
+from the certified tables.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_49`
+
+On GP-19's fixture, after its prompt, the sixteen greedy tokens are the float
+reference's, every logit is within `2^-7` of the reference's (the largest gap
+measured 1.66e-3), and a second run gives the same bits.
+
+| Planted defect | Result |
+| --- | --- |
+| rotary pairs taken interleaved, `(2i, 2i + 1)` | rejected: tokens `[179, 203, 106, ...]` against `[194, 194, 194, ...]` |
+| a query head's key head by remainder, not by group | rejected: tokens `[57, 56, 270, ...]` |
+| the query norm left out | rejected: tokens `[27, 296, 296, ...]` |
+| scores not scaled by `1/sqrt(d)` | rejected: tokens `[119, 276, 314, ...]` |
+| the feed-forward's residual add dropped | rejected: tokens `[73, 234, 310, ...]` |
+| none | passed |
+
+FL-55 to FL-58 each have a negative test: a graph without layer 0's query
+norm, a 4-bit matrix with a block of 8, an epsilon past EN-47's bound, and a
+token id equal to the vocabulary.
+
+### Run over the published export
+
+On 2026-11-18 the path was run over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen3-0.6B-ONNX at `79346d3` (BLAKE3 equal to the hub record's),
+read whole from disk by a local probe, with the model's own `tokenizer.json`
+(BLAKE3 equal to the record's), `rope_theta` 1,000,000 and `rms_norm_eps`
+1e-6 from its `config.json`. The probe is not part of the gate, which has no
+network and no 570 MB file, and is not committed. The float yardstick is
+ONNX Runtime 1.26.0 on the CPU running the same file.
+
+| Prompt (Qwen3's chat template, thinking off) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is **Paris**. | 10 | 10 / 10 | 10 | 0.046 |
+| Write one sentence about the sea. | The sea whispers stories of the past, carrying the memories of those who once called it home. | 20 | 20 / 20 | 20 | 0.049 |
+| What is 12 times 7? | To calculate 12 multiplied by 7: ... 12 \times 7 = 84 ... (cut at 32 tokens) | 32 | 32 / 32 | 32 | 0.051 |
+
+The logit gaps include ONNX Runtime's own half-precision activations. The
+integer path took about 23 s for each prompt of about 20 tokens and 1.2 s per
+token after, one thread, release build: the exact products are not yet the
+fast path (step 8 of the plan). The measurement is the ledger's
+`OPEN-GREEDY-QWEN3-0.6B-INTEGER`.
+
+## EN-50 and EN-51, Qwen2.5's decomposed export and Llama's
+
+`read` takes both export styles onnx-community writes. The fused one (Qwen3,
+Llama) names norms `SkipSimplifiedLayerNormalization` and states the head
+counts on `GroupQueryAttention`, which must agree with the config's; the
+decomposed one (Qwen2.5) names norms `Mul_1`, adds query, key and value biases
+as `Add` nodes, and has no attention node, so the head counts are the config's.
+Query and key norms and the biases are read where layer 0 has them, and then
+required in every layer. A bias is added to its product as the export adds it,
+rounded once more. Llama's rotary scaling is EN-48's, from the config.
+
+### The gate: `engine_en_50` and `engine_en_51`
+
+| Fixture | Tokens equal to the float reference's | Largest logit gap |
+| --- | --- | --- |
+| Qwen2-shaped, decomposed, biases (EN-50) | 16 / 16 | 1.26e-3 |
+| Llama-shaped, fused, Llama 3 scaling 4, 1, 4, 64 (EN-51) | 16 / 16 | 1.93e-3 |
+| Qwen3-shaped, fused, query and key norms (EN-49) | 16 / 16 | 1.66e-3 |
+
+Planted against EN-50 and EN-51:
+
+| Planted defect | Result |
+| --- | --- |
+| biases not added | rejected: `qwen2: the integer path's tokens are not the float reference's` |
+| Llama 3 scaling read as none | rejected: `llama: the integer path's tokens are not the float reference's` |
+| none | passed |
+
+### Run over Qwen2.5-1.5B-Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen2.5-1.5B-Instruct at `d54957e` (BLAKE3 equal to the hub
+record's), with its own `tokenizer.json` and `config.json`, against ONNX
+Runtime 1.26.0 on the same file with graph optimisation off: its layer-norm
+fusion fails on this export with `GetIndexFromName ... InsertedPrecisionFreeCast`.
+
+| Prompt (Qwen2.5's template, default system line) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | **Q:** What is the capital of France? **A:** Paris | 15 | 15 / 15 | 15 | 0.22 |
+| Write one sentence about the sea. | ... **The sea is a vast and powerful body of water that plays a crucial role in shaping our planet's ecosystems and weather patterns.* ... (cut at 32) | 32 | 31 / 32 | 28 | 0.61 |
+| What is 12 times 7? | **Final answer**: 84 | 8 | 8 / 8 | 8 | 0.25 |
+
+The one difference is at a near tie: the float model's best two logits are
+0.026 apart at step 28, and its free run takes the other. The gaps are larger
+than Qwen3's because this export runs every activation in half precision in
+ONNX Runtime. About 52 s for each prompt of about 30 tokens and 2.3 s per
+token after, one thread. The ledger's `OPEN-GREEDY-QWEN2.5-1.5B-INTEGER`.
+
+### Run over Llama 3.2 1B Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` and `model_q4f16.onnx_data` of
+onnx-community/Llama-3.2-1B-Instruct-ONNX at `82ac693` (each BLAKE3 equal to
+the hub record's), with its own `tokenizer.json` and `config.json`. That
+config names no rope scaling, but the export's own cos and sin cache is Llama
+3's at factor 32, low 1, high 4, original 8192 (GPU-VERIFICATION.md, read
+2026-11-16), so the run takes those parameters, as the page's loader does
+after confirming them against the cache. The yardstick is ONNX Runtime 1.26.0
+on the same files with graph optimisation off.
+
+| Prompt (Llama 3.2's template) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is Paris. | 8 | 8 / 8 | 8 | 0.36 |
+| Write one sentence about the sea. | The vast expanse of the ocean, with its diverse marine life and intricate underwater ecosystems, continues to captivate and inspire people from all over the world. | 32 | 32 / 32 | 32 | 0.32 |
+| What is 12 times 7? | To find the answer, I'll multiply 12 by 7. 12 * 7 = 84 The answer is 84. | 29 | 29 / 29 | 29 | 0.50 |
+
+The gaps include ONNX Runtime's half-precision activations and its
+half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
+1.9 s per token after, one thread. The ledger's
+`OPEN-GREEDY-LLAMA-3.2-1B-INTEGER`.
+
+Reading the rotary parameters from the export's cache rather than taking the
+family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
+integer path takes them from its caller.
+
+## EN-52, the integer forward pass in the page's module
+
+The page's module (`crates/wasm`) carries `hologram-ai-cpu-decode`. After an
+import through `onnx_finish`, the module keeps the graph's nodes; the page
+hands it each weight's bytes once (`decode_tensor`: name length, name, element
+type, bytes, little-endian), opens the model with the config's head counts,
+rope theta, epsilon as binary32 bits and scaling (`decode_open`, JSON, which
+answers the sizes), and steps a token at a time (`decode_step`, which answers
+the greedy token and every logit as binary32 bits). `decode_clear` lets the
+weights go. A refusal of the forward pass is answered as `Decode(...)`, the
+name `DecodeError` gives it (FL-59).
+
+`engine_en_52` imports GP-19's fixture through the module natively, with
+EN-33's stand-in kernel answering decision 20 from each request's shape, hands
+it every weight, and steps the prompt and sixteen greedy tokens: every greedy
+token and every logit equals `hologram-ai-cpu-decode`'s run of the same model,
+bit for bit. With the forward pass in it the module is 1,923,970 bytes, 91 per
+cent of the 2,097,152 a page may ask for, 607,877 gzipped.
+
+| Planted defect | Result |
+| --- | --- |
+| the logits answered big-endian | rejected: `the module's logits are not the native run's, bit for bit` |
+| none | passed |
+
+## EN-53, a run kept and restored in the module
+
+`Session::prefix` cuts a run back to its first `n` tokens. The module keeps one
+(`decode_save`, which answers its number), carries on from it
+(`decode_restore`), and starts again (`decode_reset`). `engine_en_53` steps
+GP-19's fixture through its prompt and eight greedy tokens, keeps the run at
+the prompt's length, steps on, restores it and steps the same tokens again,
+then resets and steps the prompt again: every step answers the token and
+logits the first run did, bit for bit, and a run kept past what it has seen is
+refused.
+
+| Planted defect | Result |
+| --- | --- |
+| `prefix` keeping one token too many | rejected: `step 0 after the restore is not the first run's` |
+| none | passed |
+
+## EN-58, no float on the integer path
+
+Set by Ilya: no floating-point operation lies between the bytes admitted and
+the token ids. Two floats were left on the page's CPU device: `integer.mjs`
+rounded `rope_theta` with `Math.round` and turned `rms_norm_eps` into binary32
+through a `Float32Array`, both from numbers `JSON.parse` had already read as
+doubles. The page now hands the module config.json's text, and the module reads
+`num_attention_heads`, `num_key_value_heads`, `rope_theta` and `rms_norm_eps`
+from their own decimal text (serde_json's `RawValue` keeps it) through
+`hologram_ai_exact::decimal_whole` and `decimal_binary32`, each the Rust form of
+decision 49 (KN-50). `integer.mjs` is five lines shorter.
+
+`cargo xtask audit-float`, part of `validate`, reads every file the integer
+forward pass is computed in (`crates/exact/src`, `crates/cpu-decode/src`,
+`crates/wasm/src` and `site/app/engine/integer.mjs`, listed in
+`repo_model::floats`) and refuses an `f32` or `f64`, a literal with a fraction
+or an exponent, or, in the script, `Math.`, `parseFloat`, `Float64Array`, or a
+number turned into binary32. Comments and strings are not code, and a
+`Float32Array` view of bits the module wrote computes nothing, so neither is
+refused; the logits a caller asks for are read that way, after the token is
+chosen.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Each config number the module reads is the whole number or the nearest binary32 its text names | `engine_en_58`: 27 texts against Rust's correctly rounded parse, among them the epsilons and thetas real configs write, ties both ways, the subnormal range and the tie below its floor | tested |
+| The compiled guest confirms each | 62 claims, `exact` for the crate's answer and `differs` for one bit off, and each refusal by name | replayed on CI |
+| The module opens a model with the numbers as before | `engine_en_52`: the forward pass equal bit for bit to `hologram-ai-cpu-decode`'s run of the same model, opened now from config.json's text | tested |
+| No float on the integer path | `audit-float` in `validate`; `engine_en_58` runs it over the same files | tested |
+| `FL-69`: a config number outside decision 49 is refused and no model is opened | `engine_fl_69`: an epsilon of `1e1000` answers `Decode(Exact(DecimalRefused))` | tested |
+
+### What EN-58 does not establish
+
+- `onnx-preflight` still reads an ONNX node's real attributes as `f32`, which the page's role map uses; the integer pass reads none of them.
+- The loader picked Llama 3 rope scaling by a float tolerance when config.json named none; EN-59 replaced that with integers.
+- The GPU device still runs the float engines; row 15 replaces them.
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate's long division stopped at 21 quotient bits | rejected: `1e-06: not the nearest binary32` |
+| the module opening with a default epsilon when the text is refused | rejected: `a config past the decimals decision 49 reads was opened` |
+| the removed `binary32` conversion put back in `integer.mjs` | rejected by `audit-float` (`integer.mjs:88`) and by `engine_en_58` |
+| none | passed |
+
+## EN-59, rotary parameters confirmed in integers
+
+onnx-community's Llama 3.2 1B export bakes Llama 3 scaling into its cos and sin
+caches while its config.json names none, so the loader tries candidates
+against the cache. It used to compare the cache with `Math.cos` and
+`Math.sin` within `2e-3`. Now the page hands the module the cache rows' f16
+bits, and `hologram_ai_exact::rotary_confirm` takes, for each candidate, the
+engine's own frequencies (EN-48), angles and quarter-wave table (EN-45), and
+holds every entry to `2^-9` through `rotary_agrees`, the Rust form of decision
+50 (KN-51). `confirmRope` and the loader's f16-to-float helper are gone; the
+page's scripts are 26 lines shorter. The two GPU harnesses that used
+`confirmRope` drop it: `roles.mjs` no longer checks rope (EN-59 does, on the
+same recorded rows), and `run.mjs`, whose rows are its own reference's floats,
+keeps a float check of its own as a yardstick.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Llama 3.2's cache confirms Llama 3 scaling at factor 32, and not factor 8 or plain frequencies | `engine_en_59`, on the export's own rows at positions 1, 7, 1000 and 8191 | tested |
+| The module answers the same from config.json's text | `engine_en_59`, `rope_confirm` answering `{"chosen":0}` | tested |
+| The compiled guest confirms each entry asked | 19 claims for decision 50 | replayed on CI |
+| No float decides the rotary parameters | `audit-float` has no open finding, and `engine_en_59` asserts it | tested |
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate comparing magnitudes and dropping signs | rejected: `minus one against one` |
+| the loader calling the module by another name | rejected: onnx-load.mjs no longer asks `rope_confirm` |
+| none | passed |
+
+## EN-60, LayerNorm in integers
+
+`layer_norm` takes values `x`, weights `g` and biases `b` in units of `2^-16`,
+below `2^31` in size and at most `2^16` long, and `epsilon` in units of
+`2^-32`. The centred values `n x - sum(x)` and the variance's numerator
+`V = n sum(x^2) - sum(x)^2` are exact, in `i128` and `u128`; `V` is never
+negative by Cauchy-Schwarz. The root `r` is the largest integer with
+`n^2 r^2 <= (V + n^2 epsilon) 2^32`, decision 43's integer square root of the
+floored quotient, one narrowing as in EN-47. Each output is
+`(n x - sum(x)) g 2^16 / (n r)` rounded half to even, plus `b`. It is what the
+encoders of row 9 (all-MiniLM-L6-v2, DistilBERT SST-2) normalise with.
+
+What the test establishes, on EN-47's rows with biases drawn the same way:
+`r` is the largest root, found again by bisection; every output meets
+`2 |(n x - sum(x)) g 2^16 - (y - b) n r| <= n r`, a tie at even; every output
+is within `|y - b| / 2^20` plus one unit of the LayerNorm of the real numbers,
+a float yardstick in the test only; equal values with `epsilon` 0, an empty
+row, mismatched lengths, a value at `2^31` and an `epsilon` at `2^32` are
+refused.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_60`
+
+| Planted defect | Result |
+| --- | --- |
+| `epsilon` left out of the root | rejected: `y - b = 2147483647 is more than half a unit from ...` |
+| the output cut toward zero instead of rounded | rejected: `y - b = -1672 is more than half a unit from -11258999068426240 / 6730917244416` |
+| none | passed |
+
+## EN-61, GELU in integers
+
+`gelu` takes `x` in units of `2^-16` and gives `x Phi(x)` in the same units,
+the erf GELU both row 9 encoders use. At or above 8 it is `x`, and at or below
+-8 it is 0: `8 Phi(-8)` is below `2^-48`. Between, with `X = |x|` and
+`Y = X^2`, `erf(X / sqrt 2) = sqrt(2 / pi) X A / B`, where
+`A = sum Y^k / (2k+1)!!` and `B = sum (Y / 2)^k / k! = e^(Y/2)`. Both series
+have only positive terms, so nothing cancels at `|x|` near 8, where Taylor's
+alternating series for erf would need about 46 more bits. Every term is cut
+down to `2^-40`; `sqrt(2 / pi)` is the integer square root of
+`2^121 / floor(2^40 pi)`, `pi` by Machin's formula as in EN-45. The output
+`(x + X erf) / 2` is rounded half to even once. Every intermediate fits
+`u128`: the largest term is below `2^87` and its product with `Y` below
+`2^125`.
+
+What the test establishes, on 343 inputs (every eighth from -9 to 9, 160 drawn
+by a seeded generator in that range, 24 out to `2^20` units, the edges at 8
+and -8, and values out to `2^47`): each output is within one unit of
+`x Phi(x)` computed by Python's `math.erfc` and recorded in the test; inputs
+at or beyond 8 give `x` or 0; `gelu(x) - gelu(-x)` is `x` within one unit, and
+exactly `x` for every even `x`, since the two numerators differ by a whole
+`x` and round the same way. Not established: a bound tighter than one unit,
+which a truncation of the final rounding would also meet.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_61`
+
+| Planted defect | Result |
+| --- | --- |
+| the cut-off at 4 instead of 8 | rejected: `gelu(-294912) = 0 is more than one unit from -1.002014576560392` |
+| none | passed |
+
+Not in LexLean yet, as EN-43 to EN-47 are not: the stages are Rust, checked by
+these tests; their LexLean definitions follow the engine's other stages.
+
+## EN-62 and EN-63, the encoders in integers
+
+`hologram-ai-cpu-encode` runs row 9's encoders, all-MiniLM-L6-v2 for
+embeddings and DistilBERT SST-2 for labels, as `hologram-ai-cpu-decode` runs
+the decoders: hidden states are binary32 bit patterns touched only by integer
+code, and every stage rounds its result once, half to even. The weights come
+in by the roles the page already places them in (`onnx-roles.mjs`, GP-17), so
+the crate reads no graph. The stages:
+
+- the embedding: word, position and type-0 rows summed exactly, rounded once,
+  then LayerNorm (EN-60), each value entering in units of `2^-16`; the
+  normalised value times its weight plus its bias rounded once;
+- attention: the 4-bit products (EN-34 to EN-41) plus their biases, scores
+  as exact sums rounded once, softmax on the certified exponent table (EN-43,
+  EN-44) with `floor(2^40 / sqrt(d))`, every token attending to every other;
+- the feed-forward: the 4-bit products, GELU (EN-61) entering in units of
+  `2^-16`; residuals added and rounded once; LayerNorm after each block;
+- the embedding: the tokens' sum, not their mean, since unit length cancels
+  the count, each sum rounded once and entering in units of `2^-16`, divided
+  by the integer square root of its sum of squares, rounded to `2^-40`;
+- the label: the first token through the dense pre-classifier and its bias,
+  ReLU, then the dense classifier and its bias; the first largest score.
+
+The encoders' LayerNorm epsilon, `1e-12`, is below one unit of `2^-32` and
+enters as 0; a row of equal values is then refused (FL-72) rather than
+divided by a root of 0.
+
+Measured on GP-13's and GP-14's fixtures (two layers, width 128, q4f16
+matrices, sentences of 6 and 60 tokens) against the double-precision
+reference in `encoder-reference.mjs`, on 2026-11-19: every embedding
+component within `1.0e-5`, every label score within `9.8e-5`, the labels
+equal, and a second run the same bits. The gates are `2^-14` and `2^-10`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_62 engine_en_63`
+
+| Planted defect | Result |
+| --- | --- |
+| a causal mask, each token attending only to those before it | rejected: `a component -0.10827174782752991 is more than 0.00006103515625 from -0.12034248511094504`, and the score likewise |
+| ReLU in place of GELU | rejected: `a component -0.1134413331747055 is more than 0.00006103515625 from ...` |
+| the head without its ReLU | rejected: `a score -0.042501743882894516 is more than 0.0009765625 from -0.06594562553038026` |
+| attention scaled by `d` instead of `sqrt d` | rejected: `a score -0.07636036723852158 is more than 0.0009765625 from ...` |
+| none | passed |
+
+FL-70 to FL-73 are refused as their scenarios say: a missing query matrix
+and a misshapen feed-forward as `Unrecognised`, an infinite scale as
+`Exact(ScaleNotFinite)`, all-zero tables as `NormRefused`, and an empty
+sentence, an id past the vocabulary and 65 tokens past a 64-row position
+table as `TokenOutOfRange`.
+
+Not yet: the page's feature-extraction and text-classification paths through
+the module, and the agreement on the real exports, which waits on Ilya's word
+to download them.

@@ -114,6 +114,35 @@ fn assert_routed(tag: u8, answer: &str) {
     );
 }
 
+/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims.json`,
+/// which the `app` recipe replays through the guest of the holo it has just built. So
+/// a refusal that row 10 of the plan names is the compiled kernel's own answer, not
+/// only a reading of the model's text.
+fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
+    let claims =
+        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("the claims the crates make of the kernel");
+    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let listed: Vec<(&str, &str)> = claims["claims"]
+        .as_array()
+        .expect("a list of claims")
+        .iter()
+        .filter_map(|one| Some((one["request"].as_str()?, one["answer"].as_str()?)))
+        .collect();
+    for (request, answer) in cases {
+        assert_eq!(
+            request.first(),
+            Some(&decision),
+            "a decision-{decision} request"
+        );
+        let request: String = request.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(
+            listed.contains(&(request.as_str(), *answer)),
+            "no claim answers decision {decision}'s {request} with `{answer}`"
+        );
+    }
+}
+
 /// The lowercase hex of `text`, as an example's response is written in the model.
 fn hex(text: &str) -> String {
     text.bytes().map(|b| format!("{b:02x}")).collect()
@@ -1866,6 +1895,33 @@ fn kernel_kn_18() {
             "{definition} lists a name the test does not"
         );
     }
+    // Row 10: an operator off both lists, and one on the decomposed list asked of
+    // a fused graph, are refused by name by the compiled kernel; a listed one is not.
+    {
+        use hologram_ai_kernel_client::opname::{self, Style};
+        let name = |n: &str| opname::name(n).expect("a name of at most 32 bytes");
+        assert_claimed(
+            18,
+            &[
+                (
+                    opname::request(Style::Decomposed, &name("LayerNormalization")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Fused, &name("LayerNormalization")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Fused, &name("Add")).to_vec(),
+                    "unsupported operator",
+                ),
+                (
+                    opname::request(Style::Decomposed, &name("MatMulNBits")).to_vec(),
+                    "supported",
+                ),
+            ],
+        );
+    }
     assert_routed(18, "Kernel.Opnames::opnameAnswer");
 }
 /// `KN-19`: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
@@ -1940,6 +1996,62 @@ fn kernel_kn_19() {
         declaration(&kernel, "familyGated").contains(&format!("(activation =? {})", word("silu"))),
         "the gated activation is not silu"
     );
+    // Row 10: Gemma and a mixture of experts (Mixtral) are refused by name as unknown
+    // families, a listed family with GELU as an unsupported shape, by the compiled
+    // kernel; a type or activation longer than eight bytes (qwen3_moe,
+    // gelu_pytorch_tanh) has no word, so it is never put to the kernel at all.
+    {
+        use hologram_ai_kernel_client::family::{self, Shape};
+        let word = |w: &str| family::word(w).expect("a word of at most eight bytes");
+        let qwen = Shape {
+            heads: 12,
+            groups: 2,
+            head_size: 128,
+            layers: 28,
+            width: 1536,
+            vocabulary: 151_936,
+        };
+        let gemma = Shape {
+            heads: 8,
+            groups: 4,
+            head_size: 256,
+            layers: 26,
+            width: 2304,
+            vocabulary: 256_000,
+        };
+        let mixtral = Shape {
+            heads: 32,
+            groups: 8,
+            head_size: 128,
+            layers: 32,
+            width: 4096,
+            vocabulary: 32_000,
+        };
+        assert_claimed(
+            19,
+            &[
+                (
+                    family::request(&word("gemma2"), &word("gelu"), gemma).to_vec(),
+                    "rejected: unknown family",
+                ),
+                (
+                    family::request(&word("mixtral"), &word("silu"), mixtral).to_vec(),
+                    "rejected: unknown family",
+                ),
+                (
+                    family::request(&word("llama"), &word("gelu"), qwen).to_vec(),
+                    "rejected: unsupported shape",
+                ),
+                (
+                    family::request(&word("qwen2"), &word("silu"), qwen).to_vec(),
+                    "supported",
+                ),
+            ],
+        );
+        for long in ["qwen3_moe", "qwen2_moe", "gelu_pytorch_tanh"] {
+            assert_eq!(family::word(long), None, "{long} has no word");
+        }
+    }
     assert_routed(19, "Kernel.Family::familyAnswer");
 }
 /// `KN-20`: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
@@ -2081,6 +2193,25 @@ fn kernel_kn_21() {
         found.contains("body: (if (((Foundation.Bytes::byteLength value) =? 36) && (((Kernel.Wire::fieldAt value 1 1) <=? 1) && (((Kernel.Wire::fieldAt value 2 1) <=? 1) && ((Kernel.Wire::fieldAt value 3 1) <=? 1)))) then (precisionText (precisionCode (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 12 8) (Kernel.Wire::fieldAt value 2 1) (Kernel.Wire::fieldAt value 20 8) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 28 8) (Kernel.Wire::fieldAt value 4 8))) else (prim utf8_encode \"invalid request\" : Bytes))"),
         "precisionAnswer changed:\n{found}"
     );
+    // Row 10: a record offering none of q4f16, q4 and fp16 (only q8, int8 or bnb4
+    // files) is answered `none fits` by the compiled kernel; one offering q4 gets q4.
+    {
+        use hologram_ai_kernel_client::precision;
+        let budget = 4 << 30;
+        assert_claimed(
+            21,
+            &[
+                (
+                    precision::request(budget, None, None, None).to_vec(),
+                    "none fits",
+                ),
+                (
+                    precision::request(budget, None, Some(1_100_000_000), None).to_vec(),
+                    "q4",
+                ),
+            ],
+        );
+    }
     assert_routed(21, "Kernel.Precision::precisionAnswer");
 }
 /// `KN-22`: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused
@@ -3631,4 +3762,142 @@ fn kernel_kn_46() {
             "the client does not read `{answer}`"
         );
     }
+}
+
+/// `KN-50`: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
+#[test]
+fn kernel_kn_50() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Config.lex.tex");
+    let proofs = model("app/src/Proofs/Config.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "decimal_left_below_divisor",
+            "((carried < divisor) -> ((bit <= 1) -> ((Kernel.Config::decimalLeft carried bit divisor) < divisor)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_step_takes_divisor",
+            "((divisor <= ((carried + carried) + bit)) -> (((Kernel.Config::decimalLeft carried bit divisor) + divisor) = ((carried + carried) + bit)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_step_keeps_below",
+            "((((carried + carried) + bit) < divisor) -> ((Kernel.Config::decimalLeft carried bit divisor) = ((carried + carried) + bit)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_out_is_one_exactly_when_taken",
+            "(((Kernel.Config::decimalOut carried bit divisor) = 1) <-> (divisor <= ((carried + carried) + bit)))",
+            "Classical.choice, Quot.sound, propext",
+        ),
+        (
+            "decimal_unit_stage_passes_bit",
+            "((bit <= 1) -> ((Kernel.Config::decimalOut 0 bit 1) = bit))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_unit_stage_keeps_nothing",
+            "((bit <= 1) -> ((Kernel.Config::decimalLeft 0 bit 1) = 0))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_accepts_decides",
+            "(((Kernel.Config::decimalAccepts claimed mode mantissa up down) = true) <-> (claimed = (Kernel.Config::decimalResult mode mantissa up down)))",
+            "propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "decimalLeft",
+            "body: (if (divisor <=? ((carried + carried) + bit)) then (prim subtract ((carried + carried) + bit) divisor : Nat) else ((carried + carried) + bit))",
+        ),
+        (
+            "decimalStage",
+            "body: (if ((prim subtract down skipped : Nat) <=? 18) then (decimalPow (prim subtract down skipped : Nat)) else (decimalPow 18))",
+        ),
+        (
+            "decimalPacked",
+            "body: (decimalRun (decimalFed mantissa up) (decimalStage down 0) (decimalStage down 18) (decimalStage down 36) (decimalStage down 54) 0 0 0 0 0 0 420)",
+        ),
+        (
+            "decimalBinary",
+            "body: (Kernel.Round::roundResult 0 (prim quotient (decimalPacked mantissa up down) 512 0 : Nat) (prim subtract 32831 (prim remainder (decimalPacked mantissa up down) 512 0 : Nat) : Nat))",
+        ),
+        (
+            "decimalInRange",
+            "body: (if (decimalFits mantissa up) then ((mode =? 1) || (down <=? 72)) else false)",
+        ),
+        (
+            "decimalFits",
+            "body: (if (mantissa =? 0) then true else (if (up <=? 18) then (mantissa <=? (prim quotient 9223372036854775807 (decimalPow up) 0 : Nat)) else false))",
+        ),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    let run = declaration(&kernel, "decimalRun");
+    assert!(
+        run.contains(
+            "(if (4503599627370496 <=? quotient) then (decimalPack fed r1 r2 r3 r4 quotient step)"
+        ),
+        "decimalRun stops at other than 53 quotient bits:\n{run}"
+    );
+    assert_routed(49, "Kernel.Config::decimalAnswer");
+}
+
+/// `KN-51`: A cache entry, an f16, is confirmed to agree with a reference rotary value in units of 2^-30 exactly when the f16 read exactly as an integer times a power of two lies within the tolerance of it, compared in integers; an infinity or a NaN is answered not finite
+#[test]
+fn kernel_kn_51() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Rotary.lex.tex");
+    let proofs = model("app/src/Proofs/Rotary.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "rotary_agrees_decides",
+            "(((Kernel.Rotary::rotaryAgrees bits sign magnitude tolerance) = true) <-> ((Kernel.Rotary::rotaryDistance bits sign magnitude) <= tolerance))",
+            "propext",
+        ),
+        (
+            "rotary_same_sign_is_difference",
+            "(((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((prim subtract (Kernel.Rotary::rotaryCache bits) magnitude : Nat) + (prim subtract magnitude (Kernel.Rotary::rotaryCache bits) : Nat))))",
+            "Quot.sound, propext",
+        ),
+        (
+            "rotary_opposite_signs_add",
+            "(((Kernel.Rotary::rotarySame bits sign) = 0) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((Kernel.Rotary::rotaryCache bits) + magnitude)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "rotary_exact_entry_agrees",
+            "(((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryAgrees bits sign (Kernel.Rotary::rotaryCache bits) tolerance) = true))",
+            "Quot.sound, propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "rotaryCache",
+            "body: (prim multiply (Kernel.Scale::halfUnits bits) 64 : Nat)",
+        ),
+        (
+            "rotarySame",
+            "body: (if (Kernel.Scale::halfNegative bits) then (if (sign =? 1) then 1 else 0) else (if (sign =? 0) then 1 else 0))",
+        ),
+        (
+            "rotaryAgrees",
+            "body: ((rotaryDistance bits sign magnitude) <=? tolerance)",
+        ),
+        (
+            "rotaryAnswer",
+            "((Kernel.Wire::fieldAt value 4 4) <=? 1073741824)) && ((Kernel.Wire::fieldAt value 8 4) <=? 1073741824))",
+        ),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    assert_routed(50, "Kernel.Rotary::rotaryAnswer");
 }

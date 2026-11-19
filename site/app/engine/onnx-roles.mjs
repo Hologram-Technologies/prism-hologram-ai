@@ -9,7 +9,6 @@
 // /model/layers.0/self_attn/q_proj/MatMul_Q4. Read on 2026-11-16 from
 // onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B.
 
-import { llama3, plain } from "./yarn.mjs";
 
 const LAYER = String.raw`^/model/layers\.(\d+)/`;
 
@@ -57,25 +56,6 @@ export function ropeCandidates(config) {
     { kind: "llama3", llama3: { factor: 8, low: 1, high: 4, orig } },
     plain,
   ];
-}
-
-// Which candidate the export's own cache rows agree with, as the dims the
-// engine takes. rows is a list of { position, cos, sin }, each holding one
-// number per pair; Llama 3.2's f16 cache agrees with its parameters within
-// 2.4e-4 at positions up to 8191 and with plain frequencies only to 1.97.
-export function confirmRope(candidates, { hd, rope_base: base }, rows, tolerance = 2e-3) {
-  if (!rows.length) throw new Error("rope: no rows of the cos and sin cache to check against");
-  for (const candidate of candidates) {
-    const f = candidate.kind === "llama3" ? llama3({ hd, base, ...candidate.llama3 }).freqs : plain({ hd, base }).freqs;
-    let worst = 0;
-    for (const { position, cos, sin } of rows) {
-      for (let i = 0; i < f.length; i++) {
-        worst = Math.max(worst, Math.abs(cos[i] - Math.cos(position * f[i])), Math.abs(sin[i] - Math.sin(position * f[i])));
-      }
-    }
-    if (worst <= tolerance) return { dims: candidate.kind === "llama3" ? { llama3: candidate.llama3 } : {}, worst };
-  }
-  throw new Error("rope: no rotary parameters agree with the model's cos and sin cache");
 }
 
 const product = (dims) => dims.reduce((a, b) => a * b, 1);

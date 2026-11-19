@@ -33,6 +33,15 @@ fn node(script: &str, args: &[&str]) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("{script} printed no JSON ({e}):\n{stdout}"))
 }
 
+// Eight scenarios read the one engine run `run.mjs` makes. It takes no input
+// but this tree, so it runs once and each scenario asserts on that output.
+// Run eight times, four at once on the gate's four cores, it took 22 to 28
+// of the gate's 45 minutes.
+fn run() -> &'static serde_json::Value {
+    static RUN: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    RUN.get_or_init(|| node("crates/conformance/tests/gpu/run.mjs", &[]))
+}
+
 /// The largest difference allowed between a logit the GPU computes in single
 /// precision and the reference's double-precision logit. The first runs on
 /// SwiftShader measured at most 6.6e-4 on logits spread over about 6 to 8.
@@ -117,7 +126,7 @@ fn blocks_agree(model: &serde_json::Value, label: &str) {
 /// `GP-01`: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
 #[test]
 fn gpu_gp_01() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     // No adapter is a failure, not a skip: a test that cannot see a GPU has
     // checked nothing.
     assert!(
@@ -127,7 +136,7 @@ fn gpu_gp_01() {
     );
     let errors = result["errors"].as_array().expect("the error list");
     assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    reference_agrees(&result, "ternary Qwen3");
+    reference_agrees(result, "ternary Qwen3");
 }
 
 /// `GP-02`: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
@@ -185,19 +194,19 @@ fn gpu_gp_02() {
 /// `GP-04`: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
 #[test]
 fn gpu_gp_04() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
         result["error"]
     );
-    blocks_agree(&result, "ternary Qwen3");
+    blocks_agree(result, "ternary Qwen3");
 }
 
 /// `GP-05`: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
 #[test]
 fn gpu_gp_05() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -464,7 +473,7 @@ fn gpu_gp_07() {
 /// `GP-08`: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_08() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -502,7 +511,7 @@ fn gpu_gp_08() {
 /// `GP-09`: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
 #[test]
 fn gpu_gp_09() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -534,7 +543,7 @@ fn gpu_gp_09() {
 /// `GP-10`: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_10() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -595,7 +604,7 @@ fn gpu_gp_11() {
     }
     assert_eq!(bands, [15, 3, 14], "kept, blended and slowed pairs");
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -657,11 +666,7 @@ fn gpu_gp_12() {
         result["exports"]["Qwen2.5-1.5B-Instruct"]["q3"],
         serde_json::json!(["onnx::MatMul_9444_Q4", "onnx::MatMul_9444_scales"])
     );
-    assert_eq!(
-        result["exports"]["Llama-3.2-1B-Instruct-ONNX"]["rope"],
-        serde_json::json!({"llama3": {"factor": 32, "low": 1, "high": 4, "orig": 8192}}),
-        "Llama's cache confirms Llama 3 scaling"
-    );
+    // Which rotary parameters Llama's cache confirms is EN-59's, in integers.
     for (case, start) in [
         ("missing", "missing: the graph has no l3.wq"),
         ("duplicate", "duplicate: l5.w_up"),
@@ -680,7 +685,6 @@ fn gpu_gp_12() {
         ("heads", "shape: /model/layers.0/attn/k_proj/MatMul_Q4 rows"),
         ("family", "family: gemma"),
         ("layers", "layer: /model/layers.27/"),
-        ("rope", "rope: no rotary parameters agree"),
         (
             "interleaved",
             "rope: /model/layers.0/attn/q_rotary/RotaryEmbedding rotates interleaved",
@@ -693,7 +697,7 @@ fn gpu_gp_12() {
         );
     }
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -1100,7 +1104,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(
@@ -1115,7 +1119,7 @@ fn gpu_gp_19() {
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
         "is not the file the record names",
-        "crypto.subtle.digest(\"SHA-1\", blob)",
+        "const digest = blake3(bytes);",
     ] {
         assert!(
             loader.contains(wanted),
@@ -1130,8 +1134,7 @@ fn gpu_gp_19() {
         "onnx ${name}: ran on ${run.device}, expected ${device}",
         "onnx flip: expected the kernel to refuse the graph file",
         "onnx tokenizer: expected to stop at tokenizer.json",
-        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
-        "onnx gitwrong: expected to stop at generation_config.json",
+        "onnx good: config.json was not checked by its BLAKE3",
     ] {
         assert!(
             journey.contains(wanted),
@@ -1194,7 +1197,7 @@ fn gpu_gp_20() {
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
-/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
 #[test]
 fn gpu_gp_21() {
     // The journey runs the four visits in a browser (`just page-journey`, as
@@ -1209,7 +1212,7 @@ fn gpu_gp_21() {
         "if (digest() !== local.named) controller.error(",
         "return bytes.size === file.size ? { named, bytes } : null;",
         "else await handle.move(named);",
-        "else await dir.removeEntry(t.dir);",
+        "await dir.removeEntry(t.dir);",
     ] {
         assert!(
             kept.contains(wanted),
@@ -1414,5 +1417,332 @@ fn gpu_gp_25() {
             journey.contains(wanted),
             "the journey no longer checks `{wanted}`"
         );
+    }
+}
+
+/// `GP-28`: The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept
+#[test]
+fn gpu_gp_28() {
+    // The journey runs the page (`just page-journey`); this test reads that
+    // the CPU device's engine is the integer one and the journey checks it.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "import { createIntegerEngine } from \"./integer.mjs\";",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !pipeline.contains("createCpuEngine"),
+        "the pipeline still builds the float CPU engine"
+    );
+    let integer = read("site/app/engine/integer.mjs");
+    for call in [
+        "\"decode_tensor\"",
+        "\"decode_open\"",
+        "\"decode_step\"",
+        "\"decode_save\"",
+        "\"decode_restore\"",
+        "\"decode_reset\"",
+    ] {
+        assert!(integer.contains(call), "integer.mjs no longer calls {call}");
+    }
+    let load = read("site/app/engine/onnx-load.mjs");
+    assert!(
+        load.contains(
+            "engineTensors(weights, read), { table, read, config: configText, rope: { ...rope } })"
+        ),
+        "onnx-load.mjs no longer hands the build the import's tensors and the config"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    assert!(
+        journey.contains("the CPU device did not run the integer engine"),
+        "the journey no longer checks the CPU device's engine"
+    );
+}
+
+/// `GP-26`: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1
+#[test]
+fn gpu_gp_26() {
+    // The journey runs the loads in a browser (`just page-journey`); this test
+    // reads that the loader and the store name files by the record's BLAKE3
+    // and nothing by SHA-256 or SHA-1.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let loader = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "throw new Error(`the record names no BLAKE3 for ${p}`);",
+        "const ok = digest === file.blake3 && bytes.length === file.size;",
+        "m.callWith(\"onnx_start\", unhex(graph.blake3),",
+        "m.callWith(\"onnx_data_start\", unhex(file.blake3),",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let kept = read("site/app/engine/files.mjs");
+    assert!(
+        kept.contains("return file && HEX.test(file.blake3 ?? \"\") ? file : null;"),
+        "site/app/engine/files.mjs no longer keeps files by the record's BLAKE3"
+    );
+    for (path, text) in [
+        ("site/app/engine/onnx-load.mjs", &loader),
+        ("site/app/engine/files.mjs", &kept),
+    ] {
+        for gone in ["file.sha256", "gitSha1", "\"SHA-256\"", "\"SHA-1\""] {
+            assert!(
+                !text.contains(gone),
+                "{path} still checks a file by `{gone}`"
+            );
+        }
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "onnx good: config.json was not checked by its BLAKE3",
+        "onnx good: a file was checked by SHA-256 or SHA-1",
+        "onnx noblake3: expected the record refused for naming config.json no BLAKE3",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-27`: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+#[test]
+fn gpu_gp_27() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The vendored files are the hub's, byte for byte, at the BLAKE3 VENDOR.md names.
+    let blake3 = |path: &str| {
+        let bytes = std::fs::read(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let mut arriving = hologram_ai_download::Arriving::new();
+        arriving.take(&bytes);
+        arriving.label().to_hex()
+    };
+    let vendor = read("site/app/engine/hub/VENDOR.md");
+    for (path, pinned) in [
+        (
+            "site/app/engine/hub/hub-client.mjs",
+            "cdcc05c1c331a8fc2f5b6748ae84891ec13d82a627a2844c094588c8da8ba49a",
+        ),
+        (
+            "site/app/engine/hub/sigstore.mjs",
+            "0f25ca52fed3967f36d291179b35b36f10ed39f60c46be948b94037a369f3afa",
+        ),
+    ] {
+        assert_eq!(blake3(path), pinned, "{path} is not the hub's file");
+        assert!(
+            vendor.contains(pinned),
+            "VENDOR.md does not name {path}'s BLAKE3"
+        );
+    }
+    let client = read("site/app/engine/hub/hub-client.mjs");
+    assert!(
+        client.contains(&format!(
+            "export const SIGSTORE_BLAKE3 = \"{}\";",
+            blake3("site/app/engine/hub/sigstore.mjs")
+        )),
+        "hub-client.mjs pins another sigstore.mjs"
+    );
+    // The policy is the hub model's screen 3 trust.policy, pinned here.
+    let policy: serde_json::Value = serde_json::from_str(&read("site/app/engine/hub/policy.json"))
+        .expect("policy.json is JSON");
+    assert_eq!(
+        policy["identity"],
+        "https://github.com/Hologram-Technologies/hub/.github/workflows/pages.yml@refs/heads/main"
+    );
+    assert_eq!(
+        policy["issuer"],
+        "https://token.actions.githubusercontent.com"
+    );
+    assert_eq!(
+        policy["indexPredicateType"],
+        "https://hologram.foundation/hub/index/v1"
+    );
+    assert_eq!(
+        policy["rekorLogId"],
+        "c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d"
+    );
+    for key in ["fulcioIntermediate", "rekorKey"] {
+        assert!(
+            policy[key].as_str().is_some_and(|v| v.len() > 64),
+            "policy.json has no {key}"
+        );
+    }
+    assert!(
+        vendor.contains(&blake3("site/app/engine/hub/policy.json")),
+        "VENDOR.md does not name policy.json's BLAKE3"
+    );
+
+    // The client, driven in Node through a chain minted for the test.
+    let result = node("crates/conformance/tests/gpu/hub-check.mjs", &[]);
+    assert_eq!(
+        result["good"]["code"], "ok",
+        "the minted chain was not proven: {result}"
+    );
+    assert_eq!(result["good"]["repo"], "fixture-owner/fixture-model");
+    for (case, code, failed) in [
+        ("foreignKey", "RootUnverified", Some(vec!["chain", "log"])),
+        ("foreignLog", "RootUnverified", Some(vec!["log"])),
+        ("otherIdentity", "RootUnverified", Some(vec!["identity"])),
+        ("changedRoot", "RootUnverified", Some(vec!["subject"])),
+        ("pinnedPolicy", "RootUnverified", Some(vec!["chain", "log"])),
+        ("noBundle", "RootUnreachable", None),
+        ("unknownRepo", "RecordUnknown", None),
+        ("changedRecord", "RecordMismatch", None),
+        ("unaddressedRecord", "RecordUnaddressed", None),
+        ("unreachableRecord", "RecordUnreachable", None),
+        ("changedFile", "FileMismatch", None),
+        ("shortFile", "FileMismatch", None),
+        ("unaddressedFile", "FileUnaddressed", None),
+    ] {
+        assert_eq!(result[case]["code"], code, "{case}: {result}");
+        if let Some(failed) = failed {
+            assert_eq!(
+                result[case]["failed"],
+                serde_json::json!(failed),
+                "{case} failed other checks"
+            );
+        }
+    }
+
+    // The page asks the client, and nothing in it skips the signature.
+    let loader = read("site/app/engine/loader.mjs");
+    for wanted in [
+        "from \"./hub/hub-client.mjs\";",
+        "index = await openIndex(base, policy, { hash, fetch: hubFetch });",
+        "const record = await readRecord(index, repo);",
+        "new URL(\"./hub/policy.json\", import.meta.url)",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/loader.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !loader.contains("waits on the hub's client module"),
+        "the page still leaves the index root's signature unchecked"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "good: the index root's signature was not checked",
+        "foreign: expected to stop at the index root signature",
+        "if (path === \"/app/engine/hub/policy.json\")",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-30`: A return visit to the engine page with the network off loads the page, its engine and its kernel from the page's own service worker, reads the hub's index root, its signature and the model's record from this browser and checks them again as a download is checked, reads every file and tensor of the model from this browser with decision 28 asked again on the importer's own addresses, and answers with the reference's tokens; a kept record changed by one byte is refused as RecordMismatch, and with no hub index kept the page stops at the index root as RootUnreachable
+#[test]
+fn gpu_gp_30() {
+    // The journey runs the visits in a browser with the server answering
+    // nothing (`just page-journey`); this test reads that it does, and that
+    // the page's worker, the kept hub index and the checks it says are there.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    for (path, wanted) in [
+        ("site/app/sw.js", "await cache.addAll(listing.files.map((f) => new URL(f.path, ROOT).href));"),
+        ("site/app/sw.js", "const fresh = await fetch(request);"),
+        ("site/app/sw.js", "const kept = await cache.match(key);"),
+        ("site/app/sw.js", "url.href.split(/[?#]/)[0] === LISTING) return;"),
+        ("site/app/app.mjs", "navigator.serviceWorker.register(\"./sw.js\")"),
+        ("site/app/app.mjs", "if (listed === OFFLINE) return checks.add(\"kernel\", subject, \"not checked\""),
+        ("site/app/engine/loader.mjs", "const hit = store && (await store.match(url));"),
+        ("site/app/engine/loader.mjs", "if (response.ok && store) await store.put(url, response.clone());"),
+        ("site/app/engine/loader.mjs", "index = await openIndex(base, policy, { hash, fetch: hubFetch });"),
+        ("site/app/engine/pipeline.mjs", "const record = await hubRecord({ indexBase: index, repo: model, checks, fetch: hubFetch });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "if (down) return request.socket.destroy();"),
+        ("crates/conformance/tests/gpu/journey.mjs", "await context.setOffline(true);"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home offline: expected every tensor read here and no read of the network"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home record: expected a changed kept record refused as RecordMismatch"),
+        ("crates/conformance/tests/gpu/journey.mjs", "home none: expected the page stopped at the index root, unreachable"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+    // The worker answers no model byte and no hub file: those are checked
+    // again on every read, which a worker answering for them would skip.
+    let worker = read("site/app/sw.js");
+    for absent in ["hologram-files", "/onnx/", "index/models", "uor/"] {
+        assert!(!worker.contains(absent), "site/app/sw.js names `{absent}`");
+    }
+}
+
+/// `GP-31`: The engine page keeps an ONNX export's tensors in the browser once each by the BLAKE3 address the hub's UOR index lists: each span is asked of decision 23, a tensor already held under any model, precision or repository is read from the browser and not downloaded, only the bytes not held are range-read from the first of the record's sources that answers, and nothing new is kept until decision 28 answers ready on the importer's own addresses; the same export under a second repository downloads nothing, its q4 graph after its q4f16 graph downloads only the tensors the first lacks, a kept tensor changed by one byte is refused and forgotten, a model the UOR index does not list is refused by name before any file is read, and an index giving a tensor another address is refused by decision 28
+#[test]
+fn gpu_gp_31() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The hub's shard rule is the hub's, byte for byte, at the BLAKE3 VENDOR.md names.
+    let bytes = std::fs::read(root().join("site/app/engine/hub/uorkey.mjs")).expect("uorkey.mjs");
+    let mut arriving = hologram_ai_download::Arriving::new();
+    arriving.take(&bytes);
+    assert!(
+        read("site/app/engine/hub/VENDOR.md").contains(&arriving.label().to_hex()),
+        "VENDOR.md does not name uorkey.mjs's BLAKE3"
+    );
+    for (path, wanted) in [
+        ("site/app/engine/loader.mjs", "const shardPath = await uorShardOf(record.repo, root.shardBits);"),
+        ("site/app/engine/loader.mjs", "if (blake3Hex(bytes) !== listed.blake3) refuse("),
+        ("site/app/engine/loader.mjs", "refuse(`the hub's UOR index lists no tensors for ${record.repo} ${path} at ${record.revision}`);"),
+        // Decision 23's wire: file length, offset, length, then the previous end.
+        ("site/app/engine/files.mjs", "request.set(be(file.size, 8), 3);"),
+        ("site/app/engine/files.mjs", "request.set(be(end, 8), 27);"),
+        ("site/app/engine/files.mjs", "if (answer !== \"accept\") throw new Error("),
+        ("site/app/engine/files.mjs", "segments.push({ from: t.offset, to: t.offset + t.length, named: t.address.slice(7), held: await heldAt(t.address.slice(7), t.length) });"),
+        ("site/app/engine/files.mjs", "while (j < segments.length && !local(segments[j])) j++;"),
+        ("site/app/engine/files.mjs", "response.status === 206 && span && Number(span[1]) === from && Number(span[2]) === to - 1"),
+        // Decision 28 before anything new is named.
+        ("site/app/engine/files.mjs", "request[0] = 28;"),
+        ("site/app/engine/files.mjs", "if (verdict.answer !== \"ready\") {"),
+        ("site/app/engine/files.mjs", "await p.handle.move(p.named);"),
+        ("site/app/engine/onnx-load.mjs", "await admitted(table);"),
+        ("site/app/engine/pipeline.mjs", "const manifest = await tensorManifest({ indexBase: index, record, paths: [path, ...dataPaths], checks, fetch: hubFetch });"),
+        ("site/app/engine/pipeline.mjs", "files = await keepFiles({ record, open: fetched(base), module, kernel: decide, manifest });"),
+        ("crates/conformance/tests/gpu/fixture.mjs", "export function uorIndexFiles(rows, { shardBits = 4, lie = null } = {}) {"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store twin: expected every tensor read here and none downloaded"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store q4: a tensor the q4f16 graph shares was downloaded again"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store q4: the fixture's two precisions share no tensor, so nothing is tested"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store tampered: the changed tensor is still kept"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store unlisted: expected the model refused by name for want of a manifest"),
+        ("crates/conformance/tests/gpu/journey.mjs", "store lie: bytes were kept from a load decision 28 refused"),
+        ("crates/conformance/tests/gpu/journey.mjs", "read by this load, was dropped for room"),
+        ("site/app/engine/files.mjs", "// What this load reads from here is pinned before decision 26 is asked"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+}
+
+/// `GP-32`: Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token
+#[test]
+fn gpu_gp_32() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    for (path, wanted) in [
+        ("site/app/engine/pipeline.mjs", "const verdict = await ask(\"reuse\", \"computed prefix to reuse\", join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))"),
+        ("site/app/engine/pipeline.mjs", "engine.restoreState(held.state);"),
+        ("site/app/engine/pipeline.mjs", "computed: prompt.length - from,"),
+        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "reusing the head changed the tokens"),
+        ("crates/conformance/tests/gpu/journey.mjs", "a turn reported no time to first token"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
     }
 }
