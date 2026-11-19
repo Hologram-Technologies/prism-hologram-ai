@@ -497,6 +497,22 @@ suite = "engine"
 condition = "A token id at or past the vocabulary is refused before any weight is read"
 
 [[failure]]
+id = "FL-59"
+crate = "wasm"
+type = "CallError"
+variant = "Decode"
+suite = "engine"
+condition = "The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it"
+
+[[failure]]
+id = "FL-69"
+crate = "exact"
+type = "ExactError"
+variant = "DecimalRefused"
+suite = "engine"
+condition = "A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened"
+
+[[failure]]
 id = "FL-70"
 crate = "cpu-encode"
 type = "EncodeError"

@@ -10145,6 +10145,225 @@ fn engine_en_51() {
     en_49_check("llama");
 }
 
+/// GP-19's fixture imported through the page's module and opened there for
+/// the forward pass: the module's answer to `decode_open`.
+fn en_52_open(fixture: &En49) -> String {
+    let (status, said) = en_52_opened(fixture, &fixture.config.to_string());
+    assert_eq!(status, 0, "decode_open: {}", String::from_utf8_lossy(&said));
+    String::from_utf8(said).expect("the sizes are JSON")
+}
+
+/// GP-19's fixture imported through the page's module, then `decode_open`
+/// with `config` as config.json's text: its status and its answer.
+fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
+    // The stand-in of EN-33, answering decision 20 for this fixture's shapes:
+    // the codes are half a byte a weight, the scales one per block.
+    let mut base = accepting();
+    let kernel = Scripted {
+        answer: Box::new(move |request: &[u8]| {
+            if request[0] != 20 {
+                return (base.answer)(request);
+            }
+            let field = |at: usize, n: usize| {
+                request[at..at + n]
+                    .iter()
+                    .fold(0u64, |v, &b| (v << 8) | u64::from(b))
+            };
+            let (rows, columns, block) = (field(2, 4), field(6, 4), field(10, 2));
+            let groups = rows * columns.div_ceil(block);
+            let bytes = match request[1] {
+                0 => groups * block / 2,
+                1 => groups * 4,
+                _ => groups * 2,
+            };
+            bytes.to_string().into_bytes()
+        }),
+        asked: Vec::new(),
+    };
+    let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
+    wasm::install_kernel(Box::new(Shared(kept)));
+    let graph = &fixture.graph;
+    let root = import_record("model.onnx", 0, graph).address.0;
+    let at = wasm::given(&root);
+    assert_eq!(
+        wasm::onnx_start(at, 32, graph.len() as u64, 0),
+        0,
+        "onnx_start"
+    );
+    wasm::release(at);
+    for chunk in graph.chunks(1 << 16) {
+        let at = wasm::given(chunk);
+        let status = wasm::onnx_take(at, chunk.len() as u32);
+        wasm::release(at);
+        assert_eq!(
+            status,
+            0,
+            "onnx_take: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+    }
+    assert_eq!(
+        wasm::onnx_graph_finish(),
+        0,
+        "{}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    assert_eq!(
+        wasm::onnx_finish(),
+        0,
+        "{}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    let (_, initializers) = en_49_graph(graph);
+    for (name, init) in &initializers {
+        let mut given = (name.len() as u32).to_le_bytes().to_vec();
+        given.extend_from_slice(name.as_bytes());
+        given.extend_from_slice(&(init.data_type as u32).to_le_bytes());
+        given.extend_from_slice(init.bytes);
+        let at = wasm::given(&given);
+        assert_eq!(
+            wasm::decode_tensor(at, given.len() as u32),
+            0,
+            "decode_tensor {name}"
+        );
+        wasm::release(at);
+    }
+    // The module reads the config's numbers from its text (KN-50, EN-58).
+    let opened = serde_json::json!({ "config": config, "scaling": null }).to_string();
+    let at = wasm::given(opened.as_bytes());
+    let status = wasm::decode_open(at, opened.len() as u32);
+    wasm::release(at);
+    (status, wasm::last_answer())
+}
+
+/// `EN-52`: The page's module runs the integer forward pass: after it imports a graph, it is handed each weight's bytes once, opened with the config's head counts, rope theta, epsilon and scaling, and stepped a token at a time, and each step answers the greedy token and the logits, binary32 bits, equal bit for bit to hologram-ai-cpu-decode's run of the same model; a refusal of the forward pass is answered by its DecodeError name
+#[test]
+fn engine_en_52() {
+    let fixture = en_49_fixture("qwen3");
+    let sizes = en_52_open(&fixture);
+    assert!(
+        sizes.contains("\"vocab\":320"),
+        "the module opened another model: {sizes}"
+    );
+    // The module's run: the greedy token and the logits of each step.
+    let step = |token: u32| {
+        assert_eq!(
+            wasm::decode_step(token),
+            0,
+            "decode_step: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+        let said = wasm::last_answer();
+        let words: Vec<u32> = said
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        (words[0], words[1..].to_vec())
+    };
+    let mut last = (0, Vec::new());
+    for &id in &fixture.prompt {
+        last = step(id);
+    }
+    let (mut tokens, mut logits) = (Vec::new(), Vec::new());
+    for _ in 0..16 {
+        tokens.push(last.0);
+        logits.push(last.1.clone());
+        last = step(last.0);
+    }
+    // The same model run natively.
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let (native_tokens, native_logits) = en_49_run(&model, &fixture.prompt);
+    assert_eq!(
+        tokens, native_tokens,
+        "the module's tokens are not the native run's"
+    );
+    assert_eq!(
+        logits, native_logits,
+        "the module's logits are not the native run's, bit for bit"
+    );
+    assert_eq!(wasm::decode_clear(), 0);
+}
+
+/// `FL-59`: The integer forward pass refuses a step or a model, and the module answers the refusal by the name DecodeError gives it
+#[test]
+fn engine_fl_59() {
+    let fixture = en_49_fixture("qwen3");
+    en_52_open(&fixture);
+    assert_eq!(
+        wasm::decode_step(320),
+        1,
+        "a token past the vocabulary was stepped"
+    );
+    assert_eq!(wasm::last_answer(), b"Decode(TokenOutOfRange)");
+    let _ = wasm::CallError::Decode(hologram_ai_cpu_decode::DecodeError::TokenOutOfRange);
+    assert_eq!(wasm::decode_clear(), 0);
+}
+
+/// `EN-53`: The page's module keeps and restores a run of the integer forward pass: decode_save keeps it as it was after its first n tokens, decode_restore carries on from there, and decode_reset starts again, each step after a restore or a reset answering the same token and logits, bit for bit, as the run that first computed it
+#[test]
+fn engine_en_53() {
+    let fixture = en_49_fixture("qwen3");
+    en_52_open(&fixture);
+    let step = |token: u32| {
+        assert_eq!(
+            wasm::decode_step(token),
+            0,
+            "decode_step: {}",
+            String::from_utf8_lossy(&wasm::last_answer())
+        );
+        wasm::last_answer()
+    };
+    let greedy = |said: &[u8]| u32::from_le_bytes([said[0], said[1], said[2], said[3]]);
+    let mut first = Vec::new();
+    for &id in &fixture.prompt {
+        first.push(step(id));
+    }
+    let mut next = greedy(first.last().expect("a prompt"));
+    let mut picked = Vec::new();
+    for _ in 0..8 {
+        picked.push(next);
+        let said = step(next);
+        next = greedy(&said);
+        first.push(said);
+    }
+    // Kept at the prompt's length, restored, and the same tokens again.
+    let length = fixture.prompt.len() as u32;
+    assert_eq!(
+        wasm::decode_save(length),
+        0,
+        "decode_save: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    let id = wasm::last_answer();
+    let id = u32::from_le_bytes([id[0], id[1], id[2], id[3]]);
+    step(7);
+    assert_eq!(wasm::decode_restore(id), 0, "decode_restore");
+    for (i, &token) in picked.iter().enumerate() {
+        assert_eq!(
+            step(token),
+            first[fixture.prompt.len() + i],
+            "step {i} after the restore is not the first run's"
+        );
+    }
+    // Started again from the first token.
+    assert_eq!(wasm::decode_reset(), 0, "decode_reset");
+    for (i, &token) in fixture.prompt.iter().enumerate() {
+        assert_eq!(
+            step(token),
+            first[i],
+            "prompt step {i} after the reset is not the first run's"
+        );
+    }
+    assert_eq!(
+        wasm::decode_save(10_000),
+        1,
+        "a run was kept past what it has seen"
+    );
+    assert_eq!(wasm::decode_clear(), 0);
+}
+
 /// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
 #[test]
 fn engine_en_42() {
@@ -10191,6 +10410,380 @@ fn engine_en_42() {
         "the question is the record's BLAKE3 against the arrived bytes' BLAKE3"
     );
     let _ = beside;
+}
+
+/// `EN-58`: No float lies on the integer path: the page module reads config.json numbers from their decimal text through hologram-ai-exact, each confirmed by decision 49 in the compiled guest and equal to a correctly rounded parse, and audit-float refuses a float type, literal or conversion in the integer path, a planted one in Rust and in the page script included
+#[test]
+fn engine_en_58() {
+    use hologram_ai_kernel_client::config_check::{request, Mode};
+
+    let claims = kernel_claims();
+    let hex = |bytes: [u8; 50]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut missing = Vec::new();
+    let mut want = |request: String, answer: &str| {
+        let claim = (request, answer.to_string());
+        if !claims.contains(&claim) {
+            missing.push(format!("{} -> {}", claim.0, claim.1));
+        }
+    };
+    for (text, mode, answer) in en_58_texts() {
+        let bytes = text.as_bytes();
+        match (mode, answer) {
+            (Mode::Binary32, "exact") => {
+                // The crate's bits, and a correctly rounded parse as the oracle.
+                let bits = exact::decimal_binary32(bytes).expect("a decimal in range");
+                let oracle = text.parse::<f32>().expect("Rust reads it").to_bits();
+                assert_eq!(bits, oracle, "{text}: not the nearest binary32");
+                want(
+                    hex(request(mode, bytes, u64::from(bits)).expect("short")),
+                    "exact",
+                );
+                want(
+                    hex(request(mode, bytes, u64::from(bits ^ 1)).expect("short")),
+                    "differs",
+                );
+            }
+            (Mode::Whole, "exact") => {
+                let whole = exact::decimal_whole(bytes).expect("a whole number");
+                let oracle = text.parse::<f64>().expect("Rust reads it");
+                assert_eq!(whole as f64, oracle, "{text}: not the whole number");
+                want(hex(request(mode, bytes, whole).expect("short")), "exact");
+                want(
+                    hex(request(mode, bytes, whole + 1).expect("short")),
+                    "differs",
+                );
+            }
+            (_, refusal) => {
+                let refused = match mode {
+                    Mode::Binary32 => exact::decimal_binary32(bytes).map(u64::from),
+                    Mode::Whole => exact::decimal_whole(bytes),
+                };
+                assert_eq!(refused, Err(exact::ExactError::DecimalRefused), "{text}");
+                want(hex(request(mode, bytes, 0).expect("short")), refusal);
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 49:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+
+    // The page hands the module config.json's text and converts no number.
+    let read = |path: &str| std::fs::read_to_string(root().join(path)).expect(path);
+    let integer = read("site/app/engine/integer.mjs");
+    for gone in ["rms_norm_eps", "rope_theta", "Math.round", "binary32("] {
+        assert!(!integer.contains(gone), "integer.mjs still converts {gone}");
+    }
+    assert!(integer.contains("const opened = {\n    config,\n"));
+
+    // The audit finds nothing on the path, and finds a float planted in it.
+    use repo_model::floats::{float_uses, RUST, SCRIPT};
+    for dir in RUST {
+        for entry in std::fs::read_dir(root().join(dir)).expect(dir) {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).expect("source");
+                let found = float_uses(&path.display().to_string(), &text, true);
+                assert!(
+                    found.is_empty(),
+                    "floats on the path:\n{}",
+                    found.join("\n")
+                );
+            }
+        }
+    }
+    let script = read(SCRIPT[0]);
+    assert!(float_uses(SCRIPT[0], &script, false).is_empty());
+    let planted = format!(
+        "{script}\nconst binary32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];\n"
+    );
+    assert_eq!(
+        float_uses(SCRIPT[0], &planted, false).len(),
+        1,
+        "a planted conversion"
+    );
+    for line in ["let s = 0.5;", "const e = 1e-6;", "Math.round(t)"] {
+        assert_eq!(
+            float_uses("p.mjs", line, false).len(),
+            1,
+            "{line} is a float"
+        );
+    }
+    for line in [
+        "pub fn planted(bits: u32) -> f32 { f32::from_bits(bits) }",
+        "let x = v as f64;",
+        "let half = 2.5e-3;",
+    ] {
+        assert_eq!(float_uses("p.rs", line, true).len(), 1, "{line} is a float");
+    }
+    for line in [
+        "1 => \"f32\".into(), // the element type's name",
+        "let range = 0..10;",
+        "let t = pair.0.1;",
+        "let h = 0x1e5;",
+    ] {
+        assert!(
+            float_uses("p.rs", line, true).is_empty(),
+            "{line} is not a float"
+        );
+    }
+    // A float still on the way is reported as open, with its plan row, never
+    // passed over: the rope check is one until milestone 2's row 17.
+    for (file, start, row) in repo_model::floats::OPEN {
+        let found = repo_model::floats::open_uses(file, &read(file), start)
+            .expect("the open finding's function is there");
+        assert!(
+            !found.is_empty(),
+            "{file} {start} is open and holds no float"
+        );
+        assert!(
+            read("docs/Q_ENGINE_PLAN.md").contains("| 17 | The loader picks Llama 3 rope scaling"),
+            "{row}"
+        );
+    }
+    let main = read("xtask/src/main.rs");
+    assert!(main.contains("\"audit-float\" => audit::audit_float(&root),"));
+    assert!(
+        main.contains("audit::audit_float(root)?;"),
+        "validate runs the audit"
+    );
+}
+
+/// The texts EN-58 converts, with the mode and the kernel's answer: the
+/// epsilons and thetas real configs write, ties broken both ways, the
+/// subnormal range and the tie below its floor, and the refusals.
+fn en_58_texts() -> Vec<(
+    &'static str,
+    hologram_ai_kernel_client::config_check::Mode,
+    &'static str,
+)> {
+    use hologram_ai_kernel_client::config_check::Mode::{Binary32, Whole};
+    vec![
+        ("1e-06", Binary32, "exact"),
+        ("1e-05", Binary32, "exact"),
+        ("1e-6", Binary32, "exact"),
+        ("0.000001", Binary32, "exact"),
+        ("9.999999974752427e-07", Binary32, "exact"),
+        ("1e-12", Binary32, "exact"),
+        ("16777217", Binary32, "exact"),
+        ("16777219", Binary32, "exact"),
+        ("33554434", Binary32, "exact"),
+        ("1.0000000596046448", Binary32, "exact"),
+        ("1.0000000596046447", Binary32, "exact"),
+        ("1e-45", Binary32, "exact"),
+        ("8e-46", Binary32, "exact"),
+        ("7.006492321624085e-46", Binary32, "exact"),
+        ("7.006492321624086e-46", Binary32, "exact"),
+        ("1e-40", Binary32, "exact"),
+        ("1.1754942e-38", Binary32, "exact"),
+        ("1.17549435e-38", Binary32, "exact"),
+        ("0.1", Binary32, "exact"),
+        ("0", Binary32, "exact"),
+        ("1e-72", Binary32, "exact"),
+        ("123456789012345678", Binary32, "exact"),
+        ("10000", Whole, "exact"),
+        ("1000000.0", Whole, "exact"),
+        ("500000.0", Whole, "exact"),
+        ("1e6", Whole, "exact"),
+        ("40", Whole, "exact"),
+        ("1.5", Whole, "not whole"),
+        ("1e-73", Binary32, "out of range"),
+        ("3.4028235e38", Binary32, "out of range"),
+        ("1e19", Whole, "out of range"),
+        ("-1", Binary32, "not a decimal"),
+        ("1e", Binary32, "not a decimal"),
+        ("1e1000", Binary32, "not a decimal"),
+        ("1.2.3", Whole, "not a decimal"),
+    ]
+}
+
+/// `FL-69`: A config number that is not a decimal, past 2^63, more than 72 places below the point, or not the whole number asked for is refused, and the model is not opened
+#[test]
+fn engine_fl_69() {
+    let fixture = en_49_fixture("qwen3");
+    let mut config = fixture.config.clone();
+    config["rms_norm_eps"] = serde_json::Value::String("PLANTED".into());
+    let text = config.to_string().replace("\"PLANTED\"", "1e1000");
+    let (status, said) = en_52_opened(&fixture, &text);
+    assert_eq!(
+        status, 1,
+        "a config past the decimals decision 49 reads was opened"
+    );
+    assert_eq!(said, b"Decode(Exact(DecimalRefused))");
+    assert_eq!(
+        exact::decimal_whole(b"1.5"),
+        Err(exact::ExactError::DecimalRefused)
+    );
+}
+
+/// `EN-59`: The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it
+#[test]
+fn engine_en_59() {
+    use hologram_ai_kernel_client::rotary_check::request;
+
+    let claims = kernel_claims();
+    let mut missing = Vec::new();
+    let mut want = |half: u16, reference: i32, tolerance: u32, answer: &str| {
+        let claim = (
+            enhex(&request(half, reference, tolerance)),
+            answer.to_string(),
+        );
+        if !claims.contains(&claim) {
+            missing.push(format!("{} -> {}", claim.0, claim.1));
+        }
+    };
+    let tol = exact::ROTARY_TOLERANCE;
+    let one = 1 << 30;
+    for (name, half, reference, tolerance, answer) in [
+        ("one against one", 0x3c00, one, 0, "agrees"),
+        (
+            "one, at the tolerance",
+            0x3c00,
+            one - (1 << 21),
+            tol,
+            "agrees",
+        ),
+        (
+            "one, past the tolerance",
+            0x3c00,
+            one - (1 << 21) - 1,
+            tol,
+            "disagrees",
+        ),
+        ("minus one against minus one", 0xbc00, -one, 0, "agrees"),
+        ("minus one against one", 0xbc00, one, tol, "disagrees"),
+        ("zero against minus five", 0x0000, -5, 5, "agrees"),
+        ("minus zero against four", 0x8000, 4, 3, "disagrees"),
+        ("the smallest subnormal, 64 units", 0x0001, 64, 0, "agrees"),
+        ("an infinity", 0x7c00, 0, tol, "not finite"),
+        ("a NaN", 0x7e00, 0, tol, "not finite"),
+    ] {
+        let got = exact::rotary_agrees(half, reference, tolerance);
+        let expected = match answer {
+            "agrees" => Ok(true),
+            "disagrees" => Ok(false),
+            _ => Err(exact::ExactError::InputNotFinite),
+        };
+        assert_eq!(got, expected, "{name}");
+        want(half, reference, tolerance, answer);
+    }
+
+    // Llama 3.2 1B's own cache rows, as onnx-community's export stores them.
+    let text = std::fs::read_to_string(
+        root().join("crates/conformance/tests/gpu/exports/Llama-3.2-1B-Instruct-ONNX.json"),
+    )
+    .expect("the recorded export");
+    let x: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    let width = 32;
+    let (mut cos, mut sin, mut positions) = (Vec::new(), Vec::new(), Vec::new());
+    for row in x["rope_rows"]["rows"].as_array().expect("rows") {
+        let position = row["position"].as_u64().expect("a position") as u32;
+        positions.push(position);
+        let end = (position as usize + 1) * width;
+        for (cache, key) in [(&mut cos, "cos"), (&mut sin, "sin")] {
+            cache.resize(end.max(cache.len()), 0);
+            for (i, v) in row[key].as_array().expect("values").iter().enumerate() {
+                cache[end - width + i] = half_bits(v.as_f64().expect("a number") as f32);
+            }
+        }
+    }
+    let llama3 = |factor| exact::RopeScaling::Llama3 {
+        factor,
+        low: 1,
+        high: 4,
+        original: 8192,
+    };
+    let all = [llama3(32), llama3(8), exact::RopeScaling::None];
+    let confirm = |candidates: &[exact::RopeScaling]| {
+        exact::rotary_confirm(&cos, &sin, width, &positions, 64, 500_000, candidates)
+    };
+    assert_eq!(
+        confirm(&all),
+        Ok(Some(0)),
+        "Llama's cache confirms Llama 3 scaling at factor 32"
+    );
+    assert_eq!(
+        confirm(&all[1..]),
+        Ok(None),
+        "factor 8 and plain frequencies do not agree"
+    );
+    assert_eq!(
+        exact::rotary_confirm(&cos, &sin, 31, &positions, 64, 500_000, &all),
+        Err(exact::ExactError::LengthMismatch)
+    );
+    // A sample of what the module asks of the kernel for this cache: entries
+    // that agree under factor 32, and the first that does not under plain
+    // frequencies.
+    let frequencies = |s| exact::rope_frequencies(64, 500_000, s).expect("frequencies");
+    let (scaled, plain) = (
+        frequencies(llama3(32)),
+        frequencies(exact::RopeScaling::None),
+    );
+    for position in [1u32, 8191] {
+        for i in [0usize, 31] {
+            let at = position as usize * width + i;
+            let angle = exact::rope_angle(position, scaled[i]);
+            want(cos[at], exact::cosine_turn(angle), tol, "agrees");
+            want(sin[at], exact::sine_turn(angle), tol, "agrees");
+        }
+    }
+    let (at, reference) = (0..width)
+        .map(|i| {
+            (
+                8191 * width + i,
+                exact::cosine_turn(exact::rope_angle(8191, plain[i])),
+            )
+        })
+        .find(|&(at, r)| exact::rotary_agrees(cos[at], r, tol) == Ok(false))
+        .expect("plain frequencies disagree somewhere at 8191");
+    want(cos[at], reference, tol, "disagrees");
+    assert!(
+        missing.is_empty(),
+        "the claims lack {} the crate makes of decision 50:\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    assert_kernel_replays_claims();
+
+    // The page's module answers the same from config.json's text.
+    let rows: Vec<serde_json::Value> = positions
+        .iter()
+        .map(|&p| {
+            let row = |c: &[u16]| c[p as usize * width..(p as usize + 1) * width].to_vec();
+            serde_json::json!([p, row(&cos), row(&sin)])
+        })
+        .collect();
+    let asked = serde_json::json!({
+        "config": "{\"rope_theta\": 500000.0}", "head_dim": 64, "width": width, "rows": rows,
+        "candidates": [
+            {"factor": 32, "low": 1, "high": 4, "original": 8192},
+            {"factor": 8, "low": 1, "high": 4, "original": 8192},
+            null
+        ],
+    })
+    .to_string();
+    let at = wasm::given(asked.as_bytes());
+    let status = wasm::rope_confirm(at, asked.len() as u32);
+    wasm::release(at);
+    assert_eq!(
+        status,
+        0,
+        "rope_confirm: {}",
+        String::from_utf8_lossy(&wasm::last_answer())
+    );
+    assert_eq!(wasm::last_answer(), b"{\"chosen\":0}");
+
+    // The page asks the module and keeps no float check of its own.
+    let read = |path: &str| std::fs::read_to_string(root().join(path)).expect(path);
+    assert!(read("site/app/engine/onnx-load.mjs").contains("m.callWith(\"rope_confirm\""));
+    assert!(!read("site/app/engine/onnx-roles.mjs").contains("confirmRope"));
+    assert!(
+        repo_model::floats::OPEN.is_empty(),
+        "no float is left open on the way"
+    );
 }
 
 /// `EN-60`: LayerNorm is integer: for x, the weight g and the bias b in units of 2^-16 below 2^31 in size, at most 2^16 of them, and epsilon in units of 2^-32, the centred values n x - sum(x) and the variance's numerator V = n sum(x^2) - sum(x)^2 are exact, the root r is the largest integer with n^2 r^2 <= (V + n^2 epsilon) 2^32, and each output is (n x - sum(x)) g 2^16 / (n r) rounded half to even, plus b, in units of 2^-16, within |y - b| / 2^20 plus one unit of (x - mean(x)) g / sqrt(var(x) + epsilon) + b; a row whose root is 0 or whose sizes are past the bounds is refused

@@ -2786,6 +2786,121 @@ Reading the rotary parameters from the export's cache rather than taking the
 family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
 integer path takes them from its caller.
 
+## EN-52, the integer forward pass in the page's module
+
+The page's module (`crates/wasm`) carries `hologram-ai-cpu-decode`. After an
+import through `onnx_finish`, the module keeps the graph's nodes; the page
+hands it each weight's bytes once (`decode_tensor`: name length, name, element
+type, bytes, little-endian), opens the model with the config's head counts,
+rope theta, epsilon as binary32 bits and scaling (`decode_open`, JSON, which
+answers the sizes), and steps a token at a time (`decode_step`, which answers
+the greedy token and every logit as binary32 bits). `decode_clear` lets the
+weights go. A refusal of the forward pass is answered as `Decode(...)`, the
+name `DecodeError` gives it (FL-59).
+
+`engine_en_52` imports GP-19's fixture through the module natively, with
+EN-33's stand-in kernel answering decision 20 from each request's shape, hands
+it every weight, and steps the prompt and sixteen greedy tokens: every greedy
+token and every logit equals `hologram-ai-cpu-decode`'s run of the same model,
+bit for bit. With the forward pass in it the module is 1,923,970 bytes, 91 per
+cent of the 2,097,152 a page may ask for, 607,877 gzipped.
+
+| Planted defect | Result |
+| --- | --- |
+| the logits answered big-endian | rejected: `the module's logits are not the native run's, bit for bit` |
+| none | passed |
+
+## EN-53, a run kept and restored in the module
+
+`Session::prefix` cuts a run back to its first `n` tokens. The module keeps one
+(`decode_save`, which answers its number), carries on from it
+(`decode_restore`), and starts again (`decode_reset`). `engine_en_53` steps
+GP-19's fixture through its prompt and eight greedy tokens, keeps the run at
+the prompt's length, steps on, restores it and steps the same tokens again,
+then resets and steps the prompt again: every step answers the token and
+logits the first run did, bit for bit, and a run kept past what it has seen is
+refused.
+
+| Planted defect | Result |
+| --- | --- |
+| `prefix` keeping one token too many | rejected: `step 0 after the restore is not the first run's` |
+| none | passed |
+
+## EN-58, no float on the integer path
+
+Set by Ilya: no floating-point operation lies between the bytes admitted and
+the token ids. Two floats were left on the page's CPU device: `integer.mjs`
+rounded `rope_theta` with `Math.round` and turned `rms_norm_eps` into binary32
+through a `Float32Array`, both from numbers `JSON.parse` had already read as
+doubles. The page now hands the module config.json's text, and the module reads
+`num_attention_heads`, `num_key_value_heads`, `rope_theta` and `rms_norm_eps`
+from their own decimal text (serde_json's `RawValue` keeps it) through
+`hologram_ai_exact::decimal_whole` and `decimal_binary32`, each the Rust form of
+decision 49 (KN-50). `integer.mjs` is five lines shorter.
+
+`cargo xtask audit-float`, part of `validate`, reads every file the integer
+forward pass is computed in (`crates/exact/src`, `crates/cpu-decode/src`,
+`crates/wasm/src` and `site/app/engine/integer.mjs`, listed in
+`repo_model::floats`) and refuses an `f32` or `f64`, a literal with a fraction
+or an exponent, or, in the script, `Math.`, `parseFloat`, `Float64Array`, or a
+number turned into binary32. Comments and strings are not code, and a
+`Float32Array` view of bits the module wrote computes nothing, so neither is
+refused; the logits a caller asks for are read that way, after the token is
+chosen.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Each config number the module reads is the whole number or the nearest binary32 its text names | `engine_en_58`: 27 texts against Rust's correctly rounded parse, among them the epsilons and thetas real configs write, ties both ways, the subnormal range and the tie below its floor | tested |
+| The compiled guest confirms each | 62 claims, `exact` for the crate's answer and `differs` for one bit off, and each refusal by name | replayed on CI |
+| The module opens a model with the numbers as before | `engine_en_52`: the forward pass equal bit for bit to `hologram-ai-cpu-decode`'s run of the same model, opened now from config.json's text | tested |
+| No float on the integer path | `audit-float` in `validate`; `engine_en_58` runs it over the same files | tested |
+| `FL-69`: a config number outside decision 49 is refused and no model is opened | `engine_fl_69`: an epsilon of `1e1000` answers `Decode(Exact(DecimalRefused))` | tested |
+
+### What EN-58 does not establish
+
+- `onnx-preflight` still reads an ONNX node's real attributes as `f32`, which the page's role map uses; the integer pass reads none of them.
+- The loader picked Llama 3 rope scaling by a float tolerance when config.json named none; EN-59 replaced that with integers.
+- The GPU device still runs the float engines; row 15 replaces them.
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate's long division stopped at 21 quotient bits | rejected: `1e-06: not the nearest binary32` |
+| the module opening with a default epsilon when the text is refused | rejected: `a config past the decimals decision 49 reads was opened` |
+| the removed `binary32` conversion put back in `integer.mjs` | rejected by `audit-float` (`integer.mjs:88`) and by `engine_en_58` |
+| none | passed |
+
+## EN-59, rotary parameters confirmed in integers
+
+onnx-community's Llama 3.2 1B export bakes Llama 3 scaling into its cos and sin
+caches while its config.json names none, so the loader tries candidates
+against the cache. It used to compare the cache with `Math.cos` and
+`Math.sin` within `2e-3`. Now the page hands the module the cache rows' f16
+bits, and `hologram_ai_exact::rotary_confirm` takes, for each candidate, the
+engine's own frequencies (EN-48), angles and quarter-wave table (EN-45), and
+holds every entry to `2^-9` through `rotary_agrees`, the Rust form of decision
+50 (KN-51). `confirmRope` and the loader's f16-to-float helper are gone; the
+page's scripts are 26 lines shorter. The two GPU harnesses that used
+`confirmRope` drop it: `roles.mjs` no longer checks rope (EN-59 does, on the
+same recorded rows), and `run.mjs`, whose rows are its own reference's floats,
+keeps a float check of its own as a yardstick.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Llama 3.2's cache confirms Llama 3 scaling at factor 32, and not factor 8 or plain frequencies | `engine_en_59`, on the export's own rows at positions 1, 7, 1000 and 8191 | tested |
+| The module answers the same from config.json's text | `engine_en_59`, `rope_confirm` answering `{"chosen":0}` | tested |
+| The compiled guest confirms each entry asked | 19 claims for decision 50 | replayed on CI |
+| No float decides the rotary parameters | `audit-float` has no open finding, and `engine_en_59` asserts it | tested |
+
+### Planted defects
+
+| Planted defect | Result |
+| --- | --- |
+| the crate comparing magnitudes and dropping signs | rejected: `minus one against one` |
+| the loader calling the module by another name | rejected: onnx-load.mjs no longer asks `rope_confirm` |
+| none | passed |
+
 ## EN-60, LayerNorm in integers
 
 `layer_norm` takes values `x`, weights `g` and biases `b` in units of `2^-16`,

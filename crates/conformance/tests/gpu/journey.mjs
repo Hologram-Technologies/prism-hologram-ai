@@ -315,7 +315,7 @@ try {
       output = await page.evaluate(() => window.__qengine.output);
       output.second = await secondTurn(page);
     }
-    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, integer: window.__qengine.integer ?? false, checks: window.__qengine.checks }));
     results.onnx[name] = { ...state, output, errors };
     await page.close();
   }
@@ -706,6 +706,8 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first",
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
   if (run.device !== device) fail(`onnx ${name}: ran on ${run.device}, expected ${device}`);
+  // GP-28: the CPU device runs the integer engine.
+  if (name === "cpu" && run.integer !== true) fail(`onnx ${name}: the CPU device did not run the integer engine`);
   for (const step of ["record", "file", "template", "import", "roles", "stop"]) {
     if (!run.checks.some((c) => c.step === step && c.verdict === "pass")) fail(`onnx ${name}: no passing ${step} check`);
   }

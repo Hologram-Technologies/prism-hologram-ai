@@ -1511,6 +1511,114 @@ pub mod scale_check {
     }
 }
 
+/// Decision 49: whether a claimed binary32, or a claimed whole number, is the
+/// one a config number's decimal text names.
+pub mod config_check {
+    /// What the claim is said to be.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Mode {
+        /// The nearest binary32, ties to even.
+        Binary32,
+        /// The whole number, exactly.
+        Whole,
+    }
+
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The claim is the number the text names.
+        Exact,
+        /// The claim is not.
+        Differs,
+        /// The text is not a decimal the kernel reads.
+        NotDecimal,
+        /// The value is past what the kernel converts.
+        OutOfRange,
+        /// A whole number was asked for and the text names a fraction.
+        NotWhole,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for `text` with `claimed` the answer: the mode in one byte,
+    /// the claim in eight, then the text in forty, padded with zero bytes,
+    /// which end it. `None` for text longer than 40 bytes or holding a zero
+    /// byte, which the kernel does not read.
+    #[must_use]
+    pub fn request(mode: Mode, text: &[u8], claimed: u64) -> Option<[u8; 50]> {
+        if text.len() > 40 || text.contains(&0) {
+            return None;
+        }
+        let mut out = [0; 50];
+        out[0] = 49;
+        out[1] = u8::from(mode == Mode::Whole);
+        out[2..10].copy_from_slice(&claimed.to_be_bytes());
+        out[10..10 + text.len()].copy_from_slice(text);
+        Some(out)
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"exact" => Answer::Exact,
+            b"differs" => Answer::Differs,
+            b"not a decimal" => Answer::NotDecimal,
+            b"out of range" => Answer::OutOfRange,
+            b"not whole" => Answer::NotWhole,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
+/// Decision 50: whether an f16 cache entry lies within a tolerance of a
+/// reference rotary value, both in units of `2^-30`.
+pub mod rotary_check {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The entry is within the tolerance.
+        Agrees,
+        /// It is not.
+        Disagrees,
+        /// The entry is an infinity or a NaN.
+        NotFinite,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for the f16 `half` against `reference` with `tolerance`:
+    /// the half in two bytes, the reference's sign (1 for negative) in one and
+    /// its magnitude in four, then the tolerance in four, each at most 2^30.
+    #[must_use]
+    pub fn request(half: u16, reference: i32, tolerance: u32) -> [u8; 12] {
+        let mut out = [0; 12];
+        out[0] = 50;
+        out[1..3].copy_from_slice(&half.to_be_bytes());
+        out[3] = u8::from(reference < 0);
+        out[4..8].copy_from_slice(&reference.unsigned_abs().to_be_bytes());
+        out[8..12].copy_from_slice(&tolerance.to_be_bytes());
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"agrees" => Answer::Agrees,
+            b"disagrees" => Answer::Disagrees,
+            b"not finite" => Answer::NotFinite,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;
