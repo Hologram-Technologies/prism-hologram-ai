@@ -1,0 +1,43 @@
+\begin{lexlean}{Kernel.Render}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Gpu}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: renderValid,
+  parameters: [value : Bytes],
+  result: Bool,
+  body: (if ((Kernel.Wire::fieldAt value 1 1) =? 1) then (((Foundation.Bytes::byteLength value) =? 17) && ((Kernel.Wire::fieldAt value 16 1) <=? 1)) else (((Kernel.Wire::fieldAt value 1 1) =? 2) && ((Foundation.Bytes::byteLength value) =? 4))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: renderText,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Kernel.Wire::fieldAt value 1 1) =? 1) then (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4) (Kernel.Wire::fieldAt value 12 4) ((Kernel.Wire::fieldAt value 16 1) =? 1))) else (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: renderPiece,
+  parameters: [text : Bytes, start : Nat],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength text) <=? start) then 0x else (match (Foundation.Bytes::sliceBytes text start (if ((prim subtract (Foundation.Bytes::byteLength text) start : Nat) <? 256) then (prim subtract (Foundation.Bytes::byteLength text) start : Nat) else 256))
+    | Option.none => 0x
+    | Option.some piece => piece))
+}
+
+definition{
+  name: renderAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (renderValid value) then (renderPiece (renderText value) (prim multiply (Kernel.Wire::fieldAt value 2 2) 256 : Nat)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
