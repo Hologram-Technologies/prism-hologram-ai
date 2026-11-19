@@ -9887,6 +9887,263 @@ fn engine_en_48() {
     );
 }
 
+/// A forward-pass fixture, from the float reference: the graph, its config,
+/// the prompt, and the reference's tokens and logits after it.
+struct En49 {
+    graph: Vec<u8>,
+    config: serde_json::Value,
+    prompt: Vec<u32>,
+    expected: Vec<u32>,
+    logits: Vec<Vec<f64>>,
+}
+
+fn en_49_fixture(family: &str) -> En49 {
+    let ran = std::process::Command::new("node")
+        .arg(root().join("crates/conformance/tests/gpu/forward-fixture.mjs"))
+        .arg(root())
+        .arg(family)
+        .output()
+        .expect("node runs");
+    assert!(
+        ran.status.success(),
+        "forward-fixture.mjs failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(ran.stdout.trim_ascii_end())
+        .expect("forward-fixture.mjs prints JSON");
+    let hex = out["graph"].as_str().expect("the graph");
+    let graph = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex"))
+        .collect();
+    let ids = |key: &str| -> Vec<u32> {
+        out[key]
+            .as_array()
+            .expect("ids")
+            .iter()
+            .map(|v| v.as_u64().expect("an id") as u32)
+            .collect()
+    };
+    En49 {
+        graph,
+        config: out["config"].clone(),
+        prompt: ids("prompt"),
+        expected: ids("tokens"),
+        logits: out["logits"]
+            .as_array()
+            .expect("logits")
+            .iter()
+            .map(|row| {
+                row.as_array()
+                    .expect("a row")
+                    .iter()
+                    .map(|v| v.as_f64().expect("a logit"))
+                    .collect()
+            })
+            .collect(),
+    }
+}
+
+/// A graph's nodes and the initializers whose data lies in it.
+fn en_49_graph(
+    graph: &[u8],
+) -> (
+    Vec<hologram_ai_onnx_preflight::stream::Node>,
+    std::collections::BTreeMap<String, hologram_ai_cpu_decode::Initializer<'_>>,
+) {
+    use hologram_ai_onnx_preflight::stream::{Data, Event, Stream};
+    let mut stream = Stream::new();
+    let (mut nodes, mut initializers) = (Vec::new(), std::collections::BTreeMap::new());
+    while (stream.position() as usize) < graph.len() {
+        let at = stream.position() as usize;
+        for event in stream.feed(&graph[at..]).expect("the graph reads") {
+            match event {
+                Event::Node(node) => nodes.push(node),
+                Event::Tensor(t) => {
+                    if let Data::Inline { offset, length } = t.data {
+                        let bytes = &graph[offset as usize..(offset + length) as usize];
+                        initializers.insert(
+                            t.name,
+                            hologram_ai_cpu_decode::Initializer {
+                                data_type: t.data_type,
+                                bytes,
+                            },
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (nodes, initializers)
+}
+
+fn en_49_config(fixture: &En49) -> hologram_ai_cpu_decode::Config {
+    let c = &fixture.config;
+    let number = |v: &serde_json::Value| v.as_f64().expect("a number");
+    let scaling = if c["rope_scaling"]["rope_type"] == "llama3" {
+        let s = &c["rope_scaling"];
+        exact::RopeScaling::Llama3 {
+            factor: number(&s["factor"]) as u32,
+            low: number(&s["low_freq_factor"]) as u32,
+            high: number(&s["high_freq_factor"]) as u32,
+            original: number(&s["original_max_position_embeddings"]) as u32,
+        }
+    } else {
+        exact::RopeScaling::None
+    };
+    hologram_ai_cpu_decode::Config {
+        heads: number(&c["num_attention_heads"]) as usize,
+        kv_heads: number(&c["num_key_value_heads"]) as usize,
+        rope_theta: number(&c["rope_theta"]) as u64,
+        // The config's number, read as the binary32 the export states it in.
+        rms_norm_eps: (number(&c["rms_norm_eps"]) as f32).to_bits(),
+        scaling,
+    }
+}
+
+/// The prompt, then sixteen greedy steps: the tokens and each step's logits.
+fn en_49_run(
+    model: &hologram_ai_cpu_decode::Model<'_>,
+    prompt: &[u32],
+) -> (Vec<u32>, Vec<Vec<u32>>) {
+    use hologram_ai_cpu_decode as decode;
+    let mut session = decode::Session::new(model);
+    let mut logits = Vec::new();
+    for &id in prompt {
+        logits = decode::step(model, &mut session, id).expect("the prompt steps");
+    }
+    let (mut tokens, mut all) = (Vec::new(), Vec::new());
+    for _ in 0..16 {
+        let next = decode::greedy(&logits).expect("a token");
+        tokens.push(next);
+        all.push(logits);
+        logits = decode::step(model, &mut session, next).expect("a token steps");
+    }
+    (tokens, all)
+}
+
+/// One family's fixture through the integer path: its sixteen tokens are the
+/// float reference's, every logit within `2^-7` of the reference's, and a
+/// second run gives the same bits. Answers the largest logit gap.
+fn en_49_check(family: &str) -> f64 {
+    let fixture = en_49_fixture(family);
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let (tokens, logits) = en_49_run(&model, &fixture.prompt);
+    assert_eq!(
+        tokens, fixture.expected,
+        "{family}: the integer path's tokens are not the float reference's"
+    );
+    let mut worst = 0f64;
+    for (step, (ours, theirs)) in logits.iter().zip(&fixture.logits).enumerate() {
+        for (i, (&bits, &reference)) in ours.iter().zip(theirs).enumerate() {
+            // The yardstick, in the test only: the logit read as a float.
+            let gap = (f64::from(f32::from_bits(bits)) - reference).abs();
+            worst = worst.max(gap);
+            assert!(
+                gap <= 1.0 / 128.0,
+                "{family}: step {step}, logit {i}: {} against {reference}",
+                f32::from_bits(bits)
+            );
+        }
+    }
+    println!("{family}: sixteen tokens equal, largest logit gap {worst:e}");
+    let (again, again_logits) = en_49_run(&model, &fixture.prompt);
+    assert_eq!(
+        (again, again_logits),
+        (tokens, logits),
+        "{family}: a second run gave other bits"
+    );
+    worst
+}
+
+/// `EN-49`: The CPU path is integer from token ids to logits: hologram-ai-cpu-decode reads a Qwen3-shaped model from its fused q4f16 ONNX export by the nodes that read each weight, holds the residual stream as binary32 bit patterns touched only by integer code, and runs every stage on the exact products and the integer stages EN-43 to EN-48, each result rounded once, half to even; on GP-19's fixture its greedy tokens after the prompt are the float reference's sixteen, every logit within 2^-7 of the reference's, and a second run gives the same bits
+#[test]
+fn engine_en_49() {
+    en_49_check("qwen3");
+}
+
+/// `FL-55`: The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs
+#[test]
+fn engine_fl_55() {
+    use hologram_ai_cpu_decode::{DecodeError, Role};
+    let fixture = en_49_fixture("qwen3");
+    let (mut nodes, initializers) = en_49_graph(&fixture.graph);
+    nodes.retain(|n| n.name != "/model/layers.1/attn/q_norm/SimplifiedLayerNormalization");
+    let read = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture));
+    assert_eq!(read.err(), Some(DecodeError::Unrecognised(Role::QueryNorm)));
+}
+
+/// `FL-56`: An exact stage refuses its operands, as a 4-bit matrix whose block has no exact codec
+#[test]
+fn engine_fl_56() {
+    use hologram_ai_cpu_decode::DecodeError;
+    let fixture = en_49_fixture("qwen3");
+    let (mut nodes, initializers) = en_49_graph(&fixture.graph);
+    for node in &mut nodes {
+        if node.name == "/model/layers.0/attn/q_proj/MatMul_Q4" {
+            for (key, value) in &mut node.ints {
+                if key == "block_size" {
+                    *value = 8;
+                }
+            }
+        }
+    }
+    let read = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture));
+    assert_eq!(
+        read.err(),
+        Some(DecodeError::Exact(exact::ExactError::NoExactCodec))
+    );
+}
+
+/// `FL-57`: A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately
+#[test]
+fn engine_fl_57() {
+    use hologram_ai_cpu_decode::DecodeError;
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let config = hologram_ai_cpu_decode::Config {
+        rms_norm_eps: 0x4000_0000,
+        ..en_49_config(&fixture)
+    };
+    let model =
+        hologram_ai_cpu_decode::read(&nodes, &initializers, config).expect("the model reads");
+    let mut session = hologram_ai_cpu_decode::Session::new(&model);
+    let stepped = hologram_ai_cpu_decode::step(&model, &mut session, 0);
+    assert_eq!(stepped.err(), Some(DecodeError::NormRefused));
+}
+
+/// `FL-58`: A token id at or past the vocabulary is refused before any weight is read
+#[test]
+fn engine_fl_58() {
+    use hologram_ai_cpu_decode::DecodeError;
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let mut session = hologram_ai_cpu_decode::Session::new(&model);
+    let vocab = model.dims.vocab as u32;
+    assert_eq!(
+        hologram_ai_cpu_decode::step(&model, &mut session, vocab).err(),
+        Some(DecodeError::TokenOutOfRange)
+    );
+    assert_eq!(session.position(), 0, "a refused token moved the session");
+}
+
+/// `EN-50`: The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+#[test]
+fn engine_en_50() {
+    en_49_check("qwen2");
+}
+
+/// `EN-51`: The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+#[test]
+fn engine_en_51() {
+    en_49_check("llama");
+}
+
 /// `EN-42`: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
 #[test]
 fn engine_en_42() {

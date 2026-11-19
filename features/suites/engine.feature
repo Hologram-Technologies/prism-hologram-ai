@@ -668,6 +668,49 @@ Feature: engine
     And rope_angle is position times frequency modulo 2^64 rounded half to even to 2^-32 of a turn, and cosine_turn and sine_turn of it are within 10^-4 of cos and sin of position theta^(-2i/d)
     And an odd or zero head size, a theta below 2, and a Llama 3 scaling with high at or below low are refused
 
+  @EN-49 @build
+  Scenario: The CPU path is integer from token ids to logits: hologram-ai-cpu-decode reads a Qwen3-shaped model from its fused q4f16 ONNX export by the nodes that read each weight, holds the residual stream as binary32 bit patterns touched only by integer code, and runs every stage on the exact products and the integer stages EN-43 to EN-48, each result rounded once, half to even; on GP-19's fixture its greedy tokens after the prompt are the float reference's sixteen, every logit within 2^-7 of the reference's, and a second run gives the same bits
+    Given GP-19's Qwen3-shaped model as its fused q4f16 export, its config's rope_theta and rms_norm_eps, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, and every logit is within 2^-7 of the reference's
+    And a second run from a new session gives the same logits, bit for bit
+
+  @FL-55 @build
+  Scenario: The graph has no node for a role the forward pass reads, or the weight that node reads is missing or not the shape the role needs
+    Given the fixture's graph with layer 0's query norm and without layer 1's
+    When it is read
+    Then the read is refused as DecodeError::Unrecognised(Role::QueryNorm)
+
+  @FL-56 @build
+  Scenario: An exact stage refuses its operands, as a 4-bit matrix whose block has no exact codec
+    Given the fixture's graph with layer 0's query projection given a block size of 8
+    When it is read
+    Then the read is refused as DecodeError::Exact(ExactError::NoExactCodec)
+
+  @FL-57 @build
+  Scenario: A row is past RMSNorm's bounds, or its root is 0, so the norm is refused rather than run approximately
+    Given the fixture model read with rms_norm_eps 2, past RMSNorm's bound on epsilon of 1
+    When one token is stepped
+    Then the step is refused as DecodeError::NormRefused
+
+  @FL-58 @build
+  Scenario: A token id at or past the vocabulary is refused before any weight is read
+    Given the fixture model
+    When a token id equal to its vocabulary is stepped
+    Then the step is refused as DecodeError::TokenOutOfRange
+
+  @EN-50 @build
+  Scenario: The integer CPU path reads Qwen2.5's decomposed ONNX export, norms as Mul_1 and query, key and value biases as Add, the head counts from the config: on a Qwen2-shaped fixture written as that export, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Qwen2-shaped model with biases written as Qwen2.5's decomposed q4f16 export, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph with the config's head counts and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
+  @EN-51 @build
+  Scenario: The integer CPU path runs Llama's fused export with Llama 3 rotary scaling from its config (EN-48): on a Llama-shaped fixture with factor 4, low 1, high 4 and 64 original positions, its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Llama-shaped model written as Llama's fused q4f16 export with Llama 3 rope scaling in its config, and the float reference's tokens and logits after its prompt
+    When hologram-ai-cpu-decode reads the graph and steps through the prompt and sixteen greedy tokens
+    Then the sixteen tokens are the reference's, every logit is within 2^-7 of the reference's, and a second run gives the same bits
+
   @EN-42 @build
   Scenario: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
     Given an ONNX graph and its data file, and records giving each file's BLAKE3
