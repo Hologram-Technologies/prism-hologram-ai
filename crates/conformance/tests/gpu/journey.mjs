@@ -10,7 +10,7 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles } from "./fixture.mjs";
+import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles, onnxInitializers, uorIndexFiles } from "./fixture.mjs";
 import { referenceModel } from "./reference.mjs";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
 import { mintTrust, signRoot } from "./hub-sign.mjs";
@@ -70,6 +70,41 @@ async function secondTurn(page) {
   return page.evaluate(() => window.__qengine.output);
 }
 
+// GP-30 to GP-32: one visit to the engine page in `context`, loading `repo`
+// from `variant`'s hub, then a turn per text; answers the page's state, its
+// turns, the kept entries and the byte ranges the server sent meanwhile.
+async function onnxVisit(context, { variant, repo = onnx.repo, precision = null, texts = ["hi"], before = async () => {} }) {
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e.message)));
+  await before(page);
+  const from = sent.length;
+  const url = `${origin}/app/?onnx=${repo}&index=/onnx/${variant}/index${precision ? `&precision=${precision}` : ""}`;
+  const opened = await page.goto(url).then(() => true, (e) => (errors.push(`goto: ${e.message}`), false));
+  const turns = [];
+  if (opened) {
+    await page.click("#load");
+    await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+    for (const text of (await page.evaluate(() => window.__qengine.phase)) === "ready" ? texts : []) {
+      await page.evaluate(() => { window.__qengine.stats = null; });
+      await page.fill("#prompt", text);
+      await page.press("#prompt", "Enter");
+      await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
+      turns.push(await page.evaluate(() => ({ ...window.__qengine.output, stats: window.__qengine.stats })));
+    }
+  }
+  const state = opened ? await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks })) : { phase: "unopened", error: errors[0], checks: [] };
+  const held = opened ? await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
+    const out = [];
+    for await (const [n, h] of dir.entries()) if (h.kind === "file") out.push([n, (await h.getFile()).size]);
+    return out;
+  }) : [];
+  const worker = opened ? await page.evaluate(() => navigator.serviceWorker?.ready.then((r) => Boolean(r.active))) : false;
+  await page.close();
+  return { ...state, turns, output: turns[0] ?? null, errors, held, worker, sent: sent.slice(from) };
+}
+
 const onnx = buildOnnxFixture();
 // GP-24: another model's kept file, named by its BLAKE3.
 const foreign = { size: 300000 };
@@ -90,10 +125,48 @@ const onnxVariants = {
   kept: { files: onnx.files, offline: false },
   // GP-26: a record that names config.json no BLAKE3.
   noblake3: { files: onnx.files, noBlake3: ["config.json"] },
+  // GP-30: visits in one profile, the last with the network off.
+  home: { files: onnx.files },
+  // GP-31: the export with its q4 graph beside the q4f16 one, and a second
+  // repository holding the same files, whose origin answers nothing and whose
+  // one listed source does.
+  store: {
+    files: new Map([...onnx.files, [onnx.q4.path, onnx.q4.bytes]]),
+    twins: [{ repo: `${onnx.repo}-twin`, resolve: "/onnx/store/gone/", sources: [{ kind: "mirror", resolve: "/onnx/store/files/", missing: [] }] }],
+  },
+  // GP-31: a UOR index that does not list the model, and one that gives one
+  // tensor an address that is not its bytes'.
+  unlisted: { files: onnx.files, uorRepos: [] },
+  lie: { files: onnx.files, lie: { repo: onnx.repo, name: "model.layers.0.attn.q_proj.MatMul.weight_Q4" } },
+  // GP-32: two turns of the same text.
+  again: { files: onnx.files },
 };
+
+// GP-30: with `down` set the server answers nothing at all, as with the
+// network off; GP-31: every file byte range the server sent, by variant.
+let down = false;
+const sent = [];
+// The UOR index each variant's hub publishes, computed once from the true
+// files (a variant serving altered bytes still has the hub's true addresses).
+const uorFor = new Map();
+const uorOf = (name) => {
+  if (!uorFor.has(name)) {
+    const v = onnxVariants[name];
+    const graphs = [...(v.uorFiles ?? (v.twins ? v.files : onnx.files))].filter(([p]) => p.endsWith(".onnx"));
+    const repos = v.uorRepos ?? [onnx.repo, ...(v.twins ?? []).map((t) => t.repo)];
+    const rows = repos.flatMap((repo) => graphs.map(([path, bytes]) => ({ repo, revision: onnx.revision, path, bytes, resolve: `/onnx/${name}/files/` })));
+    // An index that does not list the model still lists another.
+    if (!rows.length) rows.push({ repo: "fixture/another", revision: onnx.revision, path: onnx.path, bytes: onnx.files.get(onnx.path), resolve: "/" });
+    uorFor.set(name, uorIndexFiles(rows, { lie: v.lie }));
+  }
+  return uorFor.get(name);
+};
+// The tensors kept apart from the rest of a graph (APART in files.mjs).
+const apart = (bytes) => onnxInitializers(bytes).filter((t) => t.length >= 4096).map((t) => ({ ...t, address: blake3Hex(bytes.subarray(t.offset, t.offset + t.length)) }));
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
 const server = http.createServer(async (request, response) => {
+  if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
   const fixtureRoute = path.match(/^\/fixture\/(\w+)\/(.*)$/);
   if (fixtureRoute && variants[fixtureRoute[1]]) {
@@ -118,13 +191,27 @@ const server = http.createServer(async (request, response) => {
   const onnxRoute = path.match(/^\/onnx\/(\w+)\/(.*)$/);
   if (onnxRoute && onnxVariants[onnxRoute[1]]) {
     const v = onnxVariants[onnxRoute[1]];
-    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, blake3: v.blake3, noBlake3: v.noBlake3 });
+    const hub = onnxHubFiles(onnx, { resolve: `/onnx/${onnxRoute[1]}/files/`, blake3: v.blake3, noBlake3: v.noBlake3, files: v.files, twins: v.twins });
     const rest = onnxRoute[2];
     if (rest === "index/root.json") return response.end(hub.root);
-    if (rest === `index/models/${onnx.repo}.json`) return response.end(hub.record);
+    const model = /^index\/models\/(.+)\.json$/.exec(rest);
+    if (model && hub.records.has(model[1])) return response.end(hub.records.get(model[1]));
     if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root));
+    if (rest === "uor/root.json") return response.end(uorOf(onnxRoute[1]).root);
+    const shard = rest.startsWith("uor/") ? uorOf(onnxRoute[1]).shards.get(rest.slice(4)) : null;
+    if (shard) return response.end(shard);
     const served = rest.startsWith("files/") && !v.offline ? v.files.get(rest.slice(6)) : null;
-    if (served) return response.end(served);
+    if (served) {
+      // A Range read answers that span, as Hugging Face does.
+      const range = /bytes=(\d+)-(\d+)/.exec(request.headers.range ?? "");
+      const [from, to] = range ? [Number(range[1]), Number(range[2]) + 1] : [0, served.length];
+      sent.push({ variant: onnxRoute[1], path: rest.slice(6), from, to });
+      if (!range) return response.end(served);
+      response.statusCode = 206;
+      response.setHeader("content-range", `bytes ${from}-${to - 1}/${served.length}`);
+      response.setHeader("access-control-expose-headers", "content-range");
+      return response.end(served.subarray(from, to));
+    }
     response.statusCode = 404;
     return response.end();
   }
@@ -189,7 +276,7 @@ try {
   // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
   // the CPU; and refused where its files are not the record's.
   results.onnx = {};
-  for (const name of Object.keys(onnxVariants).filter((n) => n !== "kept")) {
+  for (const name of ["good", "cpu", "flip", "tokenizer", "q4", "noblake3"]) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
@@ -276,7 +363,15 @@ try {
       const w = await (await dir.getFileHandle(name)).createWritable();
       await w.write(new Uint8Array(bytes));
       await w.close();
-    }, { name: onnx.b3(onnx.files.get(onnx.path)), bytes: [...flippedGraph] });
+    }, (() => {
+      // The graph is kept as its tensors (GP-31): one byte of its largest
+      // kept tensor flipped, so the graph read back is not its BLAKE3.
+      const graph = onnx.files.get(onnx.path);
+      const t = apart(graph).sort((a, b) => b.length - a.length)[0];
+      const bytes = Buffer.from(graph.subarray(t.offset, t.offset + t.length));
+      bytes[Math.floor(bytes.length / 2)] ^= 0x01;
+      return { name: t.address, bytes: [...bytes] };
+    })());
     await tamper.close();
     results.onnx["kept tampered"] = await visit(true);
     results.onnx["kept again"] = await visit(false);
@@ -322,6 +417,92 @@ try {
     await page.close();
     await context.close();
     results.onnx["kept short"] = { ...state, output, errors, held };
+  }
+
+  // Something done on the engine page of `context` (served by its worker when
+  // the network is off): `run(arg)` evaluated there.
+  // A page that does not open leaves the visits after it to say so.
+  const onPage = async (context, run, arg) => {
+    const page = await context.newPage();
+    const out = await page.goto(`${origin}/app/`).then(() => page.evaluate(run, arg), (e) => ({ unopened: e.message }));
+    await page.close();
+    return out;
+  };
+
+  // GP-30: a first visit with the network on, then visits with it off: the
+  // server answers nothing at all, so the page, its engine and kernel come
+  // from its worker, the hub's index from the browser and every tensor and
+  // file from the browser. Then the kept record changed by one byte; then no
+  // hub index kept at all.
+  {
+    const context = await browser.newContext();
+    results.home = {};
+    results.home.online = await onnxVisit(context, { variant: "home" });
+    down = true;
+    await context.setOffline(true);
+    results.home.offline = await onnxVisit(context, { variant: "home" });
+    await onPage(context, async ({ url }) => {
+      const hub = await caches.open("hologram-hub");
+      const kept = await (await hub.match(url)).text();
+      await hub.put(url, new Response(`${kept} `));
+    }, { url: `${origin}/onnx/home/index/models/${onnx.repo}.json` });
+    results.home.record = await onnxVisit(context, { variant: "home" });
+    await onPage(context, () => caches.delete("hologram-hub"));
+    results.home.none = await onnxVisit(context, { variant: "home" });
+    await context.setOffline(false);
+    down = false;
+    await context.close();
+  }
+
+  // GP-31: one profile. The export's q4f16 graph; the same files under a
+  // second repository whose origin answers nothing; the export's q4 graph;
+  // then a kept tensor with one byte changed, and the export once more.
+  {
+    const context = await browser.newContext();
+    results.store = {};
+    results.store.first = await onnxVisit(context, { variant: "store" });
+    results.store.twin = await onnxVisit(context, { variant: "store", repo: `${onnx.repo}-twin` });
+    // The q4 graph under the second repository: what it lacks comes from its
+    // listed mirror, its own origin answering nothing.
+    results.store.q4 = await onnxVisit(context, { variant: "store", repo: `${onnx.repo}-twin`, precision: "q4" });
+    const graph = onnx.files.get(onnx.path);
+    const victim = apart(graph).sort((a, b) => b.length - a.length)[0];
+    await onPage(context, async ({ name, at }) => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files");
+      const handle = await dir.getFileHandle(name);
+      const bytes = new Uint8Array(await (await handle.getFile()).arrayBuffer());
+      bytes[at] ^= 0x01;
+      const w = await handle.createWritable();
+      await w.write(bytes);
+      await w.close();
+    }, { name: victim.address, at: Math.floor(victim.length / 2) });
+    results.store.tampered = await onnxVisit(context, { variant: "store" });
+    results.store.again = await onnxVisit(context, { variant: "store" });
+    results.store.victim = victim.address;
+    await context.close();
+    // With no free storage: the q4 graph after the q4f16 one. Decision 26 may
+    // drop kept tensors this load does not read, never one it reads.
+    {
+      const short = await browser.newContext();
+      await onnxVisit(short, { variant: "store" });
+      const noRoom = async (page) => page.addInitScript(() => { StorageManager.prototype.estimate = async () => ({ quota: 1000000, usage: 1000000 }); });
+      results.store.short = await onnxVisit(short, { variant: "store", precision: "q4", before: noRoom });
+      await short.close();
+    }
+    for (const variant of ["unlisted", "lie"]) {
+      const alone = await browser.newContext();
+      results.store[variant] = await onnxVisit(alone, { variant });
+      await alone.close();
+    }
+  }
+
+  // GP-32: two turns of the same text, on WebGPU and on the CPU.
+  results.reuse = {};
+  for (const [name, noGpu] of [["webgpu", false], ["cpu", true]]) {
+    const context = await browser.newContext();
+    const before = async (page) => { if (noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined })); };
+    results.reuse[name] = await onnxVisit(context, { variant: "again", texts: ["hi", "hi"], before });
+    await context.close();
   }
 
   // A cache left by an earlier deploy (GP-07): one file that is not this
@@ -554,14 +735,17 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first",
   const said = (name) => /^(\d+) read here \([\d.]+ MB\), (\d+) downloaded and kept/.exec(kept(name)?.detail ?? "");
   const first = said("kept first");
   if (!first || first[1] !== "0" || first[2] !== String(count)) fail(`kept first: expected 0 read here and ${count} downloaded, saw ${kept("kept first")?.detail}`);
+  // Each small file under its BLAKE3; the graph as its tensors, each under
+  // its address, and its rest under its own name (GP-31).
   const keptFirst = results.onnx["kept first"].held.filter(([, size]) => size > 0).length;
-  if (keptFirst !== count) fail(`kept first: expected ${count} files kept, saw ${keptFirst}`);
+  const keptWant = count - 1 + apart(onnx.files.get(onnx.path)).length + 1;
+  if (keptFirst !== keptWant) fail(`kept first: expected ${count - 1} files, the graph's tensors and its rest kept (${keptWant}), saw ${keptFirst}`);
   const named = /each named by its BLAKE3: (.*)$/.exec(kept("kept first")?.detail ?? "")?.[1]?.split(", ") ?? [];
   if (named.length !== count || named.some((n) => !/ blake3:[0-9a-f]{64}$/.test(n))) fail(`kept first: expected every kept file named by its BLAKE3, saw ${named.join(" | ")}`);
   const offline = said("kept offline");
   if (!offline || offline[1] !== String(count) || offline[2] !== "0") fail(`kept offline: expected ${count} read here and none downloaded, saw ${kept("kept offline")?.detail}`);
   const run = results.onnx["kept tampered"];
-  if (run.phase !== "failed" || !/the file kept as blake3:[0-9a-f]{64} is blake3:[0-9a-f]{64}/.test(run.error ?? "")) fail(`kept tampered: expected the kept graph refused as not its BLAKE3, saw ${run.phase}: ${run.error}`);
+  if (run.phase !== "failed" || !/FileRefused/.test(run.error ?? "")) fail(`kept tampered: expected the kept graph refused as not its BLAKE3, saw ${run.phase}: ${run.error}`);
   if (run.held.some(([, size]) => size > 0)) fail(`kept tampered: the files this load read were not forgotten: ${JSON.stringify(run.held)}`);
   const again = said("kept again");
   if (!again || again[1] !== "0" || again[2] !== String(count)) fail(`kept again: expected every file downloaded again, saw ${kept("kept again")?.detail}`);
@@ -573,6 +757,117 @@ for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first",
   if (short.held.some(([n]) => n === foreign.name)) fail("kept short: the other model's file was not dropped");
   const keptShort = short.held.filter(([n, size]) => /^[0-9a-f]{64}$/.test(n) && size > 0).length;
   if (keptShort !== 1) fail(`kept short: expected one file kept, saw ${JSON.stringify(short.held)}`);
+}
+
+// The reference's first sixteen picks after a prompt.
+const picks = (model, promptIds) => {
+  const reference = referenceModel(model);
+  let last;
+  for (const id of promptIds) last = reference.step(id);
+  const out = [];
+  while (out.length < 16) {
+    out.push(last.token);
+    last = reference.step(last.token);
+  }
+  return out;
+};
+const answered = (name, run, model = onnx.model) => {
+  if (run.phase !== "ready") return fail(`${name}: the page did not reach ready (${run.phase}: ${run.error})`);
+  if (run.checks.some((c) => c.verdict === "fail")) fail(`${name}: a check failed: ${stoppedAt(run)?.subject}: ${stoppedAt(run)?.detail}`);
+  if (run.errors.length) fail(`${name}: page errors: ${run.errors.join(" | ")}`);
+  for (const [i, turn] of run.turns.entries()) {
+    const want = picks(model, turn.promptIds);
+    const got = turn.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, k) => t !== want[k])) fail(`${name}: turn ${i + 1}'s tokens ${got} are not the reference's ${want}`);
+  }
+};
+const detail = (run, step) => run.checks.find((c) => c.step === step && c.verdict === "pass")?.detail ?? "";
+const storeSaid = (run) => /^(\d+) tensors read here \((\d+) bytes\), (\d+) downloaded \((\d+) bytes\), (\d+) newly kept \((\d+) bytes\), (\d+) bytes of the rest downloaded, in (\d+) reads$/.exec(detail(run, "store"))?.slice(1).map(Number);
+
+// GP-30: a return visit with the network off.
+{
+  const { online, offline, record, none } = results.home;
+  answered("home online", online);
+  if (!online.worker) fail("home online: the engine page's worker was not active after the first visit");
+  answered("home offline", offline);
+  if (offline.device !== "webgpu") fail(`home offline: ran on ${offline.device}, expected webgpu`);
+  for (const subject of ["index root signature", "hub record matches the index root", "hub index read from this browser, checked again"]) {
+    if (!offline.checks.some((c) => c.subject === subject && c.verdict === "pass")) fail(`home offline: no passing check "${subject}"`);
+  }
+  const kernel = offline.checks.find((c) => c.subject === "kernel is the one this deploy lists");
+  if (kernel?.verdict !== "not checked" || !/^the network is off/.test(kernel.detail)) fail(`home offline: the deploy comparison should say the network is off, saw ${kernel?.verdict}: ${kernel?.detail}`);
+  const kept = /^(\d+) read here \([\d.]+ MB\), (\d+) downloaded and kept/.exec(detail(offline, "kept"));
+  if (!kept || kept[1] !== String(onnx.files.size) || kept[2] !== "0") fail(`home offline: expected every file read here and none downloaded, saw ${detail(offline, "kept")}`);
+  const store = storeSaid(offline);
+  if (!store || store[0] !== apart(onnx.files.get(onnx.path)).length || store[2] !== 0 || store[6] !== 0 || store[7] !== 0) fail(`home offline: expected every tensor read here and no read of the network, saw ${detail(offline, "store")}`);
+  const ready = offline.checks.find((c) => /decision 28/.test(c.subject));
+  if (ready?.verdict !== "pass" || !/^kernel answered "ready"/.test(ready.detail)) fail(`home offline: decision 28 did not answer ready on the kept tensors: ${ready?.detail}`);
+  const recordStop = stoppedAt(record);
+  if (record.phase !== "failed" || recordStop?.subject !== "hub record matches the index root" || !/^RecordMismatch/.test(recordStop?.detail ?? "")) fail(`home record: expected a changed kept record refused as RecordMismatch, stopped at ${recordStop?.subject}: ${recordStop?.detail} (${record.phase})`);
+  const noneStop = stoppedAt(none);
+  if (none.phase !== "failed" || noneStop?.subject !== "index root signature" || !/^RootUnreachable/.test(noneStop?.detail ?? "")) fail(`home none: expected the page stopped at the index root, unreachable, stopped at ${noneStop?.subject}: ${noneStop?.detail} (${none.phase})`);
+  for (const [name, run] of [["home record", record], ["home none", none]]) if (run.checks.some((c) => ["file", "import"].includes(c.step))) fail(`${name}: the load went on past the record`);
+}
+
+// GP-31: tensors kept once by address, only what is not held downloaded.
+{
+  const { first, twin, q4, tampered, again, unlisted, lie, victim } = results.store;
+  const graph = onnx.files.get(onnx.path);
+  const tensors16 = apart(graph);
+  const tensors4 = apart(onnx.q4.bytes);
+  const held16 = new Set(tensors16.map((t) => t.address));
+  const shared = tensors4.filter((t) => held16.has(t.address));
+  // Whether any range the server sent overlaps a tensor of `list`.
+  const overlaps = (ranges, list) => ranges.some((r) => list.some((t) => r.from < t.offset + t.length && t.offset < r.to));
+  answered("store first", first);
+  const f = storeSaid(first);
+  if (!f || f[0] !== 0 || f[2] !== tensors16.length || f[4] !== tensors16.length) fail(`store first: expected every tensor downloaded and kept, saw ${detail(first, "store")}`);
+  answered("store twin", twin);
+  const t = storeSaid(twin);
+  if (!t || t[0] !== tensors16.length || t[2] !== 0 || t[3] !== 0) fail(`store twin: expected every tensor read here and none downloaded, saw ${detail(twin, "store")}`);
+  const twinSent = twin.sent.filter((r) => r.path === onnx.path);
+  if (overlaps(twinSent, tensors16)) fail(`store twin: a tensor already held was downloaded again: ${JSON.stringify(twinSent)}`);
+  // The same graph file under another repository: its rest is held under the
+  // file's BLAKE3 too, so nothing of it is downloaded.
+  if (twinSent.length || t?.[6] !== 0) fail(`store twin: expected nothing of the graph downloaded, its tensors and rest held; saw ${JSON.stringify(twinSent)}, ${detail(twin, "store")}`);
+  if (twin.sent.some((r) => r.path !== onnx.path)) fail(`store twin: a small file already held was downloaded: ${JSON.stringify(twin.sent)}`);
+  answered("store q4", q4, onnx.q4.model);
+  if (!/kernel answered "q4"/.test(q4.checks.find((c) => c.step === "precision")?.detail ?? "")) fail("store q4: the kernel did not choose the q4 graph");
+  const q = storeSaid(q4);
+  const fresh4 = tensors4.filter((x) => !held16.has(x.address));
+  if (!q || q[0] !== shared.length || q[2] !== fresh4.length || q[3] !== fresh4.reduce((n, x) => n + x.length, 0)) fail(`store q4: expected the ${shared.length} tensors the q4f16 graph shares read here and only the ${fresh4.length} others downloaded, saw ${detail(q4, "store")}`);
+  if (overlaps(q4.sent.filter((r) => r.path === onnx.q4.path), shared)) fail("store q4: a tensor the q4f16 graph shares was downloaded again");
+  if (!shared.length) fail("store q4: the fixture's two precisions share no tensor, so nothing is tested");
+  if (tampered.phase !== "failed" || !/FileRefused/.test(tampered.error ?? "")) fail(`store tampered: expected the graph read back refused as not its BLAKE3, saw ${tampered.phase}: ${tampered.error}`);
+  if (tampered.held.some(([n]) => n === victim)) fail("store tampered: the changed tensor is still kept");
+  answered("store again", again);
+  const a = storeSaid(again);
+  if (!a || a[2] < 1) fail(`store again: expected the forgotten tensors downloaded again, saw ${detail(again, "store")}`);
+  // Short of room: what the q4 load reads stays pinned; it answers.
+  const { short } = results.store;
+  answered("store short", short, onnx.q4.model);
+  const dropped = /, (\d+) dropped for room/.exec(detail(short, "kept"))?.[1];
+  if (!(Number(dropped) > 0)) fail(`store short: expected kept tensors the load does not read dropped for room, saw ${detail(short, "kept")}`);
+  const heldNames = new Set(short.held.map(([n]) => n));
+  for (const x of shared) if (!heldNames.has(x.address)) fail(`store short: ${x.name}, read by this load, was dropped for room`);
+  if (unlisted.phase !== "failed" || !new RegExp(`^no tensor manifest: the hub's UOR index lists no tensors for ${onnx.repo}`).test(unlisted.error ?? "")) fail(`store unlisted: expected the model refused by name for want of a manifest, saw ${unlisted.phase}: ${unlisted.error}`);
+  if (unlisted.checks.some((c) => ["file", "kept", "import"].includes(c.step)) || unlisted.sent.length) fail("store unlisted: the load read a file of a model the index does not list");
+  if (lie.phase !== "failed" || !/decision 28 answered "refused"/.test(lie.error ?? "")) fail(`store lie: expected decision 28 to refuse an index whose address is not the bytes', saw ${lie.phase}: ${lie.error}`);
+  if (lie.held.length) fail(`store lie: bytes were kept from a load decision 28 refused: ${JSON.stringify(lie.held)}`);
+}
+
+// GP-32: the same text again reuses the head and gives the same tokens.
+for (const [name, run] of Object.entries(results.reuse)) {
+  answered(`reuse ${name}`, run);
+  if (run.device !== name) fail(`reuse ${name}: ran on ${run.device}`);
+  const [one, two] = run.turns;
+  if (!one || !two) { fail(`reuse ${name}: expected two turns`); continue; }
+  if (one.reuse) fail(`reuse ${name}: the first turn asked to reuse a prefix`);
+  if (two.reuse?.verdict !== "reuse") fail(`reuse ${name}: the second turn was not answered reuse: ${JSON.stringify(two.reuse)}`);
+  else if (two.computed !== two.promptIds.length - two.reuse.length) fail(`reuse ${name}: the second turn computed ${two.computed} positions, not the ${two.promptIds.length - two.reuse.length} after the head`);
+  if (JSON.stringify(two.promptIds) !== JSON.stringify(one.promptIds)) fail(`reuse ${name}: the two turns' prompts differ`);
+  if (JSON.stringify(two.tokens) !== JSON.stringify(one.tokens)) fail(`reuse ${name}: reusing the head changed the tokens: ${one.tokens} then ${two.tokens}`);
+  if (!(one.stats?.timeToFirstToken > 0 && two.stats?.timeToFirstToken > 0)) fail(`reuse ${name}: a turn reported no time to first token`);
 }
 
 if (failures.length) {
