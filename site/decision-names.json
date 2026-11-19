@@ -1931,6 +1931,56 @@
           "value": 333
         }
       }
+    },
+    "48": {
+      "name": "Kernel text",
+      "asks": "What is this piece of the kernel's WGSL?",
+      "fields": {
+        "1": {
+          "name": "Kernel",
+          "choice": [
+            [
+              "q4 group sums",
+              1
+            ],
+            [
+              "softmax exponent",
+              2
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Piece",
+          "value": 0
+        },
+        "4": {
+          "name": "Units per row",
+          "value": 2
+        },
+        "8": {
+          "name": "Codes per row",
+          "value": 64
+        },
+        "12": {
+          "name": "Zero points per row",
+          "value": 2
+        },
+        "16": {
+          "name": "Zero points packed",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 0
+        }
+      }
     }
   }
 }

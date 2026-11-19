@@ -47,6 +47,7 @@
     <option value="41">42. Round check</option>
     <option value="42">43. Square root</option>
     <option value="43">44. Rounded quotient</option>
+    <option value="44">48. Kernel text</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -2864,6 +2865,71 @@
       "module": "Divide",
       "name": "Rounded quotient",
       "tag": 44
+    },
+    {
+      "asks": "What is this piece of the kernel's WGSL?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4 group sums",
+              1
+            ],
+            [
+              "softmax exponent",
+              2
+            ]
+          ],
+          "name": "Kernel",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Piece",
+          "value": 0,
+          "width": 2
+        },
+        {
+          "at": 4,
+          "name": "Units per row",
+          "value": 2,
+          "width": 4
+        },
+        {
+          "at": 8,
+          "name": "Codes per row",
+          "value": 64,
+          "width": 4
+        },
+        {
+          "at": 12,
+          "name": "Zero points per row",
+          "value": 2,
+          "width": 4
+        },
+        {
+          "at": 16,
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "name": "Zero points packed",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 17,
+      "module": "Render",
+      "name": "Kernel text",
+      "tag": 48
     }
   ],
   "request": 81
