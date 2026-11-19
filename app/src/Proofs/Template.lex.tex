@@ -1,0 +1,46 @@
+\begin{lexlean}{Proofs.Template}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Template}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: template_qwen25_decides,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((Kernel.Template::templateCode a b c d) = 1) <-> ((((a = 8279920892041357147) /\ (b = 1773128108353419947)) /\ (c = 11653179235714034099)) /\ (d = 12784695345153184910))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Template::templateCode, Kernel.Template::templateIs]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: template_qwen3_decides,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((Kernel.Template::templateCode a b c d) = 2) <-> ((((a = 5043451083563981477) /\ (b = 8438563855072365186)) /\ (c = 9276823912147443683)) /\ (d = 9407911508815075403))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Template::templateCode, Kernel.Template::templateIs]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: template_llama32_decides,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((Kernel.Template::templateCode a b c d) = 3) <-> ((((a = 15723989467465989188) /\ (b = 4968833967170122917)) /\ (c = 9281937141963328179)) /\ (d = 6782964158007752886))),
+  proof: linear_arithmetic{
+    definitions: [Kernel.Template::templateCode, Kernel.Template::templateIs]
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: template_code_bounded,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: ((Kernel.Template::templateCode a b c d) <= 3),
+  proof: linear_arithmetic{definitions: [Kernel.Template::templateCode]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

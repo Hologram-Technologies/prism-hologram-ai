@@ -381,6 +381,14 @@ Feature: kernel
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
 
+  @KN-46 @build
+  Scenario: A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it
+    Given the template model in app/src/Kernel/Template.lex.tex and its proofs in app/src/Proofs/Template.lex.tex
+    When the Lean kernel checks template_qwen25_decides, template_qwen3_decides, template_llama32_decides and template_code_bounded during lexlean verify in the gate
+    Then a template is named a family exactly when the four 8-byte words of its BLAKE3 are that family's, and no other code is given
+    And the app recipe replays decision 45 in the guest for the three templates, a template of the gate's own and a request of the wrong length
+    And the engine page asks decision 45 for the template its model's tokenizer_config.json carries, and stops by name on any other
+
   @KN-50 @build
   Scenario: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
     Given a request of the tag 49, a mode byte (0 for binary32, 1 for a whole number), a claim in eight bytes and a decimal's text in at most forty
@@ -409,3 +417,11 @@ Feature: kernel
     When the Lean kernel checks source_named_decides and source_task_decides during lexlean verify in the gate
     Then tasks 0, 1 and 2 are named alike and a task of 3 or more is answered unsupported task
     And the compiled guest answers onnx/model_q4f16.onnx for feature extraction and onnx/model_q4.onnx for text classification, as the claims it replays list
+
+  @KN-55 @build
+  Scenario: The greedy token is defined in LexLean, not Rust or JavaScript: it is the index of the largest logit, each logit a binary32 bit pattern ordered by sign and magnitude so that both zeros tie, and Lean proves for every list of logits that its key is the largest key, that no logit's key is above it, and that it is an index of the list
+    Given the greedy stage in app/src/Engine/Stage/Greedy.lex.tex and its proofs in app/src/Proofs/StageGreedy.lex.tex
+    When the Lean kernel checks greedy_key_is_max, exceed_zero_decides, none_above_greedy and greedy_in_range during lexlean verify in the gate
+    Then the key of the token bestIn picks from logits 0 to last is maxKey of those logits
+    And the summed excess of those logits over a bound is zero exactly when maxKey is at most the bound, so no logit's key is above the picked token's
+    And the picked token is at most last, an index of the logits
