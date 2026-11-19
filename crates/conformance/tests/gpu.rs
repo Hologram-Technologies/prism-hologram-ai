@@ -1115,7 +1115,7 @@ fn gpu_gp_19() {
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
         "is not the file the record names",
-        "crypto.subtle.digest(\"SHA-1\", blob)",
+        "const digest = blake3(bytes);",
     ] {
         assert!(
             loader.contains(wanted),
@@ -1130,8 +1130,7 @@ fn gpu_gp_19() {
         "onnx ${name}: ran on ${run.device}, expected ${device}",
         "onnx flip: expected the kernel to refuse the graph file",
         "onnx tokenizer: expected to stop at tokenizer.json",
-        "onnx gitblob: config.json was not checked by its Git blob SHA-1",
-        "onnx gitwrong: expected to stop at generation_config.json",
+        "onnx good: config.json was not checked by its BLAKE3",
     ] {
         assert!(
             journey.contains(wanted),
@@ -1194,7 +1193,7 @@ fn gpu_gp_20() {
     assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
 }
 
-/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+/// `GP-21`: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
 #[test]
 fn gpu_gp_21() {
     // The journey runs the four visits in a browser (`just page-journey`, as
@@ -1209,7 +1208,7 @@ fn gpu_gp_21() {
         "if (digest() !== local.named) controller.error(",
         "return bytes.size === file.size ? { named, bytes } : null;",
         "else await handle.move(named);",
-        "else await dir.removeEntry(t.dir);",
+        "await dir.removeEntry(t.dir);",
     ] {
         assert!(
             kept.contains(wanted),
@@ -1409,6 +1408,186 @@ fn gpu_gp_25() {
         "pipeline: the call's tokens",
         "pipeline task: expected the kernel to refuse feature-extraction",
         "pipeline task: the call went on past the task",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-26`: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1
+#[test]
+fn gpu_gp_26() {
+    // The journey runs the loads in a browser (`just page-journey`); this test
+    // reads that the loader and the store name files by the record's BLAKE3
+    // and nothing by SHA-256 or SHA-1.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let loader = read("site/app/engine/onnx-load.mjs");
+    for wanted in [
+        "throw new Error(`the record names no BLAKE3 for ${p}`);",
+        "const ok = digest === file.blake3 && bytes.length === file.size;",
+        "m.callWith(\"onnx_start\", unhex(graph.blake3),",
+        "m.callWith(\"onnx_data_start\", unhex(file.blake3),",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/onnx-load.mjs no longer has `{wanted}`"
+        );
+    }
+    let kept = read("site/app/engine/files.mjs");
+    assert!(
+        kept.contains("return file && HEX.test(file.blake3 ?? \"\") ? file : null;"),
+        "site/app/engine/files.mjs no longer keeps files by the record's BLAKE3"
+    );
+    for (path, text) in [
+        ("site/app/engine/onnx-load.mjs", &loader),
+        ("site/app/engine/files.mjs", &kept),
+    ] {
+        for gone in ["file.sha256", "gitSha1", "\"SHA-256\"", "\"SHA-1\""] {
+            assert!(
+                !text.contains(gone),
+                "{path} still checks a file by `{gone}`"
+            );
+        }
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "onnx good: config.json was not checked by its BLAKE3",
+        "onnx good: a file was checked by SHA-256 or SHA-1",
+        "onnx noblake3: expected the record refused for naming config.json no BLAKE3",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-27`: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+#[test]
+fn gpu_gp_27() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The vendored files are the hub's, byte for byte, at the BLAKE3 VENDOR.md names.
+    let blake3 = |path: &str| {
+        let bytes = std::fs::read(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let mut arriving = hologram_ai_download::Arriving::new();
+        arriving.take(&bytes);
+        arriving.label().to_hex()
+    };
+    let vendor = read("site/app/engine/hub/VENDOR.md");
+    for (path, pinned) in [
+        (
+            "site/app/engine/hub/hub-client.mjs",
+            "cdcc05c1c331a8fc2f5b6748ae84891ec13d82a627a2844c094588c8da8ba49a",
+        ),
+        (
+            "site/app/engine/hub/sigstore.mjs",
+            "0f25ca52fed3967f36d291179b35b36f10ed39f60c46be948b94037a369f3afa",
+        ),
+    ] {
+        assert_eq!(blake3(path), pinned, "{path} is not the hub's file");
+        assert!(
+            vendor.contains(pinned),
+            "VENDOR.md does not name {path}'s BLAKE3"
+        );
+    }
+    let client = read("site/app/engine/hub/hub-client.mjs");
+    assert!(
+        client.contains(&format!(
+            "export const SIGSTORE_BLAKE3 = \"{}\";",
+            blake3("site/app/engine/hub/sigstore.mjs")
+        )),
+        "hub-client.mjs pins another sigstore.mjs"
+    );
+    // The policy is the hub model's screen 3 trust.policy, pinned here.
+    let policy: serde_json::Value = serde_json::from_str(&read("site/app/engine/hub/policy.json"))
+        .expect("policy.json is JSON");
+    assert_eq!(
+        policy["identity"],
+        "https://github.com/Hologram-Technologies/hub/.github/workflows/pages.yml@refs/heads/main"
+    );
+    assert_eq!(
+        policy["issuer"],
+        "https://token.actions.githubusercontent.com"
+    );
+    assert_eq!(
+        policy["indexPredicateType"],
+        "https://hologram.foundation/hub/index/v1"
+    );
+    assert_eq!(
+        policy["rekorLogId"],
+        "c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d"
+    );
+    for key in ["fulcioIntermediate", "rekorKey"] {
+        assert!(
+            policy[key].as_str().is_some_and(|v| v.len() > 64),
+            "policy.json has no {key}"
+        );
+    }
+    assert!(
+        vendor.contains(&blake3("site/app/engine/hub/policy.json")),
+        "VENDOR.md does not name policy.json's BLAKE3"
+    );
+
+    // The client, driven in Node through a chain minted for the test.
+    let result = node("crates/conformance/tests/gpu/hub-check.mjs", &[]);
+    assert_eq!(
+        result["good"]["code"], "ok",
+        "the minted chain was not proven: {result}"
+    );
+    assert_eq!(result["good"]["repo"], "fixture-owner/fixture-model");
+    for (case, code, failed) in [
+        ("foreignKey", "RootUnverified", Some(vec!["chain", "log"])),
+        ("foreignLog", "RootUnverified", Some(vec!["log"])),
+        ("otherIdentity", "RootUnverified", Some(vec!["identity"])),
+        ("changedRoot", "RootUnverified", Some(vec!["subject"])),
+        ("pinnedPolicy", "RootUnverified", Some(vec!["chain", "log"])),
+        ("noBundle", "RootUnreachable", None),
+        ("unknownRepo", "RecordUnknown", None),
+        ("changedRecord", "RecordMismatch", None),
+        ("unaddressedRecord", "RecordUnaddressed", None),
+        ("unreachableRecord", "RecordUnreachable", None),
+        ("changedFile", "FileMismatch", None),
+        ("shortFile", "FileMismatch", None),
+        ("unaddressedFile", "FileUnaddressed", None),
+    ] {
+        assert_eq!(result[case]["code"], code, "{case}: {result}");
+        if let Some(failed) = failed {
+            assert_eq!(
+                result[case]["failed"],
+                serde_json::json!(failed),
+                "{case} failed other checks"
+            );
+        }
+    }
+
+    // The page asks the client, and nothing in it skips the signature.
+    let loader = read("site/app/engine/loader.mjs");
+    for wanted in [
+        "from \"./hub/hub-client.mjs\";",
+        "index = await openIndex(base, policy, { hash });",
+        "const record = await readRecord(index, repo);",
+        "new URL(\"./hub/policy.json\", import.meta.url)",
+    ] {
+        assert!(
+            loader.contains(wanted),
+            "site/app/engine/loader.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !loader.contains("waits on the hub's client module"),
+        "the page still leaves the index root's signature unchecked"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "good: the index root's signature was not checked",
+        "foreign: expected to stop at the index root signature",
+        "if (path === \"/app/engine/hub/policy.json\")",
     ] {
         assert!(
             journey.contains(wanted),
