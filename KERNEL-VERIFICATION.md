@@ -1401,11 +1401,15 @@ and U+3000).
 
 ### The proof gate
 
-Checked by the hosted LexLean verifier on 2026-11-19 (VERIFY_TASK, draft
-prism-app/VERIFY_DRAFT…), with `Kernel.Chat`, its proofs and the modules they
-import: the five `chat_space_*` theorems (the one-byte whitespace is exactly
-9 to 13 and 28 to 32), `chat_role_known_decides` and
-`chat_family_known_decides`, all verified. `lexlean fmt --check`: canonical.
+The proofs are the five `chat_space_*` theorems (the one-byte whitespace is
+exactly 9 to 13 and 28 to 32), `chat_role_known_decides` and
+`chat_family_known_decides`. On 2026-11-19 the hosted LexLean engine checked
+`Kernel.Chat` and `Proofs.Chat` with the modules they import (draft
+prism-app/65cacd8b…), and `lexlean fmt --check` found the new definitions
+canonical. Lean has not yet attested the theorems: the hosted verification
+(task-31) was still queued when this was pushed, so CI's acceptance run under
+the pinned SDK is the first verdict. Each axiom list is what an earlier hosted
+run observed for a statement of the same form.
 
 What is proved is the shape of the guards, not the render: that the
 definition renders a request as transformers does is checked on examples, in
