@@ -2593,3 +2593,195 @@ it, as for EN-44.
 | the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
 | values and weights not bounded | rejected: `a value at 2^31 was not refused` |
 | none | passed |
+
+## EN-48, rotary angles in integers
+
+Each pair `i` of a head of size `d` turns by `theta^(-2i/d)` radians per
+position. `rope_frequencies` holds that rate as `F`, in units of `2^-64` of a
+turn per position, so a position's angle is `position * F` modulo `2^64`,
+exact, and `rope_angle` rounds it half to even to `2^-32` of a turn for
+EN-45's `sine_turn` and `cosine_turn`.
+
+`F` is `2^(63 - (2i/d) log2 theta - log2 pi)`, generated in integers over
+`2^62`: `log2` by repeated squaring, one bit per square, the power of two as a
+product of `2^(2^-j)`, each the integer square root of the one before, and
+`pi` by Machin's formula. Every machine gets the same `F`.
+
+Llama 3 scaling, which Llama 3.2 1B names, is rational in `F`: a pair above
+`high / original` turns per position is kept, one below `low / original` is
+divided by `factor`, and one between is blended,
+`F (D - N + N factor) / (factor D)` with `N = original F - low 2^64` and
+`D = (high - low) 2^64`, rounded half to even. The factors are taken as whole
+numbers, as the three models' configs give them. YaRN, which none of
+milestone 2's models uses, is refused by name where the config is read.
+
+What the test establishes, for Qwen3-0.6B and Qwen2.5-1.5B (128 at
+1,000,000), Llama 3.2 1B (64 at 500,000, Llama 3 scaling 32, 1, 4, 8192), and
+64 at 10,000:
+
+- every unscaled `F` is within `2^6` units of `2^64 theta^(-2i/d) / (2 pi)`,
+  certified as `((F - 2^6) 2 pi)^b theta^a < 2^(64b) < ((F + 2^6) 2 pi)^b theta^a`
+  for `2i/d = a/b`, with the test's own Machin `pi` and integers of any
+  width; the largest miss is pair 0's, 26 units, and `2^4` fails;
+- every Llama 3 frequency is the test's own keep, divide or blend, rounded
+  half to even, and within `10^-12` of the reference's float formula;
+- every angle is `position * F` modulo `2^64` rounded half to even, and its
+  cosine and sine are within `10^-4` of `cos` and `sin` of
+  `position theta^(-2i/d)` for positions below 32,768.
+
+The float comparisons are yardsticks, in the test only. `2^6` units of
+`2^-64` of a turn per position move a position's angle by under `2^-38` of a
+turn at a million positions.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_48`
+
+| Planted defect | Result |
+| --- | --- |
+| `pi` from `atan(1/240)` | rejected: `pair 0's frequency 2935825336898657179 is not within 2^6 ...` |
+| half of `log2 pi` left out of the exponent | rejected: `pair 0's frequency 5203730428379116568 is not within 2^6 ...` |
+| the Llama 3 blend rounded down | rejected: `Llama 3.2 1B: pair 16's scaled frequency is not the rounded keep, divide or blend` |
+| the keep and divide bands swapped | rejected: the blend overflows and the config is refused |
+| the angle truncated | rejected: `rope_angle(97, 2935890503282001200) is not rounded half to even` |
+| none | passed |
+
+## EN-49, the CPU path is integer from token ids to logits
+
+`hologram-ai-cpu-decode` runs a Qwen3-shaped model from its fused q4f16 ONNX
+export with no floating-point operation. The residual stream is binary32 bit
+patterns held as `u32` (Ilya, 2026-11-18); each stage reads them exactly and
+rounds its result back once, half to even:
+
+| Stage | How |
+| --- | --- |
+| Embedding | the half read exactly, as binary32 |
+| RMSNorm (input, query, key, post-attention, final) | each value enters EN-47 in units of `2^-16`, half to even; the normalised value times its half weight, rounded once |
+| Query, key, value, output, gate, up, down | `q4_product_with`, 16-bit activation codes per group of 32 (EN-37 to EN-41) |
+| Rotary positions | EN-48's angle, EN-45's cosine and sine; each rotated pair summed exactly and rounded once |
+| Scores | the exact dot product of query and key, rounded once; its softmax exponent `score log2(e) / sqrt(d)` in units of `2^-8`, from `LOG2_E` and `floor(2^40 / sqrt(d))` (KN-43's root), half to even |
+| Softmax | EN-44 on EN-43's table |
+| Attention output | the exact sum of weights times values, rounded once |
+| Residual adds | exact, rounded once |
+| SiLU and gate | the gate enters EN-46 in units of `2^-16`; times up, rounded once |
+| Logits | the tied half embedding, `dense_product_with` |
+| Greedy | the largest logit by the order of binary32 read from its bits, the first on a tie |
+
+The graph is read by the nodes that read each weight, by their names in
+onnx-community's fused export, so the same reading serves GP-19's fixture and
+the published export; a role the graph lacks, or whose weight is not the shape
+the role needs, is refused as `DecodeError::Unrecognised` (FL-55). The f16
+`cos_cache` and `sin_cache` the export carries are not read: positions come
+from the certified tables.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_49`
+
+On GP-19's fixture, after its prompt, the sixteen greedy tokens are the float
+reference's, every logit is within `2^-7` of the reference's (the largest gap
+measured 1.66e-3), and a second run gives the same bits.
+
+| Planted defect | Result |
+| --- | --- |
+| rotary pairs taken interleaved, `(2i, 2i + 1)` | rejected: tokens `[179, 203, 106, ...]` against `[194, 194, 194, ...]` |
+| a query head's key head by remainder, not by group | rejected: tokens `[57, 56, 270, ...]` |
+| the query norm left out | rejected: tokens `[27, 296, 296, ...]` |
+| scores not scaled by `1/sqrt(d)` | rejected: tokens `[119, 276, 314, ...]` |
+| the feed-forward's residual add dropped | rejected: tokens `[73, 234, 310, ...]` |
+| none | passed |
+
+FL-55 to FL-58 each have a negative test: a graph without layer 0's query
+norm, a 4-bit matrix with a block of 8, an epsilon past EN-47's bound, and a
+token id equal to the vocabulary.
+
+### Run over the published export
+
+On 2026-11-18 the path was run over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen3-0.6B-ONNX at `79346d3` (BLAKE3 equal to the hub record's),
+read whole from disk by a local probe, with the model's own `tokenizer.json`
+(BLAKE3 equal to the record's), `rope_theta` 1,000,000 and `rms_norm_eps`
+1e-6 from its `config.json`. The probe is not part of the gate, which has no
+network and no 570 MB file, and is not committed. The float yardstick is
+ONNX Runtime 1.26.0 on the CPU running the same file.
+
+| Prompt (Qwen3's chat template, thinking off) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is **Paris**. | 10 | 10 / 10 | 10 | 0.046 |
+| Write one sentence about the sea. | The sea whispers stories of the past, carrying the memories of those who once called it home. | 20 | 20 / 20 | 20 | 0.049 |
+| What is 12 times 7? | To calculate 12 multiplied by 7: ... 12 \times 7 = 84 ... (cut at 32 tokens) | 32 | 32 / 32 | 32 | 0.051 |
+
+The logit gaps include ONNX Runtime's own half-precision activations. The
+integer path took about 23 s for each prompt of about 20 tokens and 1.2 s per
+token after, one thread, release build: the exact products are not yet the
+fast path (step 8 of the plan). The measurement is the ledger's
+`OPEN-GREEDY-QWEN3-0.6B-INTEGER`.
+
+## EN-50 and EN-51, Qwen2.5's decomposed export and Llama's
+
+`read` takes both export styles onnx-community writes. The fused one (Qwen3,
+Llama) names norms `SkipSimplifiedLayerNormalization` and states the head
+counts on `GroupQueryAttention`, which must agree with the config's; the
+decomposed one (Qwen2.5) names norms `Mul_1`, adds query, key and value biases
+as `Add` nodes, and has no attention node, so the head counts are the config's.
+Query and key norms and the biases are read where layer 0 has them, and then
+required in every layer. A bias is added to its product as the export adds it,
+rounded once more. Llama's rotary scaling is EN-48's, from the config.
+
+### The gate: `engine_en_50` and `engine_en_51`
+
+| Fixture | Tokens equal to the float reference's | Largest logit gap |
+| --- | --- | --- |
+| Qwen2-shaped, decomposed, biases (EN-50) | 16 / 16 | 1.26e-3 |
+| Llama-shaped, fused, Llama 3 scaling 4, 1, 4, 64 (EN-51) | 16 / 16 | 1.93e-3 |
+| Qwen3-shaped, fused, query and key norms (EN-49) | 16 / 16 | 1.66e-3 |
+
+Planted against EN-50 and EN-51:
+
+| Planted defect | Result |
+| --- | --- |
+| biases not added | rejected: `qwen2: the integer path's tokens are not the float reference's` |
+| Llama 3 scaling read as none | rejected: `llama: the integer path's tokens are not the float reference's` |
+| none | passed |
+
+### Run over Qwen2.5-1.5B-Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen2.5-1.5B-Instruct at `d54957e` (BLAKE3 equal to the hub
+record's), with its own `tokenizer.json` and `config.json`, against ONNX
+Runtime 1.26.0 on the same file with graph optimisation off: its layer-norm
+fusion fails on this export with `GetIndexFromName ... InsertedPrecisionFreeCast`.
+
+| Prompt (Qwen2.5's template, default system line) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | **Q:** What is the capital of France? **A:** Paris | 15 | 15 / 15 | 15 | 0.22 |
+| Write one sentence about the sea. | ... **The sea is a vast and powerful body of water that plays a crucial role in shaping our planet's ecosystems and weather patterns.* ... (cut at 32) | 32 | 31 / 32 | 28 | 0.61 |
+| What is 12 times 7? | **Final answer**: 84 | 8 | 8 / 8 | 8 | 0.25 |
+
+The one difference is at a near tie: the float model's best two logits are
+0.026 apart at step 28, and its free run takes the other. The gaps are larger
+than Qwen3's because this export runs every activation in half precision in
+ONNX Runtime. About 52 s for each prompt of about 30 tokens and 2.3 s per
+token after, one thread. The ledger's `OPEN-GREEDY-QWEN2.5-1.5B-INTEGER`.
+
+### Run over Llama 3.2 1B Instruct
+
+On 2026-11-18, over `onnx/model_q4f16.onnx` and `model_q4f16.onnx_data` of
+onnx-community/Llama-3.2-1B-Instruct-ONNX at `82ac693` (each BLAKE3 equal to
+the hub record's), with its own `tokenizer.json` and `config.json`. That
+config names no rope scaling, but the export's own cos and sin cache is Llama
+3's at factor 32, low 1, high 4, original 8192 (GPU-VERIFICATION.md, read
+2026-11-16), so the run takes those parameters, as the page's loader does
+after confirming them against the cache. The yardstick is ONNX Runtime 1.26.0
+on the same files with graph optimisation off.
+
+| Prompt (Llama 3.2's template) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is Paris. | 8 | 8 / 8 | 8 | 0.36 |
+| Write one sentence about the sea. | The vast expanse of the ocean, with its diverse marine life and intricate underwater ecosystems, continues to captivate and inspire people from all over the world. | 32 | 32 / 32 | 32 | 0.32 |
+| What is 12 times 7? | To find the answer, I'll multiply 12 by 7. 12 * 7 = 84 The answer is 84. | 29 | 29 / 29 | 29 | 0.50 |
+
+The gaps include ONNX Runtime's half-precision activations and its
+half-precision rotary cache. About 81 s for each prompt of about 42 tokens and
+1.9 s per token after, one thread. The ledger's
+`OPEN-GREEDY-LLAMA-3.2-1B-INTEGER`.
+
+Reading the rotary parameters from the export's cache rather than taking the
+family's is the page's step today (`site/app/engine/onnx-load.mjs`); the
+integer path takes them from its caller.

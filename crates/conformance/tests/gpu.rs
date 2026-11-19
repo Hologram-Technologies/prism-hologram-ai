@@ -33,6 +33,15 @@ fn node(script: &str, args: &[&str]) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("{script} printed no JSON ({e}):\n{stdout}"))
 }
 
+// Eight scenarios read the one engine run `run.mjs` makes. It takes no input
+// but this tree, so it runs once and each scenario asserts on that output.
+// Run eight times, four at once on the gate's four cores, it took 22 to 28
+// of the gate's 45 minutes.
+fn run() -> &'static serde_json::Value {
+    static RUN: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    RUN.get_or_init(|| node("crates/conformance/tests/gpu/run.mjs", &[]))
+}
+
 /// The largest difference allowed between a logit the GPU computes in single
 /// precision and the reference's double-precision logit. The first runs on
 /// SwiftShader measured at most 6.6e-4 on logits spread over about 6 to 8.
@@ -117,7 +126,7 @@ fn blocks_agree(model: &serde_json::Value, label: &str) {
 /// `GP-01`: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
 #[test]
 fn gpu_gp_01() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     // No adapter is a failure, not a skip: a test that cannot see a GPU has
     // checked nothing.
     assert!(
@@ -127,7 +136,7 @@ fn gpu_gp_01() {
     );
     let errors = result["errors"].as_array().expect("the error list");
     assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    reference_agrees(&result, "ternary Qwen3");
+    reference_agrees(result, "ternary Qwen3");
 }
 
 /// `GP-02`: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
@@ -185,19 +194,19 @@ fn gpu_gp_02() {
 /// `GP-04`: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
 #[test]
 fn gpu_gp_04() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
         result["error"]
     );
-    blocks_agree(&result, "ternary Qwen3");
+    blocks_agree(result, "ternary Qwen3");
 }
 
 /// `GP-05`: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
 #[test]
 fn gpu_gp_05() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -464,7 +473,7 @@ fn gpu_gp_07() {
 /// `GP-08`: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_08() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -502,7 +511,7 @@ fn gpu_gp_08() {
 /// `GP-09`: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
 #[test]
 fn gpu_gp_09() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -534,7 +543,7 @@ fn gpu_gp_09() {
 /// `GP-10`: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
 #[test]
 fn gpu_gp_10() {
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -595,7 +604,7 @@ fn gpu_gp_11() {
     }
     assert_eq!(bands, [15, 3, 14], "kept, blended and slowed pairs");
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",
@@ -693,7 +702,7 @@ fn gpu_gp_12() {
         );
     }
 
-    let result = node("crates/conformance/tests/gpu/run.mjs", &[]);
+    let result = run();
     assert!(
         result.get("error").is_none(),
         "the engine did not run: {}",

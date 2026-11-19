@@ -1777,7 +1777,7 @@ fn divide_even(n: u128, d: u128) -> u128 {
 
 /// The integer square root, `r^2 <= value < (r + 1)^2`, as decision 43 decides it,
 /// digit by digit.
-fn integer_root(value: u128) -> u128 {
+pub fn integer_root(value: u128) -> u128 {
     let (mut rest, mut root, mut bit) = (value, 0u128, 1u128 << 126);
     while bit > value {
         bit >>= 2;
@@ -1837,4 +1837,135 @@ pub fn rms_norm(values: &[i64], weights: &[i64], epsilon: u64) -> Option<Vec<i64
             })
             .collect(),
     )
+}
+
+/// One in the fixed point rotary frequencies are generated in: `2^-62`.
+const ROPE_ONE: u128 = 1 << 62;
+
+/// `log2(x)` for `x >= 1` in units of `2^-62`, `x` too: the whole part by
+/// halving, then one bit per squaring, cut down at each step.
+fn log2_fixed(x: u128) -> u128 {
+    let (mut m, mut result) = (x, 0u128);
+    while m >= 2 * ROPE_ONE {
+        m >>= 1;
+        result += ROPE_ONE;
+    }
+    for bit in (0..62).rev() {
+        m = (m * m) >> 62;
+        if m >= 2 * ROPE_ONE {
+            m >>= 1;
+            result |= 1 << bit;
+        }
+    }
+    result
+}
+
+/// `2^e` for `e` in units of `2^-62`, `e` below `2^64` and `2^e` below
+/// `2^64`: the fraction as a product of `2^(2^-j)`, each the integer square
+/// root of the one before, then shifted by the whole part.
+fn pow2_fixed(e: u128) -> Option<u64> {
+    let (whole, fraction) = (e >> 62, e & (ROPE_ONE - 1));
+    let (mut power, mut product) = (2 * ROPE_ONE, ROPE_ONE);
+    for bit in (0..62).rev() {
+        power = integer_root(power << 62);
+        if (fraction >> bit) & 1 == 1 {
+            product = (product * power) >> 62;
+        }
+    }
+    let shifted = if whole >= 62 {
+        product.checked_shl((whole - 62) as u32)?
+    } else {
+        product >> (62 - whole)
+    };
+    u64::try_from(shifted).ok()
+}
+
+/// How a model scales its rotary frequencies, as its config names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RopeScaling {
+    /// The frequencies as `theta` gives them.
+    None,
+    /// Llama 3's: kept above `high / original` turns per position, divided by
+    /// `factor` below `low / original`, and blended linearly between.
+    Llama3 {
+        /// `factor`, a whole number.
+        factor: u32,
+        /// `low_freq_factor`, a whole number.
+        low: u32,
+        /// `high_freq_factor`, a whole number above `low`.
+        high: u32,
+        /// `original_max_position_embeddings`.
+        original: u32,
+    },
+}
+
+/// Llama 3's scaling of one frequency `f`, in units of `2^-64` of a turn per
+/// position, rounded half to even where it divides.
+fn llama3_scale(f: u64, factor: u32, low: u32, high: u32, original: u32) -> Option<u64> {
+    let (f, factor) = (u128::from(f), u128::from(factor));
+    let reach = f * u128::from(original);
+    if reach > u128::from(high) << 64 {
+        return u64::try_from(f).ok();
+    }
+    if reach < u128::from(low) << 64 {
+        return u64::try_from(divide_even(f, factor)).ok();
+    }
+    // s = (original f - low 2^64) / ((high - low) 2^64), and
+    // f' = f ((1 - s) / factor + s) = f (D - N + N factor) / (factor D).
+    let numerator = reach - (u128::from(low) << 64);
+    let denominator = u128::from(high - low) << 64;
+    let blend = denominator.checked_add(numerator.checked_mul(factor - 1)?)?;
+    let scaled = f.checked_mul(blend)?;
+    u64::try_from(divide_even(scaled, factor.checked_mul(denominator)?)).ok()
+}
+
+/// The rotary frequency of each of a head's `head_dim / 2` pairs, in units of
+/// `2^-64` of a turn per position: `theta^(-2i / head_dim) / (2 pi)`, generated
+/// in integers over `2^62` (logarithms by squaring, powers by square roots,
+/// `pi` by Machin's formula), then scaled as the config names. `None` for an
+/// odd or zero head size, a `theta` below 2, or a scaling past its bounds.
+pub fn rope_frequencies(head_dim: u32, theta: u64, scaling: RopeScaling) -> Option<Vec<u64>> {
+    if head_dim == 0 || head_dim % 2 == 1 || head_dim > 1024 || theta < 2 {
+        return None;
+    }
+    if let RopeScaling::Llama3 {
+        factor,
+        low,
+        high,
+        original,
+    } = scaling
+    {
+        if factor == 0 || low == 0 || high <= low || original == 0 {
+            return None;
+        }
+    }
+    let pi = (16 * atan_inverse(5) - 4 * atan_inverse(239)) >> 58;
+    let (log_theta, log_pi) = (log2_fixed(u128::from(theta) << 62), log2_fixed(pi));
+    let half = u128::from(head_dim / 2);
+    (0..half)
+        .map(|i| {
+            // 2^64 theta^(-i / half) / (2 pi) = 2^(63 - (i / half) log2 theta - log2 pi).
+            let exponent = (63 * ROPE_ONE).checked_sub(i * log_theta / half + log_pi)?;
+            let f = pow2_fixed(exponent)?;
+            match scaling {
+                RopeScaling::None => Some(f),
+                RopeScaling::Llama3 {
+                    factor,
+                    low,
+                    high,
+                    original,
+                } => llama3_scale(f, factor, low, high, original),
+            }
+        })
+        .collect()
+}
+
+/// The rotary angle of `position` at frequency `frequency`, in units of
+/// `2^-32` of a turn: `position * frequency` modulo a whole turn, rounded half
+/// to even to `2^-32` of a turn, which EN-45's `sine_turn` and `cosine_turn` read.
+pub fn rope_angle(position: u32, frequency: u64) -> u32 {
+    let turns = (u128::from(position) * u128::from(frequency)) as u64;
+    let (whole, rest) = (turns >> 32, turns & 0xffff_ffff);
+    let up = rest > 1 << 31 || (rest == 1 << 31 && whole & 1 == 1);
+    (whole + u64::from(up)) as u32
 }
