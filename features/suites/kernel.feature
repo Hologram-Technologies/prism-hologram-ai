@@ -380,3 +380,18 @@ Feature: kernel
     Then admitting a page whose address is not blake3: fails the session, and admitting any page but the manifest's last leaves it not ready
     And two prompt chunks move the position as one chunk of their combined length, and the position stays within the capacity
     And a generate request whose products or other stages are not exact fails the session, and an ended or failed session does not change
+
+  @KN-50 @build
+  Scenario: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
+    Given a request of the tag 49, a mode byte (0 for binary32, 1 for a whole number), a claim in eight bytes and a decimal's text in at most forty
+    When the kernel reads the digits, the fraction and the exponent, feeds the mantissa's bits through four long divisions by at most 10^18 each, chained bit by bit, until 53 quotient bits stand, and rounds them with any remainder as the bit below by Kernel.Round
+    Then the answer is exact exactly when the claim is the nearest binary32, ties to even, subnormals included, or the whole number the text names
+    And text that is not a decimal is answered not a decimal, a value past 2^63 or more than 72 places below the point out of range, and a fraction asked for as a whole number not whole
+    And no number the kernel forms reaches 2^64, and the theorems of Proofs.Config state the long division's steps and are pinned with their axioms
+
+  @KN-51 @build
+  Scenario: A cache entry, an f16, is confirmed to agree with a reference rotary value in units of 2^-30 exactly when the f16 read exactly as an integer times a power of two lies within the tolerance of it, compared in integers; an infinity or a NaN is answered not finite
+    Given a request of the tag 50, an f16 in two bytes, a reference's sign and magnitude in units of 2^-30, and a tolerance, each at most 2^30
+    When the kernel reads the f16 exactly through Kernel.Scale and compares it with the reference in integers
+    Then the answer is agrees exactly when the two lie within the tolerance, and disagrees otherwise
+    And an infinity or a NaN is answered not finite, and the theorems of Proofs.Rotary state the distance and are pinned with their axioms

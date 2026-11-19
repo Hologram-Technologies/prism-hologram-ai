@@ -4063,3 +4063,141 @@ fn kernel_kn_45() {
         "the session no longer builds on decisions 35 and 36"
     );
 }
+
+/// `KN-50`: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
+#[test]
+fn kernel_kn_50() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Config.lex.tex");
+    let proofs = model("app/src/Proofs/Config.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "decimal_left_below_divisor",
+            "((carried < divisor) -> ((bit <= 1) -> ((Kernel.Config::decimalLeft carried bit divisor) < divisor)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_step_takes_divisor",
+            "((divisor <= ((carried + carried) + bit)) -> (((Kernel.Config::decimalLeft carried bit divisor) + divisor) = ((carried + carried) + bit)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_step_keeps_below",
+            "((((carried + carried) + bit) < divisor) -> ((Kernel.Config::decimalLeft carried bit divisor) = ((carried + carried) + bit)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_out_is_one_exactly_when_taken",
+            "(((Kernel.Config::decimalOut carried bit divisor) = 1) <-> (divisor <= ((carried + carried) + bit)))",
+            "Classical.choice, Quot.sound, propext",
+        ),
+        (
+            "decimal_unit_stage_passes_bit",
+            "((bit <= 1) -> ((Kernel.Config::decimalOut 0 bit 1) = bit))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_unit_stage_keeps_nothing",
+            "((bit <= 1) -> ((Kernel.Config::decimalLeft 0 bit 1) = 0))",
+            "Quot.sound, propext",
+        ),
+        (
+            "decimal_accepts_decides",
+            "(((Kernel.Config::decimalAccepts claimed mode mantissa up down) = true) <-> (claimed = (Kernel.Config::decimalResult mode mantissa up down)))",
+            "propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "decimalLeft",
+            "body: (if (divisor <=? ((carried + carried) + bit)) then (prim subtract ((carried + carried) + bit) divisor : Nat) else ((carried + carried) + bit))",
+        ),
+        (
+            "decimalStage",
+            "body: (if ((prim subtract down skipped : Nat) <=? 18) then (decimalPow (prim subtract down skipped : Nat)) else (decimalPow 18))",
+        ),
+        (
+            "decimalPacked",
+            "body: (decimalRun (decimalFed mantissa up) (decimalStage down 0) (decimalStage down 18) (decimalStage down 36) (decimalStage down 54) 0 0 0 0 0 0 420)",
+        ),
+        (
+            "decimalBinary",
+            "body: (Kernel.Round::roundResult 0 (prim quotient (decimalPacked mantissa up down) 512 0 : Nat) (prim subtract 32831 (prim remainder (decimalPacked mantissa up down) 512 0 : Nat) : Nat))",
+        ),
+        (
+            "decimalInRange",
+            "body: (if (decimalFits mantissa up) then ((mode =? 1) || (down <=? 72)) else false)",
+        ),
+        (
+            "decimalFits",
+            "body: (if (mantissa =? 0) then true else (if (up <=? 18) then (mantissa <=? (prim quotient 9223372036854775807 (decimalPow up) 0 : Nat)) else false))",
+        ),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    let run = declaration(&kernel, "decimalRun");
+    assert!(
+        run.contains(
+            "(if (4503599627370496 <=? quotient) then (decimalPack fed r1 r2 r3 r4 quotient step)"
+        ),
+        "decimalRun stops at other than 53 quotient bits:\n{run}"
+    );
+    assert_routed(49, "Kernel.Config::decimalAnswer");
+}
+
+/// `KN-51`: A cache entry, an f16, is confirmed to agree with a reference rotary value in units of 2^-30 exactly when the f16 read exactly as an integer times a power of two lies within the tolerance of it, compared in integers; an infinity or a NaN is answered not finite
+#[test]
+fn kernel_kn_51() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Rotary.lex.tex");
+    let proofs = model("app/src/Proofs/Rotary.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "rotary_agrees_decides",
+            "(((Kernel.Rotary::rotaryAgrees bits sign magnitude tolerance) = true) <-> ((Kernel.Rotary::rotaryDistance bits sign magnitude) <= tolerance))",
+            "propext",
+        ),
+        (
+            "rotary_same_sign_is_difference",
+            "(((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((prim subtract (Kernel.Rotary::rotaryCache bits) magnitude : Nat) + (prim subtract magnitude (Kernel.Rotary::rotaryCache bits) : Nat))))",
+            "Quot.sound, propext",
+        ),
+        (
+            "rotary_opposite_signs_add",
+            "(((Kernel.Rotary::rotarySame bits sign) = 0) -> ((Kernel.Rotary::rotaryDistance bits sign magnitude) = ((Kernel.Rotary::rotaryCache bits) + magnitude)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "rotary_exact_entry_agrees",
+            "(((Kernel.Rotary::rotarySame bits sign) = 1) -> ((Kernel.Rotary::rotaryAgrees bits sign (Kernel.Rotary::rotaryCache bits) tolerance) = true))",
+            "Quot.sound, propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "rotaryCache",
+            "body: (prim multiply (Kernel.Scale::halfUnits bits) 64 : Nat)",
+        ),
+        (
+            "rotarySame",
+            "body: (if (Kernel.Scale::halfNegative bits) then (if (sign =? 1) then 1 else 0) else (if (sign =? 0) then 1 else 0))",
+        ),
+        (
+            "rotaryAgrees",
+            "body: ((rotaryDistance bits sign magnitude) <=? tolerance)",
+        ),
+        (
+            "rotaryAnswer",
+            "((Kernel.Wire::fieldAt value 4 4) <=? 1073741824)) && ((Kernel.Wire::fieldAt value 8 4) <=? 1073741824))",
+        ),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    assert_routed(50, "Kernel.Rotary::rotaryAnswer");
+}

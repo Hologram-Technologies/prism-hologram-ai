@@ -666,11 +666,7 @@ fn gpu_gp_12() {
         result["exports"]["Qwen2.5-1.5B-Instruct"]["q3"],
         serde_json::json!(["onnx::MatMul_9444_Q4", "onnx::MatMul_9444_scales"])
     );
-    assert_eq!(
-        result["exports"]["Llama-3.2-1B-Instruct-ONNX"]["rope"],
-        serde_json::json!({"llama3": {"factor": 32, "low": 1, "high": 4, "orig": 8192}}),
-        "Llama's cache confirms Llama 3 scaling"
-    );
+    // Which rotary parameters Llama's cache confirms is EN-59's, in integers.
     for (case, start) in [
         ("missing", "missing: the graph has no l3.wq"),
         ("duplicate", "duplicate: l5.w_up"),
@@ -689,7 +685,6 @@ fn gpu_gp_12() {
         ("heads", "shape: /model/layers.0/attn/k_proj/MatMul_Q4 rows"),
         ("family", "family: gemma"),
         ("layers", "layer: /model/layers.27/"),
-        ("rope", "rope: no rotary parameters agree"),
         (
             "interleaved",
             "rope: /model/layers.0/attn/q_rotary/RotaryEmbedding rotates interleaved",
@@ -1109,7 +1104,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "createCpuEngine({ dims, tensors, capacity: CAPACITY })",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(
@@ -1423,6 +1418,53 @@ fn gpu_gp_25() {
             "the journey no longer checks `{wanted}`"
         );
     }
+}
+
+/// `GP-28`: The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept
+#[test]
+fn gpu_gp_28() {
+    // The journey runs the page (`just page-journey`); this test reads that
+    // the CPU device's engine is the integer one and the journey checks it.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "import { createIntegerEngine } from \"./integer.mjs\";",
+        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !pipeline.contains("createCpuEngine"),
+        "the pipeline still builds the float CPU engine"
+    );
+    let integer = read("site/app/engine/integer.mjs");
+    for call in [
+        "\"decode_tensor\"",
+        "\"decode_open\"",
+        "\"decode_step\"",
+        "\"decode_save\"",
+        "\"decode_restore\"",
+        "\"decode_reset\"",
+    ] {
+        assert!(integer.contains(call), "integer.mjs no longer calls {call}");
+    }
+    let load = read("site/app/engine/onnx-load.mjs");
+    assert!(
+        load.contains(
+            "engineTensors(weights, read), { table, read, config: configText, rope: { ...rope } })"
+        ),
+        "onnx-load.mjs no longer hands the build the import's tensors and the config"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    assert!(
+        journey.contains("the CPU device did not run the integer engine"),
+        "the journey no longer checks the CPU device's engine"
+    );
 }
 
 /// `GP-26`: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1

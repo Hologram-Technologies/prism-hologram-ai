@@ -1,0 +1,307 @@
+\begin{lexlean}{Kernel.Config}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Round}
+\importmodule{Kernel.Scale}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: decimalPow,
+  parameters: [power : Nat],
+  result: Nat,
+  body: (match power | Nat.zero => 1 | Nat.succ rest => (prim multiply 10 (decimalPow rest) : Nat)),
+  recursive_argument: power
+}
+
+definition{
+  name: decimalWord,
+  parameters: [w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, position : Nat],
+  result: Nat,
+  body: (if (position <? 8) then w1 else (if (position <? 16) then w2 else (if (position <? 24) then w3 else (if (position <? 32) then w4 else w5))))
+}
+
+definition{
+  name: decimalByte,
+  parameters: [w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, position : Nat],
+  result: Nat,
+  body: (if (40 <=? position) then 256 else (if ((prim remainder (prim quotient (decimalWord w1 w2 w3 w4 w5 position) (Kernel.Scale::twoTo (prim multiply 8 (prim subtract 7 (prim remainder position 8 0 : Nat) : Nat) : Nat)) 0 : Nat) 256 0 : Nat) =? 0) then 256 else (prim remainder (prim quotient (decimalWord w1 w2 w3 w4 w5 position) (Kernel.Scale::twoTo (prim multiply 8 (prim subtract 7 (prim remainder position 8 0 : Nat) : Nat) : Nat)) 0 : Nat) 256 0 : Nat)))
+}
+
+definition{
+  name: decimalIsDigit,
+  parameters: [c : Nat],
+  result: Bool,
+  body: ((48 <=? c) && (c <=? 57))
+}
+
+definition{
+  name: decimalLead,
+  parameters: [c : Nat, phase : Nat],
+  result: Bool,
+  body: ((decimalIsDigit c) && (phase <=? 1))
+}
+
+definition{
+  name: decimalTail,
+  parameters: [c : Nat, phase : Nat],
+  result: Bool,
+  body: ((decimalIsDigit c) && ((2 <=? phase) && (phase <=? 3)))
+}
+
+definition{
+  name: decimalPhase,
+  parameters: [c : Nat, phase : Nat, mantissa : Nat, exponent : Nat, digits : Nat],
+  result: Nat,
+  body: (if (decimalLead c phase) then (if (mantissa <? 922337203685477580) then phase else 4) else (if ((c =? 46) && (phase =? 0)) then 1 else (if (((c =? 101) || (c =? 69)) && ((phase <=? 1) && (1 <=? digits))) then 2 else (if (((c =? 43) || (c =? 45)) && (phase =? 2)) then 3 else (if (decimalTail c phase) then (if (exponent <? 100) then 3 else 4) else 4)))))
+}
+
+definition{
+  name: decimalFinish,
+  parameters: [
+    phase : Nat,
+    mantissa : Nat,
+    places : Nat,
+    negative : Nat,
+    exponent : Nat,
+    digits : Nat,
+    written : Nat,
+    what : Nat
+  ],
+  result: Nat,
+  body: (if (what =? 0) then mantissa else (if (what =? 1) then places else (if (what =? 2) then negative else (if (what =? 3) then exponent else (if ((1 <=? digits) && ((phase <=? 1) || ((phase =? 3) && (1 <=? written)))) then 1 else 0)))))
+}
+
+definition{
+  name: decimalScan,
+  parameters: [
+    w1 : Nat,
+    w2 : Nat,
+    w3 : Nat,
+    w4 : Nat,
+    w5 : Nat,
+    position : Nat,
+    fuel : Nat,
+    phase : Nat,
+    mantissa : Nat,
+    places : Nat,
+    negative : Nat,
+    exponent : Nat,
+    digits : Nat,
+    written : Nat,
+    what : Nat
+  ],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => (decimalFinish phase mantissa places negative exponent digits written what)
+    | Nat.succ rest => (if ((decimalByte w1 w2 w3 w4 w5 position) =? 256) then (decimalFinish phase mantissa places negative exponent digits written what) else (decimalScan w1 w2 w3 w4 w5 (position + 1) rest (decimalPhase (decimalByte w1 w2 w3 w4 w5 position) phase mantissa exponent digits) (if ((decimalLead (decimalByte w1 w2 w3 w4 w5 position) phase) && (mantissa <? 922337203685477580)) then ((prim multiply mantissa 10 : Nat) + (prim subtract (decimalByte w1 w2 w3 w4 w5 position) 48 : Nat)) else mantissa) (if ((decimalLead (decimalByte w1 w2 w3 w4 w5 position) phase) && (phase =? 1)) then (places + 1) else places) (if (((decimalByte w1 w2 w3 w4 w5 position) =? 45) && (phase =? 2)) then 1 else negative) (if ((decimalTail (decimalByte w1 w2 w3 w4 w5 position) phase) && (exponent <? 100)) then ((prim multiply exponent 10 : Nat) + (prim subtract (decimalByte w1 w2 w3 w4 w5 position) 48 : Nat)) else exponent) (if (decimalLead (decimalByte w1 w2 w3 w4 w5 position) phase) then (digits + 1) else digits) (if (decimalTail (decimalByte w1 w2 w3 w4 w5 position) phase) then (written + 1) else written) what))),
+  axioms: [propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: decimalPart,
+  parameters: [w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, what : Nat],
+  result: Nat,
+  body: (decimalScan w1 w2 w3 w4 w5 0 41 0 0 0 0 0 0 0 what),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalUp,
+  parameters: [places : Nat, negative : Nat, exponent : Nat],
+  result: Nat,
+  body: (if (negative =? 0) then (prim subtract exponent places : Nat) else 0)
+}
+
+definition{
+  name: decimalDown,
+  parameters: [places : Nat, negative : Nat, exponent : Nat],
+  result: Nat,
+  body: (if (negative =? 0) then (prim subtract places exponent : Nat) else (places + exponent))
+}
+
+definition{
+  name: decimalFits,
+  parameters: [mantissa : Nat, up : Nat],
+  result: Bool,
+  body: (if (mantissa =? 0) then true else (if (up <=? 18) then (mantissa <=? (prim quotient 9223372036854775807 (decimalPow up) 0 : Nat)) else false))
+}
+
+definition{
+  name: decimalFed,
+  parameters: [mantissa : Nat, up : Nat],
+  result: Nat,
+  body: (if (mantissa =? 0) then 0 else (prim multiply mantissa (decimalPow up) : Nat))
+}
+
+definition{
+  name: decimalStage,
+  parameters: [down : Nat, skipped : Nat],
+  result: Nat,
+  body: (if ((prim subtract down skipped : Nat) <=? 18) then (decimalPow (prim subtract down skipped : Nat)) else (decimalPow 18))
+}
+
+definition{
+  name: decimalOut,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  result: Nat,
+  body: (if (divisor <=? ((carried + carried) + bit)) then 1 else 0)
+}
+
+definition{
+  name: decimalLeft,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  result: Nat,
+  body: (if (divisor <=? ((carried + carried) + bit)) then (prim subtract ((carried + carried) + bit) divisor : Nat) else ((carried + carried) + bit))
+}
+
+definition{
+  name: decimalIn,
+  parameters: [fed : Nat, step : Nat],
+  result: Nat,
+  body: (if (step <? 64) then (Kernel.Round::roundBit fed (prim subtract 63 step : Nat)) else 0)
+}
+
+definition{
+  name: decimalOne,
+  parameters: [fed : Nat, step : Nat, r1 : Nat, d1 : Nat],
+  result: Nat,
+  body: (decimalOut r1 (decimalIn fed step) d1)
+}
+
+definition{
+  name: decimalTwo,
+  parameters: [fed : Nat, step : Nat, r1 : Nat, r2 : Nat, d1 : Nat, d2 : Nat],
+  result: Nat,
+  body: (decimalOut r2 (decimalOne fed step r1 d1) d2)
+}
+
+definition{
+  name: decimalThree,
+  parameters: [fed : Nat, step : Nat, r1 : Nat, r2 : Nat, r3 : Nat, d1 : Nat, d2 : Nat, d3 : Nat],
+  result: Nat,
+  body: (decimalOut r3 (decimalTwo fed step r1 r2 d1 d2) d3)
+}
+
+definition{
+  name: decimalFour,
+  parameters: [
+    fed : Nat,
+    step : Nat,
+    r1 : Nat,
+    r2 : Nat,
+    r3 : Nat,
+    r4 : Nat,
+    d1 : Nat,
+    d2 : Nat,
+    d3 : Nat,
+    d4 : Nat
+  ],
+  result: Nat,
+  body: (decimalOut r4 (decimalThree fed step r1 r2 r3 d1 d2 d3) d4)
+}
+
+definition{
+  name: decimalPack,
+  parameters: [fed : Nat, r1 : Nat, r2 : Nat, r3 : Nat, r4 : Nat, quotient : Nat, step : Nat],
+  result: Nat,
+  body: ((prim multiply ((quotient + quotient) + (if ((0 <? (((r1 + r2) + r3) + r4)) || (Kernel.Round::roundAny fed (prim subtract 64 step : Nat))) then 1 else 0)) 512 : Nat) + step)
+}
+
+definition{
+  name: decimalRun,
+  parameters: [
+    fed : Nat,
+    d1 : Nat,
+    d2 : Nat,
+    d3 : Nat,
+    d4 : Nat,
+    r1 : Nat,
+    r2 : Nat,
+    r3 : Nat,
+    r4 : Nat,
+    quotient : Nat,
+    step : Nat,
+    fuel : Nat
+  ],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => (decimalPack fed r1 r2 r3 r4 quotient step)
+    | Nat.succ rest => (if (4503599627370496 <=? quotient) then (decimalPack fed r1 r2 r3 r4 quotient step) else (decimalRun fed d1 d2 d3 d4 (decimalLeft r1 (decimalIn fed step) d1) (decimalLeft r2 (decimalOne fed step r1 d1) d2) (decimalLeft r3 (decimalTwo fed step r1 r2 d1 d2) d3) (decimalLeft r4 (decimalThree fed step r1 r2 r3 d1 d2 d3) d4) ((quotient + quotient) + (decimalFour fed step r1 r2 r3 r4 d1 d2 d3 d4)) (step + 1) rest))),
+  axioms: [propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: decimalPacked,
+  parameters: [mantissa : Nat, up : Nat, down : Nat],
+  result: Nat,
+  body: (decimalRun (decimalFed mantissa up) (decimalStage down 0) (decimalStage down 18) (decimalStage down 36) (decimalStage down 54) 0 0 0 0 0 0 420),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalBinary,
+  parameters: [mantissa : Nat, up : Nat, down : Nat],
+  result: Nat,
+  body: (Kernel.Round::roundResult 0 (prim quotient (decimalPacked mantissa up down) 512 0 : Nat) (prim subtract 32831 (prim remainder (decimalPacked mantissa up down) 512 0 : Nat) : Nat)),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalWhole,
+  parameters: [mantissa : Nat, up : Nat, down : Nat],
+  result: Nat,
+  body: (if (mantissa =? 0) then 0 else (if (down =? 0) then (decimalFed mantissa up) else (if (down <=? 18) then (prim quotient mantissa (decimalPow down) 0 : Nat) else 0)))
+}
+
+definition{
+  name: decimalIsWhole,
+  parameters: [mantissa : Nat, down : Nat],
+  result: Bool,
+  body: (if (mantissa =? 0) then true else (if (down =? 0) then true else (if (down <=? 18) then ((prim remainder mantissa (decimalPow down) 0 : Nat) =? 0) else false)))
+}
+
+definition{
+  name: decimalInRange,
+  parameters: [mode : Nat, mantissa : Nat, up : Nat, down : Nat],
+  result: Bool,
+  body: (if (decimalFits mantissa up) then ((mode =? 1) || (down <=? 72)) else false)
+}
+
+definition{
+  name: decimalResult,
+  parameters: [mode : Nat, mantissa : Nat, up : Nat, down : Nat],
+  result: Nat,
+  body: (if (mode =? 0) then (decimalBinary mantissa up down) else (decimalWhole mantissa up down)),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalAccepts,
+  parameters: [claimed : Nat, mode : Nat, mantissa : Nat, up : Nat, down : Nat],
+  result: Bool,
+  body: (claimed =? (decimalResult mode mantissa up down)),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalVerdict,
+  parameters: [claimed : Nat, mode : Nat, valid : Nat, mantissa : Nat, up : Nat, down : Nat],
+  result: Bytes,
+  body: (if (valid =? 0) then (prim utf8_encode "not a decimal" : Bytes) else (if (decimalInRange mode mantissa up down) then (if ((mode =? 0) || (decimalIsWhole mantissa down)) then (if (decimalAccepts claimed mode mantissa up down) then (prim utf8_encode "exact" : Bytes) else (prim utf8_encode "differs" : Bytes)) else (prim utf8_encode "not whole" : Bytes)) else (prim utf8_encode "out of range" : Bytes))),
+  axioms: [propext]
+}
+
+definition{
+  name: decimalAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((Foundation.Bytes::byteLength value) =? 50) && ((Kernel.Wire::fieldAt value 1 1) <=? 1)) then (decimalVerdict (Kernel.Wire::fieldAt value 2 8) (Kernel.Wire::fieldAt value 1 1) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 4) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 0) (decimalUp (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 1) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 2) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 3)) (decimalDown (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 1) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 2) (decimalPart (Kernel.Wire::fieldAt value 10 8) (Kernel.Wire::fieldAt value 18 8) (Kernel.Wire::fieldAt value 26 8) (Kernel.Wire::fieldAt value 34 8) (Kernel.Wire::fieldAt value 42 8) 3))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
