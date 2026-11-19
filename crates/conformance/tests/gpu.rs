@@ -1122,7 +1122,7 @@ fn gpu_gp_19() {
     }
     let loader = read("site/app/engine/onnx-load.mjs");
     for wanted in [
-        "m.callWith(\"onnx_start\"",
+        "m.callWith(encoder ? \"onnx_start_encoder\" : \"onnx_start\", unhex(graph.blake3),",
         "m.callWith(\"onnx_take\", chunk)",
         "m.call(\"onnx_finish\")",
         "roles(table, config)",
@@ -1488,7 +1488,7 @@ fn gpu_gp_26() {
     for wanted in [
         "throw new Error(`the record names no BLAKE3 for ${p}`);",
         "const ok = digest === file.blake3 && bytes.length === file.size;",
-        "m.callWith(\"onnx_start\", unhex(graph.blake3),",
+        "m.callWith(encoder ? \"onnx_start_encoder\" : \"onnx_start\", unhex(graph.blake3),",
         "m.callWith(\"onnx_data_start\", unhex(file.blake3),",
     ] {
         assert!(
