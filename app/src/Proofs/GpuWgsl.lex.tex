@@ -3,6 +3,7 @@
 \useglossary{lexlean.std.nat@1.2.0}
 \useglossary{prism.arch@1.0.0}
 \importmodule{Engine.Gpu}
+\importmodule{Engine.GpuRun}
 \title{Bounded byte buffer}
 \begin{semanticmodule}
 theorem{
@@ -189,7 +190,7 @@ theorem{
 theorem{
   name: wgsl_runs_every_program_alike,
   parameters: [fuel : Nat, machine : Engine.Gpu::Machine, stmt : Engine.Gpu::Stmt],
-  statement: ((Engine.Gpu::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::wgslEval m (Engine.Gpu::toWgsl e))) machine stmt) = (Engine.Gpu::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) machine stmt)),
+  statement: ((Engine.GpuRun::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::wgslEval m (Engine.Gpu::toWgsl e))) machine stmt) = (Engine.GpuRun::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) machine stmt)),
   proof: simplify{definitions: [wgsl_preserves_eval]},
   axioms: [Quot.sound, propext]
 }

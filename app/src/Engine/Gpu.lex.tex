@@ -261,47 +261,6 @@ definition{
 }
 
 definition{
-  name: exec,
-  parameters: [fuel : Nat, ev : (Fn (Machine Expr) Nat), machine : Machine, stmt : Stmt],
-  result: Machine,
-  body: (match fuel
-    | Nat.zero => machine
-    | Nat.succ rest => (match stmt
-      | Stmt.skip => machine
-      | Stmt.assign slot expr => (withLocal machine slot (apply ev machine expr))
-      | Stmt.store buffer index expr => (withStore machine buffer (apply ev machine index) (apply ev machine expr))
-      | Stmt.seq before after => (exec rest ev (exec rest ev machine before) after)
-      | Stmt.when condition body => (if ((apply ev machine condition) =? 0) then machine else (exec rest ev machine body))
-      | Stmt.repeat start count slot body => (match count
-        | Nat.zero => machine
-        | Nat.succ remaining => (exec rest ev (exec rest ev (withLocal machine slot start) body) (ctor Stmt.repeat (start + 1) remaining slot body))))),
-  recursive_argument: fuel
-}
-
-definition{
-  name: atInvocation,
-  parameters: [machine : Machine, fresh : (List Nat), index : Nat],
-  result: Machine,
-  body: (record Machine {buffers := (project machine buffers), locals := fresh, invocation := index, group := 0})
-}
-
-definition{
-  name: runAll,
-  parameters: [
-    fuel : Nat,
-    ev : (Fn (Machine Expr) Nat),
-    count : Nat,
-    machine : Machine,
-    stmt : Stmt
-  ],
-  result: Machine,
-  body: (match count
-    | Nat.zero => machine
-    | Nat.succ earlier => (exec fuel ev (atInvocation (runAll fuel ev earlier machine stmt) (project machine locals) earlier) stmt)),
-  recursive_argument: count
-}
-
-definition{
   name: nibbleAt,
   parameters: [buffer : Nat, index : Expr],
   result: Expr,

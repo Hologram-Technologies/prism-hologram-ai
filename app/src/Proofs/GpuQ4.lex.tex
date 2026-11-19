@@ -3,12 +3,13 @@
 \useglossary{lexlean.std.nat@1.2.0}
 \useglossary{prism.arch@1.0.0}
 \importmodule{Engine.Gpu}
+\importmodule{Engine.GpuRun}
 \title{Bounded byte buffer}
 \begin{semanticmodule}
 theorem{
   name: q4_group_sums_zero_eight,
   parameters: [],
-  statement: ((Engine.Gpu::nthBuffer (project (Engine.Gpu::runAll 100 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (Engine.Gpu::fixtureMachine 0) (Engine.Gpu::q4GroupSums 2 64 2 false)) buffers) 3) = (cons 452167 (cons 158806 (nil Nat)))),
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 100 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (Engine.Gpu::fixtureMachine 0) (Engine.Gpu::q4GroupSums 2 64 2 false)) buffers) 3) = (cons 452167 (cons 158806 (nil Nat)))),
   proof: reflexivity{},
   axioms: []
 }
@@ -16,7 +17,7 @@ theorem{
 theorem{
   name: q4_group_sums_packed_zeros,
   parameters: [],
-  statement: ((Engine.Gpu::nthBuffer (project (Engine.Gpu::runAll 100 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (Engine.Gpu::fixtureMachine 179) (Engine.Gpu::q4GroupSums 2 64 2 true)) buffers) 3) = (cons 89587 (cons 105238 (nil Nat)))),
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 100 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (Engine.Gpu::fixtureMachine 179) (Engine.Gpu::q4GroupSums 2 64 2 true)) buffers) 3) = (cons 89587 (cons 105238 (nil Nat)))),
   proof: reflexivity{},
   axioms: []
 }
