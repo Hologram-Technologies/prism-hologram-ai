@@ -802,3 +802,21 @@ id = "EN-59"
 level = "build"
 suite = "engine"
 statement = "The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it"
+
+[[id]]
+id = "GP-30"
+level = "build"
+suite = "gpu"
+statement = "A return visit to the engine page with the network off loads the page, its engine and its kernel from the page's own service worker, reads the hub's index root, its signature and the model's record from this browser and checks them again as a download is checked, reads every file and tensor of the model from this browser with decision 28 asked again on the importer's own addresses, and answers with the reference's tokens; a kept record changed by one byte is refused as RecordMismatch, and with no hub index kept the page stops at the index root as RootUnreachable"
+
+[[id]]
+id = "GP-31"
+level = "build"
+suite = "gpu"
+statement = "The engine page keeps an ONNX export's tensors in the browser once each by the BLAKE3 address the hub's UOR index lists: each span is asked of decision 23, a tensor already held under any model, precision or repository is read from the browser and not downloaded, only the bytes not held are range-read from the first of the record's sources that answers, and nothing new is kept until decision 28 answers ready on the importer's own addresses; the same export under a second repository downloads nothing, its q4 graph after its q4f16 graph downloads only the tensors the first lacks, a kept tensor changed by one byte is refused and forgotten, a model the UOR index does not list is refused by name before any file is read, and an index giving a tensor another address is refused by decision 28"
+
+[[id]]
+id = "GP-32"
+level = "build"
+suite = "gpu"
+statement = "Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token"

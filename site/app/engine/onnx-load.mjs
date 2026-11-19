@@ -40,7 +40,9 @@ async function whole(stream) {
   return out;
 }
 
-export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, onProgress = () => {} }) {
+// `admitted(table)` is asked after the import and before any weight is placed:
+// the pipeline puts the importer's own addresses to decision 28 there.
+export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, admitted = async () => {}, onProgress = () => {} }) {
   // A file the record names, with its BLAKE3. A record that gives a file no
   // BLAKE3 is refused: Hugging Face's SHA-256 and Git's SHA-1 are not checked.
   const entry = (p) => {
@@ -122,6 +124,7 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
   const table = JSON.parse(text.decode(m.call("onnx_finish")));
   const count = Object.keys(table.places).length;
   checks.add("import", "every span, operator, file and 4-bit weight admitted", "pass", `${count} tensors named by their BLAKE3, ${asked} questions to the kernel, ${dataFiles.length} data files`);
+  await admitted(table);
 
   // A tensor's bytes, from where the importer says they lie.
   const read = (name) => {

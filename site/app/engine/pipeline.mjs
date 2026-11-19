@@ -17,10 +17,10 @@
 
 import { createIntegerEngine } from "./integer.mjs";
 import { createEngine } from "./gpu.mjs";
-import { asker, checklist, hubRecord, openModule } from "./loader.mjs";
+import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
 import { fetched, loadOnnx } from "./onnx-load.mjs";
-import { keepFiles } from "./files.mjs";
+import { keepFiles, manifestReady } from "./files.mjs";
 
 // The precisions this engine runs, in the kernel's code for decision 24.
 export const PRECISIONS = { q4f16: 0, q4: 1 };
@@ -93,7 +93,10 @@ export async function pipeline(task, model, options = {}) {
   const answer = (request) => runGuest(guest, request, kernel.limits);
 
   onStatus("Reading the model's record…");
-  const record = await hubRecord({ indexBase: index, repo: model, checks });
+  // The hub's index files are kept in this browser as they are read, and read
+  // from here only when the network is off; they are checked again either way.
+  const hubFetch = keptFetch();
+  const record = await hubRecord({ indexBase: index, repo: model, checks, fetch: hubFetch });
   // What each precision's graph is called is the kernel's decision 24, for this
   // task, and which precision is read its decision 21, weighed on what the
   // record offers.
@@ -112,21 +115,27 @@ export async function pipeline(task, model, options = {}) {
   const path = sizes[chosen].path;
   // Each data file the record lists beside the graph is one the kernel names.
   const folder = path.slice(0, path.lastIndexOf("/") + 1);
+  const dataPaths = [];
   for (let part = 1; part <= sizes[chosen].data; part++) {
-    await ask("source", `the ${chosen} data file ${part}`, new Uint8Array([24, code, PRECISIONS[chosen], sizes[chosen].data, part]), (a) => record.files.some((f) => f.path === a && a.startsWith(folder)));
+    dataPaths.push(await ask("source", `the ${chosen} data file ${part}`, new Uint8Array([24, code, PRECISIONS[chosen], sizes[chosen].data, part]), (a) => record.files.some((f) => f.path === a && a.startsWith(folder))));
   }
   const base = record.origin?.resolve;
   if (!base) throw new Error("the record names no origin");
   const graph = record.files.find((f) => f.path === path);
   if (!graph) throw new Error(`the record names no ${path}`);
+  // Every tensor's BLAKE3 address, from the hub's UOR index; a model it does
+  // not list is refused by name before any byte of it is read.
+  const manifest = await tensorManifest({ indexBase: index, record, paths: [path, ...dataPaths], checks, fetch: hubFetch });
 
   const module = await openModule(new URL("./engine.wasm", import.meta.url));
+  const decide = async (request) => new TextDecoder().decode(await kernel.dispatch(request));
   // The files kept from an earlier visit are read from this browser and
   // checked exactly as a download is; where the browser keeps none, every
-  // file comes from the origin.
+  // file comes from the origin. The graph and data files are kept as their
+  // tensors, once each by address, and only what is not held is downloaded.
   let files = null;
   try {
-    files = await keepFiles({ record, open: fetched(base), module, kernel: async (request) => new TextDecoder().decode(await kernel.dispatch(request)) });
+    files = await keepFiles({ record, open: fetched(base), module, kernel: decide, manifest });
   } catch (e) {
     checks.add("kept", "model files kept in this browser", "not checked", `none kept: ${e.message}`);
   }
@@ -139,6 +148,20 @@ export async function pipeline(task, model, options = {}) {
     module,
     kernel: answer,
     checks,
+    // Decision 28: the model is ready only when every address the UOR index
+    // lists is the one the importer derived from the bytes, wherever they came
+    // from; only then are newly downloaded tensors kept under their addresses.
+    admitted: async (table) => {
+      const subject = "every tensor the hub's UOR index lists is the address the importer derived (decision 28)";
+      try {
+        const verdict = files ? await files.admit(table) : await manifestReady({ manifest, table, module, kernel: decide });
+        if (verdict.answer !== "ready") throw new Error(`the model is not ready: decision 28 answered "${verdict.answer}"`);
+        checks.add("manifest", subject, "pass", `kernel answered "ready": ${verdict.derived} of ${verdict.listed} addresses`);
+      } catch (e) {
+        checks.add("manifest", subject, "fail", e.message);
+        throw e;
+      }
+    },
     onProgress: (file, done) => { if (file === 0) onProgress(done / graph.size); },
     build: async (dims, tensors, raw) => {
       // The device is the kernel's decision 22, on the largest buffer the GPU
@@ -165,6 +188,8 @@ export async function pipeline(task, model, options = {}) {
     const c = files.counts;
     const mb = (n) => (n / 1048576).toFixed(1);
     checks.add("kept", "model files read from this browser are the record's, checked as a download is", "pass", `${c.read} read here (${mb(c.readBytes)} MB), ${c.fetched} downloaded and kept (${mb(c.fetchedBytes)} MB), ${c.notKept} not kept for want of room, ${c.dropped} dropped for room (${c.droppedBytes} bytes), each named by its BLAKE3: ${files.kept.map((k) => `${k.path} ${k.address}`).join(", ")}`);
+    const t = files.tensors;
+    checks.add("store", "tensors kept once by their BLAKE3 address, only those not held downloaded", "pass", `${t.read} tensors read here (${t.readBytes} bytes), ${t.fetched} downloaded (${t.fetchedBytes} bytes), ${t.kept} newly kept (${t.keptBytes} bytes), ${t.restFetchedBytes} bytes of the rest downloaded, in ${t.reads} reads`);
   }
   const generate = turner({ engine, module, ask, stops, chat });
   return Object.assign(generate, { task, model, dtype: chosen, device: on, engine, module, record });
