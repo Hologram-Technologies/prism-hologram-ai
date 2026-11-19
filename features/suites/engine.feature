@@ -750,3 +750,10 @@ Feature: engine
     When decode_open is called with that config's text
     Then the call answers no, the module's answer is Decode(Exact(DecimalRefused)), and no model is opened
     And a whole number asked of 1.5 is ExactError::DecimalRefused
+
+  @EN-59 @build
+  Scenario: The loader picks the rotary parameters an export's own cos and sin cache agree with in integers: the page module compares each cache entry's f16 bits with the engine's own angles from its integer frequencies and quarter-wave table, each entry within 2^-9 as decision 50 confirms it, and no float decides it
+    Given Llama 3.2 1B's own cos and sin cache rows at positions 1, 7, 1000 and 8191, and a config that names no scaling
+    When the page module compares each entry's f16 bits with cosine_turn and sine_turn of the engine's own angle for each candidate
+    Then Llama 3 scaling at factor 32 is chosen, factor 8 and plain frequencies are not, and the compiled guest answers decision 50 as the crate does for each entry asked
+    And onnx-load.mjs asks the module, onnx-roles.mjs holds no float check, and audit-float has no open finding left
