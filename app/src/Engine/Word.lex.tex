@@ -35,7 +35,9 @@ definition{
   name: dropBits,
   parameters: [steps : (List Nat), b : Nat],
   result: Nat,
-  body: (match steps | List.nil => b | List.cons step rest => (dropBits rest (prim quotient b 2 0 : Nat))),
+  body: (match steps
+    | List.nil => b
+    | List.cons step rest => (dropBits rest (prim quotient b 2 0 : Nat))),
   recursive_argument: steps
 }
 
@@ -47,7 +49,12 @@ definition{
   recursive_argument: front
 }
 
-definition{name: sixteen, parameters: [], result: (List Nat), body: (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))))))))))))}
+definition{
+  name: sixteen,
+  parameters: [],
+  result: (List Nat),
+  body: (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))))))))))))
+}
 
 definition{
   name: antiBit,

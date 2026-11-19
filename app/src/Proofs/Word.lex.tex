@@ -26,12 +26,36 @@ theorem{
   parameters: [low : (List Nat), high : (List Nat), a : Nat, b : Nat],
   statement: ((Engine.Word::mulB (Engine.Word::joined low high) a b) = ((Engine.Word::mulB low a b) + (Engine.Word::mulB high (Engine.Word::shiftUp low a) (Engine.Word::dropBits low b)))),
   proof: induction{
-    scrutinee: low,
-    generalizing: [a, b],
     branches: [
-      {proof: linear_arithmetic{definitions: [Engine.Word::dropBits, Engine.Word::joined, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [add_regroup, hypothesis, Engine.Word::dropBits, Engine.Word::joined, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Word::dropBits,
+            Engine.Word::joined,
+            Engine.Word::mulB,
+            Engine.Word::shiftUp
+          ]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [
+            add_regroup,
+            hypothesis,
+            Engine.Word::dropBits,
+            Engine.Word::joined,
+            Engine.Word::mulB,
+            Engine.Word::shiftUp
+          ]
+        },
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [a, b],
+    scrutinee: low
   },
   axioms: [Quot.sound, propext]
 }
@@ -97,12 +121,24 @@ theorem{
   parameters: [steps : (List Nat), b : Nat, x : Nat, y : Nat],
   statement: ((Engine.Word::mulB steps (x + y) b) = ((Engine.Word::mulB steps x b) + (Engine.Word::mulB steps y b))),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [b, x, y],
     branches: [
       {proof: linear_arithmetic{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [add_swap_inner, bit_part_additive, hypothesis, twice_additive, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{
+          definitions: [
+            add_swap_inner,
+            bit_part_additive,
+            hypothesis,
+            twice_additive,
+            Engine.Word::mulB
+          ]
+        },
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [b, x, y],
+    scrutinee: steps
   },
   axioms: [Quot.sound, propext]
 }
@@ -144,12 +180,22 @@ theorem{
   parameters: [steps : (List Nat), b : Nat, x : Nat],
   statement: ((Engine.Word::mulB steps (prim multiply 65536 x : Nat) b) = (prim multiply 65536 (Engine.Word::mulB steps x b) : Nat)),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [b, x],
     branches: [
-      {proof: simplify{definitions: [scale_zero, Engine.Word::mulB]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [bit_part_scale, hypothesis, scale_factor, twice_scale, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{definitions: [scale_zero, Engine.Word::mulB]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [bit_part_scale, hypothesis, scale_factor, twice_scale, Engine.Word::mulB]
+        },
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [b, x],
+    scrutinee: steps
   },
   axioms: [Quot.sound, propext]
 }
@@ -183,12 +229,18 @@ theorem{
   parameters: [steps : (List Nat), a : Nat],
   statement: ((Engine.Word::mulB steps a 0) = 0),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [a],
     branches: [
       {proof: simplify{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [bit_zero, half_zero, hypothesis, zero_plus, Engine.Word::mulB]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{
+          definitions: [bit_zero, half_zero, hypothesis, zero_plus, Engine.Word::mulB]
+        },
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [a],
+    scrutinee: steps
   },
   axioms: [Quot.sound, propext]
 }
@@ -197,7 +249,15 @@ theorem{
   name: bound_step,
   parameters: [step : Nat, rest : (List Nat), a : Nat, b : Nat],
   statement: ((((Engine.Word::mulB (cons step rest) a b) + a) + (Engine.Word::slack (cons step rest) a b)) = (((Engine.Word::mulB rest (Engine.Word::twice a) (prim quotient b 2 0 : Nat)) + (Engine.Word::twice a)) + (Engine.Word::slack rest (Engine.Word::twice a) (prim quotient b 2 0 : Nat)))),
-  proof: linear_arithmetic{definitions: [Engine.Word::antiBit, Engine.Word::bitPart, Engine.Word::mulB, Engine.Word::slack, Engine.Word::twice]},
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Word::antiBit,
+      Engine.Word::bitPart,
+      Engine.Word::mulB,
+      Engine.Word::slack,
+      Engine.Word::twice
+    ]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -206,12 +266,22 @@ theorem{
   parameters: [steps : (List Nat), a : Nat, b : Nat],
   statement: ((((Engine.Word::mulB steps a b) + a) + (Engine.Word::slack steps a b)) = (Engine.Word::shiftUp steps a)),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [a, b],
     branches: [
-      {proof: linear_arithmetic{definitions: [Engine.Word::mulB, Engine.Word::shiftUp, Engine.Word::slack]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [bound_step, hypothesis, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Word::mulB, Engine.Word::shiftUp, Engine.Word::slack]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{definitions: [bound_step, hypothesis, Engine.Word::shiftUp]},
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [a, b],
+    scrutinee: steps
   },
   axioms: [Quot.sound, propext]
 }
@@ -253,12 +323,16 @@ theorem{
   parameters: [steps : (List Nat), h : Nat],
   statement: ((Engine.Word::shiftUp steps (Engine.Word::twice h)) = (Engine.Word::twice (Engine.Word::shiftUp steps h))),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [h],
     branches: [
       {proof: simplify{definitions: [Engine.Word::shiftUp]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [hypothesis, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{definitions: [hypothesis, Engine.Word::shiftUp]},
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [h],
+    scrutinee: steps
   },
   axioms: [propext]
 }
@@ -284,12 +358,25 @@ theorem{
   parameters: [steps : (List Nat), a : Nat, c : Nat, h : Nat],
   statement: ((Engine.Word::mulB steps a (c + (Engine.Word::shiftUp steps h))) = (Engine.Word::mulB steps a c)),
   proof: induction{
-    scrutinee: steps,
-    generalizing: [a, c, h],
     branches: [
       {proof: simplify{definitions: [Engine.Word::mulB]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [bit_after_high, half_after_high, hypothesis, shift_twice_out, Engine.Word::mulB, Engine.Word::shiftUp]}, binders: [step, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{
+          definitions: [
+            bit_after_high,
+            half_after_high,
+            hypothesis,
+            shift_twice_out,
+            Engine.Word::mulB,
+            Engine.Word::shiftUp
+          ]
+        },
+        binders: [step, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [a, c, h],
+    scrutinee: steps
   },
   axioms: [Quot.sound, propext]
 }
@@ -338,7 +425,9 @@ theorem{
   name: product_by_low_and_high,
   parameters: [a : Nat, b : Nat],
   statement: ((Engine.Word::mulB (Engine.Word::thirtyTwo) a b) = ((Engine.Word::mulB (Engine.Word::sixteen) a b) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) a (prim quotient b 65536 0 : Nat)) : Nat))),
-  proof: simplify{definitions: [drop_sixteen, mul_left_scale, mul_splits, shift_sixteen, Engine.Word::thirtyTwo]},
+  proof: simplify{
+    definitions: [drop_sixteen, mul_left_scale, mul_splits, shift_sixteen, Engine.Word::thirtyTwo]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -378,7 +467,9 @@ theorem{
   name: limbs_recombine,
   parameters: [ll : Nat, lh : Nat, hl : Nat, hh : Nat],
   statement: (((Engine.Word::productLow ll lh hl) + (prim multiply 4294967296 (Engine.Word::productHigh ll lh hl hh) : Nat)) = ((ll + (prim multiply 65536 hl : Nat)) + (prim multiply 65536 (lh + (prim multiply 65536 hh : Nat)) : Nat))),
-  proof: linear_arithmetic{definitions: [Engine.Word::productHigh, Engine.Word::productLow, Engine.Word::productMiddle]},
+  proof: linear_arithmetic{
+    definitions: [Engine.Word::productHigh, Engine.Word::productLow, Engine.Word::productMiddle]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -451,22 +542,34 @@ theorem{
   parameters: [left : (List Nat), right : (List Nat), carry : Nat],
   statement: ((Engine.Word::carryWeight left right carry) = (Engine.Word::shifted left (Engine.Word::finalCarry left right carry))),
   proof: induction{
-    scrutinee: left,
-    generalizing: [carry, right],
     branches: [
-      {proof: linear_arithmetic{definitions: [Engine.Word::carryWeight, Engine.Word::finalCarry, Engine.Word::shifted]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [hypothesis, Engine.Word::carryWeight, Engine.Word::finalCarry, Engine.Word::shifted]}, binders: [low, high, hypothesis], constructor: cons}
-    ]
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Word::carryWeight, Engine.Word::finalCarry, Engine.Word::shifted]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            Engine.Word::carryWeight,
+            Engine.Word::finalCarry,
+            Engine.Word::shifted
+          ]
+        },
+        binders: [low, high, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [carry, right],
+    scrutinee: left
   },
   axioms: [propext]
 }
 
-theorem{
-  name: both_true,
-  parameters: [],
-  statement: ((true && true) = true),
-  proof: reflexivity{}
-}
+theorem{name: both_true, parameters: [], statement: ((true && true) = true), proof: reflexivity{}}
 
 theorem{
   name: word_below,
@@ -481,12 +584,28 @@ theorem{
   parameters: [left : (List Nat), right : (List Nat), carry : Nat],
   statement: ((Engine.Word::allWords (Engine.Word::addLimbs left right carry)) = true),
   proof: induction{
-    scrutinee: left,
-    generalizing: [carry, right],
     branches: [
-      {proof: simplify{definitions: [Engine.Word::addLimbs, Engine.Word::allWords]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [both_true, hypothesis, word_below, Engine.Word::addLimbs, Engine.Word::allWords]}, binders: [low, high, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{definitions: [Engine.Word::addLimbs, Engine.Word::allWords]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [
+            both_true,
+            hypothesis,
+            word_below,
+            Engine.Word::addLimbs,
+            Engine.Word::allWords
+          ]
+        },
+        binders: [low, high, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [carry, right],
+    scrutinee: left
   },
   axioms: [Quot.sound, propext]
 }
@@ -496,11 +615,23 @@ theorem{
   parameters: [right : (List Nat)],
   statement: (((Engine.Word::headOr right) + (prim multiply 4294967296 (Engine.Word::limbsValue (Engine.Word::tailOf right)) : Nat)) = (Engine.Word::limbsValue right)),
   proof: cases{
-    scrutinee: right,
     branches: [
-      {proof: linear_arithmetic{definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]}, binders: [], constructor: nil},
-      {proof: linear_arithmetic{definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]}, binders: [low, high], constructor: cons}
-    ]
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Word::headOr, Engine.Word::limbsValue, Engine.Word::tailOf]
+        },
+        binders: [low, high],
+        constructor: cons
+      }
+    ],
+    scrutinee: right
   },
   axioms: [propext]
 }
@@ -509,7 +640,14 @@ theorem{
   name: sum_steps,
   parameters: [low : Nat, high : (List Nat), right : (List Nat), carry : Nat],
   statement: ((Engine.Word::sumOf (cons low high) right carry) = ((prim remainder ((low + (Engine.Word::headOr right)) + carry) 4294967296 0 : Nat) + (prim multiply 4294967296 (Engine.Word::sumOf high (Engine.Word::tailOf right) (prim quotient ((low + (Engine.Word::headOr right)) + carry) 4294967296 0 : Nat)) : Nat))),
-  proof: linear_arithmetic{definitions: [Engine.Word::addLimbs, Engine.Word::carryWeight, Engine.Word::limbsValue, Engine.Word::sumOf]},
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Word::addLimbs,
+      Engine.Word::carryWeight,
+      Engine.Word::limbsValue,
+      Engine.Word::sumOf
+    ]
+  },
   axioms: [Quot.sound, propext]
 }
 
@@ -526,12 +664,29 @@ theorem{
   parameters: [left : (List Nat), right : (List Nat), carry : Nat],
   statement: ((Engine.Word::sumOf left right carry) = (((Engine.Word::limbsValue left) + (Engine.Word::limbsValue right)) + carry)),
   proof: induction{
-    scrutinee: left,
-    generalizing: [carry, right],
     branches: [
-      {proof: linear_arithmetic{definitions: [Engine.Word::addLimbs, Engine.Word::carryWeight, Engine.Word::limbsValue, Engine.Word::sumOf]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [carry_closes, hypothesis, right_joins, sum_steps, Engine.Word::limbsValue]}, binders: [low, high, hypothesis], constructor: cons}
-    ]
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Word::addLimbs,
+            Engine.Word::carryWeight,
+            Engine.Word::limbsValue,
+            Engine.Word::sumOf
+          ]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [carry_closes, hypothesis, right_joins, sum_steps, Engine.Word::limbsValue]
+        },
+        binders: [low, high, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [carry, right],
+    scrutinee: left
   },
   axioms: [Quot.sound, propext]
 }
