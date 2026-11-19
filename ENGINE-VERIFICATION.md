@@ -2643,3 +2643,72 @@ turn at a million positions.
 | the keep and divide bands swapped | rejected: the blend overflows and the config is refused |
 | the angle truncated | rejected: `rope_angle(97, 2935890503282001200) is not rounded half to even` |
 | none | passed |
+
+## EN-49, the CPU path is integer from token ids to logits
+
+`hologram-ai-cpu-decode` runs a Qwen3-shaped model from its fused q4f16 ONNX
+export with no floating-point operation. The residual stream is binary32 bit
+patterns held as `u32` (Ilya, 2026-11-18); each stage reads them exactly and
+rounds its result back once, half to even:
+
+| Stage | How |
+| --- | --- |
+| Embedding | the half read exactly, as binary32 |
+| RMSNorm (input, query, key, post-attention, final) | each value enters EN-47 in units of `2^-16`, half to even; the normalised value times its half weight, rounded once |
+| Query, key, value, output, gate, up, down | `q4_product_with`, 16-bit activation codes per group of 32 (EN-37 to EN-41) |
+| Rotary positions | EN-48's angle, EN-45's cosine and sine; each rotated pair summed exactly and rounded once |
+| Scores | the exact dot product of query and key, rounded once; its softmax exponent `score log2(e) / sqrt(d)` in units of `2^-8`, from `LOG2_E` and `floor(2^40 / sqrt(d))` (KN-43's root), half to even |
+| Softmax | EN-44 on EN-43's table |
+| Attention output | the exact sum of weights times values, rounded once |
+| Residual adds | exact, rounded once |
+| SiLU and gate | the gate enters EN-46 in units of `2^-16`; times up, rounded once |
+| Logits | the tied half embedding, `dense_product_with` |
+| Greedy | the largest logit by the order of binary32 read from its bits, the first on a tie |
+
+The graph is read by the nodes that read each weight, by their names in
+onnx-community's fused export, so the same reading serves GP-19's fixture and
+the published export; a role the graph lacks, or whose weight is not the shape
+the role needs, is refused as `DecodeError::Unrecognised` (FL-55). The f16
+`cos_cache` and `sin_cache` the export carries are not read: positions come
+from the certified tables.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_49`
+
+On GP-19's fixture, after its prompt, the sixteen greedy tokens are the float
+reference's, every logit is within `2^-7` of the reference's (the largest gap
+measured 1.66e-3), and a second run gives the same bits.
+
+| Planted defect | Result |
+| --- | --- |
+| rotary pairs taken interleaved, `(2i, 2i + 1)` | rejected: tokens `[179, 203, 106, ...]` against `[194, 194, 194, ...]` |
+| a query head's key head by remainder, not by group | rejected: tokens `[57, 56, 270, ...]` |
+| the query norm left out | rejected: tokens `[27, 296, 296, ...]` |
+| scores not scaled by `1/sqrt(d)` | rejected: tokens `[119, 276, 314, ...]` |
+| the feed-forward's residual add dropped | rejected: tokens `[73, 234, 310, ...]` |
+| none | passed |
+
+FL-55 to FL-58 each have a negative test: a graph without layer 0's query
+norm, a 4-bit matrix with a block of 8, an epsilon past EN-47's bound, and a
+token id equal to the vocabulary.
+
+### Run over the published export
+
+On 2026-11-18 the path was run over `onnx/model_q4f16.onnx` of
+onnx-community/Qwen3-0.6B-ONNX at `79346d3` (BLAKE3 equal to the hub record's),
+read whole from disk by a local probe, with the model's own `tokenizer.json`
+(BLAKE3 equal to the record's), `rope_theta` 1,000,000 and `rms_norm_eps`
+1e-6 from its `config.json`. The probe is not part of the gate, which has no
+network and no 570 MB file, and is not committed. The float yardstick is
+ONNX Runtime 1.26.0 on the CPU running the same file.
+
+| Prompt (Qwen3's chat template, thinking off) | The integer path answers | Tokens | Teacher-forced agreement | Free greedy equal | Largest logit gap |
+| --- | --- | --- | --- | --- | --- |
+| What is the capital of France? | The capital of France is **Paris**. | 10 | 10 / 10 | 10 | 0.046 |
+| Write one sentence about the sea. | The sea whispers stories of the past, carrying the memories of those who once called it home. | 20 | 20 / 20 | 20 | 0.049 |
+| What is 12 times 7? | To calculate 12 multiplied by 7: ... 12 \times 7 = 84 ... (cut at 32 tokens) | 32 | 32 / 32 | 32 | 0.051 |
+
+The logit gaps include ONNX Runtime's own half-precision activations. The
+integer path took about 23 s for each prompt of about 20 tokens and 1.2 s per
+token after, one thread, release build: the exact products are not yet the
+fast path (step 8 of the plan). The measurement is the ledger's
+`OPEN-GREEDY-QWEN3-0.6B-INTEGER`.
