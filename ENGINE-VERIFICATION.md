@@ -2593,3 +2593,42 @@ it, as for EN-44.
 | the output truncated instead of rounded | rejected: `y = 2568474 is more than half a unit from 11258999068426240 / 4383534744` |
 | values and weights not bounded | rejected: `a value at 2^31 was not refused` |
 | none | passed |
+
+## EN-54, the chat templates in `hologram-ai-chat`
+
+`hologram_ai_chat::template::render` writes out each supported family's
+template for the subset KN-47 defines, in Rust, with no Jinja library. The
+page renders by it for any length of conversation; decision 46 is the kernel's
+definition of the same rules on what fits in one request.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_54`
+
+It renders every case of `crates/conformance/tests/gpu/templates` that lies in
+the subset, for Qwen2.5-1.5B-Instruct, Qwen3-0.6B and Llama 3.2 1B Instruct,
+and compares the text with what Hugging Face's transformers rendered from the
+model's own template; and it requires that decision 46 has claims.
+
+| Planted defect | Result |
+| --- | --- |
+| Qwen2.5's default system prompt shortened | rejected: `Qwen2.5-1.5B-Instruct.json user: the render is not transformers'` |
+| none | passed |
+
+The recorded cases do not reach two of the rules: a leading newline after
+Qwen3's empty thinking block, and Unicode whitespace that Llama's `trim`
+strips. Planted in the crate, each passes this test; KN-47's constructed
+claims reject both.
+
+## FL-60, a Qwen3 turn with reasoning refused by name
+
+A Qwen3 assistant turn that carries `</think>` is rendered by the model's
+template with its reasoning moved or dropped depending on where the turn
+lies. The subset leaves that out, so `render` answers
+`TemplateError::ReasoningInTurn` and decision 46 `refused: reasoning in a
+turn`, rather than rendering it some other way.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_fl_60`
+
+| Planted defect | Result |
+| --- | --- |
+| the refusal removed | rejected: the recorded `thinking` case rendered instead of refused |
+| none | passed |

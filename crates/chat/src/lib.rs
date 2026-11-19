@@ -235,3 +235,227 @@ impl Conversation {
         }
     }
 }
+
+/// The chat templates the engine defines (KN-47): each family's template, for
+/// the turns its page runs, written out rather than interpreted, and checked
+/// equal to the kernel's own definition (decision 46) and to the text
+/// Hugging Face's transformers renders.
+///
+/// Why: a template is code the model's files carry, and running it would mean
+/// trusting an interpreter with it. Decided by Ilya on 2026-11-18: the subset
+/// the supported families use is defined and proved in LexLean, and any other
+/// template is refused by name (decision 45). No Jinja library.
+///
+/// The subset: system, user and assistant turns, with or without the
+/// generation prompt, Qwen3 with its thinking on or off, and Llama 3.2's date.
+/// Tools are not in it: they cannot be written as a [`Role`]. A Qwen3
+/// assistant turn that carries `</think>` reasoning is refused by name.
+pub mod template {
+    /// A family whose template is defined here.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Family {
+        /// Qwen2.5-1.5B-Instruct's template.
+        Qwen25,
+        /// Qwen3-0.6B's template.
+        Qwen3,
+        /// Llama 3.2 1B Instruct's template.
+        Llama32,
+    }
+
+    /// Who said a turn.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Role {
+        /// The system's instructions.
+        System,
+        /// The person.
+        User,
+        /// The model.
+        Assistant,
+    }
+
+    impl Role {
+        fn name(self) -> &'static str {
+            match self {
+                Self::System => "system",
+                Self::User => "user",
+                Self::Assistant => "assistant",
+            }
+        }
+
+        fn code(self) -> u8 {
+            match self {
+                Self::System => 0,
+                Self::User => 1,
+                Self::Assistant => 2,
+            }
+        }
+    }
+
+    /// One turn.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Message<'a> {
+        /// Who said it.
+        pub role: Role,
+        /// What was said.
+        pub content: &'a str,
+    }
+
+    /// How a conversation is rendered.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Options {
+        /// Open the assistant's turn after the last message.
+        pub add_generation_prompt: bool,
+        /// Qwen3's `enable_thinking=false`: an empty thinking block opens the
+        /// assistant's turn.
+        pub thinking_off: bool,
+        /// Llama 3.2's date line, as `strftime("%d %b %Y")` writes it.
+        pub date: [u8; 11],
+    }
+
+    /// Why a conversation is not rendered.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TemplateError {
+        /// `FL-60`: a Qwen3 assistant turn carries `</think>` reasoning, which
+        /// the defined subset leaves out.
+        ReasoningInTurn,
+    }
+
+    /// Python's `str.isspace`, which Jinja's `trim` strips by.
+    fn python_space(c: char) -> bool {
+        matches!(
+            c,
+            '\u{9}'..='\u{d}'
+                | '\u{1c}'..='\u{20}'
+                | '\u{85}'
+                | '\u{a0}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+        )
+    }
+
+    fn qwen_turn(out: &mut String, role: Role, content: &str) {
+        out.push_str("<|im_start|>");
+        out.push_str(role.name());
+        out.push('\n');
+        out.push_str(content);
+        out.push_str("<|im_end|>\n");
+    }
+
+    /// `messages` rendered as `family`'s template renders them.
+    ///
+    /// # Errors
+    ///
+    /// [`TemplateError::ReasoningInTurn`] for a Qwen3 assistant turn that
+    /// carries `</think>`.
+    pub fn render(
+        family: Family,
+        messages: &[Message<'_>],
+        options: Options,
+    ) -> Result<String, TemplateError> {
+        let mut out = String::new();
+        let first_system = messages.first().is_some_and(|m| m.role == Role::System);
+        match family {
+            Family::Llama32 => {
+                out.push_str("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n");
+                out.push_str("Cutting Knowledge Date: December 2023\nToday Date: ");
+                out.push_str(&String::from_utf8_lossy(&options.date));
+                out.push_str("\n\n");
+                if let (true, Some(first)) = (first_system, messages.first()) {
+                    out.push_str(first.content.trim_matches(python_space));
+                }
+                out.push_str("<|eot_id|>");
+                for (i, m) in messages.iter().enumerate() {
+                    if i == 0 && first_system {
+                        continue;
+                    }
+                    out.push_str("<|start_header_id|>");
+                    out.push_str(m.role.name());
+                    out.push_str("<|end_header_id|>\n\n");
+                    out.push_str(m.content.trim_matches(python_space));
+                    out.push_str("<|eot_id|>");
+                }
+                if options.add_generation_prompt {
+                    out.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+                }
+            }
+            Family::Qwen25 | Family::Qwen3 => {
+                let qwen3 = family == Family::Qwen3;
+                if qwen3
+                    && messages
+                        .iter()
+                        .any(|m| m.role == Role::Assistant && m.content.contains("</think>"))
+                {
+                    return Err(TemplateError::ReasoningInTurn);
+                }
+                match (first_system, messages.first()) {
+                    (true, Some(first)) => qwen_turn(&mut out, Role::System, first.content),
+                    _ if !qwen3 => out.push_str(
+                        "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n",
+                    ),
+                    _ => {}
+                }
+                let last = messages.len().saturating_sub(1);
+                let query = messages
+                    .iter()
+                    .rposition(|m| m.role == Role::User)
+                    .unwrap_or(last);
+                for (i, m) in messages.iter().enumerate() {
+                    if i == 0 && first_system {
+                        continue;
+                    }
+                    if qwen3 && m.role == Role::Assistant && i > query && i == last {
+                        out.push_str("<|im_start|>assistant\n<think>\n\n</think>\n\n");
+                        out.push_str(m.content.trim_start_matches('\n'));
+                        out.push_str("<|im_end|>\n");
+                    } else {
+                        qwen_turn(&mut out, m.role, m.content);
+                    }
+                }
+                if options.add_generation_prompt {
+                    out.push_str("<|im_start|>assistant\n");
+                    if qwen3 && options.thinking_off {
+                        out.push_str("<think>\n\n</think>\n\n");
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Decision 46's request for the same conversation, which the kernel
+    /// renders by its own definition: seventy-nine bytes, the family, the
+    /// flags, the date and the count, then four roles, four lengths and four
+    /// texts of up to fourteen bytes, a turn past the count all zero. `None`
+    /// past what one request holds.
+    #[must_use]
+    pub fn request(family: Family, messages: &[Message<'_>], options: Options) -> Option<Vec<u8>> {
+        if messages.len() > 4 {
+            return None;
+        }
+        let mut out = vec![0u8; 79];
+        out[0] = 46;
+        out[1] = match family {
+            Family::Qwen25 => 1,
+            Family::Qwen3 => 2,
+            Family::Llama32 => 3,
+        };
+        out[2] = u8::from(options.add_generation_prompt) + 2 * u8::from(options.thinking_off);
+        out[3..14].copy_from_slice(&options.date);
+        out[14] = u8::try_from(messages.len()).ok()?;
+        for (i, m) in messages.iter().enumerate() {
+            let text = m.content.as_bytes();
+            if text.len() > 14 {
+                return None;
+            }
+            out[15 + i] = m.role.code();
+            out[19 + i] = u8::try_from(text.len()).ok()?;
+            out[23 + 14 * i..23 + 14 * i + text.len()].copy_from_slice(text);
+        }
+        Some(out)
+    }
+}

@@ -1372,3 +1372,63 @@ given), all verified. `lexlean fmt --check`: canonical.
 | no claim answered `refused: unknown template` | rejected: `no decision-45 claim is answered ...` |
 | none | passed |
 
+## KN-47, the chat templates rendered by the kernel's definition
+
+Decision 46 is the second half of Ilya's 2026-11-18 decision (KN-46 is the
+first): each supported family's template, for the subset its page runs, is a
+LexLean definition, `Kernel.Chat::chatAnswer`, and not an interpreter of the
+template's text. The subset is system, user and assistant turns, with or
+without the generation prompt, Qwen3 with thinking on or off, and Llama 3.2's
+date line. A Qwen3 assistant turn that carries `</think>` reasoning is outside
+it and answered `refused: reasoning in a turn`; a role past assistant is
+answered `refused: unknown role`.
+
+A request is 79 bytes, every one of them a field the page names: the tag, the
+family (1 Qwen2.5, 2 Qwen3, 3 Llama 3.2), the flags (generation prompt 1,
+thinking off 2), the eleven bytes of the date, the count of turns (up to
+four), four roles, four lengths, and four texts of up to fourteen bytes, each
+read as words of 8, 4 and 2 bytes. A turn past the count, and a text's bytes
+past its length, must be zero, so each conversation has one request. That
+size is the guest's request limit, not the template's: the engine renders
+longer conversations by the same rules in `hologram-ai-chat`, and this
+decision is the kernel's check of those rules on what fits.
+
+Jinja's `trim`, which Llama 3.2's template applies to every turn, strips by
+Python's `str.isspace`; `chatSpaceAt` writes out that set in UTF-8 (one-byte
+tab to carriage return and the separators 28 to 32, two-byte U+0085 and
+U+00A0, three-byte U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F
+and U+3000).
+
+### The proof gate
+
+Checked by the hosted LexLean verifier on 2026-11-19 (VERIFY_TASK, draft
+prism-app/VERIFY_DRAFT…), with `Kernel.Chat`, its proofs and the modules they
+import: the five `chat_space_*` theorems (the one-byte whitespace is exactly
+9 to 13 and 28 to 32), `chat_role_known_decides` and
+`chat_family_known_decides`, all verified. `lexlean fmt --check`: canonical.
+
+What is proved is the shape of the guards, not the render: that the
+definition renders a request as transformers does is checked on examples, in
+two places. The compiled guest replays every decision-46 claim in
+`claims.json`, 29 of them: the subset's cases of the three families' recorded
+oracles, constructed cases for the rules those leave out (a leading newline
+after Qwen3's empty thinking block, Unicode whitespace around Llama turns, a
+system turn not first), and the three refusals and two invalid requests. No
+claim has been planted with a wrong answer to confirm the replay rejects it,
+as for the other decisions.
+
+### The pinned test: `kernel_kn_47`
+
+It pins the seven statements and their axioms, the route, and that every
+rendered claim is `hologram-ai-chat`'s render of its request and its request
+is the crate's.
+
+| Planted defect | Result |
+| --- | --- |
+| one claim's answer given a trailing space | rejected: `claim 2e0101… is not hologram-ai-chat's render` |
+| the crate's request writes every length as 0 | rejected: `claim 2e0101… is not the crate's request` |
+| Qwen3's leading newlines kept after the empty thinking block | rejected: `claim 2e0200… is not hologram-ai-chat's render` |
+| U+00A0 left out of the crate's whitespace | rejected: `claim 2e0301… is not hologram-ai-chat's render` |
+| decision 46 not routed | rejected: `decision 46 must be routed to Kernel.Chat::chatAnswer` |
+| none | passed |
+

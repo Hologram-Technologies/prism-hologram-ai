@@ -3640,12 +3640,12 @@ fn kernel_kn_47() {
     let kernel = model("app/src/Kernel/Chat.lex.tex");
     let proofs = model("app/src/Proofs/Chat.lex.tex");
     for (theorem, statement, axioms) in [
-        ("chat_space_tab_to_return", "((9 <= byte) -> ((byte <= 13) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Quot.sound, propext"),
-        ("chat_space_separators", "((28 <= byte) -> ((byte <= 32) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Quot.sound, propext"),
+        ("chat_space_tab_to_return", "((9 <= byte) -> ((byte <= 13) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Classical.choice, Quot.sound, propext"),
+        ("chat_space_separators", "((28 <= byte) -> ((byte <= 32) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Classical.choice, Quot.sound, propext"),
         ("chat_space_not_below", "((byte < 9) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
         ("chat_space_not_between", "((13 < byte) -> ((byte < 28) -> ((Kernel.Chat::chatSpaceByte byte) = false)))", "Quot.sound, propext"),
         ("chat_space_not_above", "((32 < byte) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
-        ("chat_role_known_decides", "(((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2))", "propext"),
+        ("chat_role_known_decides", "(((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2))", "Quot.sound, propext"),
         ("chat_family_known_decides", "(((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\\ (family <= 3)))", "Classical.choice, Quot.sound, propext"),
     ] {
         assert_pinned(&proofs, theorem, statement, axioms);
@@ -3682,6 +3682,57 @@ fn kernel_kn_47() {
         assert!(
             answers.contains(&wanted),
             "no decision-46 claim is answered `{wanted}`"
+        );
+    }
+    // Every rendered claim is hologram-ai-chat's render of its request: the
+    // kernel's definition and the crate's agree on each one the guest replays.
+    use hologram_ai_chat::template::{self, Family, Message, Options, Role};
+    for one in claims["claims"].as_array().expect("claims") {
+        let Some(request) = one["request"].as_str().filter(|r| r.starts_with("2e")) else {
+            continue;
+        };
+        let answer = one["answer"].as_str().expect("an answer");
+        if answer.starts_with("refused") || answer == "invalid request" {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..request.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&request[i..i + 2], 16).expect("hex"))
+            .collect();
+        let family = match bytes[1] {
+            1 => Family::Qwen25,
+            2 => Family::Qwen3,
+            _ => Family::Llama32,
+        };
+        let turns: Vec<(Role, String)> = (0..usize::from(bytes[14]))
+            .map(|i| {
+                let role = [Role::System, Role::User, Role::Assistant][usize::from(bytes[15 + i])];
+                let start = 23 + 14 * i;
+                let text = bytes[start..start + usize::from(bytes[19 + i])].to_vec();
+                (role, String::from_utf8(text).expect("text"))
+            })
+            .collect();
+        let messages: Vec<Message<'_>> = turns
+            .iter()
+            .map(|(role, content)| Message {
+                role: *role,
+                content,
+            })
+            .collect();
+        let options = Options {
+            add_generation_prompt: bytes[2] & 1 == 1,
+            thinking_off: bytes[2] & 2 == 2,
+            date: bytes[3..14].try_into().expect("a date"),
+        };
+        assert_eq!(
+            template::render(family, &messages, options).as_deref(),
+            Ok(answer),
+            "claim {request} is not hologram-ai-chat's render"
+        );
+        assert_eq!(
+            template::request(family, &messages, options).as_deref(),
+            Some(&bytes[..]),
+            "claim {request} is not the crate's request"
         );
     }
     for family in [
