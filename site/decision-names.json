@@ -2139,6 +2139,106 @@
           "value": 2097152
         }
       }
+    },
+    "70": {
+      "name": "A transformers.js call",
+      "asks": "Does this transformers.js call run here, and on which device?",
+      "fields": {
+        "1": {
+          "name": "Task",
+          "choice": [
+            [
+              "text-generation",
+              0
+            ],
+            [
+              "feature-extraction",
+              1
+            ],
+            [
+              "text-classification",
+              2
+            ]
+          ],
+          "value": 0
+        },
+        "2": {
+          "name": "Device",
+          "choice": [
+            [
+              "auto",
+              0
+            ],
+            [
+              "webgpu",
+              1
+            ],
+            [
+              "gpu",
+              2
+            ],
+            [
+              "wasm",
+              3
+            ],
+            [
+              "cpu",
+              4
+            ]
+          ],
+          "value": 3
+        },
+        "3": {
+          "name": "dtype",
+          "choice": [
+            [
+              "auto",
+              0
+            ],
+            [
+              "q4f16",
+              1
+            ],
+            [
+              "q4",
+              2
+            ]
+          ],
+          "value": 1
+        },
+        "4": {
+          "name": "do_sample",
+          "choice": [
+            [
+              "false",
+              0
+            ],
+            [
+              "true",
+              1
+            ]
+          ],
+          "value": 0
+        },
+        "5": {
+          "name": "num_beams",
+          "value": 1
+        },
+        "6": {
+          "name": "Repetition penalty is 1",
+          "choice": [
+            [
+              "no",
+              0
+            ],
+            [
+              "yes",
+              1
+            ]
+          ],
+          "value": 1
+        }
+      }
     }
   }
 }
