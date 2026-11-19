@@ -56,6 +56,7 @@ fn main() -> ExitCode {
         "page" => page::page(&root, write),
         "audit-limits" => audit::audit_limits(&root),
         "audit-deferral" => audit::audit_deferral(&root),
+        "audit-float" => audit::audit_float(&root),
         "audit-bootstrap" => bootstrap::audit(&root),
         "audit-dependency-updates" => bootstrap::audit_dependency_updates(&root),
         "validate" => validate(&root),
@@ -79,6 +80,7 @@ fn main() -> ExitCode {
                  page              R1:  the page's decision table is the kernel's\n\
                  audit-limits      R5: shipped crates fail only as model/failures.toml lists\n\
                  audit-deferral    R4: no deferral marker, no stub, no capability behind a flag\n\
+                 audit-float       EN-58: no float type, literal or conversion on the integer path\n\
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
@@ -149,6 +151,7 @@ fn validate(root: &Path) -> Result<(), Fail> {
     page::page(root, false)?;
     audit::audit_limits(root)?;
     audit::audit_deferral(root)?;
+    audit::audit_float(root)?;
     bootstrap::audit(root)?;
     println!("validate: every gate passed");
     Ok(())

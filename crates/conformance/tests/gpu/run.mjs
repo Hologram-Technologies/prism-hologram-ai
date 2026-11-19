@@ -139,7 +139,18 @@ try {
     // decomposed style and the Llama one in the fused, placed by the role map
     // from the graph alone and run from the tensors it names.
     const { asExport } = await import(`${origin}/crates/conformance/tests/gpu/export.mjs`);
-    const { roles, engineTensors, ropeCandidates, confirmRope } = await import(`${origin}/site/app/engine/onnx-roles.mjs`);
+    const { roles, engineTensors, ropeCandidates } = await import(`${origin}/site/app/engine/onnx-roles.mjs`);
+    const { llama3: llama3Freqs, plain } = await import(`${origin}/site/app/engine/yarn.mjs`);
+    // The page checks a cache in integers in the module (EN-59); these rows are
+    // the test's own floats, so the candidate is picked here as a yardstick.
+    const confirmRope = (candidates, { hd, rope_base: base }, rows) => {
+      for (const c of candidates) {
+        const f = c.kind === "llama3" ? llama3Freqs({ hd, base, ...c.llama3 }).freqs : plain({ hd, base }).freqs;
+        const worst = Math.max(...rows.flatMap(({ position, cos, sin }) => Array.from(f, (t, i) => Math.max(Math.abs(cos[i] - Math.cos(position * t)), Math.abs(sin[i] - Math.sin(position * t))))));
+        if (worst <= 2e-3) return { dims: c.kind === "llama3" ? { llama3: c.llama3 } : {} };
+      }
+      throw new Error("rope: no rotary parameters agree");
+    };
     const placed = {};
     for (const [key, model, style, family] of [
       ["qwen2", tinyQwen2(3, "onnx", "f16", "dense", { vectors: "f16" }), "decomposed", "qwen2"],

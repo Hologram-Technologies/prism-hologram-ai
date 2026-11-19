@@ -145,6 +145,7 @@ Feature: kernel
     Then a name is a listed name exactly when the four words of its 32 bytes equal that name's four words
     And the decomposed style lists the 27 names read from Qwen2.5-1.5B's 4-bit export and the fused style the 18 read from Llama 3.2 1B, Qwen3-0.6B and SmolLM2-360M, each written in the model as the four words of its bytes
     And the answer to decision 18 is supported or unsupported operator by that same opnameListed, and a style other than 0 or 1 is no question
+    And the guest the app recipe builds answers unsupported operator for LayerNormalization, which is on neither list, and for Add asked of a fused graph, and supported for MatMulNBits, as the claims it replays list
 
   @KN-19 @build
   Scenario: A model configuration is recognised exactly when its type is a listed family and its shape is one the engine runs
@@ -153,6 +154,8 @@ Feature: kernel
     Then a type is listed exactly when it is qwen2, qwen3 or llama, read as the eight bytes of its name
     And a shape is one the engine runs exactly when the key-value heads are at least one and divide the heads, the head size is even and at least two, and layers, width and vocabulary are at least one
     And the answer to decision 19 is supported exactly when the type is listed, the activation is silu and the shape is one the engine runs
+    And the guest the app recipe builds answers rejected: unknown family for gemma2 and for mixtral, a mixture of experts, and rejected: unsupported shape for llama with gelu, as the claims it replays list
+    And a type or activation longer than eight bytes, such as qwen3_moe or gelu_pytorch_tanh, has no word to ask with, so it is never taken for a listed one
 
   @KN-20 @build
   Scenario: A MatMulNBits weight and scale length is the one its rows, columns and block size imply, and its blocks are the fewest that cover a row
@@ -169,6 +172,7 @@ Feature: kernel
     And q4f16 is chosen exactly when it fits, q4 exactly when q4f16 does not and q4 does, fp16 exactly when neither does and fp16 does, and none exactly when none fits
     And a wider budget never moves the choice to a later precision
     And the answer to decision 21 is the precision of that same precisionCode
+    And the guest the app recipe builds answers none fits for a record that offers none of q4f16, q4 and fp16, as one with only q8, int8 or bnb4 files does, as the claims it replays list
 
   @KN-22 @build
   Scenario: The device is WebGPU exactly when the adapter can hold the model, the CPU exactly when it cannot and the model is within the CPU ceiling, and otherwise the model is refused
@@ -364,3 +368,18 @@ Feature: kernel
     When the Lean kernel checks the whitespace, role and family theorems during lexlean verify in the gate
     Then the trim strips exactly Python's whitespace below 33, only the three roles and the three families are rendered
     And the app recipe replays decision 46 in the guest for every recorded case that fits one request, each answered with the text transformers renders
+
+  @KN-50 @build
+  Scenario: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
+    Given a request of the tag 49, a mode byte (0 for binary32, 1 for a whole number), a claim in eight bytes and a decimal's text in at most forty
+    When the kernel reads the digits, the fraction and the exponent, feeds the mantissa's bits through four long divisions by at most 10^18 each, chained bit by bit, until 53 quotient bits stand, and rounds them with any remainder as the bit below by Kernel.Round
+    Then the answer is exact exactly when the claim is the nearest binary32, ties to even, subnormals included, or the whole number the text names
+    And text that is not a decimal is answered not a decimal, a value past 2^63 or more than 72 places below the point out of range, and a fraction asked for as a whole number not whole
+    And no number the kernel forms reaches 2^64, and the theorems of Proofs.Config state the long division's steps and are pinned with their axioms
+
+  @KN-51 @build
+  Scenario: A cache entry, an f16, is confirmed to agree with a reference rotary value in units of 2^-30 exactly when the f16 read exactly as an integer times a power of two lies within the tolerance of it, compared in integers; an infinity or a NaN is answered not finite
+    Given a request of the tag 50, an f16 in two bytes, a reference's sign and magnitude in units of 2^-30, and a tolerance, each at most 2^30
+    When the kernel reads the f16 exactly through Kernel.Scale and compares it with the reference in integers
+    Then the answer is agrees exactly when the two lie within the tolerance, and disagrees otherwise
+    And an infinity or a NaN is answered not finite, and the theorems of Proofs.Rotary state the distance and are pinned with their axioms

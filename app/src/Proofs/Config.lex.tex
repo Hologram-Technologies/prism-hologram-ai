@@ -1,0 +1,64 @@
+\begin{lexlean}{Proofs.Config}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Config}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: decimal_left_below_divisor,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  statement: ((carried < divisor) -> ((bit <= 1) -> ((Kernel.Config::decimalLeft carried bit divisor) < divisor))),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalLeft]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_step_takes_divisor,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  statement: ((divisor <= ((carried + carried) + bit)) -> (((Kernel.Config::decimalLeft carried bit divisor) + divisor) = ((carried + carried) + bit))),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalLeft]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_step_keeps_below,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  statement: ((((carried + carried) + bit) < divisor) -> ((Kernel.Config::decimalLeft carried bit divisor) = ((carried + carried) + bit))),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalLeft]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_out_is_one_exactly_when_taken,
+  parameters: [carried : Nat, bit : Nat, divisor : Nat],
+  statement: (((Kernel.Config::decimalOut carried bit divisor) = 1) <-> (divisor <= ((carried + carried) + bit))),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalOut]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_unit_stage_passes_bit,
+  parameters: [bit : Nat],
+  statement: ((bit <= 1) -> ((Kernel.Config::decimalOut 0 bit 1) = bit)),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalOut]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_unit_stage_keeps_nothing,
+  parameters: [bit : Nat],
+  statement: ((bit <= 1) -> ((Kernel.Config::decimalLeft 0 bit 1) = 0)),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalLeft]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: decimal_accepts_decides,
+  parameters: [claimed : Nat, mode : Nat, mantissa : Nat, up : Nat, down : Nat],
+  statement: (((Kernel.Config::decimalAccepts claimed mode mantissa up down) = true) <-> (claimed = (Kernel.Config::decimalResult mode mantissa up down))),
+  proof: linear_arithmetic{definitions: [Kernel.Config::decimalAccepts]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

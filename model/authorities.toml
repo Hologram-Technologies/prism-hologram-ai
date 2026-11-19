@@ -70,3 +70,12 @@ checksum = "sha256:a8df8cee8a547a9eb4790b64d438e7eaf1743a37b17d619f0e98318dd30aa
 checksum_reason = """The crates.io checksum of the uor-matmul 0.1.0 package, which Cargo.lock pins with the checksums of the crates it brings in."""
 statement = """The sum of products of two sequences of i8 values is returned exactly, and a Grid code decodes to its table's entry. EN-34 checks the first against the same sum written out in i64 over weights decoded independently; it does not establish the library's other claims."""
 realized_by = ["EN-34"]
+
+[[authority]]
+id = "HUB-CLIENT"
+name = "The hub's client and its trust policy"
+citation = """Hologram-Technologies/hub at commit ec26789fe4a7f936abd0f0c207b9e1a556d8c33c: web/hub-client.mjs and web/sigstore.mjs, vendored byte for byte at site/app/engine/hub/, and the trust policy of the hub's Prism model, screen 3 trust.policy in app/tools/site_spec.py, pinned at site/app/engine/hub/policy.json. site/app/engine/hub/VENDOR.md names each file's BLAKE3."""
+checksum = "blake3:cdcc05c1c331a8fc2f5b6748ae84891ec13d82a627a2844c094588c8da8ba49a"
+checksum_reason = """The checksum is hub-client.mjs's BLAKE3; VENDOR.md names those of sigstore.mjs, policy.json and the hub's site_spec.py, and GP-27 checks the vendored files against them."""
+statement = """The hub signs its index root with Sigstore keyless signing under the identity, issuer and predicate type the policy names; the root names each model's record by its BLAKE3, and a record names each file by its BLAKE3 and size. That is the hub's arrangement, reproduced from its model; that the page holds the hub to it, and refuses what fails, is GP-27's evidence."""
+realized_by = ["GP-27"]

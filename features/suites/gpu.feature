@@ -162,8 +162,8 @@ Feature: gpu
     And the engine page frames an ONNX export's turn with the model's own template, read from tokenizer_config.json and checked against the record
 
   @GP-21 @build
-  Scenario: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
-    Given GP-19's Qwen3-shaped ONNX export, its files and a hub record naming each by its SHA-256, served to four visits in one browser profile
+  Scenario: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+    Given GP-19's Qwen3-shaped ONNX export, its files and a hub record naming each by its BLAKE3, served to four visits in one browser profile
     When `just page-journey` opens the engine page with ?onnx= naming it: first with the origin serving the files, then with the origin serving the record and no file, then with the kept graph's bytes replaced by a graph with one byte flipped, then with the origin serving the files again
     Then the first visit downloads every file, keeps each named by its BLAKE3 and answers with the reference's tokens
     And the second reads every file from the browser, downloads none, derives each file's BLAKE3 again, checks each against the record, imports the graph through the kernel and answers with the reference's tokens
@@ -199,3 +199,53 @@ Feature: gpu
     Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
     And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
     And the engine page's own visits load and answer through the same call
+
+  @GP-28 @build
+  Scenario: The engine page runs an ONNX export on its CPU device on the integer engine: the pipeline hands the module every weight the import read and the config's head counts, rope theta, epsilon and scaling, and each token is the module's decode_step, so the CPU run's tokens are the integer forward pass's, the second turn carrying on from the run the module kept
+    Given GP-19's Qwen3-shaped ONNX export on the hub, and the engine page with navigator.gpu taken away
+    When `just page-journey` loads it at ?onnx= and asks two turns
+    Then the page reports the integer engine on the CPU device, and its sixteen tokens are the reference's
+    And the pipeline builds the CPU device's engine with createIntegerEngine from the import's tensors and the config, never the float CPU engine
+
+  @GP-26 @build
+  Scenario: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1
+    Given GP-19's Qwen3-shaped ONNX export and hub records that name each file by its BLAKE3, beside the SHA-256 Hugging Face publishes
+    When `just page-journey` opens the engine page with ?onnx= naming it
+    Then each small file is checked by its BLAKE3 in the module, and the graph is admitted by the kernel against its BLAKE3
+    And a record that names config.json no BLAKE3 stops the page by name, before anything is imported
+    And no file check names SHA-256 or SHA-1
+
+  @GP-27 @build
+  Scenario: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+    Given a Sigstore-shaped chain minted for the test, an intermediate, a log key and the policy naming them, and the fixture hubs' index roots signed through it
+    When hub-check.mjs drives the vendored client in Node, and `just page-journey` opens the engine page on hubs signed through the chain and through a foreign one
+    Then the root, the record and a file are checked, and the page shows the index root signature checked
+    And a root signed through a foreign intermediate and log key fails chain and log, another log key fails log, another identity fails identity and a changed root fails subject, each refused as RootUnverified
+    And the page stops at the index root signature on the foreign hub, before any record is read
+    And a missing bundle, an unknown or changed or unaddressed or unreachable record, and a changed or unaddressed file are refused by their codes
+
+  @GP-30 @build
+  Scenario: A return visit to the engine page with the network off loads the page, its engine and its kernel from the page's own service worker, reads the hub's index root, its signature and the model's record from this browser and checks them again as a download is checked, reads every file and tensor of the model from this browser with decision 28 asked again on the importer's own addresses, and answers with the reference's tokens; a kept record changed by one byte is refused as RecordMismatch, and with no hub index kept the page stops at the index root as RootUnreachable
+    Given GP-19's Qwen3-shaped ONNX export and its hub record, served to four visits in one browser profile
+    When `just page-journey` opens the engine page with ?onnx= naming it once with the network on, then with the server answering nothing and the browser offline: once as it is, once with the kept record changed by one byte, and once with the kept hub index removed
+    Then the first visit answers with the reference's tokens and leaves the page's worker active
+    And the second loads the page from its worker, proves the kept index root by its signature and the kept record by its BLAKE3, says the network is off where it would compare the deploy's listing, reads every file and every tensor from the browser with no read of the network, is answered ready by decision 28, and answers with the reference's tokens
+    And the third stops at the record as RecordMismatch and the fourth at the index root as RootUnreachable, neither reading a file
+
+  @GP-31 @build
+  Scenario: The engine page keeps an ONNX export's tensors in the browser once each by the BLAKE3 address the hub's UOR index lists: each span is asked of decision 23, a tensor already held under any model, precision or repository is read from the browser and not downloaded, only the bytes not held are range-read from the first of the record's sources that answers, and nothing new is kept until decision 28 answers ready on the importer's own addresses; the same export under a second repository downloads nothing, its q4 graph after its q4f16 graph downloads only the tensors the first lacks, a kept tensor changed by one byte is refused and forgotten, a model the UOR index does not list is refused by name before any file is read, and an index giving a tensor another address is refused by decision 28
+    Given GP-19's Qwen3-shaped ONNX export with its q4 graph beside its q4f16 graph, whose 4-bit codes are the same bytes, a second repository holding the same files whose origin answers nothing and whose one listed source does, and the hub's UOR index for both computed from the files as the hub computes it
+    When `just page-journey` loads the export, then the second repository, then the second repository's q4 graph, then the export after one byte of a kept tensor is changed, then the export again, in one browser profile; and in fresh profiles a hub whose UOR index does not list the export and one whose index gives a tensor another address
+    Then the first load downloads every tensor in one read and keeps each under its address
+    And the second repository reads every tensor from the browser and downloads nothing of the graph
+    And its q4 graph reads from the browser the tensors the q4f16 graph shares and downloads from the listed source only the others, and answers with the q4 model's reference tokens
+    And the changed tensor stops the load as a file not its BLAKE3, and is forgotten, and the next load downloads it again and answers
+    And the unlisted export is refused by name before any file is read, and the lying index is refused by decision 28 with nothing kept
+
+  @GP-32 @build
+  Scenario: Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token
+    Given GP-19's Qwen3-shaped ONNX export, whose chat template opens every turn with the same system line
+    When `just page-journey` loads it on WebGPU and, with navigator.gpu taken away, on the CPU, and sends "hi" twice
+    Then the first turn computes the whole prompt and asks nothing about reuse
+    And the second is answered reuse for the head, computes only the positions after it, and its tokens are exactly the first turn's, which are the reference's
+    And each turn reports its time to first token

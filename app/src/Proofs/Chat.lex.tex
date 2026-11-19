@@ -50,7 +50,7 @@ theorem{
   parameters: [role : Nat],
   statement: (((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2)),
   proof: linear_arithmetic{definitions: [Kernel.Chat::chatRoleKnown]},
-  axioms: [Quot.sound, propext]
+  axioms: [propext]
 }
 
 theorem{
