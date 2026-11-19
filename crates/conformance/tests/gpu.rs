@@ -1194,7 +1194,8 @@ fn gpu_gp_20() {
         "the template is not compiled"
     );
     let page = read("site/app/engine/pipeline.mjs");
-    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages: [{ role: \"user\", content }], add_generation_prompt: true"), "the page does not frame a turn with the template");
+    assert!(page.contains("session.chat.render({ ...session.chat.specials, messages, add_generation_prompt, enable_thinking: false"), "the page does not frame a turn with the template");
+    assert!(page.contains("const framing = (input) => render(Array.isArray(input) ? input : [{ role: \"user\", content: input }]);"), "the page does not frame a user's text as one user message");
 }
 
 /// `GP-21`: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
