@@ -2848,6 +2848,12 @@
           "width": 4
         },
         {
+          "at": 12,
+          "name": "Zero points per row",
+          "value": 0,
+          "width": 4
+        },
+        {
           "at": 16,
           "choice": [
             [

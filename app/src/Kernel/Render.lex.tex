@@ -18,7 +18,7 @@ definition{
   name: renderValid,
   parameters: [value : Bytes],
   result: Bool,
-  body: ((((Kernel.Wire::fieldAt value 1 1) =? 1) && ((printedWidth (Kernel.Wire::fieldAt value 8 4)) && (((prim multiply (Kernel.Wire::fieldAt value 4 4) 32 : Nat) =? (Kernel.Wire::fieldAt value 8 4)) && ((Kernel.Wire::fieldAt value 16 1) =? 0)))) || (((Kernel.Wire::fieldAt value 1 1) =? 2) && ((Kernel.Wire::fieldAt value 4 13) =? 0))),
+  body: ((((Kernel.Wire::fieldAt value 1 1) =? 1) && ((printedWidth (Kernel.Wire::fieldAt value 8 4)) && (((prim multiply (Kernel.Wire::fieldAt value 4 4) 32 : Nat) =? (Kernel.Wire::fieldAt value 8 4)) && (((Kernel.Wire::fieldAt value 12 4) =? 0) && ((Kernel.Wire::fieldAt value 16 1) =? 0))))) || (((Kernel.Wire::fieldAt value 1 1) =? 2) && ((((Kernel.Wire::fieldAt value 4 4) =? 0) && ((Kernel.Wire::fieldAt value 8 4) =? 0)) && (((Kernel.Wire::fieldAt value 12 4) =? 0) && ((Kernel.Wire::fieldAt value 16 1) =? 0))))),
   axioms: [Quot.sound, propext]
 }
 
