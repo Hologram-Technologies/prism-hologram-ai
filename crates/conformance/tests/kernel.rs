@@ -3777,7 +3777,7 @@ fn kernel_kn_47() {
         ("chat_space_not_between", "((13 < byte) -> ((byte < 28) -> ((Kernel.Chat::chatSpaceByte byte) = false)))", "Quot.sound, propext"),
         ("chat_space_not_above", "((32 < byte) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
         ("chat_role_known_decides", "(((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2))", "propext"),
-        ("chat_family_known_decides", "(((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\\ (family <= 3)))", "Classical.choice, Quot.sound, propext"),
+        ("chat_family_known_decides", "(((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\\ (family <= 3)))", "propext"),
     ] {
         assert_pinned(&proofs, theorem, statement, axioms);
     }

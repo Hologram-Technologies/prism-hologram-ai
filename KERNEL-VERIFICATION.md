@@ -1480,7 +1480,8 @@ canonical. Lean has not yet attested the theorems: the hosted verification
 the pinned SDK is the first verdict. Each axiom list is what an earlier hosted
 run observed for a statement of the same form. That guess was wrong once:
 CI's acceptance run on 2026-11-19 refused `chat_role_known_decides` as
-pinned, since Lean observed only `propext`, and the pin now says so.
+pinned, since Lean observed only `propext`; the CI-pinned lexlean 0.3.0 then
+found the same of `chat_family_known_decides`, and both pins now say so.
 
 What is proved is the shape of the guards, not the render: that the
 definition renders a request as transformers does is checked on examples, in

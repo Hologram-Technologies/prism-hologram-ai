@@ -58,7 +58,7 @@ theorem{
   parameters: [family : Nat],
   statement: (((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\ (family <= 3))),
   proof: linear_arithmetic{definitions: [Kernel.Chat::chatFamilyKnown]},
-  axioms: [Classical.choice, Quot.sound, propext]
+  axioms: [propext]
 }
 \end{semanticmodule}
 \end{lexlean}
