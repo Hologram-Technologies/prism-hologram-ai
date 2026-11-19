@@ -292,7 +292,7 @@
   ],
   "pinned": [
     {
-      "name": "kernel_kn_70",
+      "name": "kernel_kn_60",
       "what": "The stream theorems' statements and axioms (stream_cut, stream_reads_its_chunk and five official BLAKE3 vectors), that decision 54 checks its length and carried state and folds exactly its chunk, that it is routed to this answer, and four of its claims. A string-matching test, not a theorem.",
       "where": "crates/conformance/tests/kernel.rs"
     },

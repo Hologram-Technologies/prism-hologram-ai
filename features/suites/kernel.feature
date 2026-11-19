@@ -376,7 +376,7 @@ Feature: kernel
     Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
     And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests
 
-  @KN-70 @build
+  @KN-60 @build
   Scenario: A file streams into the guest in chunks of any size, from 0 to 63788 bytes (a request of 64 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
     Given BLAKE3's compression in app/src/Engine/Blake3.lex.tex, the hasher as one step per byte in app/src/Engine/Stream.lex.tex, decision 54 in app/src/Kernel/Stream.lex.tex and its proofs in app/src/Proofs/Stream.lex.tex
     When the Lean kernel checks stream_cut, stream_reads_its_chunk and the official vectors of 0, 1, 64, 65 and 1025 bytes during lexlean verify in the gate

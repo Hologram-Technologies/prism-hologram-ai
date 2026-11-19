@@ -1394,7 +1394,7 @@ do not, and `not finite` for an infinity or a NaN. No number it forms passes
 | decision 50 routed to decision 49's answer | rejected: `decision 50 must be routed to Kernel.Rotary::rotaryAnswer` |
 | none | passed |
 
-## KN-70, a file streamed into the guest
+## KN-60, a file streamed into the guest
 
 Row 14 of the plan: a model's files stream into the guest in chunks of any
 size, and the guest hashes them itself. The guest keeps no state between calls
@@ -1424,7 +1424,7 @@ covers files up to 16 GiB.
 | The compiled guest gives BLAKE3's hash at any chunk size | all 35 official vectors (0 to 102,400 bytes) through the generated Rust of decision 54, in chunks of 1 (up to 9,000 bytes), 7, 61, 64, 1,024, 1,025 and 65,535 bytes (the last past the 63,788-byte cap a request now has; the fold itself has none): 242 runs, 242 equal, locally; 8 claims in `claims.json` replayed through the compiled guest on CI, among them 1,025 bytes in one call and in calls of 1,000 and 25 | replayed on CI, run locally |
 | A maximal request fits the guest | 33,736 bytes allocated for a 65,535-byte chunk by the generated Rust, against a bump allocator of 32 pages | measured locally |
 
-### The pinned test: `kernel_kn_70`
+### The pinned test: `kernel_kn_60`
 
 | Planted defect | Result |
 | --- | --- |

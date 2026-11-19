@@ -3851,9 +3851,9 @@ fn kernel_kn_49() {
     );
 }
 
-/// `KN-70`: A file streams into the guest in chunks of any size, from 0 to 63788 bytes (a request of 64 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
+/// `KN-60`: A file streams into the guest in chunks of any size, from 0 to 63788 bytes (a request of 64 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
 #[test]
-fn kernel_kn_70() {
+fn kernel_kn_60() {
     assert_proofs_are_gated();
     let proofs = model("app/src/Proofs/Stream.lex.tex");
     assert_pinned(
