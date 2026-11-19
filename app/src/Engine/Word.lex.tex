@@ -1,0 +1,180 @@
+\begin{lexlean}{Engine.Word}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{name: twice, parameters: [a : Nat], result: Nat, body: (a + a)}
+
+definition{
+  name: bitPart,
+  parameters: [b : Nat, a : Nat],
+  result: Nat,
+  body: (if ((prim remainder b 2 0 : Nat) =? 1) then a else 0)
+}
+
+definition{
+  name: mulB,
+  parameters: [steps : (List Nat), a : Nat, b : Nat],
+  result: Nat,
+  body: (match steps
+    | List.nil => 0
+    | List.cons step rest => ((bitPart b a) + (mulB rest (twice a) (prim quotient b 2 0 : Nat)))),
+  recursive_argument: steps
+}
+
+definition{
+  name: shiftUp,
+  parameters: [steps : (List Nat), a : Nat],
+  result: Nat,
+  body: (match steps | List.nil => a | List.cons step rest => (shiftUp rest (twice a))),
+  recursive_argument: steps
+}
+
+definition{
+  name: dropBits,
+  parameters: [steps : (List Nat), b : Nat],
+  result: Nat,
+  body: (match steps
+    | List.nil => b
+    | List.cons step rest => (dropBits rest (prim quotient b 2 0 : Nat))),
+  recursive_argument: steps
+}
+
+definition{
+  name: joined,
+  parameters: [front : (List Nat), later : (List Nat)],
+  result: (List Nat),
+  body: (match front | List.nil => later | List.cons step rest => (cons step (joined rest later))),
+  recursive_argument: front
+}
+
+definition{
+  name: sixteen,
+  parameters: [],
+  result: (List Nat),
+  body: (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))))))))))))
+}
+
+definition{
+  name: antiBit,
+  parameters: [b : Nat, a : Nat],
+  result: Nat,
+  body: (if ((prim remainder b 2 0 : Nat) =? 1) then 0 else a)
+}
+
+definition{
+  name: slack,
+  parameters: [steps : (List Nat), a : Nat, b : Nat],
+  result: Nat,
+  body: (match steps
+    | List.nil => 0
+    | List.cons step rest => ((antiBit b a) + (slack rest (twice a) (prim quotient b 2 0 : Nat)))),
+  recursive_argument: steps
+}
+
+definition{name: thirtyTwo, parameters: [], result: (List Nat), body: (joined (sixteen) (sixteen))}
+
+definition{
+  name: productMiddle,
+  parameters: [ll : Nat, lh : Nat, hl : Nat],
+  result: Nat,
+  body: (((prim quotient ll 65536 0 : Nat) + (prim remainder lh 65536 0 : Nat)) + (prim remainder hl 65536 0 : Nat))
+}
+
+definition{
+  name: productLow,
+  parameters: [ll : Nat, lh : Nat, hl : Nat],
+  result: Nat,
+  body: ((prim remainder ll 65536 0 : Nat) + (prim multiply 65536 (prim remainder (productMiddle ll lh hl) 65536 0 : Nat) : Nat))
+}
+
+definition{
+  name: productHigh,
+  parameters: [ll : Nat, lh : Nat, hl : Nat, hh : Nat],
+  result: Nat,
+  body: (((hh + (prim quotient lh 65536 0 : Nat)) + (prim quotient hl 65536 0 : Nat)) + (prim quotient (productMiddle ll lh hl) 65536 0 : Nat))
+}
+
+definition{
+  name: limbsValue,
+  parameters: [limbs : (List Nat)],
+  result: Nat,
+  body: (match limbs
+    | List.nil => 0
+    | List.cons low high => (low + (prim multiply 4294967296 (limbsValue high) : Nat))),
+  recursive_argument: limbs
+}
+
+definition{
+  name: headOr,
+  parameters: [limbs : (List Nat)],
+  result: Nat,
+  body: (match limbs | List.nil => 0 | List.cons low high => low)
+}
+
+definition{
+  name: tailOf,
+  parameters: [limbs : (List Nat)],
+  result: (List Nat),
+  body: (match limbs | List.nil => (nil Nat) | List.cons low high => high)
+}
+
+definition{
+  name: addLimbs,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  result: (List Nat),
+  body: (match left
+    | List.nil => (nil Nat)
+    | List.cons low high => (cons (prim remainder ((low + (headOr right)) + carry) 4294967296 0 : Nat) (addLimbs high (tailOf right) (prim quotient ((low + (headOr right)) + carry) 4294967296 0 : Nat)))),
+  recursive_argument: left
+}
+
+definition{
+  name: carryWeight,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  result: Nat,
+  body: (match left
+    | List.nil => (carry + (limbsValue right))
+    | List.cons low high => (prim multiply 4294967296 (carryWeight high (tailOf right) (prim quotient ((low + (headOr right)) + carry) 4294967296 0 : Nat)) : Nat)),
+  recursive_argument: left
+}
+
+definition{
+  name: sumOf,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  result: Nat,
+  body: ((limbsValue (addLimbs left right carry)) + (carryWeight left right carry))
+}
+
+definition{
+  name: finalCarry,
+  parameters: [left : (List Nat), right : (List Nat), carry : Nat],
+  result: Nat,
+  body: (match left
+    | List.nil => (carry + (limbsValue right))
+    | List.cons low high => (finalCarry high (tailOf right) (prim quotient ((low + (headOr right)) + carry) 4294967296 0 : Nat))),
+  recursive_argument: left
+}
+
+definition{
+  name: shifted,
+  parameters: [left : (List Nat), value : Nat],
+  result: Nat,
+  body: (match left
+    | List.nil => value
+    | List.cons low high => (prim multiply 4294967296 (shifted high value) : Nat)),
+  recursive_argument: left
+}
+
+definition{
+  name: allWords,
+  parameters: [limbs : (List Nat)],
+  result: Bool,
+  body: (match limbs
+    | List.nil => true
+    | List.cons low high => ((low <? 4294967296) && (allWords high))),
+  recursive_argument: limbs
+}
+\end{semanticmodule}
+\end{lexlean}

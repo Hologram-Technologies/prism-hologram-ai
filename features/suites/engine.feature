@@ -659,6 +659,18 @@ Feature: engine
     And every output y meets 2 |x g 2^16 - y r| <= r, an exact tie giving the even y, and is within |y| / 2^20 plus one unit of x g / sqrt(mean(x^2) + epsilon)
     And a row of zeros with epsilon 0, an empty row, a row and weights of different lengths, and a value at 2^31 are refused
 
+  @EN-54 @build
+  Scenario: hologram-ai-chat renders a conversation in the subset the engine defines as transformers renders the model's own chat template, for every recorded case of Qwen2.5-1.5B-Instruct, Qwen3-0.6B and Llama 3.2 1B Instruct the subset holds, and asks decision 46 the same conversation, whose claims the guest replays
+    Given the recorded templates and cases of the three exports in crates/conformance/tests/gpu/templates, each rendered by Python's jinja2 as transformers configures it
+    When hologram-ai-chat's template::render renders every case whose turns are system, user and assistant
+    Then each text is the recorded one, byte for byte, and each case that fits one request is a decision-46 claim answered with it
+
+  @FL-60 @build
+  Scenario: A Qwen3 assistant turn carries </think> reasoning, which the defined subset leaves out, so the conversation is refused by name
+    Given Qwen3-0.6B's recorded thinking case, whose assistant turns carry </think>
+    When hologram-ai-chat's template::render renders it
+    Then it is refused as TemplateError::ReasoningInTurn
+
   @EN-48 @build
   Scenario: Rotary angles are integer: each pair i of a head of size d has a frequency in units of 2^-64 of a turn per position, generated in integers and within 2^6 units of 2^64 theta^(-2i/d) / (2 pi), certified exactly; Llama 3 scaling keeps it, divides it by its factor or blends the two as the config names, rounded half to even; a position's angle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn, and its cosine and sine on EN-45's table are within 10^-4 of cos and sin of position theta^(-2i/d)
     Given the head sizes and thetas of Qwen3-0.6B, Qwen2.5-1.5B and Llama 3.2 1B, and 64 at 10,000

@@ -1,0 +1,64 @@
+\begin{lexlean}{Proofs.Chat}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Chat}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: chat_space_tab_to_return,
+  parameters: [byte : Nat],
+  statement: ((9 <= byte) -> ((byte <= 13) -> ((Kernel.Chat::chatSpaceByte byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatSpaceByte]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: chat_space_separators,
+  parameters: [byte : Nat],
+  statement: ((28 <= byte) -> ((byte <= 32) -> ((Kernel.Chat::chatSpaceByte byte) = true))),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatSpaceByte]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: chat_space_not_below,
+  parameters: [byte : Nat],
+  statement: ((byte < 9) -> ((Kernel.Chat::chatSpaceByte byte) = false)),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatSpaceByte]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: chat_space_not_between,
+  parameters: [byte : Nat],
+  statement: ((13 < byte) -> ((byte < 28) -> ((Kernel.Chat::chatSpaceByte byte) = false))),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatSpaceByte]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: chat_space_not_above,
+  parameters: [byte : Nat],
+  statement: ((32 < byte) -> ((Kernel.Chat::chatSpaceByte byte) = false)),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatSpaceByte]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: chat_role_known_decides,
+  parameters: [role : Nat],
+  statement: (((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2)),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatRoleKnown]},
+  axioms: [propext]
+}
+
+theorem{
+  name: chat_family_known_decides,
+  parameters: [family : Nat],
+  statement: (((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\ (family <= 3))),
+  proof: linear_arithmetic{definitions: [Kernel.Chat::chatFamilyKnown]},
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}

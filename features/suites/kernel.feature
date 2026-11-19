@@ -389,6 +389,13 @@ Feature: kernel
     And the app recipe replays decision 45 in the guest for the three templates, a template of the gate's own and a request of the wrong length
     And the engine page asks decision 45 for the template its model's tokenizer_config.json carries, and stops by name on any other
 
+  @KN-47 @build
+  Scenario: The kernel renders a conversation of up to eight system, user and assistant turns as Qwen2.5's, Qwen3's or Llama 3.2's chat template renders it, by its own definition (decision 46): Qwen2.5's default system line, Qwen3's empty thinking block when thinking is off and its trailing assistant turn, Llama 3.2's date line and Python's whitespace trim; a Qwen3 assistant turn carrying </think> reasoning, a role past assistant and a request of the wrong length are refused by name
+    Given the chat model in app/src/Kernel/Chat.lex.tex and its proofs in app/src/Proofs/Chat.lex.tex
+    When the Lean kernel checks the whitespace, role and family theorems during lexlean verify in the gate
+    Then the trim strips exactly Python's whitespace below 33, only the three roles and the three families are rendered
+    And the app recipe replays decision 46 in the guest for every recorded case that fits one request, each answered with the text transformers renders
+
   @KN-50 @build
   Scenario: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
     Given a request of the tag 49, a mode byte (0 for binary32, 1 for a whole number), a claim in eight bytes and a decimal's text in at most forty
@@ -454,6 +461,14 @@ Feature: kernel
     When the Lean kernel evaluates table_certified and rounded_at_shift_0 to rounded_at_shift_33 during lexlean verify in the gate
     Then each of the 256 entries T at fraction j satisfies (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256
     And for every shift s from 0 to 33 and every fraction, twice the distance between the output times 2^s and the entry is at most 2^s, and an exact tie gives an even output
+
+  @KN-72 @build
+  Scenario: Every product and limb sum an integer stage reasons about is a LexLean function with proved laws, since lexlean 0.3.0 can prove nothing about prim multiply of two variables: mulB, shift-and-add over a list of steps, splits into its low and high halves, is additive and scales in its multiplicand, and the 64-bit product of two words built from four 16-bit partial products equals mulB over 32 steps as two 32-bit limbs, each below 2^32, each partial at most 65535^2; add-with-carry over little-endian 32-bit limbs gives the sum of the two values and the carry in, the carry out at the weight of the limbs, and limbs below 2^32; that mulB equals the native multiply in exported code is trusted, not proved
+    Given the word functions in app/src/Engine/Word.lex.tex and their proofs in app/src/Proofs/Word.lex.tex
+    When the Lean kernel checks the 57 word theorems during lexlean verify in the gate
+    Then mul_splits, mul_left_additive, mul_left_scale and low_reads_low hold for every list of steps and every operand
+    And product_from_halves and product_as_limbs hold for every two numbers, and low_limb_is_word, high_limb_is_word and the half-product bounds bound the limbs
+    And limbs_add_with_carry, carry_weight_is_final_carry and added_limbs_are_words hold for every two lists of limbs and every carry
 
   @KN-73 @build
   Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows

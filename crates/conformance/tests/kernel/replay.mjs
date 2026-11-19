@@ -24,7 +24,13 @@ const text = new TextDecoder("utf-8", { fatal: true });
 const wrong = [];
 for (const { request, answer } of claims) {
   const bytes = Uint8Array.from(request.match(/../g) ?? [], (pair) => parseInt(pair, 16));
-  const got = text.decode(await kernel.dispatch(bytes));
+  // A trap names its request and the replay goes on, so one run shows them all.
+  let got;
+  try {
+    got = text.decode(await kernel.dispatch(bytes));
+  } catch (error) {
+    got = `a trap (${error.message})`;
+  }
   if (got !== answer) wrong.push(`${request}: the guest answers \`${got}\`, the claim lists \`${answer}\``);
 }
 if (claims.length === 0 || wrong.length > 0) {
