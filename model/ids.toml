@@ -593,6 +593,12 @@ suite = "kernel"
 statement = "A claimed quotient of a value below 2^62 by a divisor below 2^31, rounded half to even to a code of at most 32767, is confirmed exactly when it passes KN-41's rounding rule with the divisor as the step, so a norm and a softmax divide by one rule"
 
 [[id]]
+id = "KN-46"
+level = "build"
+suite = "kernel"
+statement = "A model's chat template is one the engine defines exactly when the BLAKE3 of its text is Qwen2.5-1.5B-Instruct's, Qwen3-0.6B's or Llama 3.2 1B Instruct's, as their exports carry them at the hub's pinned revisions; decision 45 answers qwen2.5, qwen3 or llama3.2 for those three and refuses any other template by name, before anything is rendered with it"
+
+[[id]]
 id = "KN-45"
 level = "build"
 suite = "kernel"
