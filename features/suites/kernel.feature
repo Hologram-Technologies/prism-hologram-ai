@@ -376,3 +376,10 @@ Feature: kernel
     Then the key of the token bestIn picks from logits 0 to last is maxKey of those logits
     And the summed excess of those logits over a bound is zero exactly when maxKey is at most the bound, so no logit's key is above the picked token's
     And the picked token is at most last, an index of the logits
+
+  @KN-56 @build
+  Scenario: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even
+    Given the stage in app/src/Engine/Stage/Exp2.lex.tex and its proofs in app/src/Proofs/StageExp2.lex.tex, StageExp2Mid.lex.tex and StageExp2High.lex.tex
+    When the Lean kernel evaluates table_certified and rounded_at_shift_0 to rounded_at_shift_33 during lexlean verify in the gate
+    Then each of the 256 entries T at fraction j satisfies (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256
+    And for every shift s from 0 to 33 and every fraction, twice the distance between the output times 2^s and the entry is at most 2^s, and an exact tie gives an even output
