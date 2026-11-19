@@ -4927,3 +4927,71 @@ fn kernel_kn_72() {
         "a product of two variables must be mulB, not prim multiply"
     );
 }
+
+/// `KN-57`: The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over a copy of the stage whose one product is Engine.Word::mulB, trusting that mulB equals the native multiply
+#[test]
+fn kernel_kn_57() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Q4Sum.lex.tex");
+    let proofs = model("app/src/Proofs/StageQ4Sum.lex.tex");
+    assert_pinned(
+        &proofs,
+        "group_sum_value",
+        "(((groupSum acts weights units k) + (negSum acts weights units k 32)) = ((posSum acts weights units k 32) + (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (posSum acts weights units k 32) (negSum acts weights units k 32)) 4294967296 0)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "group_sum_sign",
+        "(((groupSum acts weights units k) < 2147483648) <-> ((negSum acts weights units k 32) <= (posSum acts weights units k 32)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "pos_sum_32",
+        "((posSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "neg_sum_32",
+        "((negSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "times_bound",
+        "((a <= 65536) -> ((w <= 8) -> ((times a w) <= 524288)))",
+        "Quot.sound, propext",
+    );
+    // The proofs are about a copy of the stage: every definition is the
+    // stage's, word for word, except `times`, the one product.
+    let names: Vec<&str> = stage
+        .split("\n  name: ")
+        .skip(1)
+        .map(|rest| rest.split(',').next().unwrap_or_default())
+        .collect();
+    assert!(
+        names.len() >= 18,
+        "the stage declares {} definitions",
+        names.len()
+    );
+    for name in names {
+        if name == "times" {
+            continue;
+        }
+        assert_eq!(
+            declaration(&proofs, name),
+            declaration(&stage, name),
+            "the proofs' {name} is not the stage's"
+        );
+    }
+    assert!(
+        declaration(&stage, "times").contains("body: (prim multiply a w : Nat)"),
+        "the stage multiplies natively"
+    );
+    assert!(
+        declaration(&proofs, "times").contains("body: (Engine.Word::mulB (four) a w)"),
+        "the proofs' copy multiplies by mulB"
+    );
+}
