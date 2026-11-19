@@ -1,0 +1,517 @@
+\begin{lexlean}{Engine.Gpu}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+inductive{
+  name: Expr,
+  type_parameters: [],
+  parameters: [],
+  constructors: [
+    {name: lit, fields: [Nat]},
+    {name: invocation, fields: []},
+    {name: group, fields: []},
+    {name: local, fields: [Nat]},
+    {name: load, fields: [Nat, Expr]},
+    {name: add, fields: [Expr, Expr]},
+    {name: sub, fields: [Expr, Expr]},
+    {name: mul, fields: [Expr, Expr]},
+    {name: div, fields: [Expr, Expr]},
+    {name: rem, fields: [Expr, Expr]},
+    {name: shr, fields: [Expr, Expr]},
+    {name: shl, fields: [Expr, Expr]},
+    {name: band, fields: [Expr, Expr]},
+    {name: less, fields: [Expr, Expr]},
+    {name: select, fields: [Expr, Expr, Expr]}
+  ]
+}
+
+inductive{
+  name: Stmt,
+  type_parameters: [],
+  parameters: [],
+  constructors: [
+    {name: skip, fields: []},
+    {name: assign, fields: [Nat, Expr]},
+    {name: store, fields: [Nat, Expr, Expr]},
+    {name: seq, fields: [Stmt, Stmt]},
+    {name: when, fields: [Expr, Stmt]},
+    {name: repeat, fields: [Nat, Nat, Nat, Stmt]}
+  ]
+}
+
+inductive{
+  name: Wgsl,
+  type_parameters: [],
+  parameters: [],
+  constructors: [
+    {name: wLit, fields: [Nat]},
+    {name: wLid, fields: []},
+    {name: wWid, fields: []},
+    {name: wLocal, fields: [Nat]},
+    {name: wIndex, fields: [Nat, Wgsl]},
+    {name: wAdd, fields: [Wgsl, Wgsl]},
+    {name: wSub, fields: [Wgsl, Wgsl]},
+    {name: wMul, fields: [Wgsl, Wgsl]},
+    {name: wDiv, fields: [Wgsl, Wgsl]},
+    {name: wRem, fields: [Wgsl, Wgsl]},
+    {name: wShr, fields: [Wgsl, Wgsl]},
+    {name: wShl, fields: [Wgsl, Wgsl]},
+    {name: wAnd, fields: [Wgsl, Wgsl]},
+    {name: wSelectLt, fields: [Wgsl, Wgsl, Wgsl, Wgsl]},
+    {name: wSelectNe, fields: [Wgsl, Wgsl, Wgsl, Wgsl]}
+  ]
+}
+
+structure{
+  name: Machine,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: buffers, type: (List (List Nat))},
+    {name: locals, type: (List Nat)},
+    {name: invocation, type: Nat},
+    {name: group, type: Nat}
+  ]
+}
+
+definition{
+  name: word,
+  parameters: [value : Nat],
+  result: Nat,
+  body: (prim remainder value 4294967296 0 : Nat)
+}
+
+definition{
+  name: pow2,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (match n | Nat.zero => 1 | Nat.succ k => ((pow2 k) + (pow2 k))),
+  recursive_argument: n
+}
+
+definition{
+  name: u32div,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (if (b =? 0) then a else (prim quotient a b 0 : Nat))
+}
+
+definition{
+  name: u32rem,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (if (b =? 0) then 0 else (prim remainder a b 0 : Nat))
+}
+
+definition{
+  name: u32shr,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim quotient a (pow2 (prim remainder b 32 0 : Nat)) 0 : Nat)
+}
+
+definition{
+  name: u32shl,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim remainder (prim multiply a (pow2 (prim remainder b 32 0 : Nat)) : Nat) 4294967296 0 : Nat)
+}
+
+definition{
+  name: andBits,
+  parameters: [bits : Nat, a : Nat, b : Nat],
+  result: Nat,
+  body: (match bits
+    | Nat.zero => 0
+    | Nat.succ lower => ((prim multiply (prim remainder a 2 0 : Nat) (prim remainder b 2 0 : Nat) : Nat) + (prim multiply 2 (andBits lower (prim quotient a 2 0 : Nat) (prim quotient b 2 0 : Nat)) : Nat))),
+  recursive_argument: bits
+}
+
+definition{name: u32and, parameters: [a : Nat, b : Nat], result: Nat, body: (andBits 32 a b)}
+
+definition{
+  name: nth,
+  parameters: [items : (List Nat), index : Nat],
+  result: Nat,
+  body: (match items
+    | List.nil => 0
+    | List.cons head tail => (match index | Nat.zero => head | Nat.succ rest => (nth tail rest))),
+  recursive_argument: items
+}
+
+definition{
+  name: nthBuffer,
+  parameters: [buffers : (List (List Nat)), index : Nat],
+  result: (List Nat),
+  body: (match buffers
+    | List.nil => (nil Nat)
+    | List.cons head tail => (match index
+      | Nat.zero => head
+      | Nat.succ rest => (nthBuffer tail rest))),
+  recursive_argument: buffers
+}
+
+definition{
+  name: setNth,
+  parameters: [items : (List Nat), index : Nat, value : Nat],
+  result: (List Nat),
+  body: (match items
+    | List.nil => (nil Nat)
+    | List.cons head tail => (match index
+      | Nat.zero => (cons value tail)
+      | Nat.succ rest => (cons head (setNth tail rest value)))),
+  recursive_argument: items
+}
+
+definition{
+  name: setBuffer,
+  parameters: [buffers : (List (List Nat)), index : Nat, slot : Nat, value : Nat],
+  result: (List (List Nat)),
+  body: (match buffers
+    | List.nil => (nil (List Nat))
+    | List.cons head tail => (match index
+      | Nat.zero => (cons (setNth head slot value) tail)
+      | Nat.succ rest => (cons head (setBuffer tail rest slot value)))),
+  recursive_argument: buffers
+}
+
+definition{
+  name: withLocal,
+  parameters: [machine : Machine, slot : Nat, value : Nat],
+  result: Machine,
+  body: (record Machine {buffers := (project machine buffers), locals := (setNth (project machine locals) slot value), invocation := (project machine invocation), group := (project machine group)})
+}
+
+definition{
+  name: withStore,
+  parameters: [machine : Machine, buffer : Nat, index : Nat, value : Nat],
+  result: Machine,
+  body: (record Machine {buffers := (setBuffer (project machine buffers) buffer index value), locals := (project machine locals), invocation := (project machine invocation), group := (project machine group)})
+}
+
+definition{
+  name: eval,
+  parameters: [machine : Machine, expr : Expr],
+  result: Nat,
+  body: (match expr
+    | Expr.lit value => (word value)
+    | Expr.invocation => (project machine invocation)
+    | Expr.group => (project machine group)
+    | Expr.local slot => (nth (project machine locals) slot)
+    | Expr.load buffer index => (nth (nthBuffer (project machine buffers) buffer) (eval machine index))
+    | Expr.add left right => (word ((eval machine left) + (eval machine right)))
+    | Expr.sub left right => (word (prim subtract ((eval machine left) + 4294967296) (eval machine right) : Nat))
+    | Expr.mul left right => (word (prim multiply (eval machine left) (eval machine right) : Nat))
+    | Expr.div left right => (u32div (eval machine left) (eval machine right))
+    | Expr.rem left right => (u32rem (eval machine left) (eval machine right))
+    | Expr.shr left right => (u32shr (eval machine left) (eval machine right))
+    | Expr.shl left right => (u32shl (eval machine left) (eval machine right))
+    | Expr.band left right => (u32and (eval machine left) (eval machine right))
+    | Expr.less left right => (if ((eval machine left) <? (eval machine right)) then 1 else 0)
+    | Expr.select condition yes no => (if ((eval machine condition) =? 0) then (eval machine no) else (eval machine yes))),
+  recursive_argument: expr
+}
+
+definition{
+  name: wgslEval,
+  parameters: [machine : Machine, term : Wgsl],
+  result: Nat,
+  body: (match term
+    | Wgsl.wLit value => value
+    | Wgsl.wLid => (project machine invocation)
+    | Wgsl.wWid => (project machine group)
+    | Wgsl.wLocal slot => (nth (project machine locals) slot)
+    | Wgsl.wIndex buffer index => (nth (nthBuffer (project machine buffers) buffer) (wgslEval machine index))
+    | Wgsl.wAdd left right => (prim remainder ((wgslEval machine left) + (wgslEval machine right)) 4294967296 0 : Nat)
+    | Wgsl.wSub left right => (prim remainder (prim subtract ((wgslEval machine left) + 4294967296) (wgslEval machine right) : Nat) 4294967296 0 : Nat)
+    | Wgsl.wMul left right => (prim remainder (prim multiply (wgslEval machine left) (wgslEval machine right) : Nat) 4294967296 0 : Nat)
+    | Wgsl.wDiv left right => (u32div (wgslEval machine left) (wgslEval machine right))
+    | Wgsl.wRem left right => (u32rem (wgslEval machine left) (wgslEval machine right))
+    | Wgsl.wShr left right => (u32shr (wgslEval machine left) (wgslEval machine right))
+    | Wgsl.wShl left right => (u32shl (wgslEval machine left) (wgslEval machine right))
+    | Wgsl.wAnd left right => (u32and (wgslEval machine left) (wgslEval machine right))
+    | Wgsl.wSelectLt otherwise chosen left right => (if ((wgslEval machine left) <? (wgslEval machine right)) then (wgslEval machine chosen) else (wgslEval machine otherwise))
+    | Wgsl.wSelectNe otherwise chosen left right => (if ((wgslEval machine left) =? (wgslEval machine right)) then (wgslEval machine otherwise) else (wgslEval machine chosen))),
+  recursive_argument: term
+}
+
+definition{
+  name: toWgsl,
+  parameters: [expr : Expr],
+  result: Wgsl,
+  body: (match expr
+    | Expr.lit value => (ctor Wgsl.wLit (word value))
+    | Expr.invocation => (ctor Wgsl.wLid)
+    | Expr.group => (ctor Wgsl.wWid)
+    | Expr.local slot => (ctor Wgsl.wLocal slot)
+    | Expr.load buffer index => (ctor Wgsl.wIndex buffer (toWgsl index))
+    | Expr.add left right => (ctor Wgsl.wAdd (toWgsl left) (toWgsl right))
+    | Expr.sub left right => (ctor Wgsl.wSub (toWgsl left) (toWgsl right))
+    | Expr.mul left right => (ctor Wgsl.wMul (toWgsl left) (toWgsl right))
+    | Expr.div left right => (ctor Wgsl.wDiv (toWgsl left) (toWgsl right))
+    | Expr.rem left right => (ctor Wgsl.wRem (toWgsl left) (toWgsl right))
+    | Expr.shr left right => (ctor Wgsl.wShr (toWgsl left) (toWgsl right))
+    | Expr.shl left right => (ctor Wgsl.wShl (toWgsl left) (toWgsl right))
+    | Expr.band left right => (ctor Wgsl.wAnd (toWgsl left) (toWgsl right))
+    | Expr.less left right => (ctor Wgsl.wSelectLt (ctor Wgsl.wLit 0) (ctor Wgsl.wLit 1) (toWgsl left) (toWgsl right))
+    | Expr.select condition yes no => (ctor Wgsl.wSelectNe (toWgsl no) (toWgsl yes) (toWgsl condition) (ctor Wgsl.wLit 0))),
+  recursive_argument: expr
+}
+
+definition{
+  name: exec,
+  parameters: [fuel : Nat, ev : (Fn (Machine Expr) Nat), machine : Machine, stmt : Stmt],
+  result: Machine,
+  body: (match fuel
+    | Nat.zero => machine
+    | Nat.succ rest => (match stmt
+      | Stmt.skip => machine
+      | Stmt.assign slot expr => (withLocal machine slot (apply ev machine expr))
+      | Stmt.store buffer index expr => (withStore machine buffer (apply ev machine index) (apply ev machine expr))
+      | Stmt.seq before after => (exec rest ev (exec rest ev machine before) after)
+      | Stmt.when condition body => (if ((apply ev machine condition) =? 0) then machine else (exec rest ev machine body))
+      | Stmt.repeat start count slot body => (match count
+        | Nat.zero => machine
+        | Nat.succ remaining => (exec rest ev (exec rest ev (withLocal machine slot start) body) (ctor Stmt.repeat (start + 1) remaining slot body))))),
+  recursive_argument: fuel
+}
+
+definition{
+  name: atInvocation,
+  parameters: [machine : Machine, fresh : (List Nat), index : Nat],
+  result: Machine,
+  body: (record Machine {buffers := (project machine buffers), locals := fresh, invocation := index, group := 0})
+}
+
+definition{
+  name: runAll,
+  parameters: [
+    fuel : Nat,
+    ev : (Fn (Machine Expr) Nat),
+    count : Nat,
+    machine : Machine,
+    stmt : Stmt
+  ],
+  result: Machine,
+  body: (match count
+    | Nat.zero => machine
+    | Nat.succ earlier => (exec fuel ev (atInvocation (runAll fuel ev earlier machine stmt) (project machine locals) earlier) stmt)),
+  recursive_argument: count
+}
+
+definition{
+  name: nibbleAt,
+  parameters: [buffer : Nat, index : Expr],
+  result: Expr,
+  body: (ctor Expr.band (ctor Expr.shr (ctor Expr.load buffer (ctor Expr.shr index (ctor Expr.lit 3))) (ctor Expr.mul (ctor Expr.lit 4) (ctor Expr.band index (ctor Expr.lit 7)))) (ctor Expr.lit 15))
+}
+
+definition{
+  name: q4GroupSums,
+  parameters: [units : Nat, rowCodes : Nat, zerosPerRow : Nat, packedZeros : Bool],
+  result: Stmt,
+  body: (ctor Stmt.seq (ctor Stmt.assign 0 (ctor Expr.invocation)) (ctor Stmt.seq (ctor Stmt.assign 1 (ctor Expr.div (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 2 (ctor Expr.rem (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 6 (if packedZeros then (nibbleAt 2 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit zerosPerRow)) (ctor Expr.local 2))) else (ctor Expr.lit 8))) (ctor Stmt.seq (ctor Stmt.assign 3 (ctor Expr.lit 0)) (ctor Stmt.seq (ctor Stmt.repeat 0 32 4 (ctor Stmt.seq (ctor Stmt.assign 5 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit rowCodes)) (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4)))) (ctor Stmt.assign 3 (ctor Expr.add (ctor Expr.local 3) (ctor Expr.mul (ctor Expr.load 0 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4))) (ctor Expr.sub (nibbleAt 1 (ctor Expr.local 5)) (ctor Expr.local 6))))))) (ctor Stmt.store 3 (ctor Expr.local 0) (ctor Expr.local 3))))))))
+}
+
+definition{
+  name: fixtureMachine,
+  parameters: [zeros : Nat],
+  result: Machine,
+  body: (record Machine {buffers := (cons (cons 23579 (cons 4294960369 (cons 4294966024 (cons 4294946911 (cons 4294946027 (cons 5904 (cons 6867 (cons 22954 (cons 23978 (cons 3983 (cons 4294936820 (cons 4294946478 (cons 4294956476 (cons 4294938144 (cons 14626 (cons 17782 (cons 4294948157 (cons 9007 (cons 31830 (cons 4859 (cons 4294956107 (cons 15548 (cons 4294938394 (cons 174 (cons 4294938143 (cons 4294937866 (cons 23687 (cons 4294962440 (cons 4294948482 (cons 4294957971 (cons 4294962289 (cons 19640 (cons 496 (cons 780 (cons 1139 (cons 4294966111 (cons 4294967212 (cons 228 (cons 4294966682 (cons 1021 (cons 19200 (cons 4294966643 (cons 4294966060 (cons 4294965627 (cons 4294965453 (cons 964 (cons 4294967025 (cons 1650 (cons 4294966838 (cons 1591 (cons 4294966649 (cons 4294966512 (cons 1851 (cons 4294965988 (cons 897 (cons 4294966370 (cons 148 (cons 4294966436 (cons 1021 (cons 1745 (cons 4294966209 (cons 4294966719 (cons 261 (cons 4294966362 (nil Nat))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) (cons (cons 3008655832 (cons 4116145561 (cons 1213026472 (cons 673303318 (cons 720944647 (cons 4038093647 (cons 3214573492 (cons 2548120568 (nil Nat))))))))) (cons (cons zeros (nil Nat)) (cons (cons 0 (cons 0 (nil Nat))) (nil (List Nat)))))), locals := (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))), invocation := 0, group := 0})
+}
+
+definition{
+  name: blank,
+  parameters: [n : Nat],
+  result: (List Nat),
+  body: (match n | Nat.zero => (nil Nat) | Nat.succ k => (cons 0 (blank k))),
+  recursive_argument: n
+}
+
+definition{
+  name: row16,
+  parameters: [
+    a0 : Nat,
+    a1 : Nat,
+    a2 : Nat,
+    a3 : Nat,
+    a4 : Nat,
+    a5 : Nat,
+    a6 : Nat,
+    a7 : Nat,
+    a8 : Nat,
+    a9 : Nat,
+    a10 : Nat,
+    a11 : Nat,
+    a12 : Nat,
+    a13 : Nat,
+    a14 : Nat,
+    a15 : Nat,
+    rest : (List Nat)
+  ],
+  result: (List Nat),
+  body: (cons a0 (cons a1 (cons a2 (cons a3 (cons a4 (cons a5 (cons a6 (cons a7 (cons a8 (cons a9 (cons a10 (cons a11 (cons a12 (cons a13 (cons a14 (cons a15 rest))))))))))))))))
+}
+
+definition{
+  name: exp2Table,
+  parameters: [tail : (List Nat)],
+  result: (List Nat),
+  body: (row16 1073741824 1070838486 1067942999 1065055341 1062175491 1059303428 1056439131 1053582579 1050733751 1047892626 1045059183 1042233401 1039415261 1036604740 1033801819 1031006477 (row16 1028218693 1025438448 1022665720 1019900489 1017142735 1014392438 1011649578 1008914134 1006186087 1003465416 1000752102 998046124 995347464 992656100 989972014 987295185 (row16 984625594 981963222 979308048 976660054 974019220 971385527 968758955 966139485 963527098 960921775 958323496 955732243 953147997 950570738 948000448 945437108 (row16 942880699 940331203 937788600 935252872 932724001 930201967 927686753 925178340 922676710 920181844 917693724 915212331 912737649 910269657 907808339 905353676 (row16 902905651 900464244 898029440 895601218 893179563 890764456 888355878 885953814 883558244 881169153 878786521 876410331 874040567 871677210 869320244 866969651 (row16 864625413 862287515 859955938 857630665 855311680 852998965 850692504 848392279 846098274 843810471 841528855 839253408 836984114 834720956 832463917 830212982 (row16 827968132 825729353 823496627 821269938 819049271 816834607 814625932 812423229 810226483 808035676 805850792 803671817 801498734 799331526 797170178 795014675 (row16 792865000 790721137 788583072 786450787 784324269 782203500 780088465 777979150 775875538 773777614 771685363 769598769 767517817 765442492 763372778 761308661 (row16 759250125 757197155 755149737 753107854 751071493 749040637 747015274 744995386 742980960 740971982 738968435 736970306 734977579 732990241 731008277 729031671 (row16 727060411 725094480 723133865 721178552 719228525 717283772 715344277 713410026 711481005 709557200 707638598 705725183 703816941 701913860 700015924 698123120 (row16 696235434 694352853 692475362 690602947 688735596 686873293 685016026 683163781 681316545 679474303 677637043 675804750 673977412 672155015 670337545 668524990 (row16 666717336 664914570 663116678 661323648 659535466 657752119 655973594 654199878 652430958 650666822 648907455 647152846 645402981 643657847 641917433 640181724 (row16 638450708 636724373 635002706 633285695 631573326 629865587 628162466 626463950 624770026 623080683 621395908 619715688 618040012 616368866 614702239 613040119 (row16 611382493 609729349 608080675 606436459 604796689 603161352 601530438 599903933 598281827 596664106 595050760 593441776 591837143 590236848 588640881 587049229 (row16 585461881 583878825 582300049 580725543 579155293 577589290 576027521 574469975 572916640 571367506 569822560 568281792 566745190 565212742 563684439 562160268 (row16 560640218 559124278 557612438 556104685 554601009 553101399 551605844 550114332 548626854 547143398 545663953 544188508 542717053 541249576 539786068 538326517 tail))))))))))))))))
+}
+
+definition{
+  name: exp2Neg,
+  parameters: [table : Nat],
+  result: Stmt,
+  body: (ctor Stmt.seq (ctor Stmt.assign 0 (ctor Expr.invocation)) (ctor Stmt.seq (ctor Stmt.assign 1 (ctor Expr.load 0 (ctor Expr.local 0))) (ctor Stmt.seq (ctor Stmt.assign 2 (ctor Expr.load table (ctor Expr.band (ctor Expr.local 1) (ctor Expr.lit 255)))) (ctor Stmt.seq (ctor Stmt.assign 3 (ctor Expr.shr (ctor Expr.local 1) (ctor Expr.lit 8))) (ctor Stmt.seq (ctor Stmt.assign 4 (ctor Expr.shr (ctor Expr.local 2) (ctor Expr.local 3))) (ctor Stmt.seq (ctor Stmt.assign 5 (ctor Expr.sub (ctor Expr.local 2) (ctor Expr.shl (ctor Expr.local 4) (ctor Expr.local 3)))) (ctor Stmt.seq (ctor Stmt.assign 6 (ctor Expr.shl (ctor Expr.lit 1) (ctor Expr.sub (ctor Expr.local 3) (ctor Expr.lit 1)))) (ctor Stmt.store 2 (ctor Expr.local 0) (ctor Expr.select (ctor Expr.local 3) (ctor Expr.select (ctor Expr.less (ctor Expr.local 3) (ctor Expr.lit 32)) (ctor Expr.add (ctor Expr.local 4) (ctor Expr.select (ctor Expr.less (ctor Expr.local 6) (ctor Expr.local 5)) (ctor Expr.lit 1) (ctor Expr.select (ctor Expr.sub (ctor Expr.local 5) (ctor Expr.local 6)) (ctor Expr.lit 0) (ctor Expr.band (ctor Expr.local 4) (ctor Expr.lit 1))))) (ctor Expr.lit 0)) (ctor Expr.local 2))))))))))
+}
+
+definition{
+  name: exp2Machine,
+  parameters: [inputs : (List Nat)],
+  result: Machine,
+  body: (record Machine {buffers := (cons inputs (cons (exp2Table (nil Nat)) (cons (blank 19) (nil (List Nat))))), locals := (blank 7), invocation := 0, group := 0})
+}
+
+definition{
+  name: text,
+  parameters: [value : String],
+  result: Bytes,
+  body: (prim utf8_encode value : Bytes)
+}
+
+definition{
+  name: cat,
+  parameters: [left : Bytes, right : Bytes],
+  result: Bytes,
+  body: (prim append left right : Bytes)
+}
+
+definition{
+  name: digit,
+  parameters: [value : Nat],
+  result: Bytes,
+  body: (if (value =? 0) then (text "0") else (if (value =? 1) then (text "1") else (if (value =? 2) then (text "2") else (if (value =? 3) then (text "3") else (if (value =? 4) then (text "4") else (if (value =? 5) then (text "5") else (if (value =? 6) then (text "6") else (if (value =? 7) then (text "7") else (if (value =? 8) then (text "8") else (text "9"))))))))))
+}
+
+definition{
+  name: digitsOf,
+  parameters: [value : Nat, fuel : Nat],
+  result: Bytes,
+  body: (match fuel
+    | Nat.zero => (digit value)
+    | Nat.succ rest => (if (value <? 10) then (digit value) else (cat (digitsOf (prim quotient value 10 0 : Nat) rest) (digit (prim remainder value 10 0 : Nat))))),
+  recursive_argument: fuel
+}
+
+definition{name: decimal, parameters: [value : Nat], result: Bytes, body: (digitsOf value 20)}
+
+definition{
+  name: wlit,
+  parameters: [value : Nat],
+  result: Bytes,
+  body: (cat (decimal (word value)) (text "u"))
+}
+
+definition{
+  name: closedE,
+  parameters: [expr : Expr],
+  result: Bool,
+  body: (match expr
+    | Expr.lit value => true
+    | Expr.invocation => false
+    | Expr.group => true
+    | Expr.local slot => false
+    | Expr.load buffer index => false
+    | Expr.add left right => (if (closedE left) then (closedE right) else false)
+    | Expr.sub left right => (if (closedE left) then (closedE right) else false)
+    | Expr.mul left right => (if (closedE left) then (closedE right) else false)
+    | Expr.div left right => (if (closedE left) then (closedE right) else false)
+    | Expr.rem left right => (if (closedE left) then (closedE right) else false)
+    | Expr.shr left right => (if (closedE left) then (closedE right) else false)
+    | Expr.shl left right => (if (closedE left) then (closedE right) else false)
+    | Expr.band left right => (if (closedE left) then (closedE right) else false)
+    | Expr.less left right => (if (closedE left) then (closedE right) else false)
+    | Expr.select condition yes no => (if (closedE condition) then (if (closedE yes) then (closedE no) else false) else false)),
+  recursive_argument: expr
+}
+
+definition{
+  name: foldE,
+  parameters: [expr : Expr],
+  result: Nat,
+  body: (eval (record Machine {buffers := (nil (List Nat)), locals := (nil Nat), invocation := 0, group := 0}) expr)
+}
+
+definition{
+  name: renderE,
+  parameters: [slots : Nat, expr : Expr],
+  result: Bytes,
+  body: (match expr
+    | Expr.lit value => (wlit value)
+    | Expr.invocation => (text "k")
+    | Expr.group => (text "0u")
+    | Expr.local slot => (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (text "]"))) else (text "0u"))
+    | Expr.load buffer index => (cat (text "rd") (cat (decimal buffer) (cat (text "(") (cat (renderE slots index) (text ")")))))
+    | Expr.add left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " + ") (cat (renderE slots right) (text ")"))))))
+    | Expr.sub left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " - ") (cat (renderE slots right) (text ")"))))))
+    | Expr.mul left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " * ") (cat (renderE slots right) (text ")"))))))
+    | Expr.div left right => (if (closedE expr) then (wlit (foldE expr)) else (if (closedE right) then (if ((foldE right) =? 0) then (renderE slots left) else (cat (text "(") (cat (renderE slots left) (cat (text " / ") (cat (renderE slots right) (text ")")))))) else (cat (text "(") (cat (renderE slots left) (cat (text " / ") (cat (renderE slots right) (text ")")))))))
+    | Expr.rem left right => (if (closedE expr) then (wlit (foldE expr)) else (if (closedE right) then (if ((foldE right) =? 0) then (text "0u") else (cat (text "(") (cat (renderE slots left) (cat 0x202520 (cat (renderE slots right) (text ")")))))) else (cat (text "(") (cat (renderE slots left) (cat 0x202520 (cat (renderE slots right) (text ")")))))))
+    | Expr.shr left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " >> (") (cat (renderE slots right) (text " & 31u))"))))))
+    | Expr.shl left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " << (") (cat (renderE slots right) (text " & 31u))"))))))
+    | Expr.band left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "(") (cat (renderE slots left) (cat (text " & ") (cat (renderE slots right) (text ")"))))))
+    | Expr.less left right => (if (closedE expr) then (wlit (foldE expr)) else (cat (text "select(0u, 1u, ") (cat (renderE slots left) (cat (text " < ") (cat (renderE slots right) (text ")"))))))
+    | Expr.select condition yes no => (if (closedE condition) then (if ((foldE condition) =? 0) then (renderE slots no) else (renderE slots yes)) else (cat (text "select(") (cat (renderE slots no) (cat (text ", ") (cat (renderE slots yes) (cat (text ", ") (cat (renderE slots condition) (text " != 0u)"))))))))),
+  recursive_argument: expr
+}
+
+definition{
+  name: renderS,
+  parameters: [slots : Nat, depth : Nat, stmt : Stmt],
+  result: Bytes,
+  body: (match stmt
+    | Stmt.skip => (text "")
+    | Stmt.assign slot expr => (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (cat (text "] = ") (cat (renderE slots expr) (text ";\n"))))) else (text ""))
+    | Stmt.store buffer index expr => (cat (text "{ let at = ") (cat (renderE slots index) (cat (text "; let put = ") (cat (renderE slots expr) (cat (text "; if (at < arrayLength(&b") (cat (decimal buffer) (cat (text ")) { b") (cat (decimal buffer) (text "[at] = put; } }\n")))))))))
+    | Stmt.seq before after => (cat (renderS slots depth before) (renderS slots depth after))
+    | Stmt.when condition body => (cat (text "if (") (cat (renderE slots condition) (cat (text " != 0u) {\n") (cat (renderS slots depth body) (text "}\n")))))
+    | Stmt.repeat start count slot body => (cat (text "for (var ") (cat (cat (text "i") (decimal depth)) (cat (text ": u32 = 0u; ") (cat (cat (text "i") (decimal depth)) (cat (text " < ") (cat (wlit count) (cat (text "; ") (cat (cat (text "i") (decimal depth)) (cat (text " = ") (cat (cat (text "i") (decimal depth)) (cat (text " + 1u) {\n") (cat (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (cat (text "] = ") (cat (wlit start) (cat (text " + ") (cat (cat (text "i") (decimal depth)) (text ";\n"))))))) else (text "")) (cat (renderS slots (depth + 1) body) (text "}\n"))))))))))))))),
+  recursive_argument: stmt
+}
+
+definition{
+  name: writes,
+  parameters: [stmt : Stmt, buffer : Nat],
+  result: Bool,
+  body: (match stmt
+    | Stmt.skip => false
+    | Stmt.assign slot expr => false
+    | Stmt.store target index expr => (target =? buffer)
+    | Stmt.seq before after => (if (writes before buffer) then true else (writes after buffer))
+    | Stmt.when condition body => (writes body buffer)
+    | Stmt.repeat start count slot body => (writes body buffer)),
+  recursive_argument: stmt
+}
+
+definition{
+  name: bindings,
+  parameters: [buffer : Nat, left : Nat, stmt : Stmt],
+  result: Bytes,
+  body: (match left
+    | Nat.zero => (text "")
+    | Nat.succ rest => (cat (cat (text "@group(0) @binding(") (cat (decimal buffer) (cat (text ") var<storage, ") (cat (if (writes stmt buffer) then (text "read_write") else (text "read")) (cat (text "> b") (cat (decimal buffer) (cat (text ": array<u32>;\nfn rd") (cat (decimal buffer) (cat (text "(i: u32) -> u32 { if (i < arrayLength(&b") (cat (decimal buffer) (cat (text ")) { return b") (cat (decimal buffer) (text "[i]; } return 0u; }\n"))))))))))))) (bindings (buffer + 1) rest stmt))),
+  recursive_argument: left
+}
+
+definition{
+  name: renderKernel,
+  parameters: [buffers : Nat, slots : Nat, stmt : Stmt],
+  result: Bytes,
+  body: (cat (bindings 0 buffers stmt) (cat (text "override invocations: u32;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\nlet k = gid.x;\nif (k >= invocations) { return; }\nvar l: array<u32, ") (cat (decimal (if (slots =? 0) then 1 else slots)) (cat (text ">;\n") (cat (renderS slots 0 stmt) (text "}\n"))))))
+}
+\end{semanticmodule}
+\end{lexlean}

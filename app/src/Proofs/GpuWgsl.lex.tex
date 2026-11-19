@@ -1,0 +1,197 @@
+\begin{lexlean}{Proofs.GpuWgsl}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Gpu}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: wgsl_preserves_eval,
+  parameters: [machine : Engine.Gpu::Machine, expr : Engine.Gpu::Expr],
+  statement: ((Engine.Gpu::wgslEval machine (Engine.Gpu::toWgsl expr)) = (Engine.Gpu::eval machine expr)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval,
+            Engine.Gpu::word
+          ]
+        },
+        binders: [value],
+        constructor: lit
+      },
+      {
+        proof: simplify{definitions: [Engine.Gpu::eval, Engine.Gpu::toWgsl, Engine.Gpu::wgslEval]},
+        binders: [],
+        constructor: invocation
+      },
+      {
+        proof: simplify{definitions: [Engine.Gpu::eval, Engine.Gpu::toWgsl, Engine.Gpu::wgslEval]},
+        binders: [],
+        constructor: group
+      },
+      {
+        proof: simplify{definitions: [Engine.Gpu::eval, Engine.Gpu::toWgsl, Engine.Gpu::wgslEval]},
+        binders: [slot],
+        constructor: local
+      },
+      {
+        proof: simplify{
+          definitions: [indexHyp, Engine.Gpu::eval, Engine.Gpu::toWgsl, Engine.Gpu::wgslEval]
+        },
+        binders: [buffer, index, indexHyp],
+        constructor: load
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval,
+            Engine.Gpu::word
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: add
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval,
+            Engine.Gpu::word
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: sub
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval,
+            Engine.Gpu::word
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: mul
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: div
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: rem
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: shr
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: shl
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: band
+      },
+      {
+        proof: simplify{
+          definitions: [
+            leftHyp,
+            rightHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [left, right, leftHyp, rightHyp],
+        constructor: less
+      },
+      {
+        proof: simplify{
+          definitions: [
+            conditionHyp,
+            noHyp,
+            yesHyp,
+            Engine.Gpu::eval,
+            Engine.Gpu::toWgsl,
+            Engine.Gpu::wgslEval
+          ]
+        },
+        binders: [condition, yes, no, conditionHyp, yesHyp, noHyp],
+        constructor: select
+      }
+    ],
+    generalizing: [],
+    scrutinee: expr
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: wgsl_runs_every_program_alike,
+  parameters: [fuel : Nat, machine : Engine.Gpu::Machine, stmt : Engine.Gpu::Stmt],
+  statement: ((Engine.Gpu::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::wgslEval m (Engine.Gpu::toWgsl e))) machine stmt) = (Engine.Gpu::exec fuel (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) machine stmt)),
+  proof: simplify{definitions: [wgsl_preserves_eval]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
