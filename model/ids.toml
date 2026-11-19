@@ -934,3 +934,9 @@ id = "GP-40"
 level = "build"
 suite = "gpu"
 statement = "Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs"
+
+[[id]]
+id = "GP-41"
+level = "build"
+suite = "gpu"
+statement = "The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's"

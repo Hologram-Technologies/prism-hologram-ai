@@ -9,6 +9,7 @@
 // chose by comparing those bits as integers.
 
 import { encoderRoles } from "./onnx-roles.mjs";
+import { openWorker, placed } from "./integer.mjs";
 
 const KINDS = { q4f16: 0, q4: 1, f16: 2, f32: 3, bf16: 4 };
 const le = (n) => new Uint8Array(new Uint32Array([n]).buffer);
@@ -54,5 +55,20 @@ export function createIntegerEncoder({ module: m, table, read, config }) {
       const index = said[0];
       return { ids: tokens, index, label: labels?.[index] ?? String(index), bits, scores: new Float32Array(bits.buffer) };
     },
+  };
+}
+
+// The encoder in the integer worker (integer.mjs says why), answering what
+// createIntegerEncoder answers, each call awaited.
+export async function startIntegerEncoder({ module: m, table, read, config }) {
+  const tensors = placed(table, read);
+  const { ask, opened } = await openWorker(m, { engine: "encoder", table, tensors, config }, tensors.map(([, bytes]) => bytes.buffer));
+  const call = async (method, text) => (await ask({ kind: "call", method, args: [text] })).value;
+  return {
+    dims: opened.dims,
+    labels: opened.labels,
+    ids: (text) => call("ids", text),
+    embed: (text) => call("embed", text),
+    classify: (text) => call("classify", text),
   };
 }
