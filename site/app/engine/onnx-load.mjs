@@ -94,6 +94,19 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     const tc = JSON.parse(text.decode(tokenizerConfig));
     const source = Array.isArray(tc.chat_template) ? tc.chat_template.find((t) => t.name === "default")?.template : tc.chat_template;
     if (typeof source === "string") {
+      // The template must be one the engine defines, named by the BLAKE3 of
+      // its text (decision 45); any other is refused by name before anything
+      // is rendered with it.
+      const id = new DataView(m.call("hash_start").slice().buffer).getUint32(0, true);
+      m.callWith("hash_take", new TextEncoder().encode(source), id);
+      const address = m.call("hash_finish", id).slice();
+      const request = new Uint8Array(33);
+      request[0] = 45;
+      request.set(address, 1);
+      const named = new TextDecoder().decode(kernel(request));
+      const known = ["qwen2.5", "qwen3", "llama3.2"].includes(named);
+      checks.add("template", "the chat template is one the engine defines", known ? "pass" : "fail", `kernel answered "${named}" for blake3 ${hex(address)}`);
+      if (!known) throw new Error(`template: the kernel answered "${named}"`);
       const specials = Object.fromEntries(["bos_token", "eos_token", "pad_token", "unk_token"].filter((k) => typeof tc[k] === "string").map((k) => [k, tc[k]]));
       chat = { render: compileTemplate(source), specials };
     }
