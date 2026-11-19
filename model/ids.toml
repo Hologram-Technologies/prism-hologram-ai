@@ -647,6 +647,12 @@ suite = "kernel"
 statement = "The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even"
 
 [[id]]
+id = "KN-57"
+level = "build"
+suite = "kernel"
+statement = "The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8"
+
+[[id]]
 id = "KN-58"
 level = "build"
 suite = "kernel"
