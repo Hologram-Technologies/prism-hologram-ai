@@ -164,32 +164,113 @@ export function buildOnnxFixture() {
   ]);
   const sha = (b) => createHash("sha256").update(b).digest("hex");
   const b3 = (b) => blake3Hex(b);
-  return { model, files, sha, b3, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40) };
+  // GP-31: the same model as onnx-community's q4 export writes it, f32 scales,
+  // embedding and norms. The generator draws the same numbers whatever the
+  // scale type, so its 4-bit codes are the q4f16 graph's byte for byte and
+  // everything else differs, as between a real export's two precisions.
+  const model4 = tinyQwen2(16, "onnx", "f32", "dense", { qkNorm: true });
+  const q4 = { model: model4, path: "onnx/model_q4.onnx", bytes: Buffer.from(onnxFile(model4, "qwen3").bytes) };
+  return { model, files, sha, b3, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40), q4 };
+}
+
+// Every initializer of an ONNX file with its bytes inline: its name, element
+// type, dims, and where its raw_data lies in the file. Read field by field
+// from onnx.proto, as the hub's tools/onnx.mjs reads a real export, so the
+// fixture's UOR index is computed from the bytes and not from the writer.
+export function onnxInitializers(bytes) {
+  const read = (at) => {
+    let value = 0n, shift = 0n;
+    for (;;) {
+      const b = bytes[at++];
+      value |= BigInt(b & 0x7f) << shift;
+      shift += 7n;
+      if (!(b & 0x80)) return [Number(value), at];
+    }
+  };
+  // The fields of the message in bytes [from, to): number, wire type, and the
+  // value or the span of a length-delimited payload.
+  const fields = (from, to) => {
+    const out = [];
+    for (let at = from; at < to;) {
+      const [key, next] = read(at);
+      const [field, wire] = [key >> 3, key & 7];
+      if (wire === 0) { const [v, end] = read(next); out.push({ field, value: v }); at = end; }
+      else if (wire === 2) { const [n, start] = read(next); out.push({ field, start, end: start + n }); at = start + n; }
+      else throw new Error(`onnx: wire type ${wire} at ${at}`);
+    }
+    return out;
+  };
+  const types = { 1: "FLOAT", 2: "UINT8", 10: "FLOAT16" };
+  const graph = fields(0, bytes.length).find((f) => f.field === 7);
+  return fields(graph.start, graph.end).filter((f) => f.field === 5).map((t) => {
+    const parts = fields(t.start, t.end);
+    const raw = parts.find((p) => p.field === 9);
+    const name = parts.find((p) => p.field === 8);
+    return {
+      name: Buffer.from(bytes.subarray(name.start, name.end)).toString(),
+      dtype: types[parts.find((p) => p.field === 2).value],
+      shape: parts.filter((p) => p.field === 1).map((p) => p.value),
+      offset: raw.start,
+      length: raw.end - raw.start,
+    };
+  });
+}
+
+// The hub's UOR address index for ONNX exports, as tools/uor-index.mjs writes
+// it: one row per graph file, each initializer with its BLAKE3 address, filed
+// in the shard the hub's own rule names (web/uorkey.mjs: the leading bits of
+// the SHA-256 of the repository's name). `rows` are { repo, revision, path,
+// bytes, resolve }; `lie` gives one tensor another address.
+export function uorIndexFiles(rows, { shardBits = 4, lie = null } = {}) {
+  const shards = new Map();
+  for (const { repo, revision, path, bytes, resolve } of rows) {
+    const bucket = parseInt(createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 4), 16) >>> (16 - shardBits);
+    const shard = `shards/${bucket.toString(16).padStart(3, "0")}.json`;
+    const tensors = onnxInitializers(bytes).map((t) => ({
+      ...t,
+      file: path,
+      address: `blake3:${lie && lie.repo === repo && lie.name === t.name ? "0".repeat(64) : blake3Hex(bytes.subarray(t.offset, t.offset + t.length))}`,
+    }));
+    if (!shards.has(shard)) shards.set(shard, []);
+    shards.get(shard).push({ repo, revision, path, size: bytes.length, realization: "onnx", resolve, files: [{ path, size: bytes.length, blake3: blake3Hex(bytes) }], tensors });
+  }
+  const bodies = new Map([...shards].map(([p, list]) => [p, Buffer.from(JSON.stringify(list))]));
+  const root = Buffer.from(JSON.stringify({
+    format: "hologram.hub.uor/v3",
+    onnx: { axis: "blake3", over: "the bytes of an initializer's raw_data or external range" },
+    shardBits,
+    shards: [...bodies].map(([path, body]) => ({ path, rows: JSON.parse(body).length, blake3: blake3Hex(body) })),
+  }));
+  return { root, shards: bodies };
 }
 
 // The hub's record for the ONNX fixture: each file's BLAKE3 (one may be given
 // wrong, or left out), beside the SHA-256 Hugging Face publishes, which the
 // engine does not check; and the index root that names the record.
-export function onnxHubFiles(fixture, { resolve, blake3 = {}, noBlake3 = [] }) {
-  const record = Buffer.from(JSON.stringify({
+export function onnxHubFiles(fixture, { resolve, blake3 = {}, noBlake3 = [], files = fixture.files, twins = [] }) {
+  const recordOf = (repo, origin, sources = []) => Buffer.from(JSON.stringify({
     format: "hologram.hub.release/v4",
-    repo: fixture.repo,
+    repo,
     revision: fixture.revision,
-    origin: { kind: "fixture", resolve },
-    files: [...fixture.files].map(([path, bytes]) => ({
+    origin: { kind: "fixture", resolve: origin },
+    files: [...files].map(([path, bytes]) => ({
       path,
       size: bytes.length,
       sha256: fixture.sha(bytes),
       ...(noBlake3.includes(path) ? {} : { blake3: blake3[path] ?? fixture.b3(bytes) }),
     })),
-    sources: [],
+    sources,
     witnesses: [],
   }));
+  const record = recordOf(fixture.repo, resolve);
+  // GP-31: other repositories holding the same files, each with its own
+  // origin and sources, as the hub lists a mirror.
+  const records = new Map([[fixture.repo, record], ...twins.map((t) => [t.repo, recordOf(t.repo, t.resolve, t.sources)])]);
   const root = Buffer.from(JSON.stringify({
     format: "hologram.hub.index/v2",
-    records: [{ repo: fixture.repo, revision: fixture.revision, blake3: blake3Hex(record) }],
+    records: [...records].map(([repo, bytes]) => ({ repo, revision: fixture.revision, blake3: blake3Hex(bytes) })),
   }));
-  return { record, root };
+  return { record, records, root };
 }
 
 export { text };

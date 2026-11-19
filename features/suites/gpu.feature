@@ -223,3 +223,29 @@ Feature: gpu
     And a root signed through a foreign intermediate and log key fails chain and log, another log key fails log, another identity fails identity and a changed root fails subject, each refused as RootUnverified
     And the page stops at the index root signature on the foreign hub, before any record is read
     And a missing bundle, an unknown or changed or unaddressed or unreachable record, and a changed or unaddressed file are refused by their codes
+
+  @GP-30 @build
+  Scenario: A return visit to the engine page with the network off loads the page, its engine and its kernel from the page's own service worker, reads the hub's index root, its signature and the model's record from this browser and checks them again as a download is checked, reads every file and tensor of the model from this browser with decision 28 asked again on the importer's own addresses, and answers with the reference's tokens; a kept record changed by one byte is refused as RecordMismatch, and with no hub index kept the page stops at the index root as RootUnreachable
+    Given GP-19's Qwen3-shaped ONNX export and its hub record, served to four visits in one browser profile
+    When `just page-journey` opens the engine page with ?onnx= naming it once with the network on, then with the server answering nothing and the browser offline: once as it is, once with the kept record changed by one byte, and once with the kept hub index removed
+    Then the first visit answers with the reference's tokens and leaves the page's worker active
+    And the second loads the page from its worker, proves the kept index root by its signature and the kept record by its BLAKE3, says the network is off where it would compare the deploy's listing, reads every file and every tensor from the browser with no read of the network, is answered ready by decision 28, and answers with the reference's tokens
+    And the third stops at the record as RecordMismatch and the fourth at the index root as RootUnreachable, neither reading a file
+
+  @GP-31 @build
+  Scenario: The engine page keeps an ONNX export's tensors in the browser once each by the BLAKE3 address the hub's UOR index lists: each span is asked of decision 23, a tensor already held under any model, precision or repository is read from the browser and not downloaded, only the bytes not held are range-read from the first of the record's sources that answers, and nothing new is kept until decision 28 answers ready on the importer's own addresses; the same export under a second repository downloads nothing, its q4 graph after its q4f16 graph downloads only the tensors the first lacks, a kept tensor changed by one byte is refused and forgotten, a model the UOR index does not list is refused by name before any file is read, and an index giving a tensor another address is refused by decision 28
+    Given GP-19's Qwen3-shaped ONNX export with its q4 graph beside its q4f16 graph, whose 4-bit codes are the same bytes, a second repository holding the same files whose origin answers nothing and whose one listed source does, and the hub's UOR index for both computed from the files as the hub computes it
+    When `just page-journey` loads the export, then the second repository, then the second repository's q4 graph, then the export after one byte of a kept tensor is changed, then the export again, in one browser profile; and in fresh profiles a hub whose UOR index does not list the export and one whose index gives a tensor another address
+    Then the first load downloads every tensor in one read and keeps each under its address
+    And the second repository reads every tensor from the browser and downloads nothing of the graph
+    And its q4 graph reads from the browser the tensors the q4f16 graph shares and downloads from the listed source only the others, and answers with the q4 model's reference tokens
+    And the changed tensor stops the load as a file not its BLAKE3, and is forgotten, and the next load downloads it again and answers
+    And the unlisted export is refused by name before any file is read, and the lying index is refused by decision 28 with nothing kept
+
+  @GP-32 @build
+  Scenario: Prefix reuse is token-identical and timed: on WebGPU and on the CPU, a second turn of the same text is answered reuse by decision 27 for the chat frame's head, computes only the positions after it, and gives exactly the first turn's tokens, each turn reporting its time to first token
+    Given GP-19's Qwen3-shaped ONNX export, whose chat template opens every turn with the same system line
+    When `just page-journey` loads it on WebGPU and, with navigator.gpu taken away, on the CPU, and sends "hi" twice
+    Then the first turn computes the whole prompt and asks nothing about reuse
+    And the second is answered reuse for the head, computes only the positions after it, and its tokens are exactly the first turn's, which are the reference's
+    And each turn reports its time to first token
