@@ -1431,6 +1431,42 @@ rewrites.
 | negative logits keyed as positive (`2^31 + bits` on both branches of `key`) | rejected: `key changed` |
 | none | passed |
 
+## KN-56, the base-two exponent of softmax
+
+`Engine.Stage.Exp2::exp2Neg` is EN-43's `exp2_neg` in LexLean, the second
+stage of row 13. For a distance `d` in units of 2^-8, it reads entry `d mod
+256` of a 256-entry table and shifts it right by `d / 256`, rounding half to
+even; a shift past 32 gives 0. The entries are the Rust table's, generated into
+sixteen block functions of sixteen entries each under a four-level tree. A
+single 256-leaf tree overflowed prod-export's recursion limit, and a Bytes
+literal made every lookup walk the bytes in the kernel, which ran past the 300 s
+per-module limit. Each branch is `Engine.Stage.Greedy::pick` on a `below` flag,
+as for KN-55. `exp2Neg` exports through prod-export and prod-codegen with no
+external calls, opaque nodes or unsupported types.
+
+Lean evaluates two kinds of closed theorem. `table_certified` checks, for all
+256 entries `T` at fraction `j`, that `(2T - 1)^256 < 2^(7936 - j) < (2T +
+1)^256`, so each entry is the integer nearest `2^(30 - j/256)`; the powers are
+taken by squaring (`powBy`), so no step unfolds thousands of times.
+`rounded_at_shift_0` to `rounded_at_shift_33` check, for every fraction and every
+shift a `d` below 8704 can have, that twice the distance between the output
+times `2^s` and the entry is at most `2^s`, and that an exact tie gives an even
+output. The shifts are split over three modules to stay under the per-module
+limit. Inputs from 8704 up take shift 34 or more and give 0; that the exact
+value there is below half a step (the entry is at most 2^30) is argued, not
+checked.
+
+### The pinned test: `kernel_kn_56`
+
+| Planted defect | Result |
+| --- | --- |
+| a tie always rounded up (`1` for the quotient's parity in `roundUp`) | rejected: `roundUp changed` |
+| the check for shift 33 removed | rejected: `rounded_at_shift_33 is not declared` |
+| none | passed |
+
+A wrong table entry is the Lean gate's to catch, through `table_certified`; that
+plant was not run here.
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
