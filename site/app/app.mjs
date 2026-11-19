@@ -27,6 +27,11 @@ if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precis
 const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
 window.__qengine = state;
 
+// This page's own worker (sw.js beside it) keeps the page's files, the kernel
+// and the engine, so a return visit loads with the network off. The site's
+// worker (../sw.js) is the template's frame and is left as it is.
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+
 const checks = checklist((item) => {
   const li = document.createElement("li");
   li.className = item.verdict === "pass" ? "pass" : item.verdict === "fail" ? "fail" : "";
@@ -55,8 +60,16 @@ const fetchBytes = async (url) => {
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return new Uint8Array(await response.arrayBuffer());
 };
+// With the network off there is no deploy to compare with: the page and its
+// kernel are the ones this page's worker kept, and the check says so.
+const OFFLINE = "offline";
 async function deployedKernel() {
-  const response = await fetch("../precache.json", { cache: "no-store" });
+  let response;
+  try {
+    response = await fetch("../precache.json", { cache: "no-store" });
+  } catch {
+    return OFFLINE;
+  }
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`precache.json: HTTP ${response.status}`);
   const entry = (await response.json()).files.find((f) => f.path === "./app.holo");
@@ -69,6 +82,7 @@ async function sameKernel(holo, listed) {
   const held = blake3Hex(holo);
   // A page served outside a deploy (a local preview) has no listing to compare.
   if (listed === null) return checks.add("kernel", subject, "not checked", `no precache.json; held blake3 ${held}`);
+  if (listed === OFFLINE) return checks.add("kernel", subject, "not checked", `the network is off, so no deploy listing to compare; held blake3 ${held}, verified above`);
   if (held === listed) return checks.add("kernel", subject, "pass", `blake3 ${held}`);
   checks.add("kernel", subject, "fail", `deployed blake3 ${listed}, held blake3 ${held}`);
   // Remove the stale copy so the next load fetches this deploy's kernel.

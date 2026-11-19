@@ -321,6 +321,8 @@ Hugging Face publishes one SHA-256 per file, so the manifest with per-tensor add
 
 Reuse of computed results (prompt prefixes first; lookup tables and anything else after) is kept only where a measurement shows a gain with tokens unchanged. Browsers expose no persistent store for compiled shaders, so naming shaders by address buys deduplication within a session and no more.
 
+Measured on 2026-11-19 from the hub's UOR index, which now lists every tensor of the three families by BLAKE3 (ledger `OPEN-SHARE-M2-FAMILIES`, `OPEN-STORE-SECOND-PRECISION`): Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B share no tensor with one another at either precision. Within one model, the q4 and q4f16 exports share their 4-bit codes byte for byte, 39 to 54 percent of the q4f16 bytes, so a second precision downloads 24 to 54 percent less. So storing once pays across precisions, repositories and returning visits, not across families. The page now keeps tensors that way (GP-31), loads with the network off (GP-30), and reuses the chat frame's head with tokens unchanged (GP-32); the hub's UOR index is not signed, so an address in it says only where to look, and the record's whole-file BLAKE3 and decision 28 say whether the bytes are right.
+
 ### Reuse
 
 | Source | Taken | Left |
