@@ -5042,6 +5042,60 @@ fn kernel_kn_72() {
     );
 }
 
+/// `KN-57`: The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8
+#[test]
+fn kernel_kn_57() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Q4Sum.lex.tex");
+    let proofs = model("app/src/Proofs/StageQ4Sum.lex.tex");
+    assert_pinned(
+        &proofs,
+        "group_sum_value",
+        "(((Engine.Stage.Q4Sum::groupSum acts weights units k) + (Engine.Stage.Q4Sum::negSum acts weights units k 32)) = ((Engine.Stage.Q4Sum::posSum acts weights units k 32) + (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Q4Sum::posSum acts weights units k 32) (Engine.Stage.Q4Sum::negSum acts weights units k 32)) 4294967296 0)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "group_sum_sign",
+        "(((Engine.Stage.Q4Sum::groupSum acts weights units k) < 2147483648) <-> ((Engine.Stage.Q4Sum::negSum acts weights units k 32) <= (Engine.Stage.Q4Sum::posSum acts weights units k 32)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "pos_sum_32",
+        "((Engine.Stage.Q4Sum::posSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "neg_sum_32",
+        "((Engine.Stage.Q4Sum::negSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "times_bound",
+        "((a <= 65536) -> ((w <= 8) -> ((Engine.Stage.Q4Sum::times a w) <= 524288)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "times_exact",
+        "((w <= 8) -> ((Engine.Stage.Q4Sum::times a w) = (Engine.Word::mulB (four) a w)))",
+        "Quot.sound, propext",
+    );
+    // The proofs are about the shipped stage, not a copy of it.
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.Q4Sum}")
+            && !proofs.contains("\n  name: groupSum,"),
+        "the proofs must read the stage, not restate it"
+    );
+    assert!(
+        declaration(&stage, "times").contains("body: (prim multiply a w : Nat)"),
+        "the stage multiplies natively"
+    );
+}
+
 /// `KN-71`: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
 #[test]
 fn kernel_kn_71() {
