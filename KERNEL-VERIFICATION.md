@@ -1618,6 +1618,39 @@ checked.
 A wrong table entry is the Lean gate's to catch, through `table_certified`; that
 plant was not run here.
 
+## KN-72, products and limb sums as LexLean functions
+
+lexlean 0.3.0 can prove nothing about `prim multiply` of two variables: every
+proof form stops at the runtime's multiply, so even `x * 0 = 0` fails. Lean's
+`omega` does read multiplication, division and remainder by a literal. So the
+integer stages reason about products through `Engine.Word::mulB`, a
+shift-and-add multiply over a list of steps (a list, because `simp` will not
+step through recursion on a numeral such as 16), and Ilya confirmed this route
+on 2026-11-20.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| `mulB` over 32 steps is its low 16 steps plus 65536 times its high 16 steps; it is additive and scales by 65536 in its multiplicand; its low half reads only the multiplier's low 16 bits | `mul_splits`, `mul_left_additive`, `mul_left_scale`, `low_reads_low`, with `shift_sixteen` and `drop_sixteen`, in `app/src/Proofs/Word.lex.tex` | proved by Lean in the gate, for every operand |
+| The 64-bit product of two numbers is the four 16-bit partial products recombined, and two 32-bit limbs carry it | `product_from_halves`, `product_as_limbs` (the recombination `productLow`/`productHigh` a kernel uses) | proved, for every two numbers |
+| The limbs and the partial products fit 32 bits | `low_limb_is_word`; `high_limb_is_word` for word operands; `low_half_product_bound` and `high_half_product_bound` (each partial at most 65535^2) | proved |
+| Add-with-carry over little-endian 32-bit limbs gives the sum and the carry in, the carry out at the weight of the limbs, and limbs below 2^32 | `limbs_add_with_carry`, `carry_weight_is_final_carry`, `added_limbs_are_words` | proved, for every two lists of limbs and every carry |
+| `mulB` equals the native multiply in exported code | not proved: it is a statement about `prim multiply`, which 0.3.0 cannot reason about. A GPU or CPU theorem that relies on a product names this link where it does. It needs a lemma in LexLean's runtime library, where multiply is defined, or a code generator that lowers `mulB` to the native multiply | trusted |
+
+Two techniques carried the proofs: an induction hypothesis over generalized
+variables is used as a `simp` rewrite, with small regrouping lemmas, since
+`omega` cannot instantiate it; and a step needing both a proved equation and
+arithmetic is stated over plain variables with the equation as a premise,
+proved by `linear_arithmetic`, and discharged by `simplify` with the equation's
+lemma (row 13's tip). `%` and `/` are kept out of the terms `omega` treats as
+opaque, because its preprocessing writes `x % 65536` one way inside such a term
+and another way outside.
+
+### The pinned test: `kernel_kn_72`
+
+| Planted defect | Result |
+| --- | --- |
+| a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
+
 ## KN-71, one token per step
 
 Row 14 of the plan: tokens leave the guest one per step. A step's logits are
@@ -1695,5 +1728,81 @@ given), all verified. `lexlean fmt --check`: canonical.
 | one word of Qwen3's address one too high | rejected: `Qwen3-0.6B-ONNX.json: Kernel.Template does not list it` |
 | decision 45 not routed | rejected: `decision 45 must be routed to Kernel.Template::templateAnswer` |
 | no claim answered `refused: unknown template` | rejected: `no decision-45 claim is answered ...` |
+| none | passed |
+
+## KN-47, the chat templates rendered by the kernel's definition
+
+Decision 46 is the second half of Ilya's 2026-11-18 decision (KN-46 is the
+first): each supported family's template, for the subset its page runs, is a
+LexLean definition, `Kernel.Chat::chatAnswer`, and not an interpreter of the
+template's text. The subset is system, user and assistant turns, with or
+without the generation prompt, Qwen3 with thinking on or off, and Llama 3.2's
+date line. A Qwen3 assistant turn that carries `</think>` reasoning is outside
+it and answered `refused: reasoning in a turn`; a role past assistant is
+answered `refused: unknown role`.
+
+A request is 79 bytes, every one of them a field the page names: the tag, the
+family (1 Qwen2.5, 2 Qwen3, 3 Llama 3.2), the flags (generation prompt 1,
+thinking off 2), the eleven bytes of the date, the count of turns (up to
+four), four roles, four lengths, and four texts of up to fourteen bytes, each
+read as words of 8, 4 and 2 bytes. A turn past the count, and a text's bytes
+past its length, must be zero, so each conversation has one request. That
+size is the guest's request limit, not the template's: the engine renders
+longer conversations by the same rules in `hologram-ai-chat`, and this
+decision is the kernel's check of those rules on what fits.
+
+Jinja's `trim`, which Llama 3.2's template applies to every turn, strips by
+Python's `str.isspace`; `chatSpaceAt` writes out that set in UTF-8 (one-byte
+tab to carriage return and the separators 28 to 32, two-byte U+0085 and
+U+00A0, three-byte U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F
+and U+3000).
+
+### The proof gate
+
+The proofs are the five `chat_space_*` theorems (the one-byte whitespace is
+exactly 9 to 13 and 28 to 32), `chat_role_known_decides` and
+`chat_family_known_decides`. On 2026-11-19 the hosted LexLean engine checked
+`Kernel.Chat` and `Proofs.Chat` with the modules they import (draft
+prism-app/65cacd8b…), and `lexlean fmt --check` found the new definitions
+canonical. Lean has not yet attested the theorems: the hosted verification
+(task-31) was still queued when this was pushed, so CI's acceptance run under
+the pinned SDK is the first verdict. Each axiom list is what an earlier hosted
+run observed for a statement of the same form. That guess was wrong once:
+CI's acceptance run on 2026-11-19 refused `chat_role_known_decides` as
+pinned, since Lean observed only `propext`; the CI-pinned lexlean 0.3.0 then
+found the same of `chat_family_known_decides`, and both pins now say so.
+
+The answer has a ceiling of its own. The app declared `responseMaximum` 256,
+and the compiled guest traps on a longer answer: three Llama claims, 298, 312
+and 359 bytes long, failed the replay as `unreachable` while the rest passed.
+A render is at most 465 bytes (four turns of 14 bytes, the longest role
+name, the assistant prompt on). Main has since raised `responseMaximum` to
+1744 for decision 54, which covers it. At 512, a guest built locally with
+PrismPM's vendored exporter and code generator under lexlean 0.3.0 answered
+all 345 claims then listed as listed.
+
+What is proved is the shape of the guards, not the render: that the
+definition renders a request as transformers does is checked on examples, in
+two places. The compiled guest replays every decision-46 claim in
+`claims.json`, 29 of them: the subset's cases of the three families' recorded
+oracles, constructed cases for the rules those leave out (a leading newline
+after Qwen3's empty thinking block, Unicode whitespace around Llama turns, a
+system turn not first), and the three refusals and two invalid requests. No
+claim has been planted with a wrong answer to confirm the replay rejects it,
+as for the other decisions.
+
+### The pinned test: `kernel_kn_47`
+
+It pins the seven statements and their axioms, the route, and that every
+rendered claim is `hologram-ai-chat`'s render of its request and its request
+is the crate's.
+
+| Planted defect | Result |
+| --- | --- |
+| one claim's answer given a trailing space | rejected: `claim 2e0101… is not hologram-ai-chat's render` |
+| the crate's request writes every length as 0 | rejected: `claim 2e0101… is not the crate's request` |
+| Qwen3's leading newlines kept after the empty thinking block | rejected: `claim 2e0200… is not hologram-ai-chat's render` |
+| U+00A0 left out of the crate's whitespace | rejected: `claim 2e0301… is not hologram-ai-chat's render` |
+| decision 46 not routed | rejected: `decision 46 must be routed to Kernel.Chat::chatAnswer` |
 | none | passed |
 

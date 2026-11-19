@@ -4228,6 +4228,120 @@ fn kernel_kn_46() {
     }
 }
 
+/// `KN-47`: The kernel renders a conversation of up to eight system, user and assistant turns as Qwen2.5's, Qwen3's or Llama 3.2's chat template renders it, by its own definition (decision 46): Qwen2.5's default system line, Qwen3's empty thinking block when thinking is off and its trailing assistant turn, Llama 3.2's date line and Python's whitespace trim; a Qwen3 assistant turn carrying </think> reasoning, a role past assistant and a request of the wrong length are refused by name
+#[test]
+fn kernel_kn_47() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Chat.lex.tex");
+    let proofs = model("app/src/Proofs/Chat.lex.tex");
+    for (theorem, statement, axioms) in [
+        ("chat_space_tab_to_return", "((9 <= byte) -> ((byte <= 13) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Classical.choice, Quot.sound, propext"),
+        ("chat_space_separators", "((28 <= byte) -> ((byte <= 32) -> ((Kernel.Chat::chatSpaceByte byte) = true)))", "Classical.choice, Quot.sound, propext"),
+        ("chat_space_not_below", "((byte < 9) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
+        ("chat_space_not_between", "((13 < byte) -> ((byte < 28) -> ((Kernel.Chat::chatSpaceByte byte) = false)))", "Quot.sound, propext"),
+        ("chat_space_not_above", "((32 < byte) -> ((Kernel.Chat::chatSpaceByte byte) = false))", "Quot.sound, propext"),
+        ("chat_role_known_decides", "(((Kernel.Chat::chatRoleKnown role) = true) <-> (role <= 2))", "propext"),
+        ("chat_family_known_decides", "(((Kernel.Chat::chatFamilyKnown family) = true) <-> ((1 <= family) /\\ (family <= 3)))", "propext"),
+    ] {
+        assert_pinned(&proofs, theorem, statement, axioms);
+    }
+    for name in [
+        "chatTrim",
+        "chatQwenTurns",
+        "chatQwenHead",
+        "chatQwenPrompt",
+        "chatLlama",
+        "chatRender",
+        "chatAnswer",
+    ] {
+        declaration(&kernel, name);
+    }
+    assert_routed(46, "Kernel.Chat::chatAnswer");
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+            .expect("claims"),
+    )
+    .expect("claims.json is JSON");
+    let answers: Vec<&str> = claims["claims"]
+        .as_array()
+        .expect("claims")
+        .iter()
+        .filter(|c| c["request"].as_str().is_some_and(|r| r.starts_with("2e")))
+        .filter_map(|c| c["answer"].as_str())
+        .collect();
+    for wanted in [
+        "refused: reasoning in a turn",
+        "refused: unknown role",
+        "invalid request",
+    ] {
+        assert!(
+            answers.contains(&wanted),
+            "no decision-46 claim is answered `{wanted}`"
+        );
+    }
+    // Every rendered claim is hologram-ai-chat's render of its request: the
+    // kernel's definition and the crate's agree on each one the guest replays.
+    use hologram_ai_chat::template::{self, Family, Message, Options, Role};
+    for one in claims["claims"].as_array().expect("claims") {
+        let Some(request) = one["request"].as_str().filter(|r| r.starts_with("2e")) else {
+            continue;
+        };
+        let answer = one["answer"].as_str().expect("an answer");
+        if answer.starts_with("refused") || answer == "invalid request" {
+            continue;
+        }
+        let bytes: Vec<u8> = (0..request.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&request[i..i + 2], 16).expect("hex"))
+            .collect();
+        let family = match bytes[1] {
+            1 => Family::Qwen25,
+            2 => Family::Qwen3,
+            _ => Family::Llama32,
+        };
+        let turns: Vec<(Role, String)> = (0..usize::from(bytes[14]))
+            .map(|i| {
+                let role = [Role::System, Role::User, Role::Assistant][usize::from(bytes[15 + i])];
+                let start = 23 + 14 * i;
+                let text = bytes[start..start + usize::from(bytes[19 + i])].to_vec();
+                (role, String::from_utf8(text).expect("text"))
+            })
+            .collect();
+        let messages: Vec<Message<'_>> = turns
+            .iter()
+            .map(|(role, content)| Message {
+                role: *role,
+                content,
+            })
+            .collect();
+        let options = Options {
+            add_generation_prompt: bytes[2] & 1 == 1,
+            thinking_off: bytes[2] & 2 == 2,
+            date: bytes[3..14].try_into().expect("a date"),
+        };
+        assert_eq!(
+            template::render(family, &messages, options).as_deref(),
+            Ok(answer),
+            "claim {request} is not hologram-ai-chat's render"
+        );
+        assert_eq!(
+            template::request(family, &messages, options).as_deref(),
+            Some(&bytes[..]),
+            "claim {request} is not the crate's request"
+        );
+    }
+    for family in [
+        "<|im_start|>system\nYou are Qwen",
+        "<|im_start|>user\nhi",
+        "<|begin_of_text|>",
+    ] {
+        assert!(
+            answers.iter().any(|a| a.starts_with(family)),
+            "no decision-46 claim renders as `{family}`"
+        );
+    }
+}
+
 /// `KN-50`: A claimed binary32 or whole number for a config number written in decimal is confirmed exactly when it is the one the text names: the nearest binary32, ties to even, subnormals included, reached by long division on 64-bit words and Kernel.Round, or the whole number exactly; text that is not a decimal, past the range or not whole is refused by name
 #[test]
 fn kernel_kn_50() {
@@ -4847,6 +4961,84 @@ fn kernel_kn_56() {
         stage.matches("\n  name: entryBlock").count(),
         16,
         "the table is sixteen blocks of sixteen entries"
+    );
+}
+
+/// `KN-72`: Every product and limb sum an integer stage reasons about is a LexLean function with proved laws, since lexlean 0.3.0 can prove nothing about prim multiply of two variables: mulB, shift-and-add over a list of steps, splits into its low and high halves, is additive and scales in its multiplicand, and the 64-bit product of two words built from four 16-bit partial products equals mulB over 32 steps as two 32-bit limbs, each below 2^32, each partial at most 65535^2; add-with-carry over little-endian 32-bit limbs gives the sum of the two values and the carry in, the carry out at the weight of the limbs, and limbs below 2^32; that mulB equals the native multiply in exported code is trusted, not proved
+#[test]
+fn kernel_kn_72() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Word.lex.tex");
+    assert_pinned(
+        &proofs,
+        "mul_splits",
+        "((Engine.Word::mulB (Engine.Word::joined low high) a b) = ((Engine.Word::mulB low a b) + (Engine.Word::mulB high (Engine.Word::shiftUp low a) (Engine.Word::dropBits low b))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "mul_left_additive",
+        "((Engine.Word::mulB steps (x + y) b) = ((Engine.Word::mulB steps x b) + (Engine.Word::mulB steps y b)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_from_halves",
+        "((Engine.Word::mulB (Engine.Word::thirtyTwo) a b) = (((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) : Nat)) + (prim multiply 65536 ((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) : Nat)) : Nat)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_as_limbs",
+        "(((Engine.Word::productLow (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat))) + (prim multiply 4294967296 (Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat))) : Nat)) = (Engine.Word::mulB (Engine.Word::thirtyTwo) a b))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "low_limb_is_word",
+        "((Engine.Word::productLow ll lh hl) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "high_limb_is_word",
+        "((Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat))) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "low_half_product_bound",
+        "((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder x 65536 0 : Nat) y) <= 4294836225)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "limbs_add_with_carry",
+        "((Engine.Word::sumOf left right carry) = (((Engine.Word::limbsValue left) + (Engine.Word::limbsValue right)) + carry))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "carry_weight_is_final_carry",
+        "((Engine.Word::carryWeight left right carry) = (Engine.Word::shifted left (Engine.Word::finalCarry left right carry)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "added_limbs_are_words",
+        "((Engine.Word::allWords (Engine.Word::addLimbs left right carry)) = true)",
+        "Quot.sound, propext",
+    );
+    let word = model("app/src/Engine/Word.lex.tex");
+    assert!(
+        word.contains(
+            "definition{name: thirtyTwo, parameters: [], result: (List Nat), body: (joined (sixteen) (sixteen))}"
+        ),
+        "the 32-step multiply must be two 16-step halves"
+    );
+    assert!(
+        !word.contains("prim multiply a b") && !word.contains("prim multiply x y"),
+        "a product of two variables must be mulB, not prim multiply"
     );
 }
 

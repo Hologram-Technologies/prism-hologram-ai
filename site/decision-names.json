@@ -1966,6 +1966,116 @@
         }
       }
     },
+    "46": {
+      "name": "Chat template",
+      "asks": "How is this conversation written in this family's chat template?",
+      "fields": {
+        "1": {
+          "name": "Family (1 Qwen2.5, 2 Qwen3, 3 Llama 3.2)",
+          "value": 1
+        },
+        "2": {
+          "name": "Generation prompt (1), thinking off (2)",
+          "value": 1
+        },
+        "3": {
+          "name": "Date, bytes 1 to 8",
+          "value": 3546338752827105330
+        },
+        "11": {
+          "name": "Date, bytes 9 and 10",
+          "value": 12338
+        },
+        "13": {
+          "name": "Date, byte 11",
+          "value": 54
+        },
+        "14": {
+          "name": "Turns, up to four",
+          "value": 1
+        },
+        "15": {
+          "name": "Turn 1: role (0 system, 1 user, 2 assistant)",
+          "value": 1
+        },
+        "16": {
+          "name": "Turn 2: role (0 system, 1 user, 2 assistant)",
+          "value": 0
+        },
+        "17": {
+          "name": "Turn 3: role (0 system, 1 user, 2 assistant)",
+          "value": 0
+        },
+        "18": {
+          "name": "Turn 4: role (0 system, 1 user, 2 assistant)",
+          "value": 0
+        },
+        "19": {
+          "name": "Turn 1: length of its text",
+          "value": 2
+        },
+        "20": {
+          "name": "Turn 2: length of its text",
+          "value": 0
+        },
+        "21": {
+          "name": "Turn 3: length of its text",
+          "value": 0
+        },
+        "22": {
+          "name": "Turn 4: length of its text",
+          "value": 0
+        },
+        "23": {
+          "name": "Turn 1: text, bytes 1 to 8",
+          "value": 7523544652499124224
+        },
+        "31": {
+          "name": "Turn 1: text, bytes 9 to 12",
+          "value": 0
+        },
+        "35": {
+          "name": "Turn 1: text, bytes 13 and 14",
+          "value": 0
+        },
+        "37": {
+          "name": "Turn 2: text, bytes 1 to 8",
+          "value": 0
+        },
+        "45": {
+          "name": "Turn 2: text, bytes 9 to 12",
+          "value": 0
+        },
+        "49": {
+          "name": "Turn 2: text, bytes 13 and 14",
+          "value": 0
+        },
+        "51": {
+          "name": "Turn 3: text, bytes 1 to 8",
+          "value": 0
+        },
+        "59": {
+          "name": "Turn 3: text, bytes 9 to 12",
+          "value": 0
+        },
+        "63": {
+          "name": "Turn 3: text, bytes 13 and 14",
+          "value": 0
+        },
+        "65": {
+          "name": "Turn 4: text, bytes 1 to 8",
+          "value": 0
+        },
+        "73": {
+          "name": "Turn 4: text, bytes 9 to 12",
+          "value": 0
+        },
+        "77": {
+          "name": "Turn 4: text, bytes 13 and 14",
+          "value": 0
+        }
+      }
+    },
     "48": {
       "name": "Kernel text",
       "asks": "What is this piece of the kernel's WGSL?",

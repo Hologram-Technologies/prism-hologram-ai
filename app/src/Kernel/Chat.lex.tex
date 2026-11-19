@@ -1,0 +1,289 @@
+\begin{lexlean}{Kernel.Chat}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: chatJoin,
+  parameters: [left : Bytes, right : Bytes],
+  result: Bytes,
+  body: (prim append left right : Bytes)
+}
+
+definition{
+  name: chatByte,
+  parameters: [content : Bytes, offset : Nat],
+  result: Nat,
+  body: (match (Foundation.Bytes::byteAt content offset)
+    | Option.none => 256
+    | Option.some byte => (prim to_nat byte : Nat)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatSpaceByte,
+  parameters: [byte : Nat],
+  result: Bool,
+  body: (((9 <=? byte) && (byte <=? 13)) || ((28 <=? byte) && (byte <=? 32)))
+}
+
+definition{
+  name: chatSpaceAt,
+  parameters: [content : Bytes, offset : Nat],
+  result: Nat,
+  body: (if (chatSpaceByte (chatByte content offset)) then 1 else (if (((chatByte content offset) =? 194) && (((chatByte content (offset + 1)) =? 133) || ((chatByte content (offset + 1)) =? 160))) then 2 else (if ((((((chatByte content offset) =? 225) && ((chatByte content (offset + 1)) =? 154)) && ((chatByte content (offset + 2)) =? 128)) || ((((chatByte content offset) =? 227) && ((chatByte content (offset + 1)) =? 128)) && ((chatByte content (offset + 2)) =? 128))) || (((chatByte content offset) =? 226) && ((((chatByte content (offset + 1)) =? 128) && (((((128 <=? (chatByte content (offset + 2))) && ((chatByte content (offset + 2)) <=? 138)) || ((chatByte content (offset + 2)) =? 168)) || ((chatByte content (offset + 2)) =? 169)) || ((chatByte content (offset + 2)) =? 175))) || (((chatByte content (offset + 1)) =? 129) && ((chatByte content (offset + 2)) =? 159))))) then 3 else 0))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatSpaceBefore,
+  parameters: [content : Bytes, finish : Nat],
+  result: Nat,
+  body: (if ((1 <=? finish) && (chatSpaceByte (chatByte content (prim subtract finish 1 : Nat)))) then 1 else (if ((2 <=? finish) && ((chatSpaceAt content (prim subtract finish 2 : Nat)) =? 2)) then 2 else (if ((3 <=? finish) && ((chatSpaceAt content (prim subtract finish 3 : Nat)) =? 3)) then 3 else 0))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatTrimStart,
+  parameters: [content : Bytes, offset : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => offset
+    | Nat.succ rest => (if ((chatSpaceAt content offset) =? 0) then offset else (chatTrimStart content (offset + (chatSpaceAt content offset)) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: chatTrimEnd,
+  parameters: [content : Bytes, start : Nat, finish : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => finish
+    | Nat.succ rest => (if ((finish <=? start) || ((chatSpaceBefore content finish) =? 0)) then finish else (chatTrimEnd content start (prim subtract finish (chatSpaceBefore content finish) : Nat) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: chatSlice,
+  parameters: [content : Bytes, start : Nat, count : Nat],
+  result: Bytes,
+  body: (match (Foundation.Bytes::sliceBytes content start count)
+    | Option.none => (prim utf8_encode "" : Bytes)
+    | Option.some part => part)
+}
+
+definition{
+  name: chatTrim,
+  parameters: [content : Bytes],
+  result: Bytes,
+  body: (chatSlice content (chatTrimStart content 0 (Foundation.Bytes::byteLength content)) (prim subtract (chatTrimEnd content (chatTrimStart content 0 (Foundation.Bytes::byteLength content)) (Foundation.Bytes::byteLength content) (Foundation.Bytes::byteLength content)) (chatTrimStart content 0 (Foundation.Bytes::byteLength content)) : Nat)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatNewlinesFrom,
+  parameters: [content : Bytes, offset : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => offset
+    | Nat.succ rest => (if ((chatByte content offset) =? 10) then (chatNewlinesFrom content (offset + 1) rest) else offset)),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: chatTrimNewlines,
+  parameters: [content : Bytes],
+  result: Bytes,
+  body: (chatSlice content (chatNewlinesFrom content 0 (Foundation.Bytes::byteLength content)) (prim subtract (Foundation.Bytes::byteLength content) (chatNewlinesFrom content 0 (Foundation.Bytes::byteLength content)) : Nat)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatThinkFrom,
+  parameters: [content : Bytes, offset : Nat, fuel : Nat],
+  result: Bool,
+  body: (match fuel
+    | Nat.zero => false
+    | Nat.succ rest => (((Kernel.Wire::fieldAt content offset 8) =? 4336812957975341886) || (chatThinkFrom content (offset + 1) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{name: chatRoleKnown, parameters: [role : Nat], result: Bool, body: (role <=? 2)}
+
+definition{
+  name: chatFamilyKnown,
+  parameters: [family : Nat],
+  result: Bool,
+  body: ((1 <=? family) && (family <=? 3))
+}
+
+definition{
+  name: chatRoleName,
+  parameters: [role : Nat],
+  result: Bytes,
+  body: (if (role =? 0) then (prim utf8_encode "system" : Bytes) else (if (role =? 1) then (prim utf8_encode "user" : Bytes) else (prim utf8_encode "assistant" : Bytes)))
+}
+
+definition{
+  name: chatRoleAt,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (15 + index) 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatLengthAt,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (19 + index) 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatContentAt,
+  parameters: [value : Bytes, index : Nat],
+  result: Bytes,
+  body: (chatSlice value (23 + (prim multiply 14 index : Nat)) (chatLengthAt value index)),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatPower,
+  parameters: [count : Nat],
+  result: Nat,
+  body: (match count | Nat.zero => 1 | Nat.succ rest => (prim multiply 256 (chatPower rest) : Nat)),
+  recursive_argument: count
+}
+
+definition{
+  name: chatTailClear,
+  parameters: [word : Nat, width : Nat, keep : Nat],
+  result: Bool,
+  body: (if (width <=? keep) then true else ((prim remainder word (chatPower (prim subtract width keep : Nat)) 0 : Nat) =? 0))
+}
+
+definition{
+  name: chatSlotOk,
+  parameters: [
+    count : Nat,
+    index : Nat,
+    role : Nat,
+    length : Nat,
+    head : Nat,
+    middle : Nat,
+    tail : Nat
+  ],
+  result: Bool,
+  body: (if (index <? count) then ((length <=? 14) && ((chatTailClear head 8 length) && ((chatTailClear middle 4 (prim subtract length 8 : Nat)) && (chatTailClear tail 2 (prim subtract length 12 : Nat))))) else (((role =? 0) && (length =? 0)) && (((head =? 0) && (middle =? 0)) && (tail =? 0))))
+}
+
+definition{
+  name: chatRolesKnown,
+  parameters: [value : Bytes, index : Nat, remaining : Nat],
+  result: Bool,
+  body: (match remaining
+    | Nat.zero => true
+    | Nat.succ rest => ((chatRoleKnown (chatRoleAt value index)) && (chatRolesKnown value (index + 1) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: chatReasoningIn,
+  parameters: [value : Bytes, index : Nat, remaining : Nat],
+  result: Bool,
+  body: (match remaining
+    | Nat.zero => false
+    | Nat.succ rest => ((((chatRoleAt value index) =? 2) && (chatThinkFrom (chatContentAt value index) 0 (chatLengthAt value index))) || (chatReasoningIn value (index + 1) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: chatLastUser,
+  parameters: [value : Bytes, index : Nat, remaining : Nat, found : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => found
+    | Nat.succ rest => (chatLastUser value (index + 1) rest (if ((chatRoleAt value index) =? 1) then index else found))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: chatQwenTurn,
+  parameters: [role : Nat, content : Bytes],
+  result: Bytes,
+  body: (chatJoin (chatJoin (chatJoin (chatJoin (prim utf8_encode "<|im_start|>" : Bytes) (chatRoleName role)) (prim utf8_encode "\n" : Bytes)) content) (prim utf8_encode "<|im_end|>\n" : Bytes))
+}
+
+definition{
+  name: chatQwenTurns,
+  parameters: [family : Nat, value : Bytes, index : Nat, remaining : Nat, last : Nat, query : Nat],
+  result: Bytes,
+  body: (match remaining
+    | Nat.zero => (prim utf8_encode "" : Bytes)
+    | Nat.succ rest => (chatJoin (if ((index =? 0) && ((chatRoleAt value index) =? 0)) then (prim utf8_encode "" : Bytes) else (if ((((family =? 2) && ((chatRoleAt value index) =? 2)) && (query <? index)) && (index =? last)) then (chatJoin (chatJoin (prim utf8_encode "<|im_start|>assistant\n<think>\n\n</think>\n\n" : Bytes) (chatTrimNewlines (chatContentAt value index))) (prim utf8_encode "<|im_end|>\n" : Bytes)) else (chatQwenTurn (chatRoleAt value index) (chatContentAt value index)))) (chatQwenTurns family value (index + 1) rest last query))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: chatQwenHead,
+  parameters: [family : Nat, value : Bytes, count : Nat],
+  result: Bytes,
+  body: (if ((1 <=? count) && ((chatRoleAt value 0) =? 0)) then (chatQwenTurn 0 (chatContentAt value 0)) else (if (family =? 1) then (prim utf8_encode "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n" : Bytes) else (prim utf8_encode "" : Bytes))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatQwenPrompt,
+  parameters: [family : Nat, flags : Nat],
+  result: Bytes,
+  body: (if ((prim remainder flags 2 0 : Nat) =? 1) then (if ((family =? 2) && (2 <=? flags)) then (prim utf8_encode "<|im_start|>assistant\n<think>\n\n</think>\n\n" : Bytes) else (prim utf8_encode "<|im_start|>assistant\n" : Bytes)) else (prim utf8_encode "" : Bytes))
+}
+
+definition{
+  name: chatLlamaTurns,
+  parameters: [value : Bytes, index : Nat, remaining : Nat],
+  result: Bytes,
+  body: (match remaining
+    | Nat.zero => (prim utf8_encode "" : Bytes)
+    | Nat.succ rest => (chatJoin (if ((index =? 0) && ((chatRoleAt value index) =? 0)) then (prim utf8_encode "" : Bytes) else (chatJoin (chatJoin (chatJoin (chatJoin (prim utf8_encode "<|start_header_id|>" : Bytes) (chatRoleName (chatRoleAt value index))) (prim utf8_encode "<|end_header_id|>\n\n" : Bytes)) (chatTrim (chatContentAt value index))) (prim utf8_encode "<|eot_id|>" : Bytes))) (chatLlamaTurns value (index + 1) rest))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: remaining
+}
+
+definition{
+  name: chatLlama,
+  parameters: [value : Bytes, flags : Nat, count : Nat],
+  result: Bytes,
+  body: (chatJoin (chatJoin (chatJoin (chatJoin (chatJoin (prim utf8_encode "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: " : Bytes) (chatSlice value 3 11)) (prim utf8_encode "\n\n" : Bytes)) (if ((1 <=? count) && ((chatRoleAt value 0) =? 0)) then (chatTrim (chatContentAt value 0)) else (prim utf8_encode "" : Bytes))) (chatJoin (prim utf8_encode "<|eot_id|>" : Bytes) (chatLlamaTurns value 0 count))) (if ((prim remainder flags 2 0 : Nat) =? 1) then (prim utf8_encode "<|start_header_id|>assistant<|end_header_id|>\n\n" : Bytes) else (prim utf8_encode "" : Bytes))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatRender,
+  parameters: [family : Nat, flags : Nat, value : Bytes, count : Nat],
+  result: Bytes,
+  body: (if (family =? 3) then (chatLlama value flags count) else (chatJoin (chatJoin (chatQwenHead family value count) (chatQwenTurns family value 0 count (prim subtract count 1 : Nat) (chatLastUser value 0 count (prim subtract count 1 : Nat)))) (chatQwenPrompt family flags))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: chatAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((((((Foundation.Bytes::byteLength value) =? 79) && ((Kernel.Wire::fieldAt value 14 1) <=? 4)) && (chatFamilyKnown (Kernel.Wire::fieldAt value 1 1))) && ((Kernel.Wire::fieldAt value 2 1) <=? 3)) && ((0 <? (Kernel.Wire::fieldAt value 3 8)) && ((0 <? (Kernel.Wire::fieldAt value 11 2)) && (0 <? (Kernel.Wire::fieldAt value 13 1))))) && (((chatSlotOk (Kernel.Wire::fieldAt value 14 1) 0 (Kernel.Wire::fieldAt value 15 1) (Kernel.Wire::fieldAt value 19 1) (Kernel.Wire::fieldAt value 23 8) (Kernel.Wire::fieldAt value 31 4) (Kernel.Wire::fieldAt value 35 2)) && (chatSlotOk (Kernel.Wire::fieldAt value 14 1) 1 (Kernel.Wire::fieldAt value 16 1) (Kernel.Wire::fieldAt value 20 1) (Kernel.Wire::fieldAt value 37 8) (Kernel.Wire::fieldAt value 45 4) (Kernel.Wire::fieldAt value 49 2))) && ((chatSlotOk (Kernel.Wire::fieldAt value 14 1) 2 (Kernel.Wire::fieldAt value 17 1) (Kernel.Wire::fieldAt value 21 1) (Kernel.Wire::fieldAt value 51 8) (Kernel.Wire::fieldAt value 59 4) (Kernel.Wire::fieldAt value 63 2)) && (chatSlotOk (Kernel.Wire::fieldAt value 14 1) 3 (Kernel.Wire::fieldAt value 18 1) (Kernel.Wire::fieldAt value 22 1) (Kernel.Wire::fieldAt value 65 8) (Kernel.Wire::fieldAt value 73 4) (Kernel.Wire::fieldAt value 77 2))))) then (if (chatRolesKnown value 0 (Kernel.Wire::fieldAt value 14 1)) then (if (((Kernel.Wire::fieldAt value 1 1) =? 2) && (chatReasoningIn value 0 (Kernel.Wire::fieldAt value 14 1))) then (prim utf8_encode "refused: reasoning in a turn" : Bytes) else (chatRender (Kernel.Wire::fieldAt value 1 1) (Kernel.Wire::fieldAt value 2 1) value (Kernel.Wire::fieldAt value 14 1))) else (prim utf8_encode "refused: unknown role" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
