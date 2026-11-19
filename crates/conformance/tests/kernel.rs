@@ -3633,13 +3633,13 @@ fn kernel_kn_55() {
         &proofs,
         "exceed_zero_decides",
         "(((Engine.Stage.Greedy::exceed logits last bound) = 0) <-> ((Engine.Stage.Greedy::maxKey logits last) <= bound))",
-        "Quot.sound, propext",
+        "Classical.choice, Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "none_above_greedy",
         "((Engine.Stage.Greedy::exceed logits last (Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last))) = 0)",
-        "Quot.sound, propext",
+        "Classical.choice, Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
@@ -3664,7 +3664,9 @@ fn kernel_kn_55() {
     // no key is above the bound.
     let found = declaration(&stage, "exceed");
     assert!(
-        found.contains("((prim subtract (keyAt logits (rest + 1)) bound : Nat) + (exceed logits rest bound))"),
+        found.contains(
+            "((prim subtract (keyAt logits (rest + 1)) bound : Nat) + (exceed logits rest bound))"
+        ),
         "exceed changed:\n{found}"
     );
     let found = declaration(&stage, "greedy");

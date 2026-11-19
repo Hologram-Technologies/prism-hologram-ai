@@ -129,7 +129,7 @@ theorem{
     generalizing: [],
     scrutinee: last
   },
-  axioms: [Quot.sound, propext]
+  axioms: [Classical.choice, Quot.sound, propext]
 }
 
 theorem{
@@ -145,7 +145,7 @@ theorem{
   parameters: [logits : (List Nat), last : Nat],
   statement: ((Engine.Stage.Greedy::exceed logits last (Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last))) = 0),
   proof: simplify{definitions: [exceed_zero_decides, greedy_key_is_max, max_key_at_most_itself]},
-  axioms: [Quot.sound, propext]
+  axioms: [Classical.choice, Quot.sound, propext]
 }
 
 theorem{
