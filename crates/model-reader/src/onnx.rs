@@ -2,7 +2,7 @@
 //!
 //! A model on the hub is a graph file and, for a large one, data files beside
 //! it. Every byte of each is taken once, as it comes: the whole file is hashed
-//! for the SHA-256 its record gives, and each tensor's data is hashed on its
+//! for the BLAKE3 its record gives, and each tensor's data is hashed on its
 //! own for its address, the BLAKE3 of its raw bytes. The graph is read by
 //! [`hologram_ai_onnx_preflight::stream::Stream`], which never holds a
 //! tensor's data; this module hashes those bytes as they pass it.
@@ -18,7 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use hologram_ai_download::{Arriving, Label, Root, Whole};
+use hologram_ai_download::{Arriving, Label};
 use hologram_ai_kernel_client::{admission, chunk, nbits, opname};
 use hologram_ai_onnx_preflight::stream::{Data, Event, Node, Stream};
 use hologram_ai_onnx_preflight::OnnxError;
@@ -40,8 +40,8 @@ pub struct File {
     pub declared: u8,
     /// Its length in bytes.
     pub length: u64,
-    /// The SHA-256 the record gives for the whole file.
-    pub root: Root,
+    /// The BLAKE3 the record gives for the whole file: its address.
+    pub address: Label,
 }
 
 /// A tensor of the model, with its address.
@@ -144,10 +144,10 @@ impl Open {
     }
 }
 
-/// Bytes taken in, hashed whole and span by span.
+/// Bytes taken in, hashed whole and span by span, each by BLAKE3.
 struct Taking {
     file: File,
-    whole: Whole,
+    whole: Arriving,
     at: u64,
     open: Vec<Open>,
     done: BTreeMap<u64, Label>,
@@ -157,7 +157,7 @@ impl Taking {
     fn new(file: File) -> Self {
         Self {
             file,
-            whole: Whole::new(),
+            whole: Arriving::new(),
             at: 0,
             open: Vec::new(),
             done: BTreeMap::new(),
@@ -194,8 +194,8 @@ impl Taking {
     /// Ask the kernel about the whole file.
     fn finish(&self, kernel: &mut dyn Kernel) -> Result<(), ImportError> {
         let question = admission::request(
-            &self.file.root.0,
-            &self.whole.root().0,
+            &self.file.address.0,
+            &self.whole.label().0,
             self.file.length,
             self.whole.received(),
         );

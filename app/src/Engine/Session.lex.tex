@@ -1,0 +1,107 @@
+\begin{lexlean}{Engine.Session}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Address}
+\importmodule{Kernel.Integer}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: live,
+  parameters: [phase : Nat],
+  result: Bool,
+  body: ((phase =? 2) || (phase =? 3))
+}
+
+definition{
+  name: opens,
+  parameters: [phase : Nat, pages : Nat, capacity : Nat],
+  result: Bool,
+  body: (((phase =? 0) && (1 <=? pages)) && (1 <=? capacity))
+}
+
+definition{
+  name: admits,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    head : Nat,
+    middle : Nat,
+    tail : Nat,
+    listed : Nat
+  ],
+  result: Bool,
+  body: ((((phase =? 1) && ((admitted + 1) <=? pages)) && (Kernel.Address::addressBlake3 head middle tail)) && (listed =? 1))
+}
+
+definition{
+  name: prompts,
+  parameters: [phase : Nat, position : Nat, capacity : Nat, count : Nat],
+  result: Bool,
+  body: ((live phase) && ((position + count) <=? capacity))
+}
+
+definition{
+  name: generates,
+  parameters: [phase : Nat, position : Nat, capacity : Nat, productsExact : Nat, restExact : Nat],
+  result: Bool,
+  body: (((live phase) && (Kernel.Integer::integerRun productsExact restExact)) && ((position + 1) <=? capacity))
+}
+
+definition{
+  name: sessionPhase,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    position : Nat,
+    capacity : Nat,
+    kind : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  result: Nat,
+  body: (if ((phase =? 4) || (phase =? 5)) then phase else (if (kind =? 5) then 4 else (if (kind =? 1) then (if (opens phase a b) then 1 else 5) else (if (kind =? 2) then (if (admits phase admitted pages a b c d) then (if ((admitted + 1) =? pages) then 2 else 1) else 5) else (if (kind =? 3) then (if (prompts phase position capacity a) then phase else 5) else (if (kind =? 4) then (if (generates phase position capacity a b) then 3 else 5) else 5))))))
+}
+
+definition{
+  name: sessionAdmitted,
+  parameters: [
+    phase : Nat,
+    admitted : Nat,
+    pages : Nat,
+    kind : Nat,
+    a : Nat,
+    b : Nat,
+    c : Nat,
+    d : Nat
+  ],
+  result: Nat,
+  body: (if ((phase =? 4) || (phase =? 5)) then admitted else (if (kind =? 1) then (if (opens phase a b) then 0 else admitted) else (if (kind =? 2) then (if (admits phase admitted pages a b c d) then (admitted + 1) else admitted) else admitted)))
+}
+
+definition{
+  name: sessionPages,
+  parameters: [phase : Nat, pages : Nat, kind : Nat, a : Nat, b : Nat],
+  result: Nat,
+  body: (if ((phase =? 4) || (phase =? 5)) then pages else (if (kind =? 1) then (if (opens phase a b) then a else pages) else pages))
+}
+
+definition{
+  name: sessionCapacity,
+  parameters: [phase : Nat, capacity : Nat, kind : Nat, a : Nat, b : Nat],
+  result: Nat,
+  body: (if ((phase =? 4) || (phase =? 5)) then capacity else (if (kind =? 1) then (if (opens phase a b) then b else capacity) else capacity))
+}
+
+definition{
+  name: sessionPosition,
+  parameters: [phase : Nat, position : Nat, capacity : Nat, kind : Nat, a : Nat, b : Nat],
+  result: Nat,
+  body: (if ((phase =? 4) || (phase =? 5)) then position else (if (kind =? 1) then (if (opens phase a b) then 0 else position) else (if (kind =? 3) then (if (prompts phase position capacity a) then (position + a) else position) else (if (kind =? 4) then (if (generates phase position capacity a b) then (position + 1) else position) else position))))
+}
+\end{semanticmodule}
+\end{lexlean}
