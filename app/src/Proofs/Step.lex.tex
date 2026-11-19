@@ -14,12 +14,20 @@ theorem{
   parameters: [early : (List Nat), kept : Engine.Step::Pick, later : (List Nat)],
   statement: ((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later))),
   proof: induction{
-    scrutinee: early,
-    generalizing: [kept],
     branches: [
-      {proof: simplify{definitions: [Engine.Step::feedPick, Engine.Stream::join]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [hypothesis, Engine.Step::feedPick, Engine.Stream::join]}, binders: [head, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{definitions: [Engine.Step::feedPick, Engine.Stream::join]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{definitions: [hypothesis, Engine.Step::feedPick, Engine.Stream::join]},
+        binders: [head, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [kept],
+    scrutinee: early
   },
   axioms: [propext]
 }
@@ -29,11 +37,15 @@ theorem{
   parameters: [flag : Nat, chosen : Nat, other : Nat],
   statement: ((Engine.Stage.Greedy::key (Engine.Stage.Greedy::pick flag chosen other)) = (Engine.Stage.Greedy::pick flag (Engine.Stage.Greedy::key chosen) (Engine.Stage.Greedy::key other))),
   proof: cases{
-    scrutinee: flag,
     branches: [
       {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [], constructor: zero},
-      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [rest], constructor: succ}
-    ]
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest],
+        constructor: succ
+      }
+    ],
+    scrutinee: flag
   },
   axioms: [propext]
 }
@@ -51,12 +63,29 @@ theorem{
   parameters: [logits : (List Nat), count : Nat, best : Nat, bits : Nat],
   statement: ((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits)),
   proof: induction{
-    scrutinee: logits,
-    generalizing: [best, bits, count],
     branches: [
-      {proof: simplify{definitions: [Engine.Step::feedPick, Engine.Step::maxKeyFrom]}, binders: [], constructor: nil},
-      {proof: simplify{definitions: [advance_counted, hypothesis, key_of_chosen, Engine.Step::feedPick, Engine.Step::maxKeyFrom, Proofs.StageGreedy::pick_is_max]}, binders: [head, rest, hypothesis], constructor: cons}
-    ]
+      {
+        proof: simplify{definitions: [Engine.Step::feedPick, Engine.Step::maxKeyFrom]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [
+            advance_counted,
+            hypothesis,
+            key_of_chosen,
+            Engine.Step::feedPick,
+            Engine.Step::maxKeyFrom,
+            Proofs.StageGreedy::pick_is_max
+          ]
+        },
+        binders: [head, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [best, bits, count],
+    scrutinee: logits
   },
   axioms: [Quot.sound, propext]
 }
@@ -65,20 +94,40 @@ theorem{
   name: fresh_takes_first,
   parameters: [opening : Nat, logits : (List Nat)],
   statement: ((Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) = (Engine.Step::feedPick (record Engine.Step::Pick {seen := (0 + 1), best := 0, bits := opening}) logits)),
-  proof: simplify{definitions: [Engine.Step::advance, Engine.Step::feedPick, Engine.Step::freshPick]},
+  proof: simplify{
+    definitions: [Engine.Step::advance, Engine.Step::feedPick, Engine.Step::freshPick]
+  },
   axioms: [propext]
 }
+
 theorem{
   name: step_reads_its_chunk,
   parameters: [fuel : Nat, index : Nat, kept : Engine.Step::Pick, value : Bytes],
   statement: ((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index))),
   proof: induction{
-    scrutinee: fuel,
-    generalizing: [index, kept],
     branches: [
-      {proof: simplify{definitions: [Engine.Step::feedPick, Kernel.Step::stepChunk, Kernel.Step::stepFeed]}, binders: [], constructor: zero},
-      {proof: simplify{definitions: [hypothesis, Engine.Step::feedPick, Kernel.Step::stepChunk, Kernel.Step::stepFeed]}, binders: [rest, hypothesis], constructor: succ}
-    ]
+      {
+        proof: simplify{
+          definitions: [Engine.Step::feedPick, Kernel.Step::stepChunk, Kernel.Step::stepFeed]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            Engine.Step::feedPick,
+            Kernel.Step::stepChunk,
+            Kernel.Step::stepFeed
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [index, kept],
+    scrutinee: fuel
   },
   axioms: [Quot.sound, propext]
 }
