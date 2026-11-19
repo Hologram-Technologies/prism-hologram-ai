@@ -2679,8 +2679,15 @@ for (const decision of table) {
 
 // A request longer than the kernel takes is refused here, where the reason can
 // be read, rather than written and bounced by the guest. A counted decision is
-// where that happens: its length follows a number someone types.
-const counted = table.find((decision) => decision.length.base !== undefined);
+// where that happens: its length follows a number someone types. The page
+// draws at most 64 items of a list, so the decision checked is one whose 64
+// items pass the limit; when none does, no form of the page can pass it.
+const MOST = 64;
+const lists = table.filter((decision) => decision.length.base !== undefined);
+const counted = lists.find(
+  (decision) => decision.length.base + decision.length.stride * MOST > largest,
+);
+if (!counted && lists.length === 0) throw new Error("no counted decision to check");
 if (counted) {
   const count = counted.fields.find((field) => field.at === counted.length.countAt);
   const many = Math.ceil((largest - counted.length.base) / counted.length.stride) + 1;
@@ -2694,7 +2701,7 @@ if (counted) {
     refused = String(error.message ?? error);
   }
   if (!refused.includes(String(largest))) {
-    throw new Error(`a ${length}-byte request was not refused by the ${largest}-byte limit`);
+    throw new Error(`a ${length}-byte request was not refused by the ${largest}-byte limit: ${refused}`);
   }
   // And the same request is written when nobody states a limit, so the
   // refusal is the limit's doing and not the encoder's.

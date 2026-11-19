@@ -1394,6 +1394,43 @@ do not, and `not finite` for an infinity or a NaN. No number it forms passes
 | decision 50 routed to decision 49's answer | rejected: `decision 50 must be routed to Kernel.Rotary::rotaryAnswer` |
 | none | passed |
 
+## KN-70, a file streamed into the guest
+
+Row 14 of the plan: a model's files stream into the guest in chunks of any
+size, and the guest hashes them itself. The guest keeps no state between calls
+under the pinned SDK, so the state travels in the request: decision 54 reads
+`[54][flags][count, 2 bytes][state, 1744 lowercase hex characters][count
+bytes]`, folds the chunk into the state, and answers the next state as hex, or
+the file's BLAKE3 when flags say the chunk is the last. A page passes each
+answer back unchanged with the next chunk. A request is at most 64 KiB, so a
+chunk holds up to 63,788 bytes; `requestMaximum` and `guestAllocationMaximum`
+are 65,536 and `responseMaximum` 1,744.
+
+The hasher is BLAKE3 written as one step per byte (`Engine.Stream::step`), so
+where the chunks are cut cannot change the state. Its compression is LexLean
+stdlib's `Blake3` (LexLean main, not in the pinned 0.3.0), rewritten in
+`Engine.Blake3` so PrismPM's guest exporter takes it: the seven rounds
+unrolled rather than a lambda in `prim iterate`, a wrapping add from 16-bit
+halves rather than `checked_convert` between widths, and Nat to word by a bit
+loop. The tree of chunk chaining values is kept in 24 slots, slot `i` holding
+the subtree of `2^i` chunks when bit `i` of the chunk count is set, which
+covers files up to 16 GiB.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Feeding two lists of bytes one after the other gives the state that feeding them joined gives, for every state | `stream_cut` in `app/src/Proofs/Stream.lex.tex`, induction over the first list | proved by Lean in the gate |
+| The guest's loop over a request's chunk is that fold over the chunk's bytes | `stream_reads_its_chunk`, induction over the count | proved by Lean in the gate |
+| The digest is BLAKE3's | `blake3_official_0`, `_1`, `_64`, `_65` and `_1025`: BLAKE3 1.5.5's official vectors, worked out by Lean; 2,049 bytes took 2 min 55 s locally and is left to the replay | checked on five vectors |
+| The compiled guest gives BLAKE3's hash at any chunk size | all 35 official vectors (0 to 102,400 bytes) through the generated Rust of decision 54, in chunks of 1 (up to 9,000 bytes), 7, 61, 64, 1,024, 1,025 and 65,535 bytes (the last past the 63,788-byte cap a request now has; the fold itself has none): 242 runs, 242 equal, locally; 8 claims in `claims.json` replayed through the compiled guest on CI, among them 1,025 bytes in one call and in calls of 1,000 and 25 | replayed on CI, run locally |
+| A maximal request fits the guest | 33,736 bytes allocated for a 65,535-byte chunk by the generated Rust, against a bump allocator of 32 pages | measured locally |
+
+### The pinned test: `kernel_kn_70`
+
+| Planted defect | Result |
+| --- | --- |
+| the carried state checked for 1,743 hex characters instead of 1,744 | rejected: `decision 54 must check its length and state, and fold exactly its chunk` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
