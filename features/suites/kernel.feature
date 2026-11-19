@@ -447,3 +447,10 @@ Feature: kernel
     When the Lean kernel checks stream_cut, stream_reads_its_chunk and the official vectors of 0, 1, 64, 65 and 1025 bytes during lexlean verify in the gate
     Then feeding two chunks one after the other gives the state that feeding them joined gives, and the guest's loop over a chunk is that fold
     And the app recipe replays through the compiled guest the empty and one-byte official hashes, 1025 bytes in one call and in two calls of 1000 and 25 with the state carried, each equal to the official hash, and three refused requests
+
+  @KN-56 @build
+  Scenario: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even
+    Given the stage in app/src/Engine/Stage/Exp2.lex.tex and its proofs in app/src/Proofs/StageExp2.lex.tex, StageExp2Mid.lex.tex and StageExp2High.lex.tex
+    When the Lean kernel evaluates table_certified and rounded_at_shift_0 to rounded_at_shift_33 during lexlean verify in the gate
+    Then each of the 256 entries T at fraction j satisfies (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256
+    And for every shift s from 0 to 33 and every fraction, twice the distance between the output times 2^s and the entry is at most 2^s, and an exact tie gives an even output

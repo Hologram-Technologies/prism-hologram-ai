@@ -4791,3 +4791,61 @@ fn kernel_kn_60() {
         ],
     );
 }
+
+/// `KN-56`: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even
+#[test]
+fn kernel_kn_56() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Exp2.lex.tex");
+    let low = model("app/src/Proofs/StageExp2.lex.tex");
+    let mid = model("app/src/Proofs/StageExp2Mid.lex.tex");
+    let high = model("app/src/Proofs/StageExp2High.lex.tex");
+    assert_pinned(&low, "table_certified", "((certifiedBelow 256) = true)", "");
+    // Every shift a d below 8704 can have, each over all 256 fractions.
+    for shift in 0..34 {
+        let (proofs, call) = match shift {
+            0..=10 => (&low, "roundedBelow"),
+            11..=21 => (&mid, "Proofs.StageExp2::roundedBelow"),
+            _ => (&high, "Proofs.StageExp2::roundedBelow"),
+        };
+        assert_pinned(
+            proofs,
+            &format!("rounded_at_shift_{shift}"),
+            &format!("(({call} {shift} 256) = true)"),
+            "",
+        );
+    }
+    // The certificate and the rounding check are what the theorems mean.
+    for (name, body) in [
+        (
+            "certified",
+            "body: (((powBy (prim subtract (prim multiply 2 (Engine.Stage.Exp2::entry fraction) : Nat) 1 : Nat) 256 9) <? (powBy 2 (prim subtract 7936 fraction : Nat) 13)) && ((powBy 2 (prim subtract 7936 fraction : Nat) 13) <? (powBy ((prim multiply 2 (Engine.Stage.Exp2::entry fraction) : Nat) + 1) 256 9)))",
+        ),
+        (
+            "rounded",
+            "body: (((distanceTwice value shift out) <=? (Engine.Stage.Exp2::pow2 shift)) && ((not ((distanceTwice value shift out) =? (Engine.Stage.Exp2::pow2 shift))) || ((prim remainder out 2 0 : Nat) =? 0)))",
+        ),
+    ] {
+        let found = declaration(&low, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    // The stage reads entry d mod 256 and shifts it by d / 256.
+    for (name, body) in [
+        (
+            "exp2Neg",
+            "body: (shifted (entry (prim remainder distance 256 0 : Nat)) (prim quotient distance 256 0 : Nat))",
+        ),
+        (
+            "roundUp",
+            "body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below half rest) 1 (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below rest half) 0 (prim remainder quotient 2 0 : Nat)))",
+        ),
+    ] {
+        let found = declaration(&stage, name);
+        assert!(found.contains(body), "{name} changed:\n{found}");
+    }
+    assert_eq!(
+        stage.matches("\n  name: entryBlock").count(),
+        16,
+        "the table is sixteen blocks of sixteen entries"
+    );
+}
