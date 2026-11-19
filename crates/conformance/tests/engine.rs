@@ -2520,6 +2520,13 @@ fn engine_en_14() {
                 .unwrap_or(statement)
                 .split("\n  axioms:")
                 .next()
+                .unwrap_or(statement)
+                // A theorem lexlean fmt keeps on one line ends its statement here.
+                .split(", proof: ")
+                .next()
+                .unwrap_or(statement)
+                .split(", axioms: ")
+                .next()
                 .unwrap_or(statement);
             proved.insert(name, drawn(statement.trim().trim_end_matches(',')));
         }

@@ -4963,3 +4963,81 @@ fn kernel_kn_56() {
         "the table is sixteen blocks of sixteen entries"
     );
 }
+
+/// `KN-72`: Every product and limb sum an integer stage reasons about is a LexLean function with proved laws, since lexlean 0.3.0 can prove nothing about prim multiply of two variables: mulB, shift-and-add over a list of steps, splits into its low and high halves, is additive and scales in its multiplicand, and the 64-bit product of two words built from four 16-bit partial products equals mulB over 32 steps as two 32-bit limbs, each below 2^32, each partial at most 65535^2; add-with-carry over little-endian 32-bit limbs gives the sum of the two values and the carry in, the carry out at the weight of the limbs, and limbs below 2^32; that mulB equals the native multiply in exported code is trusted, not proved
+#[test]
+fn kernel_kn_72() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Word.lex.tex");
+    assert_pinned(
+        &proofs,
+        "mul_splits",
+        "((Engine.Word::mulB (Engine.Word::joined low high) a b) = ((Engine.Word::mulB low a b) + (Engine.Word::mulB high (Engine.Word::shiftUp low a) (Engine.Word::dropBits low b))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "mul_left_additive",
+        "((Engine.Word::mulB steps (x + y) b) = ((Engine.Word::mulB steps x b) + (Engine.Word::mulB steps y b)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_from_halves",
+        "((Engine.Word::mulB (Engine.Word::thirtyTwo) a b) = (((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) : Nat)) + (prim multiply 65536 ((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) + (prim multiply 65536 (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) : Nat)) : Nat)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_as_limbs",
+        "(((Engine.Word::productLow (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat))) + (prim multiply 4294967296 (Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder a 65536 0 : Nat) (prim quotient b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim remainder b 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient a 65536 0 : Nat) (prim quotient b 65536 0 : Nat))) : Nat)) = (Engine.Word::mulB (Engine.Word::thirtyTwo) a b))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "low_limb_is_word",
+        "((Engine.Word::productLow ll lh hl) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "high_limb_is_word",
+        "((Engine.Word::productHigh (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim remainder (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim remainder (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat)) (Engine.Word::mulB (Engine.Word::sixteen) (prim quotient (prim remainder a 4294967296 0 : Nat) 65536 0 : Nat) (prim quotient (prim remainder b 4294967296 0 : Nat) 65536 0 : Nat))) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "low_half_product_bound",
+        "((Engine.Word::mulB (Engine.Word::sixteen) (prim remainder x 65536 0 : Nat) y) <= 4294836225)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "limbs_add_with_carry",
+        "((Engine.Word::sumOf left right carry) = (((Engine.Word::limbsValue left) + (Engine.Word::limbsValue right)) + carry))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "carry_weight_is_final_carry",
+        "((Engine.Word::carryWeight left right carry) = (Engine.Word::shifted left (Engine.Word::finalCarry left right carry)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "added_limbs_are_words",
+        "((Engine.Word::allWords (Engine.Word::addLimbs left right carry)) = true)",
+        "Quot.sound, propext",
+    );
+    let word = model("app/src/Engine/Word.lex.tex");
+    assert!(
+        word.contains(
+            "definition{name: thirtyTwo, parameters: [], result: (List Nat), body: (joined (sixteen) (sixteen))}"
+        ),
+        "the 32-step multiply must be two 16-step halves"
+    );
+    assert!(
+        !word.contains("prim multiply a b") && !word.contains("prim multiply x y"),
+        "a product of two variables must be mulB, not prim multiply"
+    );
+}

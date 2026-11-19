@@ -659,6 +659,12 @@ suite = "kernel"
 statement = "A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request"
 
 [[id]]
+id = "KN-72"
+level = "build"
+suite = "kernel"
+statement = "Every product and limb sum an integer stage reasons about is a LexLean function with proved laws, since lexlean 0.3.0 can prove nothing about prim multiply of two variables: mulB, shift-and-add over a list of steps, splits into its low and high halves, is additive and scales in its multiplicand, and the 64-bit product of two words built from four 16-bit partial products equals mulB over 32 steps as two 32-bit limbs, each below 2^32, each partial at most 65535^2; add-with-carry over little-endian 32-bit limbs gives the sum of the two values and the carry in, the carry out at the weight of the limbs, and limbs below 2^32; that mulB equals the native multiply in exported code is trusted, not proved"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"

@@ -1618,6 +1618,40 @@ checked.
 A wrong table entry is the Lean gate's to catch, through `table_certified`; that
 plant was not run here.
 
+## KN-72, products and limb sums as LexLean functions
+
+lexlean 0.3.0 can prove nothing about `prim multiply` of two variables: every
+proof form stops at the runtime's multiply, so even `x * 0 = 0` fails. Lean's
+`omega` does read multiplication, division and remainder by a literal. So the
+integer stages reason about products through `Engine.Word::mulB`, a
+shift-and-add multiply over a list of steps (a list, because `simp` will not
+step through recursion on a numeral such as 16), and Ilya confirmed this route
+on 2026-11-20.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| `mulB` over 32 steps is its low 16 steps plus 65536 times its high 16 steps; it is additive and scales by 65536 in its multiplicand; its low half reads only the multiplier's low 16 bits | `mul_splits`, `mul_left_additive`, `mul_left_scale`, `low_reads_low`, with `shift_sixteen` and `drop_sixteen`, in `app/src/Proofs/Word.lex.tex` | proved by Lean in the gate, for every operand |
+| The 64-bit product of two numbers is the four 16-bit partial products recombined, and two 32-bit limbs carry it | `product_from_halves`, `product_as_limbs` (the recombination `productLow`/`productHigh` a kernel uses) | proved, for every two numbers |
+| The limbs and the partial products fit 32 bits | `low_limb_is_word`; `high_limb_is_word` for word operands; `low_half_product_bound` and `high_half_product_bound` (each partial at most 65535^2) | proved |
+| Add-with-carry over little-endian 32-bit limbs gives the sum and the carry in, the carry out at the weight of the limbs, and limbs below 2^32 | `limbs_add_with_carry`, `carry_weight_is_final_carry`, `added_limbs_are_words` | proved, for every two lists of limbs and every carry |
+| `mulB` equals the native multiply in exported code | not proved: it is a statement about `prim multiply`, which 0.3.0 cannot reason about. A GPU or CPU theorem that relies on a product names this link where it does. It needs a lemma in LexLean's runtime library, where multiply is defined, or a code generator that lowers `mulB` to the native multiply | trusted |
+
+Two techniques carried the proofs: an induction hypothesis over generalized
+variables is used as a `simp` rewrite, with small regrouping lemmas, since
+`omega` cannot instantiate it; and a step needing both a proved equation and
+arithmetic is stated over plain variables with the equation as a premise,
+proved by `linear_arithmetic`, and discharged by `simplify` with the equation's
+lemma (row 13's tip). `%` and `/` are kept out of the terms `omega` treats as
+opaque, because its preprocessing writes `x % 65536` one way inside such a term
+and another way outside.
+
+### The pinned test: `kernel_kn_72`
+
+| Planted defect | Result |
+| --- | --- |
+| a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
