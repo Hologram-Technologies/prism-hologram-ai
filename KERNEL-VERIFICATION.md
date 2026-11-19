@@ -1665,3 +1665,47 @@ given), all verified. `lexlean fmt --check`: canonical.
 | no claim answered `refused: unknown template` | rejected: `no decision-45 claim is answered ...` |
 | none | passed |
 
+
+## KN-73, the q4 product on WebGPU in integers
+
+The q4 MatMulNBits product is three kernels in `app/src/Engine/Gpu.lex.tex`,
+each one tree for every width, with kernel 1 (group sums) between the first
+two:
+
+| Kernel | Buffers | What one invocation does |
+| --- | --- | --- |
+| `q4Quantise` | input, codes, powers | one group of 32 binary32 activations: the largest magnitude by its bits, 16-bit codes rounded half to even, one power of two |
+| `q4Accumulate` | sums, half scales, powers, registers, output, units | one row: each group sum times its f16 scale, as a 64-bit product of 16-bit halves, added at its exact bit position into a 384-bit two's-complement register of 12 words; the unit count is read from the sixth buffer, so the text is the same for every width |
+| `q4Finish` | sums, half scales, powers, registers, output | one row: the register negated if negative, its top bit found, rounded once to binary32 with guard and sticky, subnormals and infinity included |
+
+No kernel names `f32` or `f16`; every value is a `u32` word.
+
+### What Lean checks
+
+`app/src/Proofs/GpuQ4Chain.lex.tex` runs the three kernels through
+`Engine.GpuRun` on the first fixture of `crates/exact` (32 activations, two
+rows) and gets `hologram_ai_exact`'s codes, power and two rows
+(`q4_quantise_codes_match_exact`, `q4_quantise_power_matches_exact`,
+`q4_row_matches_exact`). These are checks on one fixture, not proofs for every
+input; the equality with row 13's stage definitions follows once they land.
+
+`app/src/Proofs/GpuCode.lex.tex` checks that the guest prints each kernel's
+text exactly as `renderKernel` does (KN-49, now twelve theorems). The byte code
+is read from 32 pieces of 32 bytes: Lean's cost of reading a byte from one long
+byte literal grows with its position, and with one 620-byte literal the
+accumulator's check took over 10 GB.
+
+### Run on WebGPU
+
+The guest's own text of the three kernels, with kernel 1, ran in headless
+Chrome through prism-code's `runPlan` on 62 random cases from `crates/exact`
+(256 rows: 58 infinity, 63 subnormal, 132 negative), on AMD RDNA 3 and on
+SwiftShader, every stage equal to `hologram_ai_exact` bit for bit
+(2026-11-19). The harness lives outside this repository; a test here is the
+next change.
+
+### The pinned test: `kernel_kn_73`
+
+It pins the three fixture theorems with empty axioms, checks each kernel is
+a tree without parameters, and reads the guest's printed text of each from the
+claims to check it names no `f32` or `f16`.

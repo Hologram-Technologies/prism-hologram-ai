@@ -644,13 +644,19 @@ statement = "The base-two exponent of softmax is defined in LexLean, not Rust: e
 id = "KN-49"
 level = "build"
 suite = "kernel"
-statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request"
+statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request"
 
 [[id]]
 id = "KN-60"
 level = "build"
 suite = "kernel"
 statement = "A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request"
+
+[[id]]
+id = "KN-73"
+level = "build"
+suite = "kernel"
+statement = "The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows"
 
 [[id]]
 id = "EN-29"
