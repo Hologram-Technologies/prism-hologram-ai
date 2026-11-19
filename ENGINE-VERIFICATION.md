@@ -2705,3 +2705,56 @@ which a truncation of the final rounding would also meet.
 
 Not in LexLean yet, as EN-43 to EN-47 are not: the stages are Rust, checked by
 these tests; their LexLean definitions follow the engine's other stages.
+
+## EN-62 and EN-63, the encoders in integers
+
+`hologram-ai-cpu-encode` runs row 9's encoders, all-MiniLM-L6-v2 for
+embeddings and DistilBERT SST-2 for labels, as `hologram-ai-cpu-decode` runs
+the decoders: hidden states are binary32 bit patterns touched only by integer
+code, and every stage rounds its result once, half to even. The weights come
+in by the roles the page already places them in (`onnx-roles.mjs`, GP-17), so
+the crate reads no graph. The stages:
+
+- the embedding: word, position and type-0 rows summed exactly, rounded once,
+  then LayerNorm (EN-60), each value entering in units of `2^-16`; the
+  normalised value times its weight plus its bias rounded once;
+- attention: the 4-bit products (EN-34 to EN-41) plus their biases, scores
+  as exact sums rounded once, softmax on the certified exponent table (EN-43,
+  EN-44) with `floor(2^40 / sqrt(d))`, every token attending to every other;
+- the feed-forward: the 4-bit products, GELU (EN-61) entering in units of
+  `2^-16`; residuals added and rounded once; LayerNorm after each block;
+- the embedding: the tokens' sum, not their mean, since unit length cancels
+  the count, each sum rounded once and entering in units of `2^-16`, divided
+  by the integer square root of its sum of squares, rounded to `2^-40`;
+- the label: the first token through the dense pre-classifier and its bias,
+  ReLU, then the dense classifier and its bias; the first largest score.
+
+The encoders' LayerNorm epsilon, `1e-12`, is below one unit of `2^-32` and
+enters as 0; a row of equal values is then refused (FL-72) rather than
+divided by a root of 0.
+
+Measured on GP-13's and GP-14's fixtures (two layers, width 128, q4f16
+matrices, sentences of 6 and 60 tokens) against the double-precision
+reference in `encoder-reference.mjs`, on 2026-11-19: every embedding
+component within `1.0e-5`, every label score within `9.8e-5`, the labels
+equal, and a second run the same bits. The gates are `2^-14` and `2^-10`.
+
+### The gate: `cargo test -p repo-conformance --test engine -- engine_en_62 engine_en_63`
+
+| Planted defect | Result |
+| --- | --- |
+| a causal mask, each token attending only to those before it | rejected: `a component -0.10827174782752991 is more than 0.00006103515625 from -0.12034248511094504`, and the score likewise |
+| ReLU in place of GELU | rejected: `a component -0.1134413331747055 is more than 0.00006103515625 from ...` |
+| the head without its ReLU | rejected: `a score -0.042501743882894516 is more than 0.0009765625 from -0.06594562553038026` |
+| attention scaled by `d` instead of `sqrt d` | rejected: `a score -0.07636036723852158 is more than 0.0009765625 from ...` |
+| none | passed |
+
+FL-70 to FL-73 are refused as their scenarios say: a missing query matrix
+and a misshapen feed-forward as `Unrecognised`, an infinite scale as
+`Exact(ScaleNotFinite)`, all-zero tables as `NormRefused`, and an empty
+sentence, an id past the vocabulary and 65 tokens past a 64-row position
+table as `TokenOutOfRange`.
+
+Not yet: the page's feature-extraction and text-classification paths through
+the module, and the agreement on the real exports, which waits on Ilya's word
+to download them.
