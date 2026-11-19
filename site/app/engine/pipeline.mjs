@@ -15,7 +15,7 @@
 // on the model's own ids, and the template's head is reused only on decision
 // 27. The page is one caller of this module; nothing here reads the page.
 
-import { createCpuEngine } from "./cpu.mjs";
+import { createIntegerEngine } from "./integer.mjs";
 import { createEngine } from "./gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
@@ -163,7 +163,7 @@ export async function pipeline(task, model, options = {}) {
       }
     },
     onProgress: (file, done) => { if (file === 0) onProgress(done / graph.size); },
-    build: async (dims, tensors) => {
+    build: async (dims, tensors, raw) => {
       // The device is the kernel's decision 22, on the largest buffer the GPU
       // engine would bind: a dense embedding or head is tiled by rows, so one
       // row; a 4-bit weight binds its codes and its scales apart.
@@ -174,7 +174,7 @@ export async function pipeline(task, model, options = {}) {
       const limit = gpu ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
       on = await ask("device", "device to run on", join(new Uint8Array([22, gpu ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
       onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : createCpuEngine({ dims, tensors, capacity: CAPACITY });
+      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : createIntegerEngine({ module, ...raw, capacity: CAPACITY });
     },
   });
   // A failed load forgets every file it read or kept here, since one of them

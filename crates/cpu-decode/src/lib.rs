@@ -525,6 +525,7 @@ pub fn read<'a>(
 
 /// What a run holds between steps: each layer's keys and values, binary32
 /// bit patterns, position after position.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     keys: Vec<Vec<u32>>,
     values: Vec<Vec<u32>>,
@@ -546,6 +547,27 @@ impl Session {
     #[must_use]
     pub fn position(&self) -> u32 {
         self.position
+    }
+    /// The run as it was after its first `length` tokens, which a later turn
+    /// that opens the same way carries on from; `None` past what it has seen.
+    #[must_use]
+    pub fn prefix(&self, length: u32) -> Option<Self> {
+        if length > self.position {
+            return None;
+        }
+        let cut = |rows: &Vec<Vec<u32>>| {
+            rows.iter()
+                .map(|layer| {
+                    let width = layer.len() / usize::try_from(self.position).unwrap_or(1).max(1);
+                    layer[..width * length as usize].to_vec()
+                })
+                .collect()
+        };
+        Some(Self {
+            keys: cut(&self.keys),
+            values: cut(&self.values),
+            position: length,
+        })
     }
 }
 

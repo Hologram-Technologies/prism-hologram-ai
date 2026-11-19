@@ -8,18 +8,12 @@
 // bytes and keeps the checks a reader sees.
 
 import { compileTemplate } from "./jinja.mjs";
-import { confirmRope, engineTensors, ropeCandidates, roles } from "./onnx-roles.mjs";
+import { engineTensors, ropeCandidates, roles } from "./onnx-roles.mjs";
 
 const text = new TextDecoder();
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 const unhex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
 const HEX = /^[0-9a-f]{64}$/;
-const half = (h) => {
-  const e = (h >> 10) & 31;
-  const m = h & 1023;
-  const v = e === 0 ? m * 2 ** -24 : (1024 + m) * 2 ** (e - 25);
-  return h & 0x8000 ? -v : v;
-};
 
 // open(path) answers a ReadableStream of the file's bytes: fetch in the page,
 // local bytes in a test.
@@ -74,7 +68,7 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     if (!ok) throw new Error(`${p} is not the file the record names`);
     return bytes;
   };
-  const config = JSON.parse(text.decode(await small("config.json")));
+  const configText = text.decode(await small("config.json")), config = JSON.parse(configText);
   const generation = await small("generation_config.json", true);
   m.callWith("tokeniser_read", await small("tokenizer.json"));
   // The chat template is the model's own, from tokenizer_config.json, with the
@@ -156,21 +150,21 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
     if (!table.places.cos_cache || !table.places.sin_cache) throw new Error("rope: the config names no scaling and the export has no cos and sin cache to check one against");
     const [cosType, [cacheRows, width]] = table.tensors.cos_cache;
     if (cosType !== "f16") throw new Error(`rope: the cos cache is ${cosType}, read here as f16 only`);
+    // The module compares the cache's f16 bits with the engine's own integer
+    // angles for each candidate (KN-51, EN-59): no float decides it.
     const cos = new Uint16Array(read("cos_cache").slice().buffer);
     const sin = new Uint16Array(read("sin_cache").slice().buffer);
-    const rows = [1, 7, 1000, 8191].filter((p) => p < cacheRows).map((position) => ({
-      position,
-      cos: Array.from(cos.subarray(position * width, (position + 1) * width), half),
-      sin: Array.from(sin.subarray(position * width, (position + 1) * width), half),
-    }));
-    const confirmed = confirmRope(candidates, dims, rows);
-    rope = confirmed.dims;
-    checks.add("rope", "rotary parameters agree with the export's own cache", "pass", `${JSON.stringify(rope)}, worst ${confirmed.worst.toExponential(1)}`);
+    const rows = [1, 7, 1000, 8191].filter((p) => p < cacheRows).map((p) => [p, ...[cos, sin].map((c) => Array.from(c.subarray(p * width, (p + 1) * width)))]);
+    const asked = { config: configText, head_dim: dims.hd, width, rows, candidates: candidates.map((c) => (c.kind === "llama3" ? { factor: c.llama3.factor, low: c.llama3.low, high: c.llama3.high, original: c.llama3.orig } : null)) };
+    const { chosen } = JSON.parse(text.decode(m.callWith("rope_confirm", new TextEncoder().encode(JSON.stringify(asked)))));
+    if (chosen === null) throw new Error("rope: no rotary parameters agree with the model's cos and sin cache");
+    rope = candidates[chosen].kind === "llama3" ? { llama3: candidates[chosen].llama3 } : {};
+    checks.add("rope", "rotary parameters agree with the export's own cache", "pass", `${JSON.stringify(rope)}, every entry within 2^-9`);
   } else {
     throw new Error(`rope: the config's scaling ${JSON.stringify(config.rope_scaling)} is not one this engine runs`);
   }
 
-  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read));
+  const engine = await build({ ...dims, ...rope }, engineTensors(weights, read), { table, read, config: configText, rope: { ...rope } });
   // The ids the model stops on, as its own files name them.
   const named = (generation ? JSON.parse(text.decode(generation)).eos_token_id : null) ?? config.eos_token_id;
   const stops = new Set([named].flat().filter((id) => Number.isInteger(id)));
