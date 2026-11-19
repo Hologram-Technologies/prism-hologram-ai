@@ -465,6 +465,14 @@ suite = "engine"
 condition = "A stored format has no exact codec, so it is refused by name instead of run approximately"
 
 [[failure]]
+id = "FL-60"
+crate = "chat"
+type = "TemplateError"
+variant = "ReasoningInTurn"
+suite = "engine"
+condition = "A Qwen3 assistant turn carries </think> reasoning, which the defined subset leaves out, so the conversation is refused by name"
+
+[[failure]]
 id = "FL-55"
 crate = "cpu-decode"
 type = "DecodeError"
