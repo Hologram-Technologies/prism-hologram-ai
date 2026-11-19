@@ -447,3 +447,11 @@ Feature: kernel
     When the Lean kernel checks stream_cut, stream_reads_its_chunk and the official vectors of 0, 1, 64, 65 and 1025 bytes during lexlean verify in the gate
     Then feeding two chunks one after the other gives the state that feeding them joined gives, and the guest's loop over a chunk is that fold
     And the app recipe replays through the compiled guest the empty and one-byte official hashes, 1025 bytes in one call and in two calls of 1000 and 25 with the state carried, each equal to the official hash, and three refused requests
+
+  @KN-71 @build
+  Scenario: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+    Given the pick in app/src/Engine/Step.lex.tex over KN-55's key in app/src/Engine/Stage/Greedy.lex.tex, decision 71 in app/src/Kernel/Step.lex.tex and its proofs in app/src/Proofs/Step.lex.tex
+    When the Lean kernel checks step_cut, step_reads_its_chunk, picked_key_is_max, fresh_takes_first and five pick_is_greedy fixtures during lexlean verify in the gate
+    Then two chunks fed one after the other give the pick the two joined give, and the guest's loop over a chunk is that fold
+    And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
+    And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests

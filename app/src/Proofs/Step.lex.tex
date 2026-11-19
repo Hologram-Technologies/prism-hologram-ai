@@ -1,0 +1,121 @@
+\begin{lexlean}{Proofs.Step}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stream}
+\importmodule{Engine.Step}
+\importmodule{Kernel.Step}
+\importmodule{Proofs.StageGreedy}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: step_cut,
+  parameters: [early : (List Nat), kept : Engine.Step::Pick, later : (List Nat)],
+  statement: ((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later))),
+  proof: induction{
+    scrutinee: early,
+    generalizing: [kept],
+    branches: [
+      {proof: simplify{definitions: [Engine.Step::feedPick, Engine.Stream::join]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [hypothesis, Engine.Step::feedPick, Engine.Stream::join]}, binders: [head, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: key_of_chosen,
+  parameters: [flag : Nat, chosen : Nat, other : Nat],
+  statement: ((Engine.Stage.Greedy::key (Engine.Stage.Greedy::pick flag chosen other)) = (Engine.Stage.Greedy::pick flag (Engine.Stage.Greedy::key chosen) (Engine.Stage.Greedy::key other))),
+  proof: cases{
+    scrutinee: flag,
+    branches: [
+      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [], constructor: zero},
+      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [rest], constructor: succ}
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: advance_counted,
+  parameters: [count : Nat, best : Nat, bits : Nat, logit : Nat],
+  statement: ((Engine.Step::advance (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logit) = (record Engine.Step::Pick {seen := (count + 2), best := (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Greedy::key bits) (Engine.Stage.Greedy::key logit)) (count + 1) best), bits := (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Greedy::key bits) (Engine.Stage.Greedy::key logit)) logit bits)})),
+  proof: simplify{definitions: [Engine.Step::advance]},
+  axioms: [propext]
+}
+
+theorem{
+  name: picked_key_is_max,
+  parameters: [logits : (List Nat), count : Nat, best : Nat, bits : Nat],
+  statement: ((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits)),
+  proof: induction{
+    scrutinee: logits,
+    generalizing: [best, bits, count],
+    branches: [
+      {proof: simplify{definitions: [Engine.Step::feedPick, Engine.Step::maxKeyFrom]}, binders: [], constructor: nil},
+      {proof: simplify{definitions: [advance_counted, hypothesis, key_of_chosen, Engine.Step::feedPick, Engine.Step::maxKeyFrom, Proofs.StageGreedy::pick_is_max]}, binders: [head, rest, hypothesis], constructor: cons}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: fresh_takes_first,
+  parameters: [opening : Nat, logits : (List Nat)],
+  statement: ((Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) = (Engine.Step::feedPick (record Engine.Step::Pick {seen := (0 + 1), best := 0, bits := opening}) logits)),
+  proof: simplify{definitions: [Engine.Step::advance, Engine.Step::feedPick, Engine.Step::freshPick]},
+  axioms: [propext]
+}
+theorem{
+  name: step_reads_its_chunk,
+  parameters: [fuel : Nat, index : Nat, kept : Engine.Step::Pick, value : Bytes],
+  statement: ((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index))),
+  proof: induction{
+    scrutinee: fuel,
+    generalizing: [index, kept],
+    branches: [
+      {proof: simplify{definitions: [Engine.Step::feedPick, Kernel.Step::stepChunk, Kernel.Step::stepFeed]}, binders: [], constructor: zero},
+      {proof: simplify{definitions: [hypothesis, Engine.Step::feedPick, Kernel.Step::stepChunk, Kernel.Step::stepFeed]}, binders: [rest, hypothesis], constructor: succ}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pick_is_greedy_ordered,
+  parameters: [],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 1065353216 (cons 1077936128 (cons 1073741824 (nil Nat))))) best) = (Engine.Stage.Greedy::greedy (cons 1065353216 (cons 1077936128 (cons 1073741824 (nil Nat)))))),
+  proof: reflexivity{}
+}
+
+theorem{
+  name: pick_is_greedy_first_of_ties,
+  parameters: [],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 1073741824 (cons 1084227584 (cons 1084227584 (nil Nat))))) best) = (Engine.Stage.Greedy::greedy (cons 1073741824 (cons 1084227584 (cons 1084227584 (nil Nat)))))),
+  proof: reflexivity{}
+}
+
+theorem{
+  name: pick_is_greedy_all_negative,
+  parameters: [],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 3212836864 (cons 3225419776 (cons 3204448256 (nil Nat))))) best) = (Engine.Stage.Greedy::greedy (cons 3212836864 (cons 3225419776 (cons 3204448256 (nil Nat)))))),
+  proof: reflexivity{}
+}
+
+theorem{
+  name: pick_is_greedy_zeros_tie,
+  parameters: [],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 0 (cons 2147483648 (nil Nat)))) best) = (Engine.Stage.Greedy::greedy (cons 0 (cons 2147483648 (nil Nat))))),
+  proof: reflexivity{}
+}
+
+theorem{
+  name: pick_is_greedy_one,
+  parameters: [],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 3212836864 (nil Nat))) best) = (Engine.Stage.Greedy::greedy (cons 3212836864 (nil Nat)))),
+  proof: reflexivity{}
+}
+\end{semanticmodule}
+\end{lexlean}
