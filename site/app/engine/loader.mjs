@@ -5,8 +5,37 @@
 // (app.holo). This module moves bytes between them and keeps the record.
 
 import { HubClientError, openIndex, readRecord } from "./hub/hub-client.mjs";
+import { uorShardOf } from "./hub/uorkey.mjs";
 
 const text = new TextDecoder();
+
+// The hub's index files (its signed root, the signature, a model's record, the
+// UOR index and its shards), kept in this browser as they are read, so a
+// return visit with the network off reads them from here. Nothing kept is
+// trusted: the hub's client checks the kept root by its signature and the
+// record by the root's BLAKE3 exactly as it checks a download, and the
+// manifest is checked by the importer's own addresses (decision 28). Only a
+// network failure falls back to the kept copy; an answer from the hub, even a
+// refusal, is the hub's. `offline` counts the files read from here.
+export function keptFetch(name = "hologram-hub") {
+  const offline = [];
+  const kept = async (input) => {
+    const url = String(input);
+    const store = globalThis.caches ? await caches.open(name) : null;
+    let response;
+    try {
+      response = await fetch(url);
+    } catch (error) {
+      const hit = store && (await store.match(url));
+      if (!hit) throw error;
+      offline.push(url);
+      return hit;
+    }
+    if (response.ok && store) await store.put(url, response.clone());
+    return response;
+  };
+  return Object.assign(kept, { offline });
+}
 
 // The wasm module's calls, with bytes in and out through its linear memory.
 // Every call answers 0 for yes; a no leaves the failure's name as the result.
@@ -122,7 +151,7 @@ export function asker(kernel, checks) {
 // page pins (hub/policy.json, the hub model's own anchors), and the record by
 // the BLAKE3 the root names. A policy fetched from the hub would be vouched for
 // by the thing it is meant to check, so the page carries its own.
-export async function hubRecord({ indexBase, repo, checks }) {
+export async function hubRecord({ indexBase, repo, checks, fetch: hubFetch = keptFetch() }) {
   const policy = await (await fetch(new URL("./hub/policy.json", import.meta.url))).json();
   const { blake3Hex } = await import("../../vendor/prism-code/src/blake3.mjs");
   const hash = async (input) => {
@@ -136,11 +165,12 @@ export async function hubRecord({ indexBase, repo, checks }) {
   const base = new URL(`${indexBase.replace(/\/$/, "")}/`, location.href);
   let index = null;
   try {
-    index = await openIndex(base, policy, { hash });
+    index = await openIndex(base, policy, { hash, fetch: hubFetch });
     checks.add("record", "index root signature", "pass", `signed by ${policy.identity}, logged at ${index.facts.signedAt}`);
     const record = await readRecord(index, repo);
     const entry = index.root.records.find((r) => r.repo.toLowerCase() === repo.toLowerCase());
     checks.add("record", "hub record matches the index root", "pass", `record blake3 ${entry.blake3}`);
+    if (hubFetch.offline?.length) checks.add("record", "hub index read from this browser, checked again", "pass", `the network is off: ${hubFetch.offline.length} files kept on an earlier visit, the root proved by its signature and the record by its BLAKE3 as a download is`);
     return record;
   } catch (error) {
     if (!(error instanceof HubClientError)) throw error;
@@ -148,6 +178,56 @@ export async function hubRecord({ indexBase, repo, checks }) {
     checks.add("record", subject, "fail", `${error.code}: ${error.message}`);
     throw new Error(`${error.code}: ${error.message}`);
   }
+}
+
+// Every tensor of a model's graph and data files, with its BLAKE3 address,
+// from the hub's UOR index (`data/uor` beside `data/index`): the shard the
+// hub's own rule names (hub/uorkey.mjs), checked against the BLAKE3 the UOR
+// root gives it, and the row for this record's revision and file. The index
+// is not signed; an address in it is only where to look. What vouches for
+// the bytes is the record's whole-file BLAKE3, checked by the importer, and
+// decision 28 then asks that every listed address is the one the importer
+// derived. A model the index does not list is refused by name: no address is
+// invented in the browser (Q_ENGINE_PLAN.md, answered 2026-11-18).
+// Answers a Map from each file's path to { size, blake3, tensors }.
+export async function tensorManifest({ indexBase, record, paths, checks, fetch: hubFetch = keptFetch() }) {
+  const { blake3Hex } = await import("../../vendor/prism-code/src/blake3.mjs");
+  const base = new URL(`${indexBase.replace(/\/$/, "")}/../uor/`, location.href);
+  const refuse = (why) => {
+    checks.add("manifest", "tensor addresses from the hub's UOR index", "fail", why);
+    throw new Error(`no tensor manifest: ${why}`);
+  };
+  const json = async (url, what) => {
+    let response;
+    try {
+      response = await hubFetch(url);
+    } catch (error) {
+      return refuse(`${what}: ${error.message}`);
+    }
+    if (!response.ok) return refuse(`${what}: HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+  const root = JSON.parse(text.decode(await json(new URL("root.json", base), "the UOR index root")));
+  const shardPath = await uorShardOf(record.repo, root.shardBits);
+  const listed = root.shards?.find((s) => s.path === shardPath);
+  if (!listed) refuse(`the hub's UOR index lists no tensors for ${record.repo}: it has no ${shardPath}`);
+  const bytes = await json(new URL(shardPath, base), shardPath);
+  if (blake3Hex(bytes) !== listed.blake3) refuse(`${shardPath} is not the bytes the UOR root names`);
+  const rows = JSON.parse(text.decode(bytes));
+  const manifest = new Map();
+  for (const path of paths) {
+    const file = record.files.find((f) => f.path === path);
+    const row = rows.find((r) => r.repo.toLowerCase() === record.repo.toLowerCase() && r.revision === record.revision && r.files?.some((f) => f.path === path));
+    if (!row) refuse(`the hub's UOR index lists no tensors for ${record.repo} ${path} at ${record.revision}`);
+    const named = row.files.find((f) => f.path === path);
+    if (named.blake3 !== file?.blake3 || named.size !== file?.size) refuse(`the hub's UOR index row for ${path} names another file than the record does`);
+    const tensors = row.tensors.filter((t) => t.file === path).map((t) => ({ name: t.name, offset: t.offset, length: t.length, address: t.address }));
+    if (!tensors.length || tensors.some((t) => !/^blake3:[0-9a-f]{64}$/.test(t.address))) refuse(`the hub's UOR index row for ${path} gives no BLAKE3 address to some tensor`);
+    manifest.set(path, { size: file.size, blake3: file.blake3, tensors });
+  }
+  const count = [...manifest.values()].reduce((n, m) => n + m.tensors.length, 0);
+  checks.add("manifest", "tensor addresses from the hub's UOR index", "pass", `${count} tensors in ${manifest.size} files, from ${shardPath}`);
+  return manifest;
 }
 
 // Load the container at `url` (size and whole-file SHA-256 from the record)

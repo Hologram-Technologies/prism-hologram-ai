@@ -12,6 +12,11 @@ copies; nothing here is rebuilt or edited.
 - `sigstore.mjs`, from `web/sigstore.mjs`: BLAKE3
   `0f25ca52fed3967f36d291179b35b36f10ed39f60c46be948b94037a369f3afa`, the
   value `hub-client.mjs` pins as `SIGSTORE_BLAKE3`
+- `uorkey.mjs`, from `web/uorkey.mjs`: BLAKE3
+  `deb1fedd333e84c08e15c44fa6b1517bd2ec6e95964a80b2a477ccac0393cac9`, the
+  hub's one rule for which shard of its UOR address index holds a
+  repository's per-tensor addresses; the hub files rows by it, so the page
+  finds them by it rather than by a second spelling
 
 `hub-client.mjs` loads the hub's own hasher (`piece-hash.mjs`,
 `piece-hash.wasm`, `pieces.mjs`) only when its caller brings no hash. The page
