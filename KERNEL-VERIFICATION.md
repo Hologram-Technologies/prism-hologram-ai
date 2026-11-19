@@ -1596,6 +1596,14 @@ CI's acceptance run on 2026-11-19 refused `chat_role_known_decides` as
 pinned, since Lean observed only `propext`; the CI-pinned lexlean 0.3.0 then
 found the same of `chat_family_known_decides`, and both pins now say so.
 
+The answer has a ceiling of its own. The app declared `responseMaximum` 256,
+and the compiled guest traps on a longer answer: three Llama claims, 298, 312
+and 359 bytes long, failed the replay as `unreachable` while the rest passed.
+A render is at most 465 bytes (four turns of 14 bytes, the longest role
+name, the assistant prompt on), so the maximum is 512. Before it was raised,
+the guest was built locally with PrismPM's vendored exporter and code
+generator under lexlean 0.3.0, and it answered all 345 claims as listed.
+
 What is proved is the shape of the guards, not the render: that the
 definition renders a request as transformers does is checked on examples, in
 two places. The compiled guest replays every decision-46 claim in

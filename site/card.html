@@ -49,9 +49,10 @@
     <option value="43">44. Rounded quotient</option>
     <option value="44">45. Chat template</option>
     <option value="45">46. Chat template</option>
-    <option value="46">49. Config number</option>
-    <option value="47">50. Rotary cache entry</option>
-    <option value="48">70. A transformers.js call</option>
+    <option value="46">48. Kernel text</option>
+    <option value="47">49. Config number</option>
+    <option value="48">50. Rotary cache entry</option>
+    <option value="49">70. A transformers.js call</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -3067,6 +3068,67 @@
       "module": "Chat",
       "name": "Chat template",
       "tag": 46
+    },
+    {
+      "asks": "What is this piece of the kernel's WGSL?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "q4 group sums",
+              1
+            ],
+            [
+              "softmax exponent",
+              2
+            ]
+          ],
+          "name": "Kernel",
+          "value": 1,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Piece",
+          "value": 0,
+          "width": 2
+        },
+        {
+          "at": 4,
+          "name": "Units per row",
+          "value": 4,
+          "width": 4
+        },
+        {
+          "at": 8,
+          "name": "Codes per row (128, 256, 1024, 1536, 2048, 3072, 8192 or 8960)",
+          "value": 128,
+          "width": 4
+        },
+        {
+          "at": 12,
+          "name": "Zero points per row",
+          "value": 0,
+          "width": 4
+        },
+        {
+          "at": 16,
+          "choice": [
+            [
+              "no",
+              0
+            ]
+          ],
+          "name": "Zero points packed",
+          "value": 0,
+          "width": 1
+        }
+      ],
+      "length": 17,
+      "module": "Render",
+      "name": "Kernel text",
+      "tag": 48
     },
     {
       "asks": "Is this the binary32, or the whole number, a config number written in decimal names?",
