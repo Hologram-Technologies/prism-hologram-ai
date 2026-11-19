@@ -1,0 +1,205 @@
+\begin{lexlean}{Engine.Blake3}
+\useglossary{lexlean.std.nat@1.2.0}
+\title{Natural number addition}
+\begin{semanticmodule}
+structure{
+  name: Digest,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: h0, type: UInt32},
+    {name: h1, type: UInt32},
+    {name: h2, type: UInt32},
+    {name: h3, type: UInt32},
+    {name: h4, type: UInt32},
+    {name: h5, type: UInt32},
+    {name: h6, type: UInt32},
+    {name: h7, type: UInt32}
+  ]
+}
+
+structure{
+  name: Words,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: w0, type: UInt32},
+    {name: w1, type: UInt32},
+    {name: w2, type: UInt32},
+    {name: w3, type: UInt32},
+    {name: w4, type: UInt32},
+    {name: w5, type: UInt32},
+    {name: w6, type: UInt32},
+    {name: w7, type: UInt32},
+    {name: w8, type: UInt32},
+    {name: w9, type: UInt32},
+    {name: w10, type: UInt32},
+    {name: w11, type: UInt32},
+    {name: w12, type: UInt32},
+    {name: w13, type: UInt32},
+    {name: w14, type: UInt32},
+    {name: w15, type: UInt32}
+  ]
+}
+
+structure{
+  name: Quad,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: a, type: UInt32},
+    {name: b, type: UInt32},
+    {name: c, type: UInt32},
+    {name: d, type: UInt32}
+  ]
+}
+
+definition{
+  name: shiftRight,
+  parameters: [value : UInt32, amount : UInt32],
+  result: UInt32,
+  body: (match (prim shift_right value amount : (Option UInt32))
+    | Option.some shifted => shifted
+    | Option.none => (0 : UInt32)),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: shiftLeft,
+  parameters: [value : UInt32, amount : UInt32],
+  result: UInt32,
+  body: (match (prim shift_left value amount : (Option UInt32))
+    | Option.some shifted => shifted
+    | Option.none => (0 : UInt32)),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: half,
+  parameters: [value : (Option UInt32)],
+  result: UInt32,
+  body: (match value | Option.some sum => sum | Option.none => (0 : UInt32)),
+  executable: true
+}
+
+definition{
+  name: add,
+  parameters: [left : UInt32, right : UInt32],
+  result: UInt32,
+  body: (let low : UInt32 := (half (prim checked_add (prim bit_and left (65535 : UInt32) : UInt32) (prim bit_and right (65535 : UInt32) : UInt32) : (Option UInt32))); (let high : UInt32 := (half (prim checked_add (half (prim checked_add (shiftRight left (16 : UInt32)) (shiftRight right (16 : UInt32)) : (Option UInt32))) (shiftRight low (16 : UInt32)) : (Option UInt32))); (prim bit_or (shiftLeft (prim bit_and high (65535 : UInt32) : UInt32) (16 : UInt32)) (prim bit_and low (65535 : UInt32) : UInt32) : UInt32))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: rotateRight,
+  parameters: [value : UInt32, amount : UInt32, complement : UInt32],
+  result: UInt32,
+  body: (prim bit_or (shiftRight value amount) (shiftLeft value complement) : UInt32),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: mix,
+  parameters: [a : UInt32, b : UInt32, c : UInt32, d : UInt32, x : UInt32, y : UInt32],
+  result: Quad,
+  body: (let a1 : UInt32 := (add (add a b) x); (let d1 : UInt32 := (rotateRight (prim bit_xor d a1 : UInt32) (16 : UInt32) (16 : UInt32)); (let c1 : UInt32 := (add c d1); (let b1 : UInt32 := (rotateRight (prim bit_xor b c1 : UInt32) (12 : UInt32) (20 : UInt32)); (let a2 : UInt32 := (add (add a1 b1) y); (let d2 : UInt32 := (rotateRight (prim bit_xor d1 a2 : UInt32) (8 : UInt32) (24 : UInt32)); (let c2 : UInt32 := (add c1 d2); (let b2 : UInt32 := (rotateRight (prim bit_xor b1 c2 : UInt32) (7 : UInt32) (25 : UInt32)); (record Quad {a := a2, b := b2, c := c2, d := d2}))))))))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: round,
+  parameters: [state : Words, block : Words],
+  result: Words,
+  body: (let q0 : Quad := (mix (project state w0) (project state w4) (project state w8) (project state w12) (project block w0) (project block w1)); (let q1 : Quad := (mix (project state w1) (project state w5) (project state w9) (project state w13) (project block w2) (project block w3)); (let q2 : Quad := (mix (project state w2) (project state w6) (project state w10) (project state w14) (project block w4) (project block w5)); (let q3 : Quad := (mix (project state w3) (project state w7) (project state w11) (project state w15) (project block w6) (project block w7)); (let r0 : Quad := (mix (project q0 a) (project q1 b) (project q2 c) (project q3 d) (project block w8) (project block w9)); (let r1 : Quad := (mix (project q1 a) (project q2 b) (project q3 c) (project q0 d) (project block w10) (project block w11)); (let r2 : Quad := (mix (project q2 a) (project q3 b) (project q0 c) (project q1 d) (project block w12) (project block w13)); (let r3 : Quad := (mix (project q3 a) (project q0 b) (project q1 c) (project q2 d) (project block w14) (project block w15)); (record Words {w0 := (project r0 a), w1 := (project r1 a), w2 := (project r2 a), w3 := (project r3 a), w4 := (project r3 b), w5 := (project r0 b), w6 := (project r1 b), w7 := (project r2 b), w8 := (project r2 c), w9 := (project r3 c), w10 := (project r0 c), w11 := (project r1 c), w12 := (project r1 d), w13 := (project r2 d), w14 := (project r3 d), w15 := (project r0 d)}))))))))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: permute,
+  parameters: [block : Words],
+  result: Words,
+  body: (record Words {w0 := (project block w2), w1 := (project block w6), w2 := (project block w3), w3 := (project block w10), w4 := (project block w7), w5 := (project block w0), w6 := (project block w4), w7 := (project block w13), w8 := (project block w1), w9 := (project block w11), w10 := (project block w12), w11 := (project block w5), w12 := (project block w9), w13 := (project block w14), w14 := (project block w15), w15 := (project block w8)}),
+  executable: true
+}
+
+definition{
+  name: initial,
+  parameters: [],
+  result: Digest,
+  body: (record Digest {h0 := (1779033703 : UInt32), h1 := (3144134277 : UInt32), h2 := (1013904242 : UInt32), h3 := (2773480762 : UInt32), h4 := (1359893119 : UInt32), h5 := (2600822924 : UInt32), h6 := (528734635 : UInt32), h7 := (1541459225 : UInt32)}),
+  executable: true
+}
+
+definition{
+  name: wordBits,
+  parameters: [fuel : Nat, value : Nat, mask : UInt32, bits : UInt32],
+  result: UInt32,
+  body: (match fuel
+    | Nat.zero => bits
+    | Nat.succ rest => (wordBits rest (prim quotient value 2 0 : Nat) (shiftLeft mask (1 : UInt32)) (if ((prim remainder value 2 0 : Nat) =? 1) then (prim bit_or bits mask : UInt32) else bits))),
+  axioms: [Quot.sound, propext],
+  executable: true,
+  recursive_argument: fuel
+}
+
+definition{
+  name: word32,
+  parameters: [value : Nat],
+  result: UInt32,
+  body: (wordBits 32 value (1 : UInt32) (0 : UInt32)),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: compress,
+  parameters: [chain : Digest, block : Words, counter : Nat, length : UInt32, flags : UInt32],
+  result: Digest,
+  body: (let s0 : Words := (record Words {w0 := (project chain h0), w1 := (project chain h1), w2 := (project chain h2), w3 := (project chain h3), w4 := (project chain h4), w5 := (project chain h5), w6 := (project chain h6), w7 := (project chain h7), w8 := (1779033703 : UInt32), w9 := (3144134277 : UInt32), w10 := (1013904242 : UInt32), w11 := (2773480762 : UInt32), w12 := (word32 counter), w13 := (word32 (prim quotient counter 4294967296 0 : Nat)), w14 := length, w15 := flags}); (let m1 : Words := (permute block); (let m2 : Words := (permute m1); (let m3 : Words := (permute m2); (let m4 : Words := (permute m3); (let m5 : Words := (permute m4); (let m6 : Words := (permute m5); (let final : Words := (round (round (round (round (round (round (round s0 block) m1) m2) m3) m4) m5) m6); (record Digest {h0 := (prim bit_xor (project final w0) (project final w8) : UInt32), h1 := (prim bit_xor (project final w1) (project final w9) : UInt32), h2 := (prim bit_xor (project final w2) (project final w10) : UInt32), h3 := (prim bit_xor (project final w3) (project final w11) : UInt32), h4 := (prim bit_xor (project final w4) (project final w12) : UInt32), h5 := (prim bit_xor (project final w5) (project final w13) : UInt32), h6 := (prim bit_xor (project final w6) (project final w14) : UInt32), h7 := (prim bit_xor (project final w7) (project final w15) : UInt32)}))))))))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: parent,
+  parameters: [left : Digest, right : Digest, root : Bool],
+  result: Digest,
+  body: (compress (initial) (record Words {w0 := (project left h0), w1 := (project left h1), w2 := (project left h2), w3 := (project left h3), w4 := (project left h4), w5 := (project left h5), w6 := (project left h6), w7 := (project left h7), w8 := (project right h0), w9 := (project right h1), w10 := (project right h2), w11 := (project right h3), w12 := (project right h4), w13 := (project right h5), w14 := (project right h6), w15 := (project right h7)}) 0 (64 : UInt32) (if root then (12 : UInt32) else (4 : UInt32))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: hexDigit,
+  parameters: [nibble : UInt32],
+  result: Bytes,
+  body: (if (prim equal (prim bit_and nibble (8 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (4 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (2 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x30 else 0x31) else (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x32 else 0x33)) else (if (prim equal (prim bit_and nibble (2 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x34 else 0x35) else (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x36 else 0x37))) else (if (prim equal (prim bit_and nibble (4 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (2 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x38 else 0x39) else (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x61 else 0x62)) else (if (prim equal (prim bit_and nibble (2 : UInt32) : UInt32) (0 : UInt32) : Bool) then (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x63 else 0x64) else (if (prim equal (prim bit_and nibble (1 : UInt32) : UInt32) (0 : UInt32) : Bool) then 0x65 else 0x66)))),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: hexWord,
+  parameters: [value : UInt32],
+  result: Bytes,
+  body: (prim append (hexDigit (prim bit_and (shiftRight value (4 : UInt32)) (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and value (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and (shiftRight value (12 : UInt32)) (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and (shiftRight value (8 : UInt32)) (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and (shiftRight value (20 : UInt32)) (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and (shiftRight value (16 : UInt32)) (15 : UInt32) : UInt32)) (prim append (hexDigit (prim bit_and (shiftRight value (28 : UInt32)) (15 : UInt32) : UInt32)) (hexDigit (prim bit_and (shiftRight value (24 : UInt32)) (15 : UInt32) : UInt32)) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+
+definition{
+  name: hexDigest,
+  parameters: [digest : Digest],
+  result: Bytes,
+  body: (prim append (hexWord (project digest h0)) (prim append (hexWord (project digest h1)) (prim append (hexWord (project digest h2)) (prim append (hexWord (project digest h3)) (prim append (hexWord (project digest h4)) (prim append (hexWord (project digest h5)) (prim append (hexWord (project digest h6)) (hexWord (project digest h7)) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes) : Bytes),
+  axioms: [Quot.sound, propext],
+  executable: true
+}
+\end{semanticmodule}
+\end{lexlean}
