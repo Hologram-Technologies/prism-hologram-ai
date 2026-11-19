@@ -3789,13 +3789,13 @@ fn kernel_kn_55() {
     // 2^31 and a larger magnitude sorts lower, as the binary32 order has it.
     let found = declaration(&stage, "key");
     assert!(
-        found.contains("body: (pick (2147483648 <=? bits) (prim subtract 4294967296 bits : Nat) (2147483648 + bits))"),
+        found.contains("body: (pick (below bits 2147483648) (2147483648 + bits) (prim subtract 4294967296 bits : Nat))"),
         "key changed:\n{found}"
     );
     // A strict comparison keeps the earlier index on a tie.
     let found = declaration(&stage, "bestIn");
     assert!(
-        found.contains("(pick ((keyAt logits (bestIn logits rest)) <? (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))"),
+        found.contains("(pick (below (keyAt logits (bestIn logits rest)) (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))"),
         "bestIn changed:\n{found}"
     );
     // exceed sums each key's excess over the bound, so it is zero exactly when

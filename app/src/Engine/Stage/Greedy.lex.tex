@@ -4,17 +4,24 @@
 \title{Natural numbers}
 \begin{semanticmodule}
 definition{
-  name: pick,
-  parameters: [choice : Bool, chosen : Nat, other : Nat],
+  name: below,
+  parameters: [kept : Nat, next : Nat],
   result: Nat,
-  body: (match choice | Bool.true => chosen | Bool.false => other)
+  body: (prim subtract (prim subtract next kept : Nat) (prim subtract (prim subtract next kept : Nat) 1 : Nat) : Nat)
+}
+
+definition{
+  name: pick,
+  parameters: [flag : Nat, chosen : Nat, other : Nat],
+  result: Nat,
+  body: (match flag | Nat.zero => other | Nat.succ rest => chosen)
 }
 
 definition{
   name: key,
   parameters: [bits : Nat],
   result: Nat,
-  body: (pick (2147483648 <=? bits) (prim subtract 4294967296 bits : Nat) (2147483648 + bits))
+  body: (pick (below bits 2147483648) (2147483648 + bits) (prim subtract 4294967296 bits : Nat))
 }
 
 definition{
@@ -55,7 +62,7 @@ definition{
   result: Nat,
   body: (match last
     | Nat.zero => 0
-    | Nat.succ rest => (pick ((keyAt logits (bestIn logits rest)) <? (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))),
+    | Nat.succ rest => (pick (below (keyAt logits (bestIn logits rest)) (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))),
   recursive_argument: last
 }
 

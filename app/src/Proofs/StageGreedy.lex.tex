@@ -6,66 +6,77 @@
 \begin{semanticmodule}
 theorem{
   name: key_of_pick,
-  parameters: [logits : (List Nat), choice : Bool, chosen : Nat, other : Nat],
-  statement: ((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::pick choice chosen other)) = (Engine.Stage.Greedy::pick choice (Engine.Stage.Greedy::keyAt logits chosen) (Engine.Stage.Greedy::keyAt logits other))),
-  proof: cases{
+  parameters: [logits : (List Nat), flag : Nat, chosen : Nat, other : Nat],
+  statement: ((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::pick flag chosen other)) = (Engine.Stage.Greedy::pick flag (Engine.Stage.Greedy::keyAt logits chosen) (Engine.Stage.Greedy::keyAt logits other))),
+  proof: induction{
     branches: [
+      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [], constructor: zero},
       {
         proof: simplify{definitions: [Engine.Stage.Greedy::pick]},
-        binders: [],
-        constructor: "false"
-      },
-      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [], constructor: "true"}
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
     ],
-    scrutinee: choice
+    generalizing: [],
+    scrutinee: flag
   },
   axioms: [propext]
 }
 
 theorem{
   name: pick_is_max,
-  parameters: [choice : Bool, kept : Nat, next : Nat],
-  statement: (((kept <? next) = choice) -> ((Engine.Stage.Greedy::pick choice next kept) = (Engine.Stage.Greedy::maxOf kept next))),
-  proof: cases{
+  parameters: [flag : Nat, kept : Nat, next : Nat],
+  statement: (((Engine.Stage.Greedy::below kept next) = flag) -> ((Engine.Stage.Greedy::pick flag next kept) = (Engine.Stage.Greedy::maxOf kept next))),
+  proof: induction{
     branches: [
       {
         proof: linear_arithmetic{
-          definitions: [Engine.Stage.Greedy::maxOf, Engine.Stage.Greedy::pick]
+          definitions: [
+            Engine.Stage.Greedy::below,
+            Engine.Stage.Greedy::maxOf,
+            Engine.Stage.Greedy::pick
+          ]
         },
         binders: [],
-        constructor: "false"
+        constructor: zero
       },
       {
         proof: linear_arithmetic{
-          definitions: [Engine.Stage.Greedy::maxOf, Engine.Stage.Greedy::pick]
+          definitions: [
+            Engine.Stage.Greedy::below,
+            Engine.Stage.Greedy::maxOf,
+            Engine.Stage.Greedy::pick
+          ]
         },
-        binders: [],
-        constructor: "true"
+        binders: [rest, hypothesis],
+        constructor: succ
       }
     ],
-    scrutinee: choice
+    generalizing: [],
+    scrutinee: flag
   },
   axioms: [Quot.sound, propext]
 }
 
 theorem{
   name: pick_within,
-  parameters: [choice : Bool, last : Nat, other : Nat],
-  statement: ((other <= last) -> ((Engine.Stage.Greedy::pick choice (last + 1) other) <= (last + 1))),
-  proof: cases{
+  parameters: [flag : Nat, last : Nat, other : Nat],
+  statement: ((other <= last) -> ((Engine.Stage.Greedy::pick flag (last + 1) other) <= (last + 1))),
+  proof: induction{
     branches: [
       {
         proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
         binders: [],
-        constructor: "false"
+        constructor: zero
       },
       {
         proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
-        binders: [],
-        constructor: "true"
+        binders: [rest, hypothesis],
+        constructor: succ
       }
     ],
-    scrutinee: choice
+    generalizing: [],
+    scrutinee: flag
   },
   axioms: [Quot.sound, propext]
 }

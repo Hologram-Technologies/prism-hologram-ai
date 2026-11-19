@@ -1413,17 +1413,21 @@ key is above the pick (`none_above_greedy`); and the pick is at most `last`
 equal keys would satisfy the same theorems. The pinned `bestIn` text holds it.
 
 The proof forms set the shape of the definitions. `omega` does not split an
-`if` unless a hypothesis decides it, so every branch is `pick c a b`, a match
-on a Boolean, split with `cases`. `linear_arithmetic` cannot cite a theorem, so
-the maximum is the arithmetic `kept + (next - kept)` and the "none above" fold
-is a sum of truncated differences, which the induction hypothesis carries as
-arithmetic. `simplify` cites the `pick` lemmas as conditional rewrites.
+`if` unless a hypothesis decides it, and the pinned lexlean 0.3.0 splits only
+on a Nat, a List or a document inductive, not on a Boolean. So every branch is
+`pick flag a b`, a match on a Nat flag, and a comparison is the flag
+`below a b = (b - a) - (b - a - 1)`, which is 1 exactly when `a < b`; each
+`pick` lemma is an induction on the flag. `linear_arithmetic` cannot cite a
+theorem, so the maximum is the arithmetic `kept + (next - kept)` and the "none
+above" fold is a sum of truncated differences, which the induction hypothesis
+carries as arithmetic. `simplify` cites the `pick` lemmas as conditional
+rewrites.
 
 ### The pinned test: `kernel_kn_55`
 
 | Planted defect | Result |
 | --- | --- |
-| a tie taken by the later index (`<=?` for `<?` in `bestIn`) | rejected: `bestIn changed` |
+| a tie taken by the later index (`below (best - 1) next` in `bestIn`, so an equal key replaces the pick) | rejected: `bestIn changed` |
 | negative logits keyed as positive (`2^31 + bits` on both branches of `key`) | rejected: `key changed` |
 | none | passed |
 
