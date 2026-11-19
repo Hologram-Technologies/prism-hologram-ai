@@ -1,0 +1,506 @@
+\begin{lexlean}{Proofs.StageQ4Sum}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Word}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: four,
+  parameters: [],
+  result: (List Nat),
+  body: (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))
+}
+
+definition{
+  name: cap,
+  parameters: [count : Nat],
+  result: Nat,
+  body: (match count | Nat.zero => 0 | Nat.succ rest => (524288 + (cap rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: times,
+  parameters: [a : Nat, w : Nat],
+  result: Nat,
+  body: (Engine.Word::mulB (four) a w)
+}
+
+definition{
+  name: actNeg,
+  parameters: [code : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 32767 (prim remainder code 65536 0 : Nat))
+}
+
+definition{
+  name: actMag,
+  parameters: [code : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (actNeg code) (prim subtract 65536 (prim remainder code 65536 0 : Nat) : Nat) (prim remainder code 65536 0 : Nat))
+}
+
+definition{
+  name: shiftDown,
+  parameters: [value : Nat, count : Nat],
+  result: Nat,
+  body: (match count
+    | Nat.zero => value
+    | Nat.succ rest => (shiftDown (prim quotient value 16 0 : Nat) rest)),
+  recursive_argument: count
+}
+
+definition{
+  name: nibble,
+  parameters: [weights : (List Nat), g : Nat],
+  result: Nat,
+  body: (prim remainder (shiftDown (Engine.Stage.Greedy::nth weights (prim quotient g 8 0 : Nat)) (prim remainder g 8 0 : Nat)) 16 0 : Nat)
+}
+
+definition{
+  name: weightNeg,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below n 8)
+}
+
+definition{
+  name: weightMag,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (weightNeg n) (prim subtract 8 n : Nat) (prim subtract n 8 : Nat))
+}
+
+definition{
+  name: actAt,
+  parameters: [acts : (List Nat), units : Nat, k : Nat, i : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::nth acts ((prim multiply 32 (prim remainder k units 0 : Nat) : Nat) + i))
+}
+
+definition{
+  name: nibbleAt,
+  parameters: [weights : (List Nat), k : Nat, i : Nat],
+  result: Nat,
+  body: (nibble weights ((prim multiply 32 k : Nat) + i))
+}
+
+definition{
+  name: termNeg,
+  parameters: [code : Nat, n : Nat],
+  result: Nat,
+  body: (prim remainder ((actNeg code) + (weightNeg n)) 2 0 : Nat)
+}
+
+definition{
+  name: termMag,
+  parameters: [code : Nat, n : Nat],
+  result: Nat,
+  body: (times (actMag code) (weightMag n))
+}
+
+definition{
+  name: posPart,
+  parameters: [code : Nat, n : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (termNeg code n) 0 (termMag code n))
+}
+
+definition{
+  name: negPart,
+  parameters: [code : Nat, n : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (termNeg code n) (termMag code n) 0)
+}
+
+definition{
+  name: posSum,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, count : Nat],
+  result: Nat,
+  body: (match count
+    | Nat.zero => 0
+    | Nat.succ rest => ((posPart (actAt acts units k rest) (nibbleAt weights k rest)) + (posSum acts weights units k rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: negSum,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, count : Nat],
+  result: Nat,
+  body: (match count
+    | Nat.zero => 0
+    | Nat.succ rest => ((negPart (actAt acts units k rest) (nibbleAt weights k rest)) + (negSum acts weights units k rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: encode,
+  parameters: [p : Nat, n : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below p n) (prim subtract 4294967296 (prim subtract n p : Nat) : Nat) (prim subtract p n : Nat))
+}
+
+definition{
+  name: groupSum,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  result: Nat,
+  body: (encode (posSum acts weights units k 32) (negSum acts weights units k 32))
+}
+
+definition{
+  name: runFrom,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (groupSum acts weights units k) (runFrom acts weights units (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: run,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, count : Nat],
+  result: (List Nat),
+  body: (runFrom acts weights units 0 count)
+}
+
+theorem{
+  name: pick_zero_bound,
+  parameters: [flag : Nat, other : Nat, bound : Nat],
+  statement: ((other <= bound) -> ((Engine.Stage.Greedy::pick flag 0 other) <= bound)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pick_other_zero_bound,
+  parameters: [flag : Nat, chosen : Nat, bound : Nat],
+  statement: ((chosen <= bound) -> ((Engine.Stage.Greedy::pick flag chosen 0) <= bound)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pick_bound,
+  parameters: [flag : Nat, chosen : Nat, other : Nat, bound : Nat],
+  statement: ((chosen <= bound) -> ((other <= bound) -> ((Engine.Stage.Greedy::pick flag chosen other) <= bound))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: []
+}
+
+theorem{
+  name: low_half_le,
+  parameters: [code : Nat],
+  statement: ((prim remainder code 65536 0 : Nat) <= 65536),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: low_half_rest_le,
+  parameters: [code : Nat],
+  statement: ((prim subtract 65536 (prim remainder code 65536 0 : Nat) : Nat) <= 65536),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: act_mag_bound,
+  parameters: [code : Nat],
+  statement: ((actMag code) <= 65536),
+  proof: simplify{definitions: [actMag, low_half_le, low_half_rest_le, pick_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: weight_mag_given,
+  parameters: [flag : Nat, x : Nat],
+  statement: ((Engine.Stage.Greedy::pick flag (prim subtract 8 (prim remainder x 16 0 : Nat) : Nat) (prim subtract (prim remainder x 16 0 : Nat) 8 : Nat)) <= 8),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: weight_mag_bound,
+  parameters: [x : Nat],
+  statement: ((weightMag (prim remainder x 16 0 : Nat)) <= 8),
+  proof: simplify{definitions: [weightMag, weight_mag_given]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: times_bound,
+  parameters: [a : Nat, w : Nat],
+  statement: ((a <= 65536) -> ((w <= 8) -> ((times a w) <= 524288))),
+  proof: linear_arithmetic{
+    definitions: [Engine.Word::bitPart, Engine.Word::mulB, Engine.Word::twice, four, times]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: term_mag_bound,
+  parameters: [code : Nat, x : Nat],
+  statement: ((termMag code (prim remainder x 16 0 : Nat)) <= 524288),
+  proof: simplify{definitions: [act_mag_bound, termMag, times_bound, weight_mag_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: nibble_at_is_remainder,
+  parameters: [weights : (List Nat), k : Nat, i : Nat],
+  statement: ((nibbleAt weights k i) = (prim remainder (shiftDown (Engine.Stage.Greedy::nth weights (prim quotient ((prim multiply 32 k : Nat) + i) 8 0 : Nat)) (prim remainder ((prim multiply 32 k : Nat) + i) 8 0 : Nat)) 16 0 : Nat)),
+  proof: simplify{definitions: [nibble, nibbleAt]},
+  axioms: [propext]
+}
+
+theorem{
+  name: pos_part_bound,
+  parameters: [code : Nat, x : Nat],
+  statement: ((posPart code (prim remainder x 16 0 : Nat)) <= 524288),
+  proof: simplify{definitions: [pick_zero_bound, posPart, term_mag_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pos_part_at_bound,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, i : Nat],
+  statement: ((posPart (actAt acts units k i) (nibbleAt weights k i)) <= 524288),
+  proof: simplify{definitions: [nibble_at_is_remainder, pos_part_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pos_sum_step,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, i : Nat],
+  statement: (((posPart (actAt acts units k i) (nibbleAt weights k i)) <= 524288) -> (((posSum acts weights units k i) <= (cap i)) -> ((posSum acts weights units k (i + 1)) <= (cap (i + 1))))),
+  proof: linear_arithmetic{definitions: [cap, posSum]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pos_sum_bound,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, count : Nat],
+  statement: ((posSum acts weights units k count) <= (cap count)),
+  proof: induction{
+    branches: [
+      {proof: linear_arithmetic{definitions: [cap, posSum]}, binders: [], constructor: zero},
+      {
+        proof: simplify{definitions: [hypothesis, pos_part_at_bound, pos_sum_step]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: count
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pos_sum_32_given,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: (((posSum acts weights units k 32) <= (cap 32)) -> ((posSum acts weights units k 32) <= 16777216)),
+  proof: linear_arithmetic{definitions: [cap]},
+  axioms: []
+}
+
+theorem{
+  name: pos_sum_32,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: ((posSum acts weights units k 32) <= 16777216),
+  proof: simplify{definitions: [pos_sum_32_given, pos_sum_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: neg_part_bound,
+  parameters: [code : Nat, x : Nat],
+  statement: ((negPart code (prim remainder x 16 0 : Nat)) <= 524288),
+  proof: simplify{definitions: [negPart, pick_other_zero_bound, term_mag_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: neg_part_at_bound,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, i : Nat],
+  statement: ((negPart (actAt acts units k i) (nibbleAt weights k i)) <= 524288),
+  proof: simplify{definitions: [neg_part_bound, nibble_at_is_remainder]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: neg_sum_step,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, i : Nat],
+  statement: (((negPart (actAt acts units k i) (nibbleAt weights k i)) <= 524288) -> (((negSum acts weights units k i) <= (cap i)) -> ((negSum acts weights units k (i + 1)) <= (cap (i + 1))))),
+  proof: linear_arithmetic{definitions: [cap, negSum]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: neg_sum_bound,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat, count : Nat],
+  statement: ((negSum acts weights units k count) <= (cap count)),
+  proof: induction{
+    branches: [
+      {proof: linear_arithmetic{definitions: [cap, negSum]}, binders: [], constructor: zero},
+      {
+        proof: simplify{definitions: [hypothesis, neg_part_at_bound, neg_sum_step]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: count
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: neg_sum_32_given,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: (((negSum acts weights units k 32) <= (cap 32)) -> ((negSum acts weights units k 32) <= 16777216)),
+  proof: linear_arithmetic{definitions: [cap]},
+  axioms: []
+}
+
+theorem{
+  name: neg_sum_32,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: ((negSum acts weights units k 32) <= 16777216),
+  proof: simplify{definitions: [neg_sum_32_given, neg_sum_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_value_given,
+  parameters: [flag : Nat, p : Nat, n : Nat],
+  statement: ((p <= 16777216) -> ((n <= 16777216) -> (((Engine.Stage.Greedy::below p n) = flag) -> (((Engine.Stage.Greedy::pick flag (prim subtract 4294967296 (prim subtract n p : Nat) : Nat) (prim subtract p n : Nat)) + n) = (p + (Engine.Stage.Greedy::pick flag 4294967296 0)))))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::below, Engine.Stage.Greedy::pick]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::below, Engine.Stage.Greedy::pick]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_sign_given,
+  parameters: [flag : Nat, p : Nat, n : Nat],
+  statement: ((p <= 16777216) -> ((n <= 16777216) -> (((Engine.Stage.Greedy::below p n) = flag) -> (((Engine.Stage.Greedy::pick flag (prim subtract 4294967296 (prim subtract n p : Nat) : Nat) (prim subtract p n : Nat)) < 2147483648) <-> (n <= p))))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::below, Engine.Stage.Greedy::pick]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::below, Engine.Stage.Greedy::pick]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: group_sum_value,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: (((groupSum acts weights units k) + (negSum acts weights units k 32)) = ((posSum acts weights units k 32) + (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (posSum acts weights units k 32) (negSum acts weights units k 32)) 4294967296 0))),
+  proof: simplify{definitions: [encode, encode_value_given, groupSum, neg_sum_32, pos_sum_32]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: group_sum_sign,
+  parameters: [acts : (List Nat), weights : (List Nat), units : Nat, k : Nat],
+  statement: (((groupSum acts weights units k) < 2147483648) <-> ((negSum acts weights units k 32) <= (posSum acts weights units k 32))),
+  proof: simplify{definitions: [encode, encode_sign_given, groupSum, neg_sum_32, pos_sum_32]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

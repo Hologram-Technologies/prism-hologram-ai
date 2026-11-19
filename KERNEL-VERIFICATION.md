@@ -1652,6 +1652,46 @@ and another way outside.
 | a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
 | none | passed |
 
+## KN-57, the q4 group sum
+
+`Engine.Stage.Q4Sum::run` is the first matmul stage of row 13, the work of
+`q4_group_sums` in `crates/exact` and of GPU kernel 1. Output `k` is the sum
+over 32 terms of the weight code less 8 times the activation code. The weight
+code is nibble `32k + i` of the packed weights, low nibble first; the
+activation code is the low 16 bits of word `32 (k mod units) + i`, read as a
+signed 16-bit value, so the stage is total. Each term goes to the positive or
+the negative side by its sign, and the word written is the two's complement of
+the difference. It exports through prod-export and prod-codegen with no
+external calls, opaque nodes or unsupported types.
+
+Lean proves, for every input: `group_sum_value`, that the word plus the
+negative side equals the positive side plus 2^32 when the negative side is
+larger; `group_sum_sign`, that the word is below 2^31 exactly when the sum is
+not negative; and `pos_sum_32` and `neg_sum_32`, that each side is at most
+2^24. So the word is the exact sum as a signed 32-bit value, and no term or
+sum can overflow. The bound counts an activation as at most 2^16, so it is
+twice the real one; it is still far inside 2^31.
+
+### Trusted, not proved: mulB is the native multiply
+
+The pinned lexlean 0.3.0 cannot reason about `prim multiply` of two variables.
+So the shipped stage multiplies natively through one definition, `times`, and
+the proofs are about a copy of the stage in which `times` is
+`Engine.Word::mulB` over four bits, the shift-and-add product of row 15's
+library (KN-72). `kernel_kn_57` checks that every other definition of the copy
+is the stage's, word for word. The step from the copy to the shipped stage is
+the assumption that `mulB` over four bits equals the native product for a
+multiplier below 16. It is trusted, not proved, as decided on 2026-11-19; a
+pinned LexLean that can reason about `prim multiply` would let it be proved.
+
+### The pinned test: `kernel_kn_57`
+
+| Planted defect | Result |
+| --- | --- |
+| the stage's `weightMag` changed (`n - 7`) and the copy left as it was | rejected: `the proofs' weightMag is not the stage's` |
+| the copy's `times` made the native multiply | rejected: `the proofs' copy multiplies by mulB` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
