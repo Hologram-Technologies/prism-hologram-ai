@@ -1617,3 +1617,46 @@ mod tests {
         assert_eq!(decimal(b"123456789012345678901"), None);
     }
 }
+
+/// Decision 45: whether a model's chat template is one the engine defines,
+/// named by the BLAKE3 of its text.
+pub mod template {
+    /// The kernel's verdict on a template.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Verdict {
+        /// Qwen2.5-1.5B-Instruct's template.
+        Qwen25,
+        /// Qwen3-0.6B's template.
+        Qwen3,
+        /// Llama 3.2 1B Instruct's template.
+        Llama32,
+        /// A template the engine does not define, refused by name.
+        UnknownTemplate,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for a template whose text has BLAKE3 `address`.
+    #[must_use]
+    pub fn request(address: &[u8; 32]) -> [u8; 33] {
+        let mut out = [0; 33];
+        out[0] = 45;
+        out[1..].copy_from_slice(address);
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Verdict {
+        match text {
+            b"qwen2.5" => Verdict::Qwen25,
+            b"qwen3" => Verdict::Qwen3,
+            b"llama3.2" => Verdict::Llama32,
+            b"refused: unknown template" => Verdict::UnknownTemplate,
+            b"invalid request" => Verdict::Invalid,
+            _ => Verdict::Unrecognised,
+        }
+    }
+}

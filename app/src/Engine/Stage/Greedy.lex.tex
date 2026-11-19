@@ -1,0 +1,96 @@
+\begin{lexlean}{Engine.Stage.Greedy}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: below,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (prim subtract (prim subtract next kept : Nat) (prim subtract (prim subtract next kept : Nat) 1 : Nat) : Nat)
+}
+
+definition{
+  name: pick,
+  parameters: [flag : Nat, chosen : Nat, other : Nat],
+  result: Nat,
+  body: (match flag | Nat.zero => other | Nat.succ rest => chosen)
+}
+
+definition{
+  name: key,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (pick (below bits 2147483648) (2147483648 + bits) (prim subtract 4294967296 bits : Nat))
+}
+
+definition{
+  name: nth,
+  parameters: [values : (List Nat), index : Nat],
+  result: Nat,
+  body: (match values
+    | List.nil => 0
+    | List.cons head tail => (match index | Nat.zero => head | Nat.succ rest => (nth tail rest))),
+  recursive_argument: values
+}
+
+definition{
+  name: size,
+  parameters: [values : (List Nat)],
+  result: Nat,
+  body: (match values | List.nil => 0 | List.cons head tail => ((size tail) + 1)),
+  recursive_argument: values
+}
+
+definition{
+  name: keyAt,
+  parameters: [logits : (List Nat), index : Nat],
+  result: Nat,
+  body: (key (nth logits index))
+}
+
+definition{
+  name: maxOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (kept + (prim subtract next kept : Nat))
+}
+
+definition{
+  name: bestIn,
+  parameters: [logits : (List Nat), last : Nat],
+  result: Nat,
+  body: (match last
+    | Nat.zero => 0
+    | Nat.succ rest => (pick (below (keyAt logits (bestIn logits rest)) (keyAt logits (rest + 1))) (rest + 1) (bestIn logits rest))),
+  recursive_argument: last
+}
+
+definition{
+  name: maxKey,
+  parameters: [logits : (List Nat), last : Nat],
+  result: Nat,
+  body: (match last
+    | Nat.zero => (keyAt logits 0)
+    | Nat.succ rest => (maxOf (maxKey logits rest) (keyAt logits (rest + 1)))),
+  recursive_argument: last
+}
+
+definition{
+  name: exceed,
+  parameters: [logits : (List Nat), last : Nat, bound : Nat],
+  result: Nat,
+  body: (match last
+    | Nat.zero => (prim subtract (keyAt logits 0) bound : Nat)
+    | Nat.succ rest => ((prim subtract (keyAt logits (rest + 1)) bound : Nat) + (exceed logits rest bound))),
+  recursive_argument: last
+}
+
+definition{
+  name: greedy,
+  parameters: [logits : (List Nat)],
+  result: Nat,
+  body: (bestIn logits (prim subtract (size logits) 1 : Nat))
+}
+\end{semanticmodule}
+\end{lexlean}

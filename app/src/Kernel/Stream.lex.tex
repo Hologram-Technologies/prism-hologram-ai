@@ -43,7 +43,7 @@ definition{
 }
 
 definition{
-  name: wordAt,
+  name: stateWordAt,
   parameters: [value : Bytes, word : Nat],
   result: Nat,
   body: ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 0))) 16 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 1))) 1 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 2))) 4096 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 3))) 256 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 4))) 1048576 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 5))) 65536 : Nat) + ((prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 6))) 268435456 : Nat) + (prim multiply (nibble (stateChar value ((prim multiply 8 word : Nat) + 7))) 16777216 : Nat)))))))),
@@ -54,7 +54,7 @@ definition{
   name: digestAt,
   parameters: [value : Bytes, origin : Nat],
   result: Engine.Blake3::Digest,
-  body: (record Engine.Blake3::Digest {h0 := (Engine.Blake3::word32 (wordAt value (origin + 0))), h1 := (Engine.Blake3::word32 (wordAt value (origin + 1))), h2 := (Engine.Blake3::word32 (wordAt value (origin + 2))), h3 := (Engine.Blake3::word32 (wordAt value (origin + 3))), h4 := (Engine.Blake3::word32 (wordAt value (origin + 4))), h5 := (Engine.Blake3::word32 (wordAt value (origin + 5))), h6 := (Engine.Blake3::word32 (wordAt value (origin + 6))), h7 := (Engine.Blake3::word32 (wordAt value (origin + 7)))}),
+  body: (record Engine.Blake3::Digest {h0 := (Engine.Blake3::word32 (stateWordAt value (origin + 0))), h1 := (Engine.Blake3::word32 (stateWordAt value (origin + 1))), h2 := (Engine.Blake3::word32 (stateWordAt value (origin + 2))), h3 := (Engine.Blake3::word32 (stateWordAt value (origin + 3))), h4 := (Engine.Blake3::word32 (stateWordAt value (origin + 4))), h5 := (Engine.Blake3::word32 (stateWordAt value (origin + 5))), h6 := (Engine.Blake3::word32 (stateWordAt value (origin + 6))), h7 := (Engine.Blake3::word32 (stateWordAt value (origin + 7)))}),
   axioms: [Quot.sound, propext]
 }
 
@@ -70,7 +70,7 @@ definition{
   name: stateOf,
   parameters: [value : Bytes],
   result: Engine.Stream::HashState,
-  body: (record Engine.Stream::HashState {total := ((wordAt value 0) + (prim multiply (wordAt value 1) 4294967296 : Nat)), cv := (digestAt value 2), block := (record Engine.Blake3::Words {w0 := (Engine.Blake3::word32 (wordAt value 10)), w1 := (Engine.Blake3::word32 (wordAt value 11)), w2 := (Engine.Blake3::word32 (wordAt value 12)), w3 := (Engine.Blake3::word32 (wordAt value 13)), w4 := (Engine.Blake3::word32 (wordAt value 14)), w5 := (Engine.Blake3::word32 (wordAt value 15)), w6 := (Engine.Blake3::word32 (wordAt value 16)), w7 := (Engine.Blake3::word32 (wordAt value 17)), w8 := (Engine.Blake3::word32 (wordAt value 18)), w9 := (Engine.Blake3::word32 (wordAt value 19)), w10 := (Engine.Blake3::word32 (wordAt value 20)), w11 := (Engine.Blake3::word32 (wordAt value 21)), w12 := (Engine.Blake3::word32 (wordAt value 22)), w13 := (Engine.Blake3::word32 (wordAt value 23)), w14 := (Engine.Blake3::word32 (wordAt value 24)), w15 := (Engine.Blake3::word32 (wordAt value 25))}), b0 := (bankOf value 26), b1 := (bankOf value 90), b2 := (bankOf value 154)}),
+  body: (record Engine.Stream::HashState {total := ((stateWordAt value 0) + (prim multiply (stateWordAt value 1) 4294967296 : Nat)), cv := (digestAt value 2), block := (record Engine.Blake3::Words {w0 := (Engine.Blake3::word32 (stateWordAt value 10)), w1 := (Engine.Blake3::word32 (stateWordAt value 11)), w2 := (Engine.Blake3::word32 (stateWordAt value 12)), w3 := (Engine.Blake3::word32 (stateWordAt value 13)), w4 := (Engine.Blake3::word32 (stateWordAt value 14)), w5 := (Engine.Blake3::word32 (stateWordAt value 15)), w6 := (Engine.Blake3::word32 (stateWordAt value 16)), w7 := (Engine.Blake3::word32 (stateWordAt value 17)), w8 := (Engine.Blake3::word32 (stateWordAt value 18)), w9 := (Engine.Blake3::word32 (stateWordAt value 19)), w10 := (Engine.Blake3::word32 (stateWordAt value 20)), w11 := (Engine.Blake3::word32 (stateWordAt value 21)), w12 := (Engine.Blake3::word32 (stateWordAt value 22)), w13 := (Engine.Blake3::word32 (stateWordAt value 23)), w14 := (Engine.Blake3::word32 (stateWordAt value 24)), w15 := (Engine.Blake3::word32 (stateWordAt value 25))}), b0 := (bankOf value 26), b1 := (bankOf value 90), b2 := (bankOf value 154)}),
   axioms: [Quot.sound, propext]
 }
 

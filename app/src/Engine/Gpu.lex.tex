@@ -84,10 +84,10 @@ definition{
 }
 
 definition{
-  name: pow2,
+  name: shiftPower,
   parameters: [n : Nat],
   result: Nat,
-  body: (match n | Nat.zero => 1 | Nat.succ k => ((pow2 k) + (pow2 k))),
+  body: (match n | Nat.zero => 1 | Nat.succ k => ((shiftPower k) + (shiftPower k))),
   recursive_argument: n
 }
 
@@ -109,14 +109,14 @@ definition{
   name: u32shr,
   parameters: [a : Nat, b : Nat],
   result: Nat,
-  body: (prim quotient a (pow2 (prim remainder b 32 0 : Nat)) 0 : Nat)
+  body: (prim quotient a (shiftPower (prim remainder b 32 0 : Nat)) 0 : Nat)
 }
 
 definition{
   name: u32shl,
   parameters: [a : Nat, b : Nat],
   result: Nat,
-  body: (prim remainder (prim multiply a (pow2 (prim remainder b 32 0 : Nat)) : Nat) 4294967296 0 : Nat)
+  body: (prim remainder (prim multiply a (shiftPower (prim remainder b 32 0 : Nat)) : Nat) 4294967296 0 : Nat)
 }
 
 definition{
@@ -261,7 +261,7 @@ definition{
 }
 
 definition{
-  name: nibbleAt,
+  name: nibbleExpr,
   parameters: [buffer : Nat, index : Expr],
   result: Expr,
   body: (ctor Expr.band (ctor Expr.shr (ctor Expr.load buffer (ctor Expr.shr index (ctor Expr.lit 3))) (ctor Expr.mul (ctor Expr.lit 4) (ctor Expr.band index (ctor Expr.lit 7)))) (ctor Expr.lit 15))
@@ -271,7 +271,7 @@ definition{
   name: q4GroupSums,
   parameters: [units : Nat, rowCodes : Nat, zerosPerRow : Nat, packedZeros : Bool],
   result: Stmt,
-  body: (ctor Stmt.seq (ctor Stmt.assign 0 (ctor Expr.invocation)) (ctor Stmt.seq (ctor Stmt.assign 1 (ctor Expr.div (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 2 (ctor Expr.rem (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 6 (if packedZeros then (nibbleAt 2 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit zerosPerRow)) (ctor Expr.local 2))) else (ctor Expr.lit 8))) (ctor Stmt.seq (ctor Stmt.assign 3 (ctor Expr.lit 0)) (ctor Stmt.seq (ctor Stmt.repeat 0 32 4 (ctor Stmt.seq (ctor Stmt.assign 5 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit rowCodes)) (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4)))) (ctor Stmt.assign 3 (ctor Expr.add (ctor Expr.local 3) (ctor Expr.mul (ctor Expr.load 0 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4))) (ctor Expr.sub (nibbleAt 1 (ctor Expr.local 5)) (ctor Expr.local 6))))))) (ctor Stmt.store 3 (ctor Expr.local 0) (ctor Expr.local 3))))))))
+  body: (ctor Stmt.seq (ctor Stmt.assign 0 (ctor Expr.invocation)) (ctor Stmt.seq (ctor Stmt.assign 1 (ctor Expr.div (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 2 (ctor Expr.rem (ctor Expr.local 0) (ctor Expr.lit units))) (ctor Stmt.seq (ctor Stmt.assign 6 (if packedZeros then (nibbleExpr 2 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit zerosPerRow)) (ctor Expr.local 2))) else (ctor Expr.lit 8))) (ctor Stmt.seq (ctor Stmt.assign 3 (ctor Expr.lit 0)) (ctor Stmt.seq (ctor Stmt.repeat 0 32 4 (ctor Stmt.seq (ctor Stmt.assign 5 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 1) (ctor Expr.lit rowCodes)) (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4)))) (ctor Stmt.assign 3 (ctor Expr.add (ctor Expr.local 3) (ctor Expr.mul (ctor Expr.load 0 (ctor Expr.add (ctor Expr.mul (ctor Expr.local 2) (ctor Expr.lit 32)) (ctor Expr.local 4))) (ctor Expr.sub (nibbleExpr 1 (ctor Expr.local 5)) (ctor Expr.local 6))))))) (ctor Stmt.store 3 (ctor Expr.local 0) (ctor Expr.local 3))))))))
 }
 
 definition{
@@ -366,13 +366,13 @@ definition{
   recursive_argument: fuel
 }
 
-definition{name: decimal, parameters: [value : Nat], result: Bytes, body: (digitsOf value 20)}
+definition{name: decimalText, parameters: [value : Nat], result: Bytes, body: (digitsOf value 20)}
 
 definition{
   name: wlit,
   parameters: [value : Nat],
   result: Bytes,
-  body: (cat (decimal (word value)) (text "u"))
+  body: (cat (decimalText (word value)) (text "u"))
 }
 
 definition{
@@ -413,8 +413,8 @@ definition{
     | Expr.lit value => (wlit value)
     | Expr.invocation => (text "k")
     | Expr.group => (text "0u")
-    | Expr.local slot => (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (text "]"))) else (text "0u"))
-    | Expr.load buffer index => (cat (text "rd") (cat (decimal buffer) (cat (text "(") (cat (renderE slots index) (text ")")))))
+    | Expr.local slot => (if (slot <? slots) then (cat (text "l[") (cat (decimalText slot) (text "]"))) else (text "0u"))
+    | Expr.load buffer index => (cat (text "rd") (cat (decimalText buffer) (cat (text "(") (cat (renderE slots index) (text ")")))))
     | Expr.add left right => (if (if (closedE left) then (closedE right) else false) then (wlit (foldE (ctor Expr.add left right))) else (cat (text "(") (cat (renderE slots left) (cat (text " + ") (cat (renderE slots right) (text ")"))))))
     | Expr.sub left right => (if (if (closedE left) then (closedE right) else false) then (wlit (foldE (ctor Expr.sub left right))) else (cat (text "(") (cat (renderE slots left) (cat (text " - ") (cat (renderE slots right) (text ")"))))))
     | Expr.mul left right => (if (if (closedE left) then (closedE right) else false) then (wlit (foldE (ctor Expr.mul left right))) else (cat (text "(") (cat (renderE slots left) (cat (text " * ") (cat (renderE slots right) (text ")"))))))
@@ -434,11 +434,11 @@ definition{
   result: Bytes,
   body: (match stmt
     | Stmt.skip => (text "")
-    | Stmt.assign slot expr => (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (cat (text "] = ") (cat (renderE slots expr) (text ";\n"))))) else (text ""))
-    | Stmt.store buffer index expr => (cat (text "{ let at = ") (cat (renderE slots index) (cat (text "; let put = ") (cat (renderE slots expr) (cat (text "; if (at < arrayLength(&b") (cat (decimal buffer) (cat (text ")) { b") (cat (decimal buffer) (text "[at] = put; } }\n")))))))))
+    | Stmt.assign slot expr => (if (slot <? slots) then (cat (text "l[") (cat (decimalText slot) (cat (text "] = ") (cat (renderE slots expr) (text ";\n"))))) else (text ""))
+    | Stmt.store buffer index expr => (cat (text "{ let at = ") (cat (renderE slots index) (cat (text "; let put = ") (cat (renderE slots expr) (cat (text "; if (at < arrayLength(&b") (cat (decimalText buffer) (cat (text ")) { b") (cat (decimalText buffer) (text "[at] = put; } }\n")))))))))
     | Stmt.seq before after => (cat (renderS slots depth before) (renderS slots depth after))
     | Stmt.when condition body => (cat (text "if (") (cat (renderE slots condition) (cat (text " != 0u) {\n") (cat (renderS slots depth body) (text "}\n")))))
-    | Stmt.repeat start count slot body => (cat (text "for (var ") (cat (cat (text "i") (decimal depth)) (cat (text ": u32 = 0u; ") (cat (cat (text "i") (decimal depth)) (cat (text " < ") (cat (wlit count) (cat (text "; ") (cat (cat (text "i") (decimal depth)) (cat (text " = ") (cat (cat (text "i") (decimal depth)) (cat (text " + 1u) {\n") (cat (if (slot <? slots) then (cat (text "l[") (cat (decimal slot) (cat (text "] = ") (cat (wlit start) (cat (text " + ") (cat (cat (text "i") (decimal depth)) (text ";\n"))))))) else (text "")) (cat (renderS slots (depth + 1) body) (text "}\n"))))))))))))))),
+    | Stmt.repeat start count slot body => (cat (text "for (var ") (cat (cat (text "i") (decimalText depth)) (cat (text ": u32 = 0u; ") (cat (cat (text "i") (decimalText depth)) (cat (text " < ") (cat (wlit count) (cat (text "; ") (cat (cat (text "i") (decimalText depth)) (cat (text " = ") (cat (cat (text "i") (decimalText depth)) (cat (text " + 1u) {\n") (cat (if (slot <? slots) then (cat (text "l[") (cat (decimalText slot) (cat (text "] = ") (cat (wlit start) (cat (text " + ") (cat (cat (text "i") (decimalText depth)) (text ";\n"))))))) else (text "")) (cat (renderS slots (depth + 1) body) (text "}\n"))))))))))))))),
   recursive_argument: stmt
 }
 
@@ -462,7 +462,7 @@ definition{
   result: Bytes,
   body: (match left
     | Nat.zero => (text "")
-    | Nat.succ rest => (cat (cat (text "@group(0) @binding(") (cat (decimal buffer) (cat (text ") var<storage, ") (cat (if (writes stmt buffer) then (text "read_write") else (text "read")) (cat (text "> b") (cat (decimal buffer) (cat (text ": array<u32>;\nfn rd") (cat (decimal buffer) (cat (text "(i: u32) -> u32 { if (i < arrayLength(&b") (cat (decimal buffer) (cat (text ")) { return b") (cat (decimal buffer) (text "[i]; } return 0u; }\n"))))))))))))) (bindings (buffer + 1) rest stmt))),
+    | Nat.succ rest => (cat (cat (text "@group(0) @binding(") (cat (decimalText buffer) (cat (text ") var<storage, ") (cat (if (writes stmt buffer) then (text "read_write") else (text "read")) (cat (text "> b") (cat (decimalText buffer) (cat (text ": array<u32>;\nfn rd") (cat (decimalText buffer) (cat (text "(i: u32) -> u32 { if (i < arrayLength(&b") (cat (decimalText buffer) (cat (text ")) { return b") (cat (decimalText buffer) (text "[i]; } return 0u; }\n"))))))))))))) (bindings (buffer + 1) rest stmt))),
   recursive_argument: left
 }
 
@@ -470,7 +470,7 @@ definition{
   name: renderKernel,
   parameters: [buffers : Nat, slots : Nat, stmt : Stmt],
   result: Bytes,
-  body: (cat (bindings 0 buffers stmt) (cat (text "override invocations: u32;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\nlet k = gid.x;\nif (k >= invocations) { return; }\nvar l: array<u32, ") (cat (decimal (if (slots =? 0) then 1 else slots)) (cat (text ">;\n") (cat (renderS slots 0 stmt) (text "}\n"))))))
+  body: (cat (bindings 0 buffers stmt) (cat (text "override invocations: u32;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\nlet k = gid.x;\nif (k >= invocations) { return; }\nvar l: array<u32, ") (cat (decimalText (if (slots =? 0) then 1 else slots)) (cat (text ">;\n") (cat (renderS slots 0 stmt) (text "}\n"))))))
 }
 \end{semanticmodule}
 \end{lexlean}
