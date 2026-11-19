@@ -84,7 +84,7 @@ jobs:
             --env KEPT \
             "$image" bash -c '
               set -euo pipefail
-              git config --global --add safe.directory "$PWD"
+              mkdir -p "$HOME"
               if [[ $KEPT == true ]] && cargo run -q --locked -p xtask -- engine-seal target/engine-kept/engine.wasm; then
                 echo "engine: reused the module these inputs made, its address re-derived"
                 exit 0
