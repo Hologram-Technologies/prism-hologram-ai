@@ -76,6 +76,7 @@ The inherited gates and their own planted defects are in
 | `KN-34`: every product of a 32-wide block lies in exactly one of the positive and negative parts, by the signs of its weight code and activation; a block is `exact` exactly when the claim plus the negative part equals the positive part plus 32768; at most one claim is exact | `parts_cover_every_product` (by induction over the places), the four sign theorems `agrees_when_both_positive`, `agrees_when_both_negative`, `differs_when_weight_positive` and `differs_when_weight_negative`, `weight_size_about_eight`, `activation_size_about_zero`, `accepts_decides` and `accepts_one_claim`, checked by the Lean kernel | proved |
 | `KN-35`: a content label is admitted as an address exactly when its first seven bytes are `blake3:`; `sha256:` is refused | `address_blake3_decides` and `address_sha256_refused`, checked by the Lean kernel | proved |
 | `KN-36`: a run may start exactly when its products and every other stage are exact, which is decision 30's class `everywhere` whatever the order of reductions; a run with a floating-point stage is refused | `integer_run_decides`, `integer_run_is_everywhere` and `integer_run_refuses_fixed_order_floats`, checked by the Lean kernel | proved |
+| `KN-45`: the engine session, a pure step over open, admit, prompt chunk, generate and close: a page not named by BLAKE3 fails it, it is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails it, the position stays within the capacity, and an ended session stays ended | `session_ends_stay_ended`, `session_refuses_other_hashes`, `session_ready_only_with_every_page`, `session_refuses_floats`, `session_prompt_chunks_compose` and `session_position_within_capacity`, checked by the hosted LexLean verifier; not yet by the pinned SDK image | proved (hosted) |
 | The weight codes and activations decision 34 sums are the request's bytes 1 to 48 in the engine's q4 order (two codes to a byte, low half first, as `uor-matmul`'s `Packed` reads them; activations one signed byte each) | `byteFromEnd` and `weightCode`, and the offsets and bases in `blockCheckAnswer`, pinned by `kernel_kn_34`; a model of those definitions agreed with a byte-order reference on 40,000 random blocks on 2026-11-17, outside the gate | tested, not proved |
 | That `weightSize` times `activationSize`, signed by `signsAgree`, is the product of the signed code minus 8 and the signed activation | argued from the four sign theorems and the two size theorems; the product itself is not stated, because the proof language's arithmetic is linear | not proved |
 | The block the page samples is a block of the tensor the run used, and the claim is the group sum that run computed | the caller's | not proved |
@@ -1285,6 +1286,44 @@ segment spelled like a Lean namespace, and Lean has `Quotient`.
 | a divisor of 0 admitted | rejected: `divideAnswer changed` |
 | decision 44 routed to decision 43's answer | rejected: `decision 44 must be routed to Kernel.Divide::divideAnswer` |
 | none | passed |
+
+## KN-45, the engine session
+
+Decided by Ilya on 2026-11-18: milestone 2 runs the whole engine in the
+guest, written in LexLean. PrismPM's session world (`core-wasm@2`, proposal
+629, merged in PrismPM #638, not yet released) lets one guest instance serve a
+session's ordered steps, a session being the fold of a pure step over its
+requests. `app/src/Engine/Session.lex.tex` is Hologram AI's side of that: the
+step's phase, admitted pages, page count, capacity and position, as functions
+of the state and one request (open, admit a page, prompt chunk, generate,
+close), built on decisions 35 and 36. It is outside `app/src/Kernel` and
+nothing routes to it: it becomes the guest's root when the session world is in
+the SDK image `prismpm.lock` pins. The forward pass it runs is the integer
+stages (KN-37 to KN-44), joined in as they are proved.
+
+### The proof gate
+
+The local SDK image no longer runs on this machine (2026-11-18), so the proofs
+were checked by the hosted LexLean verifier on a draft holding the session,
+its proofs and the five modules they import. That is a diagnostic, not the
+pinned SDK's verdict; CI gives that once the branch is pushed.
+
+- `lexlean fmt --check`: canonical (all nine modules).
+- `lexlean verify src/Proofs/Session.lex.tex`: verified on 2026-11-18 (hosted task-49, draft prism-app/a7ddf49d…), after three corrections the earlier runs found: two theorems restated so their `if` sits in the goal, and two axiom lists narrowed to what Lean observed (`Quot.sound, propext`).
+
+Found on the way, kept for the next module: `first` is a keyword; a proof
+module must import every module its statements name; parameter and
+definition lists past 100 characters are written one item per line; and
+`linear_arithmetic` splits an `if` in the goal but not in a hypothesis, so
+a theorem whose premise would hold an `if` is stated with the `if` in the
+goal (`session_ready_only_with_every_page` and `session_refuses_floats` are
+written that way).
+
+### The pinned test: `kernel_kn_45`
+
+It pins the six statements and their axioms, that the five state functions are
+declared, and that the session imports decisions 35 and 36. 37 kernel tests
+pass.
 
 ## The examples in the compiled guest
 

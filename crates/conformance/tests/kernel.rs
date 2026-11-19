@@ -3424,3 +3424,64 @@ fn kernel_kn_44() {
     );
     assert_routed(44, "Kernel.Divide::divideAnswer");
 }
+
+/// `KN-45`: The engine session is a pure step over open, admit a page, prompt chunk, generate and close, ready to be the guest's root in the session world: a page not named by BLAKE3 fails the session, the session is ready only when the page admitted is the manifest's last, prompt chunks compose, a generate request with a floating-point stage fails the session, the position never passes the capacity, and an ended session stays ended
+#[test]
+fn kernel_kn_45() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Session.lex.tex");
+    assert_pinned(
+        &proofs,
+        "session_ends_stay_ended",
+        "((4 <= phase) -> ((phase <= 5) -> ((Engine.Session::sessionPhase phase admitted pages position capacity kind a b c d) = phase)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "session_refuses_other_hashes",
+        "((phase <= 3) -> (((Kernel.Address::addressBlake3 a b c) = false) -> ((Engine.Session::sessionPhase phase admitted pages position capacity 2 a b c d) = 5)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "session_ready_only_with_every_page",
+        "((((admitted + 1) = pages) -> (1 = 0)) -> (((Engine.Session::sessionPhase 1 admitted pages position capacity 2 a b c d) =? 2) = false))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "session_refuses_floats",
+        "((phase <= 3) -> ((((a = 1) /\\ (b = 1)) -> (1 = 0)) -> ((Engine.Session::sessionPhase phase admitted pages position capacity 4 a b c d) = 5)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "session_prompt_chunks_compose",
+        "(((Engine.Session::live phase) = true) -> (((position + (early + later)) <= capacity) -> ((Engine.Session::sessionPosition phase (Engine.Session::sessionPosition phase position capacity 3 early b) capacity 3 later b) = (Engine.Session::sessionPosition phase position capacity 3 (early + later) b))))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "session_position_within_capacity",
+        "((position <= capacity) -> ((Engine.Session::sessionPosition phase position capacity kind a b) <= (Engine.Session::sessionCapacity phase capacity kind a b)))",
+        "Quot.sound, propext",
+    );
+    // The session is the guest's root once the session world is in the
+    // pinned SDK image; until then nothing routes to it, and it is proved
+    // here so the root is ready.
+    let session = model("app/src/Engine/Session.lex.tex");
+    for name in [
+        "sessionPhase",
+        "sessionAdmitted",
+        "sessionPages",
+        "sessionCapacity",
+        "sessionPosition",
+    ] {
+        declaration(&session, name);
+    }
+    assert!(
+        session.contains("\\importmodule{Kernel.Address}")
+            && session.contains("\\importmodule{Kernel.Integer}"),
+        "the session no longer builds on decisions 35 and 36"
+    );
+}

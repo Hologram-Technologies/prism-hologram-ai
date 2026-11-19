@@ -162,8 +162,8 @@ Feature: gpu
     And the engine page frames an ONNX export's turn with the model's own template, read from tokenizer_config.json and checked against the record
 
   @GP-21 @build
-  Scenario: The engine page keeps an ONNX export's files in the browser, each named by its BLAKE3 with a pointer from the SHA-256 the hub's record names, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
-    Given GP-19's Qwen3-shaped ONNX export, its files and a hub record naming each by its SHA-256, served to four visits in one browser profile
+  Scenario: The engine page keeps an ONNX export's files in the browser, each under the BLAKE3 the hub's record names for it, and a later visit reads them from there with the origin serving none, each file's BLAKE3 derived again as it is read and its bytes checked against the record and imported through the kernel exactly as a download's are; a kept file that is not its BLAKE3 is refused, and the load forgets every file it read, so the next visit downloads them again
+    Given GP-19's Qwen3-shaped ONNX export, its files and a hub record naming each by its BLAKE3, served to four visits in one browser profile
     When `just page-journey` opens the engine page with ?onnx= naming it: first with the origin serving the files, then with the origin serving the record and no file, then with the kept graph's bytes replaced by a graph with one byte flipped, then with the origin serving the files again
     Then the first visit downloads every file, keeps each named by its BLAKE3 and answers with the reference's tokens
     And the second reads every file from the browser, downloads none, derives each file's BLAKE3 again, checks each against the record, imports the graph through the kernel and answers with the reference's tokens
@@ -199,3 +199,20 @@ Feature: gpu
     Then the kernel is verified, each file is named, the precision and device are chosen and every span admitted by the kernel, and the turn answers with the reference's tokens
     And pipeline("feature-extraction", the export) stops at the kernel's answer unsupported task, with no file read
     And the engine page's own visits load and answer through the same call
+
+  @GP-26 @build
+  Scenario: The engine page checks every file of an ONNX export by the BLAKE3 the hub's record names for it, the small files in the module and the graph and data files through the importer, and refuses by name a record that names a file no BLAKE3; no file is checked by SHA-256 or SHA-1
+    Given GP-19's Qwen3-shaped ONNX export and hub records that name each file by its BLAKE3, beside the SHA-256 Hugging Face publishes
+    When `just page-journey` opens the engine page with ?onnx= naming it
+    Then each small file is checked by its BLAKE3 in the module, and the graph is admitted by the kernel against its BLAKE3
+    And a record that names config.json no BLAKE3 stops the page by name, before anything is imported
+    And no file check names SHA-256 or SHA-1
+
+  @GP-27 @build
+  Scenario: The engine page reads a model's hub record through the hub's own client, vendored byte for byte from hub commit ec26789 and pinned by BLAKE3: the index root is checked by its Sigstore signature against the trust policy this repository pins, the record by the BLAKE3 the root names, and a root signed by a key the policy does not name, or for another identity, or changed after signing, is refused as RootUnverified naming the failed checks, as each other failure is by its code
+    Given a Sigstore-shaped chain minted for the test, an intermediate, a log key and the policy naming them, and the fixture hubs' index roots signed through it
+    When hub-check.mjs drives the vendored client in Node, and `just page-journey` opens the engine page on hubs signed through the chain and through a foreign one
+    Then the root, the record and a file are checked, and the page shows the index root signature checked
+    And a root signed through a foreign intermediate and log key fails chain and log, another log key fails log, another identity fails identity and a changed root fails subject, each refused as RootUnverified
+    And the page stops at the index root signature on the foreign hub, before any record is read
+    And a missing bundle, an unknown or changed or unaddressed or unreachable record, and a changed or unaddressed file are refused by their codes

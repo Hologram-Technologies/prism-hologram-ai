@@ -448,7 +448,7 @@ Feature: engine
     And every answer text in each decision's kernel module reads as a verdict, and text the kernel never gives does not
 
   @EN-31 @build
-  Scenario: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the SHA-256 its record gives
+  Scenario: An ONNX model's files are imported as they arrive: every tensor named by the BLAKE3 of its own bytes, every span, operator and 4-bit weight put to the kernel, and each whole file to the BLAKE3 its record gives
     Given a fused-style model of one 4-bit projection and a multiply, its codes and scales inside the graph file and two tensors in a data file beside it, and each file's record
     When it is imported fed in pieces of 1, 7, 64 and 4096 bytes and whole, against a kernel answering in its own words
     Then every tensor whose data is bytes is listed with its file, offset and length and named by the BLAKE3 of exactly those bytes
@@ -469,11 +469,11 @@ Feature: engine
     Then it returns ImportError::SpanRefused with that tensor's name and the kernel's own verdict
 
   @FL-45 @build
-  Scenario: The kernel refuses a whole file against the SHA-256 and length its record gives
-    Given the graph of EN-31 under a record that names another SHA-256, and a kernel that refuses it
+  Scenario: The kernel refuses a whole file against the BLAKE3 and length its record gives
+    Given the graph of EN-31 under a record that names another BLAKE3, and a kernel that refuses it
     When it is imported
     Then it returns ImportError::FileRefused with the file's name and the kernel's verdict
-    And the question carried the record's SHA-256 as expected and the file's own as observed
+    And the question carried the record's BLAKE3 as expected and the file's own as observed
 
   @FL-46 @build
   Scenario: The kernel refuses an operator the graph names
@@ -698,3 +698,10 @@ Feature: engine
     Given the fixture model
     When a token id equal to its vocabulary is stepped
     Then the step is refused as DecodeError::TokenOutOfRange
+
+  @EN-42 @build
+  Scenario: The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused
+    Given an ONNX graph and its data file, and records giving each file's BLAKE3
+    When the importer takes their bytes in pieces of any size and asks the kernel about each whole file
+    Then each file's question carries the record's BLAKE3 and the BLAKE3 of the bytes that arrived, and the kernel admits the file
+    And a record giving another BLAKE3 for the graph has the graph refused as FileRefused
