@@ -113,6 +113,7 @@ The inherited gates and their own planted defects are in
 | Decisions 18 to 28 answer their examples in the compiled guest | none are replayed: the application's example list is at the nesting depth the proof language reads (108 examples), as it was for decisions 12 to 17. The answers were worked by a second implementation outside the repository and are not gate evidence | not tested |
 | The verdict for each decision is the one its proved function gives, read from the request offsets the wire format fixes | the `kernel_kn_` tests in `crates/conformance/tests/kernel.rs` | tested (string-matching, not a theorem) |
 | The compiled guest gives the stated answer for each example | the 108 examples in `app/src/Kernel.lex.tex`, replayed by `prismpm verify` | tested |
+| Every routed decision, 1 to 44, refuses at least one request in the compiled guest, and decisions 12 to 44 also accept one there | 1 to 11 by the holo's examples; 12 to 44 by `crates/conformance/tests/kernel/claims.json`, replayed through the built holo by `kernel/replay.mjs` in the `app` recipe and required decision by decision by `assert_claimed` in each `kernel_kn_` test (see Milestone 2, row 1) | tested |
 
 Each proof is about the function the guest executes, named by its module. That
 the request bytes are parsed into that function's arguments correctly is not
@@ -1392,7 +1393,91 @@ do not, and `not finite` for an infinity or a NaN. No number it forms passes
 | --- | --- |
 | the f16 read at half its units (times 32) | rejected: `rotaryCache changed` |
 | decision 50 routed to decision 49's answer | rejected: `decision 50 must be routed to Kernel.Rotary::rotaryAnswer` |
+
+## KN-55, the greedy token
+
+Row 13 of milestone 2 moves the inference arithmetic out of Rust and JavaScript
+into LexLean, one stage at a time. The greedy pick is the first stage written
+as a computing definition rather than a checker: `Engine.Stage.Greedy::greedy`
+returns the index of the largest logit, where `hologram-ai-cpu-decode::greedy`
+and the page did it before. A logit is a binary32 bit pattern. `key` orders it
+by sign and magnitude: a negative pattern maps to `2^32 - bits`, a positive one
+to `2^31 + bits`, so both zeros meet at `2^31` and a larger negative magnitude
+sorts lower. `bestIn` walks indices 0 to `last` and replaces its pick only on a
+strictly larger key, so the earliest index wins a tie, as the Rust did.
+
+Lean proves, for every list of logits and every `last`: the picked index's key
+is `maxKey` (`greedy_key_is_max`); the summed excess of the keys over a bound is
+zero exactly when `maxKey` is at most the bound (`exceed_zero_decides`), so no
+key is above the pick (`none_above_greedy`); and the pick is at most `last`
+(`greedy_in_range`). The tie order is not proved: a pick that took the last of
+equal keys would satisfy the same theorems. The pinned `bestIn` text holds it.
+
+The proof forms set the shape of the definitions. `omega` does not split an
+`if` unless a hypothesis decides it, and the pinned lexlean 0.3.0 splits only
+on a Nat, a List or a document inductive, not on a Boolean. So every branch is
+`pick flag a b`, a match on a Nat flag, and a comparison is the flag
+`below a b = (b - a) - (b - a - 1)`, which is 1 exactly when `a < b`; each
+`pick` lemma is an induction on the flag. `linear_arithmetic` cannot cite a
+theorem, so the maximum is the arithmetic `kept + (next - kept)` and the "none
+above" fold is a sum of truncated differences, which the induction hypothesis
+carries as arithmetic. `simplify` cites the `pick` lemmas as conditional
+rewrites.
+
+### The pinned test: `kernel_kn_55`
+
+| Planted defect | Result |
+| --- | --- |
+| a tie taken by the later index (`below (best - 1) next` in `bestIn`, so an equal key replaces the pick) | rejected: `bestIn changed` |
+| negative logits keyed as positive (`2^31 + bits` on both branches of `key`) | rejected: `key changed` |
 | none | passed |
+
+## Milestone 2, row 1: every decision refused somewhere real
+
+Row 1 of the milestone asks that every decision be registered, proved, and
+covered by a scenario and a negative test. Audited on 2026-11-19 at main
+622d9e0: all 45 KN IDs are in `model/ids.toml`, each has a proved row above, a
+`@KN-` scenario in `features/suites/kernel.feature` and a `kernel_kn_` test.
+The negative test was the gap. A pinned test reads the model's text, and a
+theorem says what the definition decides, but neither runs the compiled guest
+on a request it should refuse. Decisions 1 to 11 had that in the holo's
+examples, and 18, 19, 21, 34, 37 and 42 in `claims.json`; the other 27 had none.
+
+Each of the 27 now has, in `claims.json`, one request it accepts, one for each
+refusal it can give, and one a byte short, answered `invalid request`. Where
+the engine's crates build the request (decisions 13, 20 and 22 to 28) the test
+builds it with `hologram-ai-kernel-client`, so the claim is the crate's own
+request; elsewhere no crate sends the decision yet and the bytes follow the
+model's wire format. Decision 38 has no refusal but `invalid request`; it is
+shown for a value too wide for its format and for a short request. Decision 24's
+unsupported task and precision use code 255, away from the boundary.
+
+The answers were taken from the compiled guest of the holo published from main
+622d9e0 (`app.holo` on the project's Pages site), and agree in all 97 cases with
+the answer read from each decision's definition.
+
+KN-45, the engine session, is not a routed decision: it is not in the guest's
+`route`, and its refusals (a page not named by BLAKE3, a floating-point stage,
+a request after close) are the proved theorems `session_refuses_*`.
+
+Decisions 49 and 50 (KN-50, KN-51) reached main after the audit with their
+refusals already in `claims.json`: `not a decimal`, `not whole` and `out of
+range` for decision 49, `not finite` for decision 50. Decisions registered in
+open pull requests are their authors' to cover: KN-46 and decision 45 (#85),
+KN-47 (#86), KN-49 and decision 48 (#96), KN-55 (#95), KN-70 (#97); and KN-52
+and KN-53 come with row 9's pull request.
+
+Planted defect: the claim that decision 12 answers `cpu` for a largest buffer
+over the binding limit was changed to `webgpu`.
+
+```
+$ node crates/conformance/tests/kernel/replay.mjs app.holo crates/conformance/tests/kernel/claims.json
+kernel replay: 1 of 195 claims answered otherwise
+0c0100000000000001f400000000000003e8: the guest answers `cpu`, the claim lists `webgpu`
+```
+
+Exit 1. Restored, the same command prints `kernel replay: the guest answers all
+195 claims as listed`.
 
 ## KN-70, a transformers.js call
 
@@ -1431,3 +1516,41 @@ examples at the top of the 64-bit field.
 
 One gate here has not been shown to fail: no example has been planted with a
 wrong expected answer to confirm the replay rejects it.
+
+## KN-46, the chat template named by its BLAKE3
+
+Decided by Ilya on 2026-11-18: chat templates are defined and proved in
+LexLean, the subset the supported families use, and any other template is
+refused by name, with no Jinja library. Decision 45 is the first half: it names
+a model's template by the BLAKE3 of its text. A request is the tag and the 32
+bytes of the address, read as four 8-byte words; the answer is `qwen2.5`,
+`qwen3` or `llama3.2` for the templates of Qwen2.5-1.5B-Instruct, Qwen3-0.6B
+and Llama 3.2 1B Instruct, as their exports carry them in
+`tokenizer_config.json` at the hub's pinned revisions (`d54957e`, `79346d3`,
+`82ac693`), and `refused: unknown template` for any other. Those three texts
+are the ones recorded in `crates/conformance/tests/gpu/templates`; their
+BLAKE3 were taken again on 2026-11-18 from the files at those revisions and
+are equal.
+
+The engine page asks decision 45 for the template its model carries and stops
+by name on any other, before anything is rendered. Rendering each family's
+template from a LexLean definition is the second half (KN-47).
+
+### The proof gate
+
+Checked by the hosted LexLean verifier on 2026-11-18 (task-8, draft
+prism-app/7a9bad1f…), with `Kernel.Template`, its proofs and the modules they
+import: `template_qwen25_decides`, `template_qwen3_decides` and
+`template_llama32_decides` (a template is named a family exactly when the four
+words are that family's) and `template_code_bounded` (no other code is
+given), all verified. `lexlean fmt --check`: canonical.
+
+### The pinned test: `kernel_kn_46`
+
+| Planted defect | Result |
+| --- | --- |
+| one word of Qwen3's address one too high | rejected: `Qwen3-0.6B-ONNX.json: Kernel.Template does not list it` |
+| decision 45 not routed | rejected: `decision 45 must be routed to Kernel.Template::templateAnswer` |
+| no claim answered `refused: unknown template` | rejected: `no decision-45 claim is answered ...` |
+| none | passed |
+

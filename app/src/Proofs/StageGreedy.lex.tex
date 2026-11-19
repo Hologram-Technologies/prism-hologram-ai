@@ -1,0 +1,185 @@
+\begin{lexlean}{Proofs.StageGreedy}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: key_of_pick,
+  parameters: [logits : (List Nat), flag : Nat, chosen : Nat, other : Nat],
+  statement: ((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::pick flag chosen other)) = (Engine.Stage.Greedy::pick flag (Engine.Stage.Greedy::keyAt logits chosen) (Engine.Stage.Greedy::keyAt logits other))),
+  proof: induction{
+    branches: [
+      {proof: simplify{definitions: [Engine.Stage.Greedy::pick]}, binders: [], constructor: zero},
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: pick_is_max,
+  parameters: [flag : Nat, kept : Nat, next : Nat],
+  statement: (((Engine.Stage.Greedy::below kept next) = flag) -> ((Engine.Stage.Greedy::pick flag next kept) = (Engine.Stage.Greedy::maxOf kept next))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Stage.Greedy::below,
+            Engine.Stage.Greedy::maxOf,
+            Engine.Stage.Greedy::pick
+          ]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Stage.Greedy::below,
+            Engine.Stage.Greedy::maxOf,
+            Engine.Stage.Greedy::pick
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: pick_within,
+  parameters: [flag : Nat, last : Nat, other : Nat],
+  statement: ((other <= last) -> ((Engine.Stage.Greedy::pick flag (last + 1) other) <= (last + 1))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: flag
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: greedy_key_is_max,
+  parameters: [logits : (List Nat), last : Nat],
+  statement: ((Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last)) = (Engine.Stage.Greedy::maxKey logits last)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::bestIn, Engine.Stage.Greedy::maxKey]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            key_of_pick,
+            pick_is_max,
+            Engine.Stage.Greedy::bestIn,
+            Engine.Stage.Greedy::maxKey
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: last
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: exceed_zero_decides,
+  parameters: [logits : (List Nat), last : Nat, bound : Nat],
+  statement: (((Engine.Stage.Greedy::exceed logits last bound) = 0) <-> ((Engine.Stage.Greedy::maxKey logits last) <= bound)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::exceed, Engine.Stage.Greedy::maxKey]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Stage.Greedy::exceed,
+            Engine.Stage.Greedy::maxKey,
+            Engine.Stage.Greedy::maxOf
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: last
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: max_key_at_most_itself,
+  parameters: [logits : (List Nat), last : Nat],
+  statement: ((Engine.Stage.Greedy::maxKey logits last) <= (Engine.Stage.Greedy::maxKey logits last)),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::maxKey]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: none_above_greedy,
+  parameters: [logits : (List Nat), last : Nat],
+  statement: ((Engine.Stage.Greedy::exceed logits last (Engine.Stage.Greedy::keyAt logits (Engine.Stage.Greedy::bestIn logits last))) = 0),
+  proof: simplify{definitions: [exceed_zero_decides, greedy_key_is_max, max_key_at_most_itself]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: greedy_in_range,
+  parameters: [logits : (List Nat), last : Nat],
+  statement: ((Engine.Stage.Greedy::bestIn logits last) <= last),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::bestIn]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{definitions: [hypothesis, pick_within, Engine.Stage.Greedy::bestIn]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: last
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

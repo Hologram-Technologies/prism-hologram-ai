@@ -2811,6 +2811,39 @@
       "tag": 44
     },
     {
+      "asks": "Which chat template is this, by the BLAKE3 of its text?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The template's BLAKE3, bytes 1 to 8",
+          "value": "8279920892041357147",
+          "width": 8
+        },
+        {
+          "at": 9,
+          "name": "The template's BLAKE3, bytes 9 to 16",
+          "value": "1773128108353419947",
+          "width": 8
+        },
+        {
+          "at": 17,
+          "name": "The template's BLAKE3, bytes 17 to 24",
+          "value": "11653179235714034099",
+          "width": 8
+        },
+        {
+          "at": 25,
+          "name": "The template's BLAKE3, bytes 25 to 32",
+          "value": "12784695345153184910",
+          "width": 8
+        }
+      ],
+      "length": 33,
+      "module": "Template",
+      "name": "Chat template",
+      "tag": 45
+    },
+    {
       "asks": "Is this the binary32, or the whole number, a config number written in decimal names?",
       "fields": [
         {
