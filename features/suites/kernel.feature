@@ -420,6 +420,13 @@ Feature: kernel
     And webgpu and gpu answer webgpu, wasm and cpu answer cpu, and any other task, device or dtype, sampling, beam search or a repetition penalty is refused by name
     And the theorems of Proofs.Call state it and are pinned with their axioms
 
+  @KN-49 @build
+  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+    Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
+    When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
+    Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
+    And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests
+
   @KN-56 @build
   Scenario: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even
     Given the stage in app/src/Engine/Stage/Exp2.lex.tex and its proofs in app/src/Proofs/StageExp2.lex.tex, StageExp2Mid.lex.tex and StageExp2High.lex.tex

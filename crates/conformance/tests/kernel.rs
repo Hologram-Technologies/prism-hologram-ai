@@ -62,6 +62,22 @@ fn assert_proofs_are_gated() {
         "app/src/Kernel holds the wire format and one module per decision: {found:?}"
     );
     modules.extend(found);
+    // The engine modules a decision imports are compiled into the same guest.
+    let mut at = 0;
+    while at < modules.len() {
+        for line in model(&modules[at]).lines() {
+            if let Some(engine) = line
+                .strip_prefix("\\importmodule{Engine.")
+                .and_then(|rest| rest.strip_suffix('}'))
+            {
+                let path = format!("app/src/Engine/{}.lex.tex", engine.replace('.', "/"));
+                if !modules.contains(&path) {
+                    modules.push(path);
+                }
+            }
+        }
+        at += 1;
+    }
 
     // The generated guest puts every executable module's declarations in one
     // Rust namespace, so a name declared in two of them does not compile.
@@ -75,7 +91,8 @@ fn assert_proofs_are_gated() {
         for line in text.lines() {
             let Some(name) = line
                 .strip_prefix("  name: ")
-                .and_then(|rest| rest.strip_suffix(','))
+                .or_else(|| line.strip_prefix("definition{name: "))
+                .and_then(|rest| rest.split(',').next())
             else {
                 continue;
             };
@@ -4466,6 +4483,102 @@ fn kernel_kn_70() {
 {found}");
     }
     assert_routed(70, "Kernel.Call::callAnswer");
+}
+
+/// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+#[test]
+fn kernel_kn_49() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/GpuCode.lex.tex");
+    assert_pinned(
+        &proofs,
+        "exp2_code_prints_tree",
+        "((Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k128",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k256",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k1024",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k1536",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k2048",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k3072",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k8192",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_code_prints_tree_k8960",
+        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false)))",
+        "Quot.sound, propext",
+    );
+    let render = model("app/src/Kernel/Render.lex.tex");
+    let found = declaration(&render, "printedWidth");
+    assert!(
+        found.contains("body: ((width =? 128) || ((width =? 256) || ((width =? 1024) || ((width =? 1536) || ((width =? 2048) || ((width =? 3072) || ((width =? 8192) || (width =? 8960))))))))"),
+        "the widths decision 48 prints must be the widths the proofs check:
+{found}"
+    );
+    let found = declaration(&render, "renderText");
+    assert!(
+        found.contains("(Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode)")
+            && found.contains("(Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x)"),
+        "decision 48 must print the codes the proofs check:
+{found}"
+    );
+    assert_routed(48, "Kernel.Render::renderAnswer");
+    let q4 = |piece: u8, packed: u8, units: u8, codes: u16| {
+        let mut request = vec![48, 1, 0, piece, 0, 0, 0, units, 0, 0];
+        request.extend(codes.to_be_bytes());
+        request.extend([0, 0, 0, 0, packed]);
+        request
+    };
+    assert_claimed(
+        48,
+        &[
+            (q4(5, 0, 4, 128), ""),
+            (q4(0, 0, 2, 64), "invalid request"),
+            (q4(0, 1, 4, 128), "invalid request"),
+            (q4(0, 0, 5, 128), "invalid request"),
+            (q4(0, 0, 4, 128)[..16].to_vec(), "invalid request"),
+            (
+                vec![48, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "invalid request",
+            ),
+        ],
+    );
 }
 
 /// `KN-56`: The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even

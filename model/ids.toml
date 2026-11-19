@@ -641,6 +641,12 @@ suite = "kernel"
 statement = "The base-two exponent of softmax is defined in LexLean, not Rust: exp2Neg reads one of 256 entries, each certified as the integer nearest 2^(30 - j/256) by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256, and shifts it right by d/256 rounding half to even; Lean checks the certificate for all 256 entries and, for every d below 8704, that the output is within half a step of the entry over 2^(d/256), a tie even"
 
 [[id]]
+id = "KN-49"
+level = "build"
+suite = "kernel"
+statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"
