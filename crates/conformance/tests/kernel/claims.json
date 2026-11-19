@@ -600,6 +600,82 @@
     {
       "request": "31010000000000000000312e322e330000000000000000000000000000000000000000000000000000000000000000000000",
       "answer": "not a decimal"
+    },
+    {
+      "request": "323c00004000000000000000",
+      "answer": "agrees"
+    },
+    {
+      "request": "323c00003fe0000000200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "323c00003fdfffff00200000",
+      "answer": "disagrees"
+    },
+    {
+      "request": "32bc00014000000000000000",
+      "answer": "agrees"
+    },
+    {
+      "request": "32bc00004000000000200000",
+      "answer": "disagrees"
+    },
+    {
+      "request": "320000010000000500000005",
+      "answer": "agrees"
+    },
+    {
+      "request": "328000000000000400000003",
+      "answer": "disagrees"
+    },
+    {
+      "request": "320001000000004000000000",
+      "answer": "agrees"
+    },
+    {
+      "request": "327c00000000000000200000",
+      "answer": "not finite"
+    },
+    {
+      "request": "327e00000000000000200000",
+      "answer": "not finite"
+    },
+    {
+      "request": "323853002294d02500200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "323abb0035da56e900200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "323c00004000000000200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "320002000000000000200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "32b92c01295e8b3600200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "32ba1b0130d5089200200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "323c00003ffffec400200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "32125200000c90fe00200000",
+      "answer": "agrees"
+    },
+    {
+      "request": "32b698000b4936ec00200000",
+      "answer": "disagrees"
     }
   ]
 }

@@ -51,7 +51,7 @@ use std::collections::BTreeMap;
 
 use hologram_ai_cpu_decode::{self as decode, Config, DecodeError, Initializer, Session};
 use hologram_ai_download::{Arriving, Label, Whole, LABEL_BYTES};
-use hologram_ai_exact::{decimal_binary32, decimal_whole, ExactError, RopeScaling};
+use hologram_ai_exact::{decimal_binary32, decimal_whole, rotary_confirm, ExactError, RopeScaling};
 use hologram_ai_exact::{request_product, Layout};
 use hologram_ai_model_reader::holk::Container;
 use hologram_ai_model_reader::onnx::{DataFile, File, Graph, ImportError, Imported, ReadFile};
@@ -1058,6 +1058,69 @@ pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
             d.session = Some(session);
             serde_json::to_vec(&dims).map_err(|_| CallError::NotText)
         })
+    })
+}
+
+/// Which rotary parameters the export's own cos and sin cache agree with, as
+/// JSON: `config`, the text of config.json, whose `rope_theta` is read as
+/// decision 49 reads it; `head_dim`; `width`, the cache's row length; `rows`,
+/// each a position and that row's cos and sin f16 bits; and `candidates`, each
+/// `null` for plain frequencies or Llama 3's `factor`, `low`, `high` and
+/// `original`. Answers `{"chosen": index}` for the first candidate every entry
+/// agrees with, in integers (KN-51, EN-59), or `{"chosen": null}`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn rope_confirm(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let c: serde_json::Value =
+            serde_json::from_slice(&given).map_err(|_| CallError::NotText)?;
+        let text = c["config"].as_str().ok_or(CallError::NotText)?;
+        let fields: BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_str(text).map_err(|_| CallError::NotText)?;
+        let theta = fields
+            .get("rope_theta")
+            .ok_or(ExactError::DecimalRefused)
+            .and_then(|v| decimal_whole(v.get().as_bytes()))
+            .map_err(|e| CallError::Decode(e.into()))?;
+        let whole = |v: &serde_json::Value| v.as_u64().ok_or(CallError::NotText);
+        let small =
+            |v: &serde_json::Value| u32::try_from(whole(v)?).map_err(|_| CallError::WrongSize);
+        let head_dim = small(&c["head_dim"])?;
+        let width = usize::try_from(whole(&c["width"])?).map_err(|_| CallError::WrongSize)?;
+        let rows = c["rows"].as_array().ok_or(CallError::NotText)?;
+        let (mut positions, mut cos, mut sin) = (Vec::new(), Vec::new(), Vec::new());
+        for row in rows {
+            let position = small(&row[0])?;
+            positions.push(position);
+            let end = (position as usize + 1) * width;
+            for (cache, at) in [(&mut cos, 1), (&mut sin, 2)] {
+                cache.resize(end.max(cache.len()), 0);
+                let values = row[at].as_array().ok_or(CallError::NotText)?;
+                if values.len() != width {
+                    return Err(CallError::WrongSize);
+                }
+                for (i, v) in values.iter().enumerate() {
+                    cache[end - width + i] =
+                        u16::try_from(whole(v)?).map_err(|_| CallError::WrongSize)?;
+                }
+            }
+        }
+        let mut candidates = Vec::new();
+        for one in c["candidates"].as_array().ok_or(CallError::NotText)? {
+            candidates.push(match one {
+                serde_json::Value::Null => RopeScaling::None,
+                s => RopeScaling::Llama3 {
+                    factor: small(&s["factor"])?,
+                    low: small(&s["low"])?,
+                    high: small(&s["high"])?,
+                    original: small(&s["original"])?,
+                },
+            });
+        }
+        let chosen = rotary_confirm(&cos, &sin, width, &positions, head_dim, theta, &candidates)
+            .map_err(|e| CallError::Decode(e.into()))?;
+        serde_json::to_vec(&serde_json::json!({ "chosen": chosen })).map_err(|_| CallError::NotText)
     })
 }
 

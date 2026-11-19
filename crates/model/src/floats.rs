@@ -22,11 +22,7 @@ pub const SCRIPT: [&str; 1] = ["site/app/engine/integer.mjs"];
 /// an open finding with the plan row that removes it, so none passes
 /// silently: the file, the line its function starts with, and the row. The
 /// function is read to its closing brace at the left margin.
-pub const OPEN: [(&str, &str, &str); 1] = [(
-    "site/app/engine/onnx-roles.mjs",
-    "export function confirmRope(",
-    "Q_ENGINE_PLAN.md, milestone 2, row 17",
-)];
+pub const OPEN: [(&str, &str, &str); 0] = [];
 
 /// The floats in the function of `text` that starts with `start`, as
 /// [`float_uses`] reports them; `None` when no such function is there.

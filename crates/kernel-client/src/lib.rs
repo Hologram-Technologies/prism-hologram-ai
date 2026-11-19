@@ -1548,6 +1548,51 @@ pub mod config_check {
     }
 }
 
+/// Decision 50: whether an f16 cache entry lies within a tolerance of a
+/// reference rotary value, both in units of `2^-30`.
+pub mod rotary_check {
+    /// The kernel's answer.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        /// The entry is within the tolerance.
+        Agrees,
+        /// It is not.
+        Disagrees,
+        /// The entry is an infinity or a NaN.
+        NotFinite,
+        /// The kernel did not accept the request.
+        Invalid,
+        /// Text the kernel is not known to give.
+        Unrecognised,
+    }
+
+    /// The request for the f16 `half` against `reference` with `tolerance`:
+    /// the half in two bytes, the reference's sign (1 for negative) in one and
+    /// its magnitude in four, then the tolerance in four, each at most 2^30.
+    #[must_use]
+    pub fn request(half: u16, reference: i32, tolerance: u32) -> [u8; 12] {
+        let mut out = [0; 12];
+        out[0] = 50;
+        out[1..3].copy_from_slice(&half.to_be_bytes());
+        out[3] = u8::from(reference < 0);
+        out[4..8].copy_from_slice(&reference.unsigned_abs().to_be_bytes());
+        out[8..12].copy_from_slice(&tolerance.to_be_bytes());
+        out
+    }
+
+    /// Read the kernel's answer.
+    #[must_use]
+    pub fn answer(text: &[u8]) -> Answer {
+        match text {
+            b"agrees" => Answer::Agrees,
+            b"disagrees" => Answer::Disagrees,
+            b"not finite" => Answer::NotFinite,
+            crate::INVALID_REQUEST => Answer::Invalid,
+            _ => Answer::Unrecognised,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decimal;

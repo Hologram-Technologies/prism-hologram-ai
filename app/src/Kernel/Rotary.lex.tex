@@ -1,0 +1,46 @@
+\begin{lexlean}{Kernel.Rotary}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Scale}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: rotaryCache,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim multiply (Kernel.Scale::halfUnits bits) 64 : Nat)
+}
+
+definition{
+  name: rotarySame,
+  parameters: [bits : Nat, sign : Nat],
+  result: Nat,
+  body: (if (Kernel.Scale::halfNegative bits) then (if (sign =? 1) then 1 else 0) else (if (sign =? 0) then 1 else 0))
+}
+
+definition{
+  name: rotaryDistance,
+  parameters: [bits : Nat, sign : Nat, magnitude : Nat],
+  result: Nat,
+  body: (if ((rotarySame bits sign) =? 1) then ((prim subtract (rotaryCache bits) magnitude : Nat) + (prim subtract magnitude (rotaryCache bits) : Nat)) else ((rotaryCache bits) + magnitude))
+}
+
+definition{
+  name: rotaryAgrees,
+  parameters: [bits : Nat, sign : Nat, magnitude : Nat, tolerance : Nat],
+  result: Bool,
+  body: ((rotaryDistance bits sign magnitude) <=? tolerance)
+}
+
+definition{
+  name: rotaryAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if (((((Foundation.Bytes::byteLength value) =? 12) && ((Kernel.Wire::fieldAt value 3 1) <=? 1)) && ((Kernel.Wire::fieldAt value 4 4) <=? 1073741824)) && ((Kernel.Wire::fieldAt value 8 4) <=? 1073741824)) then (if ((Kernel.Scale::halfExponent (Kernel.Wire::fieldAt value 1 2)) =? 31) then (prim utf8_encode "not finite" : Bytes) else (if (rotaryAgrees (Kernel.Wire::fieldAt value 1 2) (Kernel.Wire::fieldAt value 3 1) (Kernel.Wire::fieldAt value 4 4) (Kernel.Wire::fieldAt value 8 4)) then (prim utf8_encode "agrees" : Bytes) else (prim utf8_encode "disagrees" : Bytes))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
