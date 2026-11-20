@@ -104,7 +104,9 @@ export function roles({ nodes, tensors }, config) {
     }
     const rule = RULES.find(([o, pattern]) => o === op && pattern.test(name));
     if (!rule) {
-      if (WEIGHT_READERS.has(op) && inputs.some(Boolean)) throw new Error(`unplaced: ${op} ${name} reads a weight no engine role takes`);
+      // An int64 or int32 tensor indexes and is not a weight: Qwen2.5's decomposed
+      // export gathers from its shapes by such constants (/model/Gather_2).
+      if (WEIGHT_READERS.has(op) && inputs.some((input) => input && !INDEX_TYPES.has(tensors[input]?.[0]))) throw new Error(`unplaced: ${op} ${name} reads a weight no engine role takes`);
       continue;
     }
     const m = name.match(rule[1]);
