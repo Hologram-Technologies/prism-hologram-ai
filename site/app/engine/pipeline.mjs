@@ -347,6 +347,27 @@ export function turner(session) {
     return { verdict, ready: ready === 1, claimed: receipt.output.label, replayed: replayed.label, tokens: replayed.tokens };
   }
 
+  // GP-60: open a past answer at one layer, position and component. The
+  // receipt is run again to recover its output ids (and checked, decision
+  // 31), the kernel says whether the replay is exact (decision 32), and the
+  // engine replays the ids to that position and reads the component there:
+  // the value that produced the answer, named by its BLAKE3.
+  const COMPONENTS = ["residual", "attention", "feed-forward"];
+  async function probe(receipt, { layer, position, component = "residual" }) {
+    const checked = await check(receipt);
+    if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };
+    const ids = [...receipt.input.ids, ...checked.tokens];
+    const positions = ids.length - 1;
+    const layers = engine.sizes.layers;
+    const index = COMPONENTS.indexOf(component);
+    const classCode = { everywhere: 2, "same hardware": 1, none: 0 }[receipt.class] ?? 0;
+    const sameAdapter = receipt.device === session.device ? 1 : 0;
+    const verdict = await ask("probe", "a probe of a past answer (decision 32)", join(new Uint8Array([32]), be(layer, 4), be(layers, 4), be(position, 4), be(positions, 4), new Uint8Array([index < 0 ? 255 : index, COMPONENTS.length, classCode, sameAdapter])), (a) => ["exact replay", "approximate replay", "out of range"].includes(a));
+    if (verdict === "out of range") return { verdict, checked };
+    const bits = await engine.probe(ids, position, layer, index);
+    return { verdict, layer, position, component, label: blake3Of(m, bits), values: Array.from(new Uint32Array(bits.buffer, bits.byteOffset, bits.length / 4)), checked };
+  }
+
   // `template: false` runs the text as it is, as transformers.js runs a string.
   async function generate(text, { max_new_tokens = 256, onToken = () => {}, template = true } = {}) {
     const prompt = encode(template ? framing(text) : text);
@@ -397,5 +418,5 @@ export function turner(session) {
       tokensPerSecond: tokens.length > 1 ? (tokens.length - 1) / ((end - firstAt) / 1000) : 0,
     };
   }
-  return Object.assign(generate, { render, decode, check });
+  return Object.assign(generate, { render, decode, check, probe });
 }

@@ -339,7 +339,7 @@ model label (decision 28's admission already holds the bytes to the record).
 | Each device confirms the other's receipt; a changed output is a mismatch; another model is not comparable | the same run, through decision 31 | tested on CI |
 | A link carrying a receipt opens, loads, checks and shows Confirmed | `just page-journey`, the linked visit | tested on CI |
 | The same holds on a real model and a real GPU | not yet run: the measurement session records it with row 15 | open |
-| Probes into a layer (decision 32) | not built: the engine has no export that returns one layer's output at one position yet | open |
+| Probes into a layer (decision 32) | GP-60, below | tested on CI |
 
 ### The gates
 
@@ -350,3 +350,35 @@ model label (decision 28's admission already holds the bytes to the record).
 | the output label taken over the tokens and the budget | rejected by `gpu_gp_58`: ``pipeline.mjs no longer has `output: { tokens: tokens.length, label: blake3Of(m, idBytes(tokens)) },` `` |
 | a receipt for any model counted as ready | rejected by `gpu_gp_59`: ``pipeline.mjs no longer has `const ready = receipt?.model?.label === session.identity.label ? 1 : 0;` `` |
 | none | passed |
+
+## GP-60, a past answer opened at any layer
+
+Why: an answer is interpretable when any layer at any position opens to the
+exact integers that produced it. Because the engine is deterministic, nothing
+has to be recorded while generating: a probe runs the answer again to that
+point and reads the value there, which is the value that produced it.
+
+How: a probe first checks its receipt (decision 31) and recovers the output
+ids. It then asks decision 32 whether the replay is exact, given the layer,
+the position, the component and the run's class. The engine replays the run's
+ids to that position with the module's probe set (EN-97) and reads one
+component: the residual after the layer, attention's output or the
+feed-forward's. Its values are binary32 bit patterns of the residual stream's
+width, named by their BLAKE3, so a probe can be shared and compared like a
+receipt.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| The same answer probed on the CPU and on WebGPU reads the same bits, one BLAKE3, of the residual stream's width | `just page-journey`, GP-56's run | tested on CI |
+| Attention's output at that point is other bits; a layer past the model's is out of range | the same run | tested on CI |
+| Probes are the run's own values and change nothing | EN-97 | tested |
+
+### The gate: `cargo test -p repo-conformance --test gpu gpu_gp_60`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| a probe that skips checking its receipt | rejected: ``pipeline.mjs no longer has `if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };` `` |
+| none | passed |
+

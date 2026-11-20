@@ -1191,6 +1191,43 @@ pub extern "C" fn decode_advance(token: u32) -> u32 {
     })
 }
 
+// ─── Probes: one layer's component at one position (EN-97) ────────────────
+//
+// Why: an answer is interpretable when any layer at any position opens to the
+// exact integers that produced it. The page replays the run to that position
+// (decision 32 says whether the replay is exact) and reads the component the
+// step computed, so nothing is recorded while generating.
+
+/// Read `component` (0 the residual after the layer, 1 attention's output, 2
+/// the feed-forward's) of `layer` in the next `decode_step` or
+/// `decode_advance`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probe(layer: u32, component: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let component = decode::Component::numbered(component).ok_or(CallError::WrongSize)?;
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            session.probe(layer as usize, component);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// What the probe read: one binary32 bit pattern per value, four bytes each,
+/// little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probed() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            let read = session.probed().ok_or(CallError::NothingRead)?;
+            Ok(read.iter().flat_map(|w| w.to_le_bytes()).collect())
+        })
+    })
+}
+
 // ─── Helpers: one model's products on several instances (GP-52) ───────────
 //
 // Why: a token's time is its products (#106's profile: 86 per cent), and

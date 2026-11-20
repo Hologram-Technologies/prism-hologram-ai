@@ -994,3 +994,15 @@ id = "GP-59"
 level = "build"
 suite = "gpu"
 statement = "A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict"
+
+[[id]]
+id = "EN-97"
+level = "build"
+suite = "engine"
+statement = "A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused"
+
+[[id]]
+id = "GP-60"
+level = "build"
+suite = "gpu"
+statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"

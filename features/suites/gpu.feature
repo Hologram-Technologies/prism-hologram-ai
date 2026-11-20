@@ -240,3 +240,10 @@ Feature: gpu
     When `just page-journey` checks each on the other device, checks one with its output label changed and one for another model, and opens the page with a link carrying a receipt
     Then the kernel answers confirmed, confirmed, mismatch and not comparable
     And the linked page shows Confirmed
+
+  @GP-60 @build
+  Scenario: A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range
+    Given GP-58's receipt from WebGPU
+    When `just page-journey` opens it at layer 1, two positions past the prompt, on the CPU and on WebGPU, its attention output there, and a layer past the model's
+    Then the kernel answers exact replay, and the residual read on both devices has one BLAKE3 and the residual stream's width
+    And attention's output is other bits, and the layer past the model is out of range
