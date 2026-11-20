@@ -33,197 +33,7 @@ fn node(script: &str, args: &[&str]) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("{script} printed no JSON ({e}):\n{stdout}"))
 }
 
-// Eight scenarios read the one engine run `run.mjs` makes. It takes no input
-// but this tree, so it runs once and each scenario asserts on that output.
-// Run eight times, four at once on the gate's four cores, it took 22 to 28
-// of the gate's 45 minutes.
-fn run() -> &'static serde_json::Value {
-    static RUN: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
-    RUN.get_or_init(|| node("crates/conformance/tests/gpu/run.mjs", &[]))
-}
-
-/// The largest difference allowed between a logit the GPU computes in single
-/// precision and the reference's double-precision logit. The first runs on
-/// SwiftShader measured at most 6.6e-4 on logits spread over about 6 to 8.
-const LOGIT_TOLERANCE: f64 = 2e-3;
-// Over 140 positions f32 rounding in the cache accumulates: the single
-// workgroup attention and the split one both measured 2.53e-3 from the
-// reference. A combine that drops chunks measured 5.6, three orders above.
-const LONG_LOGIT_TOLERANCE: f64 = 5e-3;
-
-// The engine against the reference for one model's results: sixteen steps
-// with every logit within tolerance and the same pick, and 140 positions,
-// three attention chunks, within the long tolerance.
-fn reference_agrees(model: &serde_json::Value, label: &str) {
-    let steps = model["steps"].as_array().expect("the steps");
-    assert_eq!(
-        steps.len(),
-        16,
-        "{label}: six prompt tokens and ten generated"
-    );
-    for (i, step) in steps.iter().enumerate() {
-        let worst = step["worst"].as_f64().expect("worst");
-        let margin = step["margin"].as_f64().expect("margin");
-        assert!(
-            worst <= LOGIT_TOLERANCE,
-            "{label}: step {i}: a logit differs by {worst} from the reference"
-        );
-        // Equal picks are required only where the reference's best two
-        // logits are further apart than twice the tolerance; closer than that,
-        // rounding may pick either. The fixture keeps every step outside that.
-        assert!(
-            margin > 2.0 * LOGIT_TOLERANCE,
-            "{label}: step {i}: the fixture has a near tie ({margin}); choose another seed"
-        );
-        assert_eq!(
-            step["gpu"], step["reference"],
-            "{label}: step {i}: the engine picked a different token from the reference"
-        );
-    }
-    // Attention splits the cache into 64-position chunks and combines them;
-    // a context of one chunk would leave the combine unchecked.
-    assert_eq!(
-        model["longPositions"].as_u64(),
-        Some(140),
-        "{label}: the long run covers three attention chunks"
-    );
-    let long_worst = model["longWorst"].as_f64().expect("longWorst");
-    assert!(
-        long_worst <= LONG_LOGIT_TOLERANCE,
-        "{label}: past one attention chunk, a logit differs by {long_worst} from the reference"
-    );
-}
-
-// A prompt run in blocks against one position at a time, for one model.
-fn blocks_agree(model: &serde_json::Value, label: &str) {
-    let runs = model["batched"].as_array().expect("the batched runs");
-    assert_eq!(
-        runs.len(),
-        2,
-        "{label}: a short prompt and one longer than a submission"
-    );
-    for run in runs {
-        let length = run["promptLength"].as_u64().expect("prompt length");
-        let stepwise = run["stepwise"].as_array().expect("stepwise tokens");
-        let together = run["together"].as_array().expect("batched tokens");
-        assert_eq!(stepwise.len(), 12, "{label}: twelve tokens one at a time");
-        assert_eq!(
-            together, stepwise,
-            "{label}: a {length}-token prompt: batched tokens differ from one at a time"
-        );
-        // Every prompt position and every generated one ran exactly once.
-        assert_eq!(
-            run["position"].as_u64(),
-            Some(length + 12 - 1),
-            "{label}: a {length}-token prompt: positions run"
-        );
-    }
-    // The longer prompt crosses a submission's 32 slots and attention's
-    // 64-position chunks, so both boundaries are exercised, not only the first.
-    assert!(runs.iter().any(|r| r["promptLength"].as_u64() > Some(64)));
-}
-
-/// `GP-01`: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
-#[test]
-fn gpu_gp_01() {
-    let result = run();
-    // No adapter is a failure, not a skip: a test that cannot see a GPU has
-    // checked nothing.
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    reference_agrees(result, "ternary Qwen3");
-}
-
-/// `GP-02`: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
-#[test]
-fn gpu_gp_02() {
-    // Bonsai 1.7B's own parameters, from its manifest: head size 128, base
-    // 1e6, YaRN factor 4 over an original context of 8192.
-    let (hd, base, factor, orig) = (128.0_f64, 1_000_000.0_f64, 4.0_f64, 8192.0_f64);
-    let result = node(
-        "crates/conformance/tests/gpu/yarn.mjs",
-        &["128", "1000000", "4", "8192"],
-    );
-
-    // The pair at which a rotation makes `turns` turns over the original
-    // context; YaRN keeps pairs below the 32-turn one and scales those above
-    // the 1-turn one.
-    let pair =
-        |turns: f64| hd * (orig / (turns * 2.0 * std::f64::consts::PI)).ln() / (2.0 * base.ln());
-    let low = pair(32.0).floor().max(0.0);
-    let high = pair(1.0).ceil().min(hd - 1.0);
-    assert_eq!((low, high), (17.0, 34.0), "the model card's bounds");
-    assert_eq!(result["low"].as_f64(), Some(low), "low bound");
-    assert_eq!(result["high"].as_f64(), Some(high), "high bound");
-
-    let mscale = 1.0 + 0.1 * factor.ln();
-    let got = result["mscale"].as_f64().expect("mscale");
-    assert!((got - mscale).abs() < 1e-12, "mscale {got} is not {mscale}");
-
-    let freqs = result["freqs"].as_array().expect("freqs");
-    assert_eq!(freqs.len(), 64, "one frequency per pair");
-    for (i, f) in freqs.iter().enumerate() {
-        let i = i as f64;
-        let original = base.powf(-2.0 * i / hd);
-        let ramp = ((i - low) / (high - low).max(0.001)).clamp(0.0, 1.0);
-        let want = (original / factor) * ramp + original * (1.0 - ramp);
-        let got = f.as_f64().expect("a frequency");
-        assert!(
-            ((got - want) / want).abs() < 1e-6,
-            "pair {i}: frequency {got}, formula {want}"
-        );
-    }
-    // Below the low bound a pair keeps its trained frequency; above the high
-    // bound it turns at a quarter of it.
-    let at = |i: usize| freqs[i].as_f64().expect("a frequency");
-    assert!(
-        ((at(16) - base.powf(-32.0 / hd)) / at(16)).abs() < 1e-6,
-        "pair 16 keeps its frequency"
-    );
-    assert!(
-        ((at(40) - base.powf(-80.0 / hd) / factor) / at(40)).abs() < 1e-6,
-        "pair 40 is scaled by the factor"
-    );
-}
-
-/// `GP-04`: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
-#[test]
-fn gpu_gp_04() {
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    blocks_agree(result, "ternary Qwen3");
-}
-
-/// `GP-05`: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
-#[test]
-fn gpu_gp_05() {
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    // The generated model carries q4 weights, q/k/v biases and no per-head
-    // norm, and an output head of its own; the reference decodes all of it
-    // without the engine's code.
-    let qwen2 = &result["qwen2"];
-    assert!(qwen2.is_object(), "the run has no q4 Qwen2 model: {result}");
-    reference_agrees(qwen2, "q4 Qwen2");
-    blocks_agree(qwen2, "q4 Qwen2");
-}
-
-/// `GP-03`: The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with
+/// `GP-03`: The engine page loads an ONNX export through the verified kernel, Qwen3-0.6B's unless the address names another, runs it on the integer engine and answers as the reference does, and stops where the deploy, the hub or the engine is not what it should be; its journey runs in the gate after the app and the engine, and before every deploy
 #[test]
 fn gpu_gp_03() {
     // The journey needs the holo and the engine this workspace built, so it
@@ -291,11 +101,9 @@ fn gpu_gp_03() {
     // The journey's own verdicts: each says where the page must have stopped.
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
-        "flipStop?.step !== \"admit\"",
-        "flipStop?.subject !== `${victim.name} label and length`",
-        "rootStop?.step !== \"root\"",
-        "got.some((t, i) => t !== good.expected[i])",
-        "the tied output head was not confirmed",
+        "if (got.length < 16 || got.some((t, i) => t !== run.expected[i])) fail(`onnx ${name}: the page's tokens ${got} are not the reference's ${run.expected}`);",
+        "fail(`foreign: expected to stop at the index root signature as RootUnverified, chain failed; stopped at ${foreignStop?.step}: ${foreignStop?.subject} (${foreignStop?.detail})`);",
+        "fail(`unsealed: the model's graph was read ${unsealed.graphReads} times after the engine was refused`);",
         "process.exit(1)",
         "No browser is a failure, never a skip",
         "the prompt box started with text",
@@ -375,7 +183,7 @@ fn gpu_gp_06() {
 
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
-        "stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true }",
+        "stale: { files: onnx.files, staleKernel: true }",
         "f.blake3 = \"0\".repeat(64)",
         "staleStop?.subject !== \"kernel is the one this deploy lists\"",
         "!/^stale kernel/.test(stale.error ?? \"\")",
@@ -470,162 +278,6 @@ fn gpu_gp_07() {
     }
 }
 
-/// `GP-08`: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
-#[test]
-fn gpu_gp_08() {
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let onnx = &result["onnx"];
-    assert!(
-        onnx.is_object(),
-        "the run has no ONNX-layout models: {result}"
-    );
-    // The claim that a q4 export needs no repack rests on this: the reference
-    // writes MatMulNBits' tensors from the operator's definition, and they are
-    // the engine's own q4 bytes.
-    assert_eq!(
-        onnx["sameBytes"].as_bool(),
-        Some(true),
-        "MatMulNBits' q4 tensors differ from the engine's q4 block"
-    );
-    for (key, format) in [("q4", "q4"), ("q4f16", "q4f16")] {
-        let model = &onnx[key];
-        // Each weight reached the engine as two tensors in the format named,
-        // so the f16 scales were read by the f16 kernels, not widened first.
-        assert_eq!(
-            model["formats"],
-            serde_json::json!([format]),
-            "{key}: the weights were not given as {format} parts"
-        );
-        reference_agrees(model, &format!("ONNX {key}"));
-        blocks_agree(model, &format!("ONNX {key}"));
-    }
-}
-
-/// `GP-09`: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
-#[test]
-fn gpu_gp_09() {
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let dense = &result["dense"];
-    assert!(
-        dense.is_object(),
-        "the run has no dense-embedding models: {result}"
-    );
-    // The limit is 15,000 bytes over 320 rows 128 wide: 29 rows a tile at four
-    // bytes a number and 58 at two, so a head of one tile would mean the limit
-    // was ignored, and neither count divides 320, so the last tile is short.
-    assert_eq!(dense["tile"].as_u64(), Some(15_000), "the binding limit");
-    for (key, tiles) in [("q4", 12), ("q4f16", 6)] {
-        let model = &dense[key];
-        assert_eq!(
-            model["headTiles"].as_u64(),
-            Some(tiles),
-            "{key}: the head was not split into {tiles} tiles"
-        );
-        reference_agrees(model, &format!("dense {key}"));
-        blocks_agree(model, &format!("dense {key}"));
-    }
-}
-
-/// `GP-10`: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
-#[test]
-fn gpu_gp_10() {
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let model = &result["exportShape"]["qwen2"];
-    assert!(
-        model.is_object(),
-        "the run has no Qwen2.5-shaped model: {result}"
-    );
-    // Every norm weight and bias reached the engine in f16, and the biases
-    // are there, so the f16 path is the one run.
-    assert_eq!(model["vectorFormats"], serde_json::json!(["f16"]));
-    assert_eq!(
-        model["biases"].as_bool(),
-        Some(true),
-        "the model has biases"
-    );
-    reference_agrees(model, "Qwen2.5 q4f16 shape");
-    blocks_agree(model, "Qwen2.5 q4f16 shape");
-}
-
-/// `GP-11`: The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance
-#[test]
-fn gpu_gp_11() {
-    // Llama 3.2 1B: head size 64, base 5e5; rope type llama3 with factor 32,
-    // low and high frequency factors 1 and 4, original context 8192.
-    let (hd, base, factor, low, high, orig) = (64.0_f64, 500_000.0_f64, 32.0, 1.0, 4.0, 8192.0);
-    let result = node(
-        "crates/conformance/tests/gpu/yarn.mjs",
-        &["llama3", "64", "500000", "32", "1", "4", "8192"],
-    );
-    assert_eq!(result["mscale"].as_f64(), Some(1.0), "no attention scale");
-    let freqs = result["freqs"].as_array().expect("freqs");
-    assert_eq!(freqs.len(), 32, "one frequency per pair");
-    let mut bands = [0; 3];
-    for (i, f) in freqs.iter().enumerate() {
-        let theta = base.powf(-2.0 * i as f64 / hd);
-        let wavelength = 2.0 * std::f64::consts::PI / theta;
-        let want = if wavelength < orig / high {
-            bands[0] += 1;
-            theta
-        } else if wavelength > orig / low {
-            bands[2] += 1;
-            theta / factor
-        } else {
-            bands[1] += 1;
-            let smooth = (orig / wavelength - low) / (high - low);
-            (1.0 - smooth) * theta / factor + smooth * theta
-        };
-        let got = f.as_f64().expect("a frequency");
-        assert!(
-            ((got - want) / want).abs() < 1e-6,
-            "pair {i}: frequency {got}, formula {want}"
-        );
-    }
-    assert_eq!(bands, [15, 3, 14], "kept, blended and slowed pairs");
-
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let model = &result["exportShape"]["llama"];
-    assert!(
-        model.is_object(),
-        "the run has no Llama-shaped model: {result}"
-    );
-    assert_eq!(
-        model["biases"].as_bool(),
-        Some(false),
-        "Llama has no biases"
-    );
-    reference_agrees(model, "Llama 3 shape");
-    blocks_agree(model, "Llama 3 shape");
-}
-
 /// `GP-12`: Every weight of onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B is given its engine role by the node that reads it, with shapes checked against the config, what cannot be placed is refused by name, and a model placed this way gives the CPU reference's greedy tokens
 #[test]
 fn gpu_gp_12() {
@@ -704,237 +356,6 @@ fn gpu_gp_12() {
         "an int64 constant was refused: {}",
         result["indexConstant"]
     );
-
-    let result = run();
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    for key in ["qwen2", "llama"] {
-        let model = &result["placed"][key];
-        assert!(
-            model.is_object(),
-            "the run has no placed {key} model: {result}"
-        );
-        assert_eq!(
-            model["sameAsModel"].as_bool(),
-            Some(true),
-            "{key}: the map placed other tensors than the model has"
-        );
-        reference_agrees(model, &format!("placed {key}"));
-        blocks_agree(model, &format!("placed {key}"));
-    }
-}
-
-/// The largest difference allowed between the encoder's single-precision
-/// numbers and the reference's. SwiftShader measured 1.0e-6 on hidden states
-/// and 9e-8 on label scores; a misplaced bias or norm moves them by tenths.
-const ENCODER_TOLERANCE: f64 = 1e-4;
-
-/// `GP-13`: A BERT encoder shaped as all-MiniLM-L6-v2's q4f16 ONNX export, with q4f16 weights, f16 biases, LayerNorms and embedding tables and token types, gives on WebGPU the CPU reference's hidden states and its mean-pooled unit-length sentence embedding within tolerance
-#[test]
-fn gpu_gp_13() {
-    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
-    assert!(
-        result.get("error").is_none(),
-        "the encoder did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    let runs = result["embeddings"].as_array().expect("the embeddings");
-    let lengths: Vec<u64> = runs.iter().filter_map(|r| r["tokens"].as_u64()).collect();
-    assert_eq!(lengths, [6, 60], "a short sentence and a long one");
-    for run in runs {
-        let n = &run["tokens"];
-        let states = run["statesWorst"].as_f64().expect("statesWorst");
-        assert!(
-            states <= ENCODER_TOLERANCE,
-            "{n} tokens: a hidden state differs by {states}"
-        );
-        let embedding = run["embeddingWorst"].as_f64().expect("embeddingWorst");
-        assert!(
-            embedding <= ENCODER_TOLERANCE,
-            "{n} tokens: the embedding differs by {embedding}"
-        );
-        let cosine = run["cosine"].as_f64().expect("cosine");
-        assert!(cosine > 0.99999, "{n} tokens: cosine {cosine}");
-    }
-}
-
-/// `GP-14`: A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label
-#[test]
-fn gpu_gp_14() {
-    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
-    assert!(
-        result.get("error").is_none(),
-        "the encoder did not run: {}",
-        result["error"]
-    );
-    let runs = result["classes"].as_array().expect("the classifications");
-    assert_eq!(runs.len(), 2, "two sentences");
-    // The fixture gives the two sentences different labels, so a head that
-    // always answers one label fails.
-    assert_ne!(
-        runs[0]["reference"], runs[1]["reference"],
-        "the fixture's sentences must differ in label; choose another seed"
-    );
-    for run in runs {
-        let n = &run["tokens"];
-        let margin = run["margin"].as_f64().expect("margin");
-        assert!(
-            margin > 2.0 * ENCODER_TOLERANCE,
-            "{n} tokens: the fixture has a near tie ({margin})"
-        );
-        for key in ["logitsWorst", "probabilityWorst"] {
-            let got = run[key].as_f64().expect(key);
-            assert!(got <= ENCODER_TOLERANCE, "{n} tokens: {key} {got}");
-        }
-        assert_eq!(
-            run["gpu"], run["reference"],
-            "{n} tokens: the encoder picked another label"
-        );
-    }
-}
-
-/// `GP-15`: Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed
-#[test]
-fn gpu_gp_15() {
-    let result = node("crates/conformance/tests/gpu/store-run.mjs", &[]);
-    let visit = &result["visit"];
-    let count = |at: &serde_json::Value, key: &str| at[key].as_u64().unwrap_or(u64::MAX);
-    // Model A: 40 blocks, all distinct. B shares all but five.
-    assert_eq!(count(&visit["a"], "blocks"), 40, "A's blocks");
-    assert_eq!(
-        count(&visit["a"], "distinct"),
-        40,
-        "A's blocks are distinct"
-    );
-    assert_eq!(count(&visit["b"], "newBlocks"), 5, "B's new blocks");
-    let shared = count(&visit["b"], "sharedBytes");
-    assert_eq!(
-        count(&visit["afterA"], "stored"),
-        40,
-        "A stores every block"
-    );
-    assert_eq!(
-        count(&visit["afterB"], "stored"),
-        45,
-        "B stores only its five new blocks"
-    );
-    assert_eq!(
-        count(&visit["afterB"], "held"),
-        35,
-        "B holds the 35 it shares"
-    );
-    assert_eq!(
-        count(&visit["afterB"], "heldBytes"),
-        shared,
-        "the bytes not written again are the shared ones"
-    );
-    assert_eq!(
-        count(&visit["afterAgain"], "stored"),
-        45,
-        "A again stores nothing"
-    );
-    assert_eq!(count(visit, "held"), 45, "45 files held");
-
-    let back = &result["back"];
-    assert_eq!(
-        back["offline"].as_bool(),
-        Some(true),
-        "the second visit has no network"
-    );
-    assert_eq!(count(back, "missing"), 0, "every block of A read back");
-    assert_eq!(count(back, "admitted"), 40, "every block admitted again");
-    assert_eq!(count(&back["counts"], "read"), 40, "40 reads");
-    let steps = back["steps"].as_array().expect("the steps");
-    assert_eq!(steps.len(), 16, "sixteen steps");
-    for (i, step) in steps.iter().enumerate() {
-        let worst = step["worst"].as_f64().expect("worst");
-        assert!(
-            worst <= LOGIT_TOLERANCE,
-            "step {i}: a logit differs by {worst}"
-        );
-        let margin = step["margin"].as_f64().expect("margin");
-        assert!(
-            margin > 2.0 * LOGIT_TOLERANCE,
-            "step {i}: a near tie ({margin})"
-        );
-        assert_eq!(step["gpu"], step["reference"], "step {i}: another token");
-    }
-    assert_eq!(
-        back["tampered"].as_bool(),
-        Some(true),
-        "a changed block is not handed back"
-    );
-    assert!(back["afterTamper"].is_null(), "a changed block is removed");
-    assert_eq!(count(&back["counts"], "refused"), 1, "one refusal");
-    let prefix = back["wrongPrefix"].as_str().unwrap_or_default();
-    assert!(
-        prefix.contains("is not a blake3: label"),
-        "a sha256: label: {prefix:?}"
-    );
-}
-
-/// `GP-16`: A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt
-#[test]
-fn gpu_gp_16() {
-    let result = node("crates/conformance/tests/gpu/prefix-run.mjs", &[]);
-    assert!(
-        result.get("error").is_none(),
-        "the engine did not run: {}",
-        result["error"]
-    );
-    let errors = result["errors"].as_array().expect("the error list");
-    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
-    for key in ["qwen2", "llama"] {
-        let r = &result["results"][key];
-        assert!(r.is_object(), "no {key} run: {result}");
-        assert_eq!(
-            r["restoredAt"].as_u64(),
-            Some(40),
-            "{key}: restored at the prefix's end"
-        );
-        assert_eq!(
-            r["positions"].as_u64(),
-            Some(16),
-            "{key}: 16 positions compared"
-        );
-        // Bits, not a tolerance: the restored cache is the computed one.
-        assert_eq!(
-            r["differingB"].as_u64(),
-            Some(0),
-            "{key}: logits after restoring into the same engine differ"
-        );
-        assert_eq!(
-            r["differingC"].as_u64(),
-            Some(0),
-            "{key}: logits after restoring into a fresh engine differ"
-        );
-        assert_eq!(
-            r["resumed"].as_array().map(Vec::len),
-            Some(12),
-            "{key}: twelve tokens"
-        );
-        assert_eq!(
-            r["resumed"], r["straight"],
-            "{key}: the resumed run picked other tokens"
-        );
-        let too_long = r["tooLong"].as_str().unwrap_or_default();
-        assert!(
-            too_long.starts_with("prefix: 57 positions asked, 56 computed"),
-            "{key}: {too_long:?}"
-        );
-        let other = r["otherShape"].as_str().unwrap_or_default();
-        assert!(
-            other.starts_with("prefix: saved from 3 layers"),
-            "{key}: {other:?}"
-        );
-    }
 }
 
 /// `GP-17`: Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels
@@ -999,102 +420,6 @@ fn gpu_gp_17() {
         "an int64 constant was refused: {}",
         result["indexConstant"]
     );
-
-    let result = node("crates/conformance/tests/gpu/encode.mjs", &[]);
-    assert!(
-        result.get("error").is_none(),
-        "the encoder did not run: {}",
-        result["error"]
-    );
-    for key in ["bert", "distilbert"] {
-        let placed = &result["placed"][key];
-        assert!(placed.is_object(), "no placed {key}: {result}");
-        assert_eq!(
-            placed["sameAsModel"].as_bool(),
-            Some(true),
-            "{key}: the map placed other tensors than the model has"
-        );
-        for run in placed["runs"].as_array().expect("runs") {
-            let worst = run["worst"].as_f64().expect("worst");
-            assert!(worst <= ENCODER_TOLERANCE, "{key}: differs by {worst}");
-            assert_eq!(run["gpu"], run["reference"], "{key}: another label");
-        }
-    }
-}
-
-/// The largest difference allowed between the CPU engine's logits and the
-/// reference's. Both sum in double precision; the engine keeps activations as
-/// single precision between steps, as the GPU does. Measured at most 7.3e-7.
-const CPU_TOLERANCE: f64 = 1e-5;
-
-/// `GP-18`: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
-#[test]
-fn gpu_gp_18() {
-    let result = node("crates/conformance/tests/gpu/cpu-run.mjs", &[]);
-    // An adapter offered is a failure, not a skip: the claim is about the
-    // engine with WebGPU off.
-    assert!(
-        result.get("error").is_none(),
-        "the CPU engine did not run: {}",
-        result["error"]
-    );
-    assert!(
-        matches!(
-            result["webgpu"].as_str(),
-            Some("no adapter" | "no navigator.gpu")
-        ),
-        "WebGPU was not off: {}",
-        result["webgpu"]
-    );
-    for key in ["q4", "qwen25", "llama", "qwen3"] {
-        let model = &result[key];
-        assert!(model.is_object(), "no {key} run: {result}");
-        let steps = model["steps"].as_array().expect("the steps");
-        assert_eq!(
-            steps.len(),
-            16,
-            "{key}: six prompt tokens and ten generated"
-        );
-        for (i, step) in steps.iter().enumerate() {
-            let worst = step["worst"].as_f64().expect("worst");
-            assert!(
-                worst <= CPU_TOLERANCE,
-                "{key}: step {i}: a logit differs by {worst}"
-            );
-            let margin = step["margin"].as_f64().expect("margin");
-            assert!(
-                margin > 2.0 * CPU_TOLERANCE,
-                "{key}: step {i}: a near tie ({margin})"
-            );
-            assert_eq!(
-                step["gpu"], step["reference"],
-                "{key}: step {i}: another token"
-            );
-        }
-        assert_eq!(
-            model["longPositions"].as_u64(),
-            Some(140),
-            "{key}: 140 positions"
-        );
-        let long = model["longWorst"].as_f64().expect("longWorst");
-        assert!(
-            long <= CPU_TOLERANCE,
-            "{key}: over 140 positions a logit differs by {long}"
-        );
-        assert_eq!(
-            model["together"].as_array().map(Vec::len),
-            Some(12),
-            "{key}: twelve tokens"
-        );
-        assert_eq!(
-            model["together"], model["stepwise"],
-            "{key}: run() picked other tokens"
-        );
-        assert_eq!(
-            model["resumed"], model["straight"],
-            "{key}: the restored prefix continued differently"
-        );
-    }
 }
 
 /// `GP-19`: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
@@ -1121,7 +446,7 @@ fn gpu_gp_19() {
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
         "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels })",
-        "const stops = session.stops ??",
+        "if (session.stops) return session.stops;",
     ] {
         assert!(
             module.contains(wanted),
@@ -1398,7 +723,7 @@ fn gpu_gp_25() {
         "export async function pipeline(task, model, options = {}) {",
         "const code = TASKS[task] ?? 255;",
         "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
-        "const generate = turner({ engine, module, ask, stops, chat });",
+        "const generate = turner({ engine, module, ask, stops, chat, identity, promised, device: on, adapter: engine.gpu?.adapter ?? null });",
         "export function turner(session) {",
     ] {
         assert!(
@@ -1408,8 +733,8 @@ fn gpu_gp_25() {
     }
     let page = read("site/app/app.mjs");
     for wanted in [
-        "import { CAPACITY, be, join, pipeline, turner } from \"./engine/pipeline.mjs\";",
-        "session = { generate: turner({ engine, module, ask }) };",
+        "import { pipeline, receiptFrom, receiptText } from \"./engine/pipeline.mjs\";",
+        "session = { generate };",
         "const out = await session.generate(text, {",
     ] {
         assert!(
@@ -2023,23 +1348,19 @@ fn gpu_gp_50() {
         !worker.contains("fetch(") && !worker.contains("WebAssembly."),
         "the integer worker must take the module openModule checked, not bytes of its own"
     );
-    for (caller, call) in [
-        (
-            "site/app/app.mjs",
-            "openModule(\"./engine/engine.wasm\", ask)",
-        ),
-        (
-            "site/app/engine/pipeline.mjs",
-            "openModule(new URL(\"./engine.wasm\", import.meta.url), ask)",
-        ),
-    ] {
-        assert!(
-            read(caller).contains(call),
-            "{caller} does not open the engine through decision 80"
-        );
-    }
+    // The page loads every model through the pipeline, so the pipeline is the
+    // one place the engine is opened.
+    assert!(
+        !read("site/app/app.mjs").contains("openModule"),
+        "site/app/app.mjs opens an engine of its own"
+    );
+    assert!(
+        read("site/app/engine/pipeline.mjs")
+            .contains("openModule(new URL(\"./engine.wasm\", import.meta.url), ask)"),
+        "site/app/engine/pipeline.mjs does not open the engine through decision 80"
+    );
     // The journey serves a flipped engine and requires the refusal by name,
-    // at decision 80, with the engine never compiled and the container never read.
+    // at decision 80, with the engine never compiled and the graph never read.
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
         "await context.route(\"**/app/engine/engine.wasm\"",
@@ -2047,7 +1368,7 @@ fn gpu_gp_50() {
         "unsealedStop?.step !== \"engine\"",
         "answered \"not the sealed engine\"",
         "unsealed.compiled.includes(unsealed.engineLength)",
-        "unsealed.containerReads !== 0",
+        "unsealed.graphReads !== 0",
         "answered \"sealed\"",
     ] {
         assert!(
@@ -2180,10 +1501,24 @@ fn gpu_gp_51() {
     ] {
         assert!(run.contains(wanted), "run no longer has `{wanted}`");
     }
+    // A probe (GP-60) also reads no logits, so it advances too; nothing else
+    // does.
+    let probe = integer
+        .split("async function probe(")
+        .nth(1)
+        .and_then(|rest| {
+            rest.split(
+                "
+  }
+",
+            )
+            .next()
+        })
+        .expect("integer.mjs has probe");
     assert_eq!(
         integer.matches("\"decode_advance\"").count(),
-        1,
-        "decode_advance is called outside run's prompt"
+        1 + probe.matches("\"decode_advance\"").count(),
+        "decode_advance is called outside run's prompt and a probe"
     );
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
@@ -2387,11 +1722,122 @@ fn gpu_gp_56() {
     pinned(
         "crates/conformance/tests/gpu/journey.mjs",
         &[
-            "return { isolated: globalThis.crossOriginIsolated, webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
+            "const runs = { webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
             "for (const [name, device] of [[\"webgpu\", \"webgpu\"], [\"auto\", \"webgpu\"], [\"cpu\", \"cpu\"]]) {",
             "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected all ${7 * layers + 1}, the head among them`)",
             "fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`)",
             "const device = gpu && run.isolated ? \"webgpu\" : \"cpu\";",
+        ],
+    );
+}
+
+/// `GP-58`: Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte
+#[test]
+fn gpu_gp_58() {
+    // The journey runs the turns on both devices and compares the receipts;
+    // this reads that the receipt is built from BLAKE3 labels and the class
+    // the kernel gave, and that the journey checks them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "new Uint8Array([30, 1, 1, 0]), (a) => a === \"everywhere\");",
+        "const named = new Set([...paths, \"config.json\", \"generation_config.json\"]);",
+        "input: { ids: Array.from(ids), budget, label: blake3Of(m, idBytes(ids, [budget])) },",
+        "output: { tokens: tokens.length, label: blake3Of(m, idBytes(tokens)) },",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "fail(`receipts: the ${what} label on WebGPU ${a} is not the CPU's ${b}`);",
+        "fail(`receipts: the output label ${g.output.label} is not the BLAKE3 of the tokens' bytes`);",
+        "fail(`receipts: the class is ${g.class} and ${c.class}, not everywhere`);",
+    ] {
+        assert!(journey.contains(wanted), "the journey no longer checks: {wanted}");
+    }
+}
+
+/// `GP-59`: A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict
+#[test]
+fn gpu_gp_59() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "const ready = receipt?.model?.label === session.identity.label ? 1 : 0;",
+        "const tokens = await engine.run(receipt.input.ids, receipt.input.budget, { stops });",
+        "join(new Uint8Array([31]), unhexLabel(receipt.output.label), unhexLabel(replayed.label), new Uint8Array([ready, classCode, sameAdapter]))",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        read("site/app/app.mjs").contains("if (linked) await checkReceipt(linked)"),
+        "app.mjs no longer checks a linked receipt"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "fail(`check: WebGPU's receipt run on the CPU was ${k.gpuOnCpu?.verdict}`);",
+        "fail(`check: the CPU's receipt run on WebGPU was ${k.cpuOnGpu?.verdict}`);",
+        "fail(`check: a receipt with a changed output was ${k.changed?.verdict}, not mismatch`);",
+        "not \"not comparable\"`);",
+        "fail(`link: a page opened with a receipt did not confirm it",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks: {wanted}"
+        );
+    }
+}
+
+/// `GP-60`: A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range
+#[test]
+fn gpu_gp_60() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/engine/pipeline.mjs",
+        &[
+            "if (checked.verdict !== \"confirmed\") return { verdict: \"not checked\", checked };",
+            "join(new Uint8Array([32]), be(layer, 4), be(layers, 4), be(position, 4), be(positions, 4), new Uint8Array([index < 0 ? 255 : index, COMPONENTS.length, classCode, sameAdapter]))",
+            "label: blake3Of(m, bits)",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer.mjs",
+        &[
+            "m.call(\"decode_probe\", layer, component);",
+            "return m.call(\"decode_probed\").slice();",
+        ],
+    );
+    pinned(
+        "crates/wasm/src/lib.rs",
+        &[
+            "pub extern \"C\" fn decode_probe(layer: u32, component: u32) -> u32 {",
+            "pub extern \"C\" fn decode_probed() -> u32 {",
+        ],
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &[
+            "fail(`probe: the residual on the CPU ${pc?.label} is not WebGPU's ${pg?.label}`);",
+            "fail(`probe: the kernel answered ${pc?.verdict} and ${pg?.verdict}, not exact replay`);",
+            "fail(`probe: a layer past the model was ${k.probeOut?.verdict}`);",
         ],
     );
 }
