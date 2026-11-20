@@ -1450,6 +1450,18 @@
       "answer": "invalid request"
     },
     {
+      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "answer": "sealed"
+    },
+    {
+      "request": "504fccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "answer": "not the sealed engine"
+    },
+    {
+      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bf",
+      "answer": "invalid request"
+    },
+    {
       "request": "47020003303030303030303030303030303030303030303030303030303530303030303030613030303030303f8000004040000040000000",
       "answer": "1 6"
     },
