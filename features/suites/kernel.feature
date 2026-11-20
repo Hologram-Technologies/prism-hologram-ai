@@ -532,3 +532,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageRotary in the gate
     Then rotary_entries_row_0, rotary_sines_row_0, rotary_cosines_row_0 and rotary_angles_row_0 evaluate the stage
     And kernel_kn_86 replays each through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle and finds the same words
+
+  @KN-87 @build
+  Scenario: The rotary frequencies are defined in LexLean, not Rust: Engine.Stage.RopeFrequency::plain is theta^(-2i / head_dim) / (2 pi) in units of 2^-64 of a turn per position, generated in integers over 2^62 with logarithms by squaring, powers by square roots and pi by Machin's formula, and llama3 scales it as Llama 3 does, kept above high / original turns, divided by factor below low / original, blended between, each division rounded half to even; Lean evaluates frequencies that the kernel test replays through crates/exact's rope_frequencies
+    Given the stage in app/src/Engine/Stage/RopeFrequency.lex.tex and its proofs in app/src/Proofs/StageRopeFrequency.lex.tex
+    When lexlean verify checks Proofs.StageRopeFrequency in the gate
+    Then rope_plain_row_0 and rope_llama3_row_0 evaluate the stage
+    And kernel_kn_87 replays each frequency through crates/exact's rope_frequencies and finds the same value

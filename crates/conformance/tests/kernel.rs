@@ -5721,3 +5721,58 @@ fn kernel_kn_86() {
         wrong.join("\n")
     );
 }
+
+/// `KN-87`: The rotary frequencies are defined in LexLean, not Rust: Engine.Stage.RopeFrequency::plain is theta^(-2i / head_dim) / (2 pi) in units of 2^-64 of a turn per position, generated in integers over 2^62 with logarithms by squaring, powers by square roots and pi by Machin's formula, and llama3 scales it as Llama 3 does, kept above high / original turns, divided by factor below low / original, blended between, each division rounded half to even; Lean evaluates frequencies that the kernel test replays through crates/exact's rope_frequencies
+#[test]
+fn kernel_kn_87() {
+    use hologram_ai_exact::RopeScaling;
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRopeFrequency.lex.tex");
+    let mut wrong = Vec::new();
+    for (name, function) in [
+        ("rope_plain_row_0", "plain"),
+        ("rope_llama3_row_0", "llama3"),
+    ] {
+        let found = declaration(&proofs, name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found.split("statement: (").nth(1).expect("a statement");
+        let (asked, expected) = statement.split_once(") = ").expect("an equation");
+        let given: Vec<u64> = asked
+            .split(&format!("Engine.Stage.RopeFrequency::{function} "))
+            .skip(1)
+            .map(|call| {
+                let a: Vec<u64> = call
+                    .split(')')
+                    .next()
+                    .unwrap_or(call)
+                    .split_whitespace()
+                    .map(|x| x.parse().expect("an argument"))
+                    .collect();
+                let scaling = if a.len() == 7 {
+                    RopeScaling::Llama3 {
+                        factor: a[3] as u32,
+                        low: a[4] as u32,
+                        high: a[5] as u32,
+                        original: a[6] as u32,
+                    }
+                } else {
+                    RopeScaling::None
+                };
+                hologram_ai_exact::rope_frequencies(a[1] as u32, a[0], scaling)
+                    .expect("frequencies within bounds")[a[2] as usize]
+            })
+            .collect();
+        let expected = cons_list(expected).0;
+        if given != expected {
+            wrong.push(format!("{name}: crates/exact gives {given:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "crates/exact disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+}
