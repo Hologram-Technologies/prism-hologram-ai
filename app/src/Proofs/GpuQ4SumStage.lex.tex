@@ -2422,5 +2422,513 @@ theorem{
   proof: simplify{definitions: [kernel_prefix, loop_runs, read_three, read_zero, store_reads_back]},
   axioms: [Quot.sound, propext]
 }
+
+definition{name: hi, parameters: [x : Nat], result: Nat, body: (prim quotient x 4294967296 0 : Nat)}
+
+definition{
+  name: rowOf,
+  parameters: [k : Nat, u : Nat],
+  result: Nat,
+  body: (prim quotient k u 0 : Nat)
+}
+
+definition{
+  name: colOf,
+  parameters: [k : Nat, u : Nat],
+  result: Nat,
+  body: (prim remainder k u 0 : Nat)
+}
+
+definition{
+  name: ia,
+  parameters: [r : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Gpu::word ((Engine.Gpu::word (prim multiply r 32 : Nat)) + s))
+}
+
+definition{
+  name: ix,
+  parameters: [q : Nat, r : Nat, R : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Gpu::word ((Engine.Gpu::word (prim multiply q (Engine.Gpu::word R) : Nat)) + (ia r s)))
+}
+
+definition{
+  name: cA,
+  parameters: [codes : (List Nat), r : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::nth codes (ia r s))
+}
+
+definition{
+  name: nX,
+  parameters: [wt : (List Nat), q : Nat, r : Nat, R : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Stage.Q4Sum::nibble wt (ix q r R s))
+}
+
+definition{
+  name: KT,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Gpu::word (prim multiply (signWord (cA codes r s)) (Engine.Gpu::word (prim subtract ((nX wt q r R s) + 4294967296) (Engine.Gpu::word 8) : Nat)) : Nat))
+}
+
+definition{
+  name: KP,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, c : Nat],
+  result: Nat,
+  body: (match c
+    | Nat.zero => 0
+    | Nat.succ p => ((Engine.Stage.Q4Sum::posPart (cA codes r p) (nX wt q r R p)) + (KP codes wt q r R p))),
+  recursive_argument: c
+}
+
+definition{
+  name: KN,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, c : Nat],
+  result: Nat,
+  body: (match c
+    | Nat.zero => 0
+    | Nat.succ p => ((Engine.Stage.Q4Sum::negPart (cA codes r p) (nX wt q r R p)) + (KN codes wt q r R p))),
+  recursive_argument: c
+}
+
+theorem{
+  name: le_self,
+  parameters: [z : Nat],
+  statement: (z <= z),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: wfact,
+  parameters: [x : Nat],
+  statement: (((Engine.Gpu::word x) + (prim multiply 4294967296 (hi x) : Nat)) = x),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::word, hi]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: wlt,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::word x) < 4294967296),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::word]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: read_1,
+  parameters: [a0 : Nat, a1 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 tl)) 1) = a1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_2,
+  parameters: [a0 : Nat, a1 : Nat, a2 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 tl))) 2) = a2),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_3,
+  parameters: [a0 : Nat, a1 : Nat, a2 : Nat, a3 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 (cons a3 tl)))) 3) = a3),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_4,
+  parameters: [a0 : Nat, a1 : Nat, a2 : Nat, a3 : Nat, a4 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 (cons a3 (cons a4 tl))))) 4) = a4),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_5,
+  parameters: [a0 : Nat, a1 : Nat, a2 : Nat, a3 : Nat, a4 : Nat, a5 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 (cons a3 (cons a4 (cons a5 tl)))))) 5) = a5),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_6,
+  parameters: [
+    a0 : Nat,
+    a1 : Nat,
+    a2 : Nat,
+    a3 : Nat,
+    a4 : Nat,
+    a5 : Nat,
+    a6 : Nat,
+    tl : (List Nat)
+  ],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 (cons a3 (cons a4 (cons a5 (cons a6 tl))))))) 6) = a6),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: buf_zero,
+  parameters: [a : (List Nat), tl : (List (List Nat))],
+  statement: ((Engine.Gpu::nthBuffer (cons a tl) 0) = a),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: buf_one,
+  parameters: [a : (List Nat), b1 : (List Nat), tl : (List (List Nat))],
+  statement: ((Engine.Gpu::nthBuffer (cons a (cons b1 tl)) 1) = b1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: kidx_clean,
+  parameters: [b : (List (List Nat)), q : Nat, r : Nat, R : Nat, s : Nat],
+  statement: ((kidx b q r R s) = (ix q r R s)),
+  proof: simplify{definitions: [ia, ix, kidx, read_1, read_2, read_4, word_32, Engine.Gpu::eval]},
+  axioms: [propext]
+}
+
+theorem{
+  name: kstep_clean,
+  parameters: [
+    codes : (List Nat),
+    wt : (List Nat),
+    rest : (List (List Nat)),
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    acc : Nat,
+    s : Nat
+  ],
+  statement: ((kstep (cons (signWords codes) (cons wt rest)) q r R acc s) = (Engine.Gpu::word (acc + (KT codes wt q r R s)))),
+  proof: simplify{
+    definitions: [
+      KT,
+      buf_one,
+      buf_zero,
+      cA,
+      ia,
+      kidx_clean,
+      kstep,
+      nX,
+      nibble_kernel,
+      nth_sign_words,
+      read_2,
+      read_3,
+      read_4,
+      read_5,
+      read_6,
+      word_32,
+      Engine.Gpu::eval,
+      Engine.Gpu::nibbleExpr
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: acc_succ,
+  parameters: [
+    codes : (List Nat),
+    wt : (List Nat),
+    rest : (List (List Nat)),
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    c : Nat
+  ],
+  statement: ((accUp (cons (signWords codes) (cons wt rest)) q r R (c + 1)) = (Engine.Gpu::word ((accUp (cons (signWords codes) (cons wt rest)) q r R c) + (KT codes wt q r R c)))),
+  proof: simplify{definitions: [accUp, kstep_clean]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: acc_lt,
+  parameters: [
+    codes : (List Nat),
+    wt : (List Nat),
+    rest : (List (List Nat)),
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    c : Nat
+  ],
+  statement: ((accUp (cons (signWords codes) (cons wt rest)) q r R (c + 1)) < 4294967296),
+  proof: simplify{definitions: [acc_succ, wlt]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: term_step,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, s : Nat],
+  statement: ((Engine.Gpu::word ((KT codes wt q r R s) + (Engine.Stage.Q4Sum::negPart (cA codes r s) (nX wt q r R s)))) = (Engine.Gpu::word (Engine.Stage.Q4Sum::posPart (cA codes r s) (nX wt q r R s)))),
+  proof: simplify{definitions: [KT, nX, term_fact, Engine.Stage.Q4Sum::nibble]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: kn_succ,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, c : Nat],
+  statement: ((KN codes wt q r R (c + 1)) = ((Engine.Stage.Q4Sum::negPart (cA codes r c) (nX wt q r R c)) + (KN codes wt q r R c))),
+  proof: simplify{definitions: [KN]},
+  axioms: [propext]
+}
+
+theorem{
+  name: kp_succ,
+  parameters: [codes : (List Nat), wt : (List Nat), q : Nat, r : Nat, R : Nat, c : Nat],
+  statement: ((KP codes wt q r R (c + 1)) = ((Engine.Stage.Q4Sum::posPart (cA codes r c) (nX wt q r R c)) + (KP codes wt q r R c))),
+  proof: simplify{definitions: [KP]},
+  axioms: [propext]
+}
+
+theorem{
+  name: mod_step,
+  parameters: [a : Nat, t : Nat, n : Nat, m : Nat],
+  statement: ((Engine.Gpu::word ((Engine.Gpu::word (a + t)) + (n + m))) = (Engine.Gpu::word ((Engine.Gpu::word (t + n)) + (Engine.Gpu::word (a + m))))),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::word]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mod_add,
+  parameters: [x : Nat, y : Nat],
+  statement: ((Engine.Gpu::word ((Engine.Gpu::word x) + (Engine.Gpu::word y))) = (Engine.Gpu::word (x + y))),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::word]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: inv_all,
+  parameters: [
+    codes : (List Nat),
+    wt : (List Nat),
+    rest : (List (List Nat)),
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Gpu::word ((accUp (cons (signWords codes) (cons wt rest)) q r R n) + (KN codes wt q r R n))) = (Engine.Gpu::word (KP codes wt q r R n))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Gpu::word, KN, KP, accUp]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [acc_succ, ih, kn_succ, kp_succ, mod_add, mod_step, term_step]
+        },
+        binders: [c, ih],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_div,
+  parameters: [k : Nat, x : Nat, y : Nat],
+  statement: (((x = y) -> ((Engine.Gpu::u32div k x) = (Engine.Gpu::u32div k y))) <-> (k <= k)),
+  proof: constructor{
+    branches: [linear_arithmetic{}, linear_arithmetic{definitions: [Engine.Gpu::u32div]}]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_rem,
+  parameters: [k : Nat, x : Nat, y : Nat],
+  statement: (((x = y) -> ((Engine.Gpu::u32rem k x) = (Engine.Gpu::u32rem k y))) <-> (k <= k)),
+  proof: constructor{
+    branches: [linear_arithmetic{}, linear_arithmetic{definitions: [Engine.Gpu::u32rem]}]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_mul,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((a = b) -> ((c = d) -> ((prim multiply a c : Nat) = (prim multiply b d : Nat)))) <-> (a <= a)),
+  proof: constructor{branches: [linear_arithmetic{}, linear_arithmetic{definitions: [hi]}]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_act,
+  parameters: [codes : (List Nat), k : Nat, units : Nat, x : Nat, i : Nat],
+  statement: (((x = ((prim multiply 32 (colOf k units) : Nat) + i)) -> ((Engine.Stage.Greedy::nth codes x) = (Engine.Stage.Q4Sum::actAt codes units k i))) <-> (k <= k)),
+  proof: constructor{
+    branches: [
+      linear_arithmetic{},
+      linear_arithmetic{definitions: [Engine.Stage.Q4Sum::actAt, colOf]}
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_nib,
+  parameters: [wt : (List Nat), k : Nat, x : Nat, i : Nat],
+  statement: (((x = ((prim multiply 32 k : Nat) + i)) -> ((Engine.Stage.Q4Sum::nibble wt x) = (Engine.Stage.Q4Sum::nibbleAt wt k i))) <-> (k <= k)),
+  proof: constructor{
+    branches: [linear_arithmetic{}, linear_arithmetic{definitions: [Engine.Stage.Q4Sum::nibbleAt]}]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_pos,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((a = b) -> ((c = d) -> ((Engine.Stage.Q4Sum::posPart a c) = (Engine.Stage.Q4Sum::posPart b d)))) <-> (a <= a)),
+  proof: constructor{
+    branches: [linear_arithmetic{}, linear_arithmetic{definitions: [Engine.Stage.Q4Sum::posPart]}]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: cong_neg,
+  parameters: [a : Nat, b : Nat, c : Nat, d : Nat],
+  statement: (((a = b) -> ((c = d) -> ((Engine.Stage.Q4Sum::negPart a c) = (Engine.Stage.Q4Sum::negPart b d)))) <-> (a <= a)),
+  proof: constructor{
+    branches: [linear_arithmetic{}, linear_arithmetic{definitions: [Engine.Stage.Q4Sum::negPart]}]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: div_pos,
+  parameters: [k : Nat, u : Nat],
+  statement: (((0 < u) -> ((Engine.Gpu::u32div k u) = (rowOf k u))) <-> (k <= k)),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::u32div, rowOf]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: rem_pos,
+  parameters: [k : Nat, u : Nat],
+  statement: (((0 < u) -> ((Engine.Gpu::u32rem k u) = (colOf k u))) <-> (k <= k)),
+  proof: linear_arithmetic{definitions: [Engine.Gpu::u32rem, colOf]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: inv2p_step,
+  parameters: [codes : (List Nat), wt : (List Nat), k : Nat, units : Nat, R : Nat, c : Nat],
+  statement: ((((Engine.Gpu::word units) + (prim multiply 4294967296 (hi units) : Nat)) = units) -> ((((Engine.Gpu::word R) + (prim multiply 4294967296 (hi R) : Nat)) = R) -> ((((Engine.Gpu::word units) = units) -> ((Engine.Gpu::u32div k (Engine.Gpu::word units)) = (Engine.Gpu::u32div k units))) -> (((0 < units) -> ((Engine.Gpu::u32div k units) = (rowOf k units))) -> ((((Engine.Gpu::word units) = units) -> ((Engine.Gpu::u32rem k (Engine.Gpu::word units)) = (Engine.Gpu::u32rem k units))) -> (((0 < units) -> ((Engine.Gpu::u32rem k units) = (colOf k units))) -> ((((Engine.Gpu::u32div k (Engine.Gpu::word units)) = (rowOf k units)) -> (((Engine.Gpu::word R) = R) -> ((prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat) = (prim multiply (rowOf k units) R : Nat)))) -> ((((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + (prim multiply 4294967296 (hi (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) : Nat)) = (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) -> ((((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) + (prim multiply 4294967296 (hi ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) : Nat)) = ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) -> ((((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (prim multiply 4294967296 (hi (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) : Nat)) = (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) -> ((((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) + (prim multiply 4294967296 (hi ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) : Nat)) = ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) -> ((((ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c) = ((prim multiply 32 (colOf k units) : Nat) + c)) -> ((Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) = (Engine.Stage.Q4Sum::actAt codes units k c))) -> ((((ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c) = ((prim multiply 32 k : Nat) + c)) -> ((Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c)) = (Engine.Stage.Q4Sum::nibbleAt wt k c))) -> ((((Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) = (Engine.Stage.Q4Sum::actAt codes units k c)) -> (((Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c)) = (Engine.Stage.Q4Sum::nibbleAt wt k c)) -> ((Engine.Stage.Q4Sum::posPart (Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) (Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c))) = (Engine.Stage.Q4Sum::posPart (Engine.Stage.Q4Sum::actAt codes units k c) (Engine.Stage.Q4Sum::nibbleAt wt k c))))) -> ((((c <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KP codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c) = (Engine.Stage.Q4Sum::posSum codes wt units k c)))))))) <-> (k <= k)) -> ((((c + 1) <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KP codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R (c + 1)) = (Engine.Stage.Q4Sum::posSum codes wt units k (c + 1))))))))) <-> (k <= k))))))))))))))))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::posSum, KP, cA, ia, ix, nX]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: inv2p_all,
+  parameters: [codes : (List Nat), wt : (List Nat), k : Nat, units : Nat, R : Nat, n : Nat],
+  statement: (((n <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KP codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R n) = (Engine.Stage.Q4Sum::posSum codes wt units k n)))))))) <-> (k <= k)),
+  proof: induction{
+    branches: [
+      {
+        proof: constructor{
+          branches: [
+            linear_arithmetic{},
+            linear_arithmetic{definitions: [Engine.Stage.Q4Sum::posSum, KP]}
+          ]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            cong_act,
+            cong_div,
+            cong_mul,
+            cong_nib,
+            cong_pos,
+            cong_rem,
+            div_pos,
+            ih,
+            inv2p_step,
+            le_self,
+            rem_pos,
+            wfact
+          ]
+        },
+        binders: [c, ih],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: n
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: inv2n_step,
+  parameters: [codes : (List Nat), wt : (List Nat), k : Nat, units : Nat, R : Nat, c : Nat],
+  statement: ((((Engine.Gpu::word units) + (prim multiply 4294967296 (hi units) : Nat)) = units) -> ((((Engine.Gpu::word R) + (prim multiply 4294967296 (hi R) : Nat)) = R) -> ((((Engine.Gpu::word units) = units) -> ((Engine.Gpu::u32div k (Engine.Gpu::word units)) = (Engine.Gpu::u32div k units))) -> (((0 < units) -> ((Engine.Gpu::u32div k units) = (rowOf k units))) -> ((((Engine.Gpu::word units) = units) -> ((Engine.Gpu::u32rem k (Engine.Gpu::word units)) = (Engine.Gpu::u32rem k units))) -> (((0 < units) -> ((Engine.Gpu::u32rem k units) = (colOf k units))) -> ((((Engine.Gpu::u32div k (Engine.Gpu::word units)) = (rowOf k units)) -> (((Engine.Gpu::word R) = R) -> ((prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat) = (prim multiply (rowOf k units) R : Nat)))) -> ((((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + (prim multiply 4294967296 (hi (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) : Nat)) = (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) -> ((((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) + (prim multiply 4294967296 (hi ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) : Nat)) = ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32rem k (Engine.Gpu::word units)) 32 : Nat)) + c)) -> ((((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (prim multiply 4294967296 (hi (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) : Nat)) = (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) -> ((((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) + (prim multiply 4294967296 (hi ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) : Nat)) = ((Engine.Gpu::word (prim multiply (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::word R) : Nat)) + (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c))) -> ((((ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c) = ((prim multiply 32 (colOf k units) : Nat) + c)) -> ((Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) = (Engine.Stage.Q4Sum::actAt codes units k c))) -> ((((ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c) = ((prim multiply 32 k : Nat) + c)) -> ((Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c)) = (Engine.Stage.Q4Sum::nibbleAt wt k c))) -> ((((Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) = (Engine.Stage.Q4Sum::actAt codes units k c)) -> (((Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c)) = (Engine.Stage.Q4Sum::nibbleAt wt k c)) -> ((Engine.Stage.Q4Sum::negPart (Engine.Stage.Greedy::nth codes (ia (Engine.Gpu::u32rem k (Engine.Gpu::word units)) c)) (Engine.Stage.Q4Sum::nibble wt (ix (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c))) = (Engine.Stage.Q4Sum::negPart (Engine.Stage.Q4Sum::actAt codes units k c) (Engine.Stage.Q4Sum::nibbleAt wt k c))))) -> ((((c <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KN codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R c) = (Engine.Stage.Q4Sum::negSum codes wt units k c)))))))) <-> (k <= k)) -> ((((c + 1) <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KN codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R (c + 1)) = (Engine.Stage.Q4Sum::negSum codes wt units k (c + 1))))))))) <-> (k <= k))))))))))))))))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::negSum, KN, cA, ia, ix, nX]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: inv2n_all,
+  parameters: [codes : (List Nat), wt : (List Nat), k : Nat, units : Nat, R : Nat, n : Nat],
+  statement: (((n <= 32) -> ((0 < units) -> ((units < 4294967296) -> ((R < 4294967296) -> ((((prim multiply 32 k : Nat) + 32) <= 4294967296) -> ((((prim multiply (rowOf k units) R : Nat) + (prim multiply 32 (colOf k units) : Nat)) = (prim multiply 32 k : Nat)) -> ((KN codes wt (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R n) = (Engine.Stage.Q4Sum::negSum codes wt units k n)))))))) <-> (k <= k)),
+  proof: induction{
+    branches: [
+      {
+        proof: constructor{
+          branches: [
+            linear_arithmetic{},
+            linear_arithmetic{definitions: [Engine.Stage.Q4Sum::negSum, KN]}
+          ]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            cong_act,
+            cong_div,
+            cong_mul,
+            cong_neg,
+            cong_nib,
+            cong_rem,
+            div_pos,
+            ih,
+            inv2n_step,
+            le_self,
+            rem_pos,
+            wfact
+          ]
+        },
+        binders: [c, ih],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: n
+  },
+  axioms: [Classical.choice, Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
