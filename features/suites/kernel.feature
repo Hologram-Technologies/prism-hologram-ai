@@ -470,6 +470,39 @@ Feature: kernel
     And product_from_halves and product_as_limbs hold for every two numbers, and low_limb_is_word, high_limb_is_word and the half-product bounds bound the limbs
     And limbs_add_with_carry, carry_weight_is_final_carry and added_limbs_are_words hold for every two lists of limbs and every carry
 
+  @KN-57 @build
+  Scenario: The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8
+    Given the stage in app/src/Engine/Stage/Q4Sum.lex.tex and its proofs in app/src/Proofs/StageQ4Sum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageQ4Sum in the gate
+    Then group_sum_value and group_sum_sign hold for every activation list, weight list, unit count and output index
+    And pos_sum_32 and neg_sum_32 bound each side by 2^24
+    And times_exact proves the stage's native times equals Engine.Word::mulB over four bits for every multiplier up to 8
+
+  @KN-58 @build
+  Scenario: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative
+    Given the stage in app/src/Engine/Stage/HalfScale.lex.tex and its proofs in app/src/Proofs/StageHalfScale.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageHalfScale in the gate
+    Then product_bound holds for every group sum word and every half: the product is below 2^35 unless the sum's magnitude is above 2^24
+    And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
+    And size_bound bounds the product shifted by its offset by 2^64 under the same condition
+    And scaled_zero_is_not_negative holds for every input
+
+  @KN-80 @build
+  Scenario: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+    Given the seal model in app/src/Kernel/Seal.lex.tex, whose eight words are the engine address `just engine` checks, and its proofs in app/src/Proofs/Seal.lex.tex
+    When the Lean kernel checks seal_decides and seal_refuses_another_first_word during lexlean verify in the gate
+    Then an address is sealed exactly when each of its eight big-endian 4-byte words is the model's word at that place
+    And the answer to decision 80 is sealed for the sealed address, not the sealed engine for any other, and invalid request for any length but 33
+    And the compiled guest answers sealed for the sealed address, not the sealed engine for it with one bit of its first byte flipped, and invalid request for a short request, as the claims it replays list
+
+  @KN-71 @build
+  Scenario: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+    Given the pick in app/src/Engine/Step.lex.tex over KN-55's key in app/src/Engine/Stage/Greedy.lex.tex, decision 71 in app/src/Kernel/Step.lex.tex and its proofs in app/src/Proofs/Step.lex.tex
+    When the Lean kernel checks step_cut, step_reads_its_chunk, picked_key_is_max, fresh_takes_first and five pick_is_greedy fixtures during lexlean verify in the gate
+    Then two chunks fed one after the other give the pick the two joined give, and the guest's loop over a chunk is that fold
+    And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
+    And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests
+
   @KN-73 @build
   Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
     Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex

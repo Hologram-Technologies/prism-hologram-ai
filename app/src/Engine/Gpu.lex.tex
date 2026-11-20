@@ -132,12 +132,14 @@ definition{
 definition{name: u32and, parameters: [a : Nat, b : Nat], result: Nat, body: (andBits 32 a b)}
 
 definition{
-  name: nth,
+  name: wordIn,
   parameters: [items : (List Nat), index : Nat],
   result: Nat,
   body: (match items
     | List.nil => 0
-    | List.cons head tail => (match index | Nat.zero => head | Nat.succ rest => (nth tail rest))),
+    | List.cons head tail => (match index
+      | Nat.zero => head
+      | Nat.succ rest => (wordIn tail rest))),
   recursive_argument: items
 }
 
@@ -199,8 +201,8 @@ definition{
     | Expr.lit value => (word value)
     | Expr.invocation => (project machine invocation)
     | Expr.group => (project machine group)
-    | Expr.local slot => (nth (project machine locals) slot)
-    | Expr.load buffer index => (nth (nthBuffer (project machine buffers) buffer) (eval machine index))
+    | Expr.local slot => (wordIn (project machine locals) slot)
+    | Expr.load buffer index => (wordIn (nthBuffer (project machine buffers) buffer) (eval machine index))
     | Expr.add left right => (word ((eval machine left) + (eval machine right)))
     | Expr.sub left right => (word (prim subtract ((eval machine left) + 4294967296) (eval machine right) : Nat))
     | Expr.mul left right => (word (prim multiply (eval machine left) (eval machine right) : Nat))
@@ -222,8 +224,8 @@ definition{
     | Wgsl.wLit value => value
     | Wgsl.wLid => (project machine invocation)
     | Wgsl.wWid => (project machine group)
-    | Wgsl.wLocal slot => (nth (project machine locals) slot)
-    | Wgsl.wIndex buffer index => (nth (nthBuffer (project machine buffers) buffer) (wgslEval machine index))
+    | Wgsl.wLocal slot => (wordIn (project machine locals) slot)
+    | Wgsl.wIndex buffer index => (wordIn (nthBuffer (project machine buffers) buffer) (wgslEval machine index))
     | Wgsl.wAdd left right => (prim remainder ((wgslEval machine left) + (wgslEval machine right)) 4294967296 0 : Nat)
     | Wgsl.wSub left right => (prim remainder (prim subtract ((wgslEval machine left) + 4294967296) (wgslEval machine right) : Nat) 4294967296 0 : Nat)
     | Wgsl.wMul left right => (prim remainder (prim multiply (wgslEval machine left) (wgslEval machine right) : Nat) 4294967296 0 : Nat)

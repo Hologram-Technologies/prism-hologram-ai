@@ -1,0 +1,24 @@
+\begin{lexlean}{Proofs.Seal}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Seal}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: seal_decides,
+  parameters: [w0 : Nat, w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, w6 : Nat, w7 : Nat],
+  statement: (((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = true) <-> ((w0 = (Kernel.Seal::sealedWord 0)) /\ ((w1 = (Kernel.Seal::sealedWord 1)) /\ ((w2 = (Kernel.Seal::sealedWord 2)) /\ ((w3 = (Kernel.Seal::sealedWord 3)) /\ ((w4 = (Kernel.Seal::sealedWord 4)) /\ ((w5 = (Kernel.Seal::sealedWord 5)) /\ ((w6 = (Kernel.Seal::sealedWord 6)) /\ (w7 = (Kernel.Seal::sealedWord 7)))))))))),
+  proof: linear_arithmetic{definitions: [Kernel.Seal::engineSealed]},
+  axioms: [Classical.choice, Quot.sound, propext]
+}
+
+theorem{
+  name: seal_refuses_another_first_word,
+  parameters: [w0 : Nat, w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, w6 : Nat, w7 : Nat],
+  statement: (((w0 =? (Kernel.Seal::sealedWord 0)) = false) -> ((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = false)),
+  proof: linear_arithmetic{definitions: [Kernel.Seal::engineSealed]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

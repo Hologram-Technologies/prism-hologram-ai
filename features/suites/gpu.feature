@@ -271,6 +271,21 @@ Feature: gpu
     And a string answers [{ generated_text: prompt + completion }]
     And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read
 
+  @GP-41 @build
+  Scenario: The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's
+    Given GP-19's Qwen3-shaped ONNX export and GP-35's BERT export, served to one page that counts every call its own thread makes into a module's forward pass or encoder
+    When `just page-journey` calls pipeline on the CPU device, asks one turn while a heartbeat runs on the page's thread, and embeds GP-35's sentences
+    Then the page's own thread made no decode or encode call, and the heartbeat was never unanswered for 500 ms
+    And onToken was called once per token, and the sixteen tokens are the reference's
+    And every embedding's bits are GP-35's
+
+  @GP-50 @build
+  Scenario: Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled
+    Given the assembled page, and the same page serving engine.wasm with one bit of one byte flipped
+    When the page opens its engine through openModule, which every caller reaches
+    Then the page records the engine check passing with the kernel's answer sealed, and loads the container
+    And with the flipped engine it stops at the engine check with not the sealed engine, before the module is compiled and before any container byte is read
+
   @GP-29 @build
   Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
     Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each

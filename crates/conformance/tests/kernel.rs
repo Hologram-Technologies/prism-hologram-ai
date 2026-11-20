@@ -5071,6 +5071,323 @@ fn kernel_kn_72() {
     );
 }
 
+/// `KN-57`: The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8
+#[test]
+fn kernel_kn_57() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Q4Sum.lex.tex");
+    let proofs = model("app/src/Proofs/StageQ4Sum.lex.tex");
+    assert_pinned(
+        &proofs,
+        "group_sum_value",
+        "(((Engine.Stage.Q4Sum::groupSum acts weights units k) + (Engine.Stage.Q4Sum::negSum acts weights units k 32)) = ((Engine.Stage.Q4Sum::posSum acts weights units k 32) + (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Q4Sum::posSum acts weights units k 32) (Engine.Stage.Q4Sum::negSum acts weights units k 32)) 4294967296 0)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "group_sum_sign",
+        "(((Engine.Stage.Q4Sum::groupSum acts weights units k) < 2147483648) <-> ((Engine.Stage.Q4Sum::negSum acts weights units k 32) <= (Engine.Stage.Q4Sum::posSum acts weights units k 32)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "pos_sum_32",
+        "((Engine.Stage.Q4Sum::posSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "neg_sum_32",
+        "((Engine.Stage.Q4Sum::negSum acts weights units k 32) <= 16777216)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "times_bound",
+        "((a <= 65536) -> ((w <= 8) -> ((Engine.Stage.Q4Sum::times a w) <= 524288)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "times_exact",
+        "((w <= 8) -> ((Engine.Stage.Q4Sum::times a w) = (Engine.Word::mulB (four) a w)))",
+        "Quot.sound, propext",
+    );
+    // The proofs are about the shipped stage, not a copy of it.
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.Q4Sum}")
+            && !proofs.contains("\n  name: groupSum,"),
+        "the proofs must read the stage, not restate it"
+    );
+    assert!(
+        declaration(&stage, "times").contains("body: (prim multiply a w : Nat)"),
+        "the stage multiplies natively"
+    );
+}
+
+/// `KN-58`: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative
+#[test]
+fn kernel_kn_58() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/HalfScale.lex.tex");
+    let proofs = model("app/src/Proofs/StageHalfScale.lex.tex");
+    assert_pinned(
+        &proofs,
+        "product_bound",
+        "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::product w h) <? 34359738368)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "product_high_below_eight",
+        "((s < 34359738368) -> ((prim quotient s 4294967296 0 : Nat) < 8))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "offset_bound",
+        "((Engine.Stage.HalfScale::offset h) <= 30)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "size_bound",
+        "(((16777216 <? (Engine.Stage.HalfScale::sumMag w)) || ((Engine.Stage.HalfScale::size w h) <? 18446744073709551616)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "core_bound",
+        "(((16777216 <? a) || ((Engine.Word::mulB (Engine.Stage.HalfScale::eleven) a b) <? 34359738368)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "shift_bound",
+        "(((34359738368 <=? x) || ((Engine.Stage.HalfScale::shiftSteps x k 29) <? 18446744073709551616)) = true)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "limbs_rejoin",
+        "(((prim remainder s 4294967296 0 : Nat) + (prim multiply 4294967296 (prim quotient s 4294967296 0 : Nat) : Nat)) = s)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "size_low_is_word",
+        "((prim remainder s 4294967296 0 : Nat) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "size_high_is_word",
+        "((s < 18446744073709551616) -> ((prim quotient s 4294967296 0 : Nat) < 4294967296))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "scaled_zero_is_not_negative",
+        "(((Engine.Stage.HalfScale::product w h) = 0) -> ((Engine.Stage.HalfScale::sign w h) = 0))",
+        "Quot.sound, propext",
+    );
+    // The proofs read the stage itself, which has no product of two
+    // variables: its one multiply, of a sum by a significand, is
+    // Engine.Word::mulB, and the offset is doubling.
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.HalfScale}")
+            && !proofs.contains("\n  name: product,"),
+        "the proofs must read the stage, not restate it"
+    );
+    for (name, body) in [
+        (
+            "product",
+            "body: (Engine.Word::mulB (eleven) (sumMag word) (mantissa half))",
+        ),
+        ("offset", "body: (prim subtract (exponent half) 1 : Nat)"),
+        (
+            "size",
+            "body: (shiftSteps (product word half) (offset half) 29)",
+        ),
+    ] {
+        assert!(declaration(&stage, name).contains(body), "{name} changed");
+    }
+    // Per group: the sign, the product's two limbs and the offset.
+    assert!(
+        declaration(&stage, "runFrom")
+            .contains("(cons (offset (halfAt scales g)) (runFrom sums scales (g + 1) rest))"),
+        "a group writes its sign, the product's limbs and the offset"
+    );
+    assert_eq!(
+        stage.matches("prim multiply").count(),
+        stage.matches("(prim multiply 2 value : Nat)").count(),
+        "the stage multiplies only by 2"
+    );
+}
+
+/// `KN-80`: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+#[test]
+fn kernel_kn_80() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Seal.lex.tex");
+    let proofs = model("app/src/Proofs/Seal.lex.tex");
+    let words = (0..8)
+        .map(|i| format!("(Kernel.Seal::sealedWord {i})"))
+        .collect::<Vec<_>>();
+    assert_pinned(
+        &proofs,
+        "seal_decides",
+        &format!(
+            r"(((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = true) <-> ((w0 = {}) /\ ((w1 = {}) /\ ((w2 = {}) /\ ((w3 = {}) /\ ((w4 = {}) /\ ((w5 = {}) /\ ((w6 = {}) /\ (w7 = {})))))))))",
+            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
+        ),
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "seal_refuses_another_first_word",
+        "(((w0 =? (Kernel.Seal::sealedWord 0)) = false) -> ((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = false))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "engineSealed");
+    assert!(
+        found.contains("body: ((((((((w0 =? (sealedWord 0)) && (w1 =? (sealedWord 1))) && (w2 =? (sealedWord 2))) && (w3 =? (sealedWord 3))) && (w4 =? (sealedWord 4))) && (w5 =? (sealedWord 5))) && (w6 =? (sealedWord 6))) && (w7 =? (sealedWord 7)))"),
+        "engineSealed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sealAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (engineSealed (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 4) (Kernel.Wire::fieldAt value 21 4) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4)) then (prim utf8_encode \"sealed\" : Bytes) else (prim utf8_encode \"not the sealed engine\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "sealAnswer changed:\n{found}"
+    );
+    // The sealed address is sealedWord's eight words, each `then` literal and
+    // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
+    // claims the guest replays are derived from it here, so the seal has one
+    // source: a moved seal fails until claims.json follows.
+    let chain = declaration(&kernel, "sealedWord");
+    let tokens: Vec<&str> = chain
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let sealed: Vec<u32> = tokens
+        .windows(2)
+        .filter(|pair| pair[0] == "then" || pair[0] == "else")
+        .filter_map(|pair| pair[1].parse().ok())
+        .collect();
+    assert_eq!(sealed.len(), 8, "sealedWord names eight words:\n{chain}");
+    let address: Vec<u8> = sealed.iter().flat_map(|w| w.to_be_bytes()).collect();
+    let request = |bytes: &[u8]| [&[80u8][..], bytes].concat();
+    let mut flipped = address.clone();
+    flipped[0] ^= 0x01;
+    assert_claimed(
+        80,
+        &[
+            (request(&address), "sealed"),
+            (request(&flipped), "not the sealed engine"),
+            (request(&address[..31]), "invalid request"),
+        ],
+    );
+    // The page's form for decision 80 starts at the sealed address, so it
+    // answers sealed as shown; it follows the seal as the claims do.
+    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
+        .expect("decision-names.json is JSON");
+    for (i, word) in sealed.iter().enumerate() {
+        assert_eq!(
+            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            serde_json::json!(word),
+            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            1 + 4 * i
+        );
+    }
+    assert_routed(80, "Kernel.Seal::sealAnswer");
+}
+
+/// `KN-71`: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+#[test]
+fn kernel_kn_71() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Step.lex.tex");
+    assert_pinned(
+        &proofs,
+        "step_cut",
+        "((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "step_reads_its_chunk",
+        "((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "picked_key_is_max",
+        "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
+        "Quot.sound, propext",
+    );
+    for fixture in [
+        "pick_is_greedy_ordered",
+        "pick_is_greedy_first_of_ties",
+        "pick_is_greedy_all_negative",
+        "pick_is_greedy_zeros_tie",
+        "pick_is_greedy_one",
+    ] {
+        let found = declaration(&proofs, fixture);
+        assert!(
+            found.contains("= (Engine.Stage.Greedy::greedy ")
+                && found.contains("proof: reflexivity{}"),
+            "{fixture} must check the pick against KN-55's greedy:
+{found}"
+        );
+    }
+    let step = model("app/src/Kernel/Step.lex.tex");
+    let found = declaration(&step, "stepAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (44 + (prim multiply 4 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(stepHexValid 40 value 0)")
+            && found.contains("(stepFeed (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 71 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    let found = declaration(&step, "tokenOut");
+    assert!(
+        found.contains("(capacity <? (position + 1))") && found.contains("context full"),
+        "decision 71 must refuse a step past the capacity:\n{found}"
+    );
+    assert_routed(71, "Kernel.Step::stepAnswer");
+    let state = |position: u32, capacity: u32| -> Vec<u8> {
+        let mut hex = String::new();
+        for word in [0u32, 0, 0, position, capacity] {
+            for byte in word.to_le_bytes() {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+        }
+        hex.into_bytes()
+    };
+    let request = |flags: u8, logits: &[u32], state: Vec<u8>| {
+        let mut r = vec![71, flags];
+        r.extend((logits.len() as u16).to_be_bytes());
+        r.extend(state);
+        for logit in logits {
+            r.extend(logit.to_be_bytes());
+        }
+        r
+    };
+    assert_claimed(
+        71,
+        &[
+            (
+                request(2, &[1065353216, 1077936128, 1073741824], state(5, 10)),
+                "1 6",
+            ),
+            (
+                request(2, &[1073741824, 1084227584, 1084227584], state(5, 10)),
+                "1 6",
+            ),
+            (request(2, &[1065353216], state(10, 10)), "context full"),
+            (request(2, &[], state(5, 10)), "invalid request"),
+        ],
+    );
+}
+
 /// `KN-73`: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
 #[test]
 fn kernel_kn_73() {
@@ -5102,16 +5419,22 @@ fn kernel_kn_73() {
             "{name} must be one kernel tree for every width:\n{found}"
         );
     }
-    let quarter = |kind: u8, piece: u8| vec![48, kind, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let quarter =
+        |kind: u8, piece: u8| vec![48, kind, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let texts: Vec<String> = [3u8, 4, 5]
         .iter()
         .map(|&kind| {
-            let claims = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-                .expect("the claims the crates make of the kernel");
-            let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+            let claims =
+                std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
+                    .expect("the claims the crates make of the kernel");
+            let claims: serde_json::Value =
+                serde_json::from_str(&claims).expect("claims.json is JSON");
             let mut text = String::new();
             for piece in 0u8.. {
-                let request: String = quarter(kind, piece).iter().map(|b| format!("{b:02x}")).collect();
+                let request: String = quarter(kind, piece)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
                 let answer = claims["claims"]
                     .as_array()
                     .expect("a list of claims")

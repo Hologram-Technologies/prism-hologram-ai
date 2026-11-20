@@ -1650,6 +1650,117 @@ and another way outside.
 | Planted defect | Result |
 | --- | --- |
 | a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
+
+## KN-71, one token per step
+
+Row 14 of the plan: tokens leave the guest one per step. A step's logits are
+151,936 binary32 values for Qwen, about 600 KB, and a request is at most
+8 KiB with no state kept between calls, so the logits stream in: decision 71
+reads `[71][flags][count, 2 bytes][state, 40 hex characters][count logits, 4
+bytes each]`, folds them into a greedy pick, and answers the carried pick as
+hex, or, on the last chunk, the picked token and the next position (`context
+full` when the position is at capacity). A chunk holds up to 2,037 logits, so
+a Qwen step takes 75 calls. The order is KN-55's: `Engine.Stage.Greedy::key`,
+with a later logit taken only when its key is strictly larger, so the first
+of equal keys wins.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Feeding two chunks one after the other gives the pick that feeding them joined gives, for every pick | `step_cut` in `app/src/Proofs/Step.lex.tex` | proved by Lean in the gate |
+| The guest's loop over a request's logits is that fold | `step_reads_its_chunk` | proved by Lean in the gate |
+| The picked logit's key is the largest key the fold has seen | `picked_key_is_max` (after the first logit), `fresh_takes_first` (the first logit starts the pick) | proved by Lean in the gate |
+| The pick is KN-55's greedy token | `pick_is_greedy_ordered`, `_first_of_ties`, `_all_negative`, `_zeros_tie`, `_one`: the fold equals `Engine.Stage.Greedy::greedy` on five lists, worked out by Lean | checked on fixtures |
+| Decision 71 answers as its definition does in the compiled guest | 9 claims in `claims.json`: a step in one call and in two calls, a tie, the capacity limit, five refusals | replayed on CI |
+
+That the picked index is below the number of logits seen is checked by the
+claims, not proved: the proof needs the induction hypothesis inside linear
+arithmetic, which the pinned lexlean 0.3.0 cannot combine.
+
+### The pinned test: `kernel_kn_71`
+
+| Planted defect | Result |
+| --- | --- |
+| a step allowed at the capacity (`capacity <? position` for `capacity <? (position + 1)`) | rejected: `decision 71 must refuse a step past the capacity` |
+| none | passed |
+
+## KN-57, the q4 group sum
+
+`Engine.Stage.Q4Sum::run` is the first matmul stage of row 13, the work of
+`q4_group_sums` in `crates/exact` and of GPU kernel 1. Output `k` is the sum
+over 32 terms of the weight code less 8 times the activation code. The weight
+code is nibble `32k + i` of the packed weights, low nibble first; the
+activation code is the low 16 bits of word `32 (k mod units) + i`, read as a
+signed 16-bit value, so the stage is total. Each term goes to the positive or
+the negative side by its sign, and the word written is the two's complement of
+the difference. It exports through prod-export and prod-codegen with no
+external calls, opaque nodes or unsupported types.
+
+Lean proves, for every input: `group_sum_value`, that the word plus the
+negative side equals the positive side plus 2^32 when the negative side is
+larger; `group_sum_sign`, that the word is below 2^31 exactly when the sum is
+not negative; and `pos_sum_32` and `neg_sum_32`, that each side is at most
+2^24. So the word is the exact sum as a signed 32-bit value, and no term or
+sum can overflow. The bound counts an activation as at most 2^16, so it is
+twice the real one; it is still far inside 2^31.
+
+### The product is proved, not trusted
+
+The pinned lexlean 0.3.0 cannot reason about `prim multiply` of two
+variables, but it can about a product by a numeral: `omega` reads `a * 3` as
+`3a`. S1's multiplier is a weight magnitude of at most 8, so `times_exact`
+splits on it nine ways (an induction nine deep) and proves, for every `a`, that
+the stage's native `times a w` equals `Engine.Word::mulB` over four bits, row
+15's shift-and-add product (KN-72); `times_bound` bounds it the same way. So the
+proofs are about the shipped stage itself, and no step from a proof copy to the
+shipped code is trusted. A stage whose multiplier is not small does not get
+this for free.
+
+### The pinned test: `kernel_kn_57`
+
+| Planted defect | Result |
+| --- | --- |
+| `times_exact` deleted | rejected: `times_exact is not declared` |
+| the stage's product changed to `prim multiply w a` | rejected: `the stage multiplies natively` |
+| none | passed |
+
+## KN-58, the half-scale product
+
+`Engine.Stage.HalfScale::run` is row 13's second matmul stage: it multiplies
+each group's sum, a two's complement word as S1 writes it, by the group's IEEE
+half scale, read low half first from words of two. Per group it writes four
+words: the sign; the product of the sum's magnitude and the half's significand
+(with its implicit one when the exponent is not zero), as two little-endian
+limbs; and the offset `max(exponent, 1) - 1`, the power of two at which that
+product stands in units of 2^-24. S3 places the product at bit
+`offset + 168 - e[u]` of its register, which is where GPU kernel
+`q4Accumulate` places it, so the two need no shift lemma between them. The
+product is `Engine.Word::mulB` over eleven steps, row 15's shift-and-add
+product (KN-72); `size`, the product doubled `offset` times in a fixed 29-step
+loop, is kept for the bound below. The stage has no product of two variables,
+so no step from a proof to the shipped code is trusted: the proofs read the
+stage itself. The product runs once per group, not in the 32-term sum. It
+exports through prod-export and prod-codegen with no external calls, opaque
+nodes or unsupported types.
+
+Lean proves, for every input: `product_bound`, that the product is below 2^35
+unless the sum's magnitude is above 2^24 (S1's bound), and
+`product_high_below_eight`, that its high limb is then below 8;
+`offset_bound`, that the offset is at most 30; `size_bound`, that the product
+shifted by its offset is below 2^64 under the same condition, for every half,
+even an infinity or a NaN, whose shift the 29 steps cap; `limbs_rejoin`,
+`size_low_is_word` and `size_high_is_word`, that a value below 2^64 splits
+into two words that rejoin to it; and `scaled_zero_is_not_negative`. A bound
+that needs a premise is stated in Bool as "the premise fails or the bound
+holds", which `simplify` can close from lemmas. That the product equals the
+sum's magnitude times the significand is the definition of `mulB`, not a
+theorem: 0.3.0 cannot state it against `prim multiply`.
+
+### The pinned test: `kernel_kn_58`
+
+| Planted defect | Result |
+| --- | --- |
+| `product` multiplying natively (`prim multiply (sumMag word) (mantissa half)`) | rejected: `product changed` |
+| `scaled_zero_is_not_negative` deleted | rejected: `scaled_zero_is_not_negative is not declared` |
 | none | passed |
 
 ## The examples in the compiled guest
@@ -1774,6 +1885,49 @@ is the crate's.
 | U+00A0 left out of the crate's whitespace | rejected: `claim 2e0301… is not hologram-ai-chat's render` |
 | decision 46 not routed | rejected: `decision 46 must be routed to Kernel.Chat::chatAnswer` |
 | none | passed |
+
+
+## KN-80, the sealed engine
+
+Set by Ilya on 2026-11-19: the page's `engine.wasm` must be byte-identical on
+every build, sealed, and self-verifying. Decision 80 is the seal's verdict.
+The request is the tag and the engine's 32-byte BLAKE3; the kernel reads it as
+eight big-endian 4-byte words, the widths the wire format has, and answers
+`sealed` exactly when each is `sealedWord` at its place, `not the sealed
+engine` for any other address, and `invalid request` for any length but 33.
+
+`sealedWord` in `app/src/Kernel/Seal.lex.tex` is the one place the address is
+written. `xtask engine-seal` reads the same eight literals to fail a build
+whose module is not that address (EN-90), and `kernel_kn_80` derives the
+decision-80 claims from them, so a moved seal fails until `claims.json`
+follows. The theorems name `sealedWord`, not its numbers, so moving the seal
+changes no proof. Every change to `crates/`, `Cargo.lock` or
+`rust-toolchain.toml` moves it, in the same change.
+
+### The pinned test: `kernel_kn_80`
+
+Planted on 2026-11-19, `cargo test -p repo-conformance --test kernel kernel_kn_80`:
+
+| Planted | Result |
+| --- | --- |
+| decision 80 answering `refused` where it answers `not the sealed engine` | rejected: `sealAnswer changed` |
+| `sealedWord 0` moved by one (`1322057574`) with `claims.json` left as it was | rejected: `no claim answers decision 80's 504eccff66… with sealed` |
+| none | passed |
+
+### The proof gate: `seal_decides` and `seal_refuses_another_first_word`
+
+Checked on the hosted LexLean prover (`prism-app` profile, the gateway's
+Lean 4 toolchain) on 2026-11-19, with `Kernel.Seal`, `Kernel.Wire` and the
+two `Foundation.Bytes` definitions it reads:
+
+| Planted | Result |
+| --- | --- |
+| `engineSealed` with its eighth comparison replaced by `true`, CI's lexlean 0.3.0 in WSL | rejected: Lean, `HologramAi.Proofs.Seal`, omega could not prove the goal (`seal_decides`) |
+| none, with CI's lexlean 0.3.0 in WSL (`lexlean verify src/Proofs/Seal.lex.tex`) | `verified 4 modules`, attestation `a22cf1fbf28f84915e204e0fc4b0efce0d16782df4714b67b91921a370294ae0` |
+| none, hosted prover | verified, task-184 |
+
+Lean 4 v4.32.1 attested both theorems. The guest's replay of the three decision-80 claims and `lexlean verify` over
+every proof module run in the acceptance gate on CI.
 
 ## KN-73, the q4 product on WebGPU in integers
 

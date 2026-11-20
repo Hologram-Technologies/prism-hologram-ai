@@ -170,9 +170,12 @@ const uorOf = (name) => {
 const apart = (bytes) => onnxInitializers(bytes).filter((t) => t.length >= 4096).map((t) => ({ ...t, address: blake3Hex(bytes.subarray(t.offset, t.offset + t.length)) }));
 
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
+// GP-50: every path the server is asked for, in order.
+const requested = [];
 const server = http.createServer(async (request, response) => {
   if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
+  requested.push(path);
   const fixtureRoute = path.match(/^\/fixture\/(\w+)\/(.*)$/);
   if (fixtureRoute && variants[fixtureRoute[1]]) {
     const v = variants[fixtureRoute[1]];
@@ -296,6 +299,46 @@ try {
     await page.close();
   }
 
+  // GP-50: the deploy's engine.wasm with one bit of one byte flipped. The
+  // page must ask decision 80 about the bytes' BLAKE3 and stop at "not the
+  // sealed engine" before it compiles them or reads the container. Every
+  // module the page compiles is recorded by its length; the engine's is the
+  // one that must not appear. The route is the context's: the page's own
+  // service worker fetches engine.wasm itself once it takes over, and only a
+  // context route reaches a worker's requests, so a page route would let the
+  // unflipped bytes through.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.addInitScript(() => {
+      window.__compiled = [];
+      for (const name of ["compile", "instantiate", "validate"]) {
+        const original = WebAssembly[name];
+        WebAssembly[name] = function (source, ...rest) {
+          window.__compiled.push(source?.byteLength ?? source?.length ?? -1);
+          return original.call(this, source, ...rest);
+        };
+      }
+    });
+    let engineLength = 0;
+    await context.route("**/app/engine/engine.wasm", async (route) => {
+      const body = Buffer.from(await (await route.fetch()).body());
+      body[body.length >> 1] ^= 0x01;
+      engineLength = body.length;
+      await route.fulfill({ body, contentType: "application/wasm" });
+    });
+    const containerReads = () => requested.filter((path) => path === `/fixture/good/${fixture.path}`).length;
+    const before = containerReads();
+    await page.goto(`${origin}/app/?repo=${fixture.repo}&path=${fixture.path}&index=/fixture/good/index`);
+    await page.click("#load");
+    await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks, compiled: window.__compiled }));
+    results.unsealed = { ...state, engineLength, containerReads: containerReads() - before, errors };
+    await context.close();
+  }
+
   // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
   // the CPU; and refused where its files are not the record's.
   results.onnx = {};
@@ -407,6 +450,69 @@ try {
       };
     }, { repo: onnx.repo }).catch((e) => ({ failed: String(e.message ?? e) }));
     results.onnx.transformers = { ...run, errors };
+    await page.close();
+  }
+
+  // GP-41: the integer engines off the page's thread. Every call this page's
+  // own thread makes into a module's forward pass or encoder is counted; a
+  // worker is a realm of its own, so the calls it makes are not. A heartbeat
+  // on the page's thread measures the longest it went unanswered in the turn.
+  {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.addInitScript(() => {
+      const counted = new Set(["decode_tensor", "decode_open", "decode_step", "decode_reset", "encode_tensor", "encode_open", "encode_embed", "encode_classify"]);
+      const exportsOf = Object.getOwnPropertyDescriptor(WebAssembly.Instance.prototype, "exports").get;
+      const seen = new WeakMap();
+      window.__pageCalls = {};
+      Object.defineProperty(WebAssembly.Instance.prototype, "exports", {
+        configurable: true,
+        get() {
+          // The exports object is frozen, so it is copied, not proxied: the
+          // same functions and memory, the counted calls wrapped.
+          const real = exportsOf.call(this);
+          if (!seen.has(real)) {
+            const copy = {};
+            for (const [name, value] of Object.entries(real)) {
+              copy[name] = counted.has(name) ? (...args) => { window.__pageCalls[name] = (window.__pageCalls[name] ?? 0) + 1; return value(...args); } : value;
+            }
+            seen.set(real, copy);
+          }
+          return seen.get(real);
+        },
+      });
+    });
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ repo, encoderRepo, texts }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const hex = (bits) => Array.from(new Uint8Array(bits.buffer, bits.byteOffset, bits.byteLength), (b) => b.toString(16).padStart(2, "0")).join("");
+      const checks = checklist();
+      try {
+        const generate = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device: "cpu" });
+        const channel = new MessageChannel();
+        let beating = true, last = performance.now(), longest = 0, beats = 0;
+        channel.port1.onmessage = () => {
+          const now = performance.now();
+          longest = Math.max(longest, now - last);
+          last = now;
+          beats += 1;
+          if (beating) channel.port2.postMessage(0);
+        };
+        channel.port2.postMessage(0);
+        const streamed = [];
+        const out = await generate("hi", { max_new_tokens: 16, onToken: (text, ids) => streamed.push(ids.length) });
+        beating = false;
+        const embed = await pipeline("feature-extraction", encoderRepo, { index: "/encoder/bert/index", checks: checklist() });
+        const outputs = [];
+        for (const text of texts) outputs.push(hex((await embed(text)).bits));
+        return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, checks: checks.items, calls: window.__pageCalls, longest, beats, streamed, outputs, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+      } catch (e) {
+        return { phase: "failed", error: String(e.message ?? e), checks: checks.items, calls: window.__pageCalls, output: null };
+      }
+    }, { repo: onnx.repo, encoderRepo: encoders.bert.repo, texts: ENCODER_TEXTS.bert });
+    results.onnx.worker = { ...run, errors };
     await page.close();
   }
 
@@ -696,6 +802,17 @@ else {
   const got = good.output.tokens.slice(0, 16);
   if (got.length < 16 || got.some((t, i) => t !== good.expected[i])) fail(`good: the page's tokens ${got} are not the reference's ${good.expected}`);
 }
+// GP-50: the sealed engine passes decision 80 before it is compiled.
+const sealedCheck = good.checks.find((c) => c.step === "engine" && c.subject.includes("decision 80"));
+if (sealedCheck?.verdict !== "pass" || !/answered "sealed"/.test(sealedCheck.detail)) fail(`good: the engine was not checked by decision 80 (${sealedCheck?.verdict ?? "no check"}: ${sealedCheck?.detail ?? ""})`);
+// A flipped engine is refused by name, at that check, before it is compiled
+// and before any container byte is asked for.
+const unsealed = results.unsealed;
+const unsealedStop = stoppedAt(unsealed);
+if (unsealed.phase !== "failed" || unsealedStop?.step !== "engine" || !/answered "not the sealed engine"/.test(unsealedStop?.detail ?? "") || !/not the sealed engine/.test(unsealed.error ?? ""))
+  fail(`unsealed: expected to stop with "not the sealed engine" at decision 80, stopped at ${unsealedStop?.step}: ${unsealedStop?.detail} (${unsealed.phase}: ${unsealed.error})`);
+if (!unsealed.engineLength || unsealed.compiled.includes(unsealed.engineLength)) fail(`unsealed: the flipped engine (${unsealed.engineLength} bytes) was compiled: ${unsealed.compiled}`);
+if (unsealed.containerReads !== 0) fail(`unsealed: the container was read ${unsealed.containerReads} times after the engine was refused`);
 const listed = good.checks.find((c) => c.subject === "kernel is the one this deploy lists");
 if (listed?.verdict !== "pass") fail(`good: the kernel was not compared with the deploy's listing (${listed?.verdict ?? "no check"})`);
 if (good.promptStart !== "") fail(`good: the prompt box started with text, so typing would join it: ${JSON.stringify(good.promptStart)}`);
@@ -861,6 +978,26 @@ for (const kind of ["bert", "distil"]) {
     if (run.dtype.checks.some((c) => ["record", "file", "import"].includes(c.step))) fail("transformers dtype: the load went on past decision 70");
   }
   if (run.errors?.length) fail(`transformers: page errors: ${run.errors.join(" | ")}`);
+}
+
+// GP-41: no forward-pass or encoder call on the page's thread, each token its
+// own message, the reference's tokens and GP-35's bits, and a page that
+// answered throughout the turn.
+{
+  const run = results.onnx.worker;
+  if (run.phase !== "ready") fail(`worker: the page did not reach ready (${run.phase}: ${run.error})`);
+  else {
+    if (run.device !== "cpu" || !run.integer) fail(`worker: ran on ${run.device}, integer ${run.integer}`);
+    const onPage = Object.entries(run.calls).filter(([, n]) => n > 0);
+    if (onPage.length) fail(`worker: the page's own thread computed: ${onPage.map(([name, n]) => `${name} x${n}`).join(", ")}`);
+    const got = run.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== run.expected[i])) fail(`worker: the tokens ${got} are not the reference's ${run.expected}`);
+    if (run.streamed.length !== run.output.tokens.length || run.streamed.some((n, i) => n !== i + 1)) fail(`worker: tokens did not arrive one per step: ${run.streamed}`);
+    const bert = results.encoder.bert.outputs.map((o) => o.bits);
+    if (JSON.stringify(run.outputs) !== JSON.stringify(bert)) fail("worker: the encoder's bits are not GP-35's");
+    if (!(run.beats > 0 && run.longest < 500)) fail(`worker: the page's thread went ${run.longest.toFixed(0)} ms unanswered in the turn (${run.beats} beats)`);
+  }
+  if (run.errors.length) fail(`worker: page errors: ${run.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.
