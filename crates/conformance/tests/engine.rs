@@ -5031,6 +5031,17 @@ fn engine_en_26() {
         .nth(1)
         .expect("the Justfile has an `engine` recipe");
     let recipe = recipe.split("\n\n").next().unwrap_or(recipe);
+    // The cargo command is `engine-build`'s, which `engine` runs (EN-90).
+    let build = justfile
+        .split("\nengine-build out:")
+        .nth(1)
+        .expect("the Justfile has an `engine-build` recipe");
+    let build = build.split("\n\n").next().unwrap_or(build);
+    assert!(
+        recipe.contains("just engine-build site/app/engine/engine.wasm"),
+        "the `engine` recipe does not build the page's module through `engine-build`"
+    );
+    let recipe = format!("{recipe}\n{build}");
     for wanted in [
         "--release",
         "--target wasm32-unknown-unknown",
@@ -11893,6 +11904,130 @@ fn engine_fl_60() {
     assert_eq!(
         template::render(Family::Qwen3, &messages, en_54_options(&context, &date)),
         Err(TemplateError::ReasoningInTurn)
+    );
+}
+
+/// `EN-90`: engine.wasm is byte-identical on every build: the pinned toolchain and target, codegen-units 1, path prefixes remapped, SOURCE_DATE_EPOCH fixed and every host flag cleared, so two builds in different directories with different cargo homes give the same bytes, and the build fails unless their BLAKE3 is the address the model seals
+#[test]
+fn engine_en_90() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let recipe = |justfile: &str, head: &str| -> String {
+        let body = justfile
+            .split(&format!("\n{head}"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("the Justfile has no `{head}` recipe"));
+        body.split("\n\n").next().unwrap_or(body).to_string()
+    };
+
+    // One exact toolchain with the browser's target, and one codegen unit.
+    let toolchain = read("rust-toolchain.toml");
+    let channel = toolchain
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("channel = "))
+        .expect("rust-toolchain.toml names a channel")
+        .trim_matches('"');
+    assert!(
+        channel.split('.').count() == 3 && channel.split('.').all(|p| p.parse::<u32>().is_ok()),
+        "the toolchain must be one exact release, not `{channel}`"
+    );
+    assert!(toolchain.contains("\"wasm32-unknown-unknown\""));
+    let cargo = read("Cargo.toml");
+    let release = cargo
+        .split("[profile.release]")
+        .nth(1)
+        .expect("a release profile");
+    assert!(release.contains("codegen-units = 1"), "one codegen unit");
+
+    // engine-build clears every rustflags source and profile override the
+    // environment could carry, remaps the registry and the workspace, and
+    // fixes the clock.
+    let justfile = read("Justfile");
+    let build = recipe(&justfile, "engine-build out:");
+    for wanted in [
+        "unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS",
+        "RUSTC_WRAPPER",
+        "grep '^CARGO_PROFILE_'",
+        "export CARGO_ENCODED_RUSTFLAGS=\"--remap-path-prefix=$PWD=/workspace\"$'\\x1f'\"--remap-path-prefix=$registry=/registry\"",
+        "export SOURCE_DATE_EPOCH=0",
+        "cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm",
+    ] {
+        assert!(build.contains(wanted), "engine-build does not `{wanted}`:\n{build}");
+    }
+    let engine = recipe(&justfile, "engine:");
+    assert!(
+        engine.contains("just engine-build site/app/engine/engine.wasm")
+            && engine.contains("xtask -- engine-seal site/app/engine/engine.wasm"),
+        "the engine recipe must build through engine-build and check the seal:\n{engine}"
+    );
+
+    // engine-twice: two trees, two cargo homes of different lengths, host
+    // flags in the second, compared byte for byte, then the seal.
+    let twice = recipe(&justfile, "engine-twice out=\"\":");
+    for wanted in [
+        "CARGO_HOME=\"$work/a/home\"",
+        "CARGO_HOME=\"$work/bb/cargo-home-two\"",
+        "RUSTFLAGS=\"-C target-cpu=native\" CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16",
+        "cmp \"$work/a.wasm\" \"$work/b.wasm\"",
+        "xtask -- engine-seal \"$work/a.wasm\"",
+    ] {
+        assert!(
+            twice.contains(wanted),
+            "engine-twice does not `{wanted}`:\n{twice}"
+        );
+    }
+
+    // engine.yml runs it on every change to the inputs, keyed by every one of
+    // them, and re-derives a kept module's address before it is trusted.
+    let workflow = read(".github/workflows/engine.yml");
+    let inputs = [
+        "rust-toolchain.toml",
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/**",
+        "xtask/**",
+        "Justfile",
+        "prismpm.lock",
+        "app/src/Kernel/Seal.lex.tex",
+    ];
+    for input in inputs {
+        assert_eq!(
+            workflow.matches(&format!("      - {input}\n")).count(),
+            2,
+            "engine.yml must run on a push and a pull request that change {input}"
+        );
+        assert!(
+            workflow.contains(&format!("'{input}'")),
+            "engine.yml's key must name {input}"
+        );
+    }
+    assert!(workflow.contains("key: engine-twice-${{ hashFiles("));
+    assert!(
+        workflow.contains("[[ $KEPT == true ]] && cargo run -q --locked -p xtask -- engine-seal target/engine-kept/engine.wasm"),
+        "a kept module must have its address re-derived before it is reused"
+    );
+    assert!(workflow.contains("just engine-twice target/engine-kept/engine.wasm"));
+
+    // The seal refuses a module that is not the sealed one, naming both
+    // addresses: the check the recipe runs, not a second reading of it.
+    let other = std::env::temp_dir().join(format!("en-90-{}.wasm", std::process::id()));
+    std::fs::write(&other, b"\0asm\x01\0\0\0").expect("a module that is not the engine");
+    let checked = std::process::Command::new("cargo")
+        .args(["run", "--quiet", "-p", "xtask", "--", "engine-seal"])
+        .arg(&other)
+        .current_dir(root())
+        .output()
+        .expect("xtask runs");
+    let _ = std::fs::remove_file(&other);
+    let said = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        !checked.status.success(),
+        "engine-seal admitted a module the model does not seal"
+    );
+    assert!(
+        said.contains("seals blake3:") && said.contains("is blake3:"),
+        "engine-seal must name both addresses: {said}"
     );
 }
 

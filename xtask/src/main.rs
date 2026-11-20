@@ -44,6 +44,63 @@ fn engine_size(path: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The model file that seals the engine: decision 80 reads the same words.
+const SEAL: &str = "app/src/Kernel/Seal.lex.tex";
+
+/// EN-90: the engine's BLAKE3 is the address the model seals.
+///
+/// The eight words are `sealedWord`'s, in order: each `then` or final `else`
+/// literal of its chain. They are the address's big-endian 4-byte words, as
+/// decision 80 reads a request (`Kernel.Wire::fieldAt value (1 + 4i) 4`).
+fn engine_seal(root: &Path, path: &Path) -> Result<(), Fail> {
+    let bytes = std::fs::read(path).map_err(|why| format!("{}: {why}", path.display()))?;
+    let found = blake3::hash(&bytes).to_hex().to_string();
+    let model = std::fs::read_to_string(root.join(SEAL)).map_err(|why| format!("{SEAL}: {why}"))?;
+    let body = model
+        .split("\n  name: sealedWord,\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .ok_or(format!("{SEAL} declares no sealedWord"))?;
+    let tokens: Vec<&str> = body
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let words: Vec<u32> = tokens
+        .windows(2)
+        .filter(|pair| pair[0] == "then" || pair[0] == "else")
+        .filter_map(|pair| pair[1].parse::<u32>().ok())
+        .collect();
+    if words.len() != 8 {
+        return Err(format!("{SEAL}: sealedWord names {} words, not 8", words.len()).into());
+    }
+    let sealed: String = words.iter().map(|w| format!("{w:08x}")).collect();
+    if found != sealed {
+        let new: Vec<String> = found
+            .as_bytes()
+            .chunks(8)
+            .map(|hex| {
+                u32::from_str_radix(std::str::from_utf8(hex).unwrap_or("0"), 16)
+                    .unwrap_or(0)
+                    .to_string()
+            })
+            .collect();
+        return Err(format!(
+            "{} is blake3:{found}, but {SEAL} seals blake3:{sealed}. \
+             If the change to the engine's inputs is meant, seal it in the same change: \
+             sealedWord's words become {}, and the decision-80 claims in claims.json and \
+             fields in site/decision-names.json follow (EN-90).",
+            path.display(),
+            new.join(" ")
+        )
+        .into());
+    }
+    println!(
+        "engine-seal: {} is blake3:{found}, the address {SEAL} seals",
+        path.display()
+    );
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let task = std::env::args()
         .nth(1)
@@ -63,6 +120,10 @@ fn main() -> ExitCode {
         "engine-size" => {
             let named = std::env::args().nth(2).unwrap_or_default();
             engine_size(&root.join(named))
+        }
+        "engine-seal" => {
+            let named = std::env::args().nth(2).unwrap_or_default();
+            engine_seal(&root, &root.join(named))
         }
         "new-capability" => {
             let args: Vec<String> = std::env::args().skip(2).collect();
@@ -85,6 +146,7 @@ fn main() -> ExitCode {
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
                  engine-size <path>  the page's engine is within the size a page may ask for\n\
+                 engine-seal <path>  EN-90: the page's engine is the address the model seals\n\
                  new-capability <ID> <level> <suite> <statement>\n\
                                    R3: write the register row, scenario and failing test\n\
                  new-failure <FL-NN> <crate> <Type> <Variant> <suite> <condition>\n\

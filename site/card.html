@@ -54,6 +54,8 @@
     <option value="48">50. Rotary cache entry</option>
     <option value="49">54. File stream</option>
     <option value="50">70. A transformers.js call</option>
+    <option value="51">71. Token step</option>
+    <option value="52">80. Sealed engine</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -5178,6 +5180,176 @@
       "module": "Call",
       "name": "A transformers.js call",
       "tag": 70
+    },
+    {
+      "asks": "Which token does this step give, or what pick is carried to its next chunk?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "start, more follows",
+              0
+            ],
+            [
+              "carried, more follows",
+              1
+            ],
+            [
+              "start, last chunk",
+              2
+            ],
+            [
+              "carried, last chunk",
+              3
+            ]
+          ],
+          "name": "Carry the pick, finish",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Logits in the chunk",
+          "value": 1,
+          "width": 2
+        }
+      ],
+      "length": {
+        "base": 44,
+        "countAt": 2,
+        "stride": 4
+      },
+      "list": {
+        "countAt": 2,
+        "groups": [
+          {
+            "from": 4,
+            "name": "Carried pick and position, as hex characters",
+            "per": 0,
+            "plus": 40,
+            "reader": "stepChar",
+            "scaled": 0,
+            "value": 48,
+            "values": [
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48
+            ],
+            "width": 1
+          },
+          {
+            "from": 44,
+            "name": "Logits, binary32 bit patterns",
+            "per": 1,
+            "plus": 0,
+            "reader": "logitAt",
+            "scaled": 0,
+            "value": 1065353216,
+            "values": [
+              1065353216
+            ],
+            "width": 4
+          }
+        ]
+      },
+      "module": "Step",
+      "name": "Token step",
+      "tag": 71
+    },
+    {
+      "asks": "Is this engine.wasm the one the kernel seals?",
+      "fields": [
+        {
+          "at": 1,
+          "name": "The engine's BLAKE3, bytes 1 to 4",
+          "value": 4203842552,
+          "width": 4
+        },
+        {
+          "at": 5,
+          "name": "The engine's BLAKE3, bytes 5 to 8",
+          "value": 1859647707,
+          "width": 4
+        },
+        {
+          "at": 9,
+          "name": "The engine's BLAKE3, bytes 9 to 12",
+          "value": 749398859,
+          "width": 4
+        },
+        {
+          "at": 13,
+          "name": "The engine's BLAKE3, bytes 13 to 16",
+          "value": 3470494264,
+          "width": 4
+        },
+        {
+          "at": 17,
+          "name": "The engine's BLAKE3, bytes 17 to 20",
+          "value": 776371297,
+          "width": 4
+        },
+        {
+          "at": 21,
+          "name": "The engine's BLAKE3, bytes 21 to 24",
+          "value": 2761623211,
+          "width": 4
+        },
+        {
+          "at": 25,
+          "name": "The engine's BLAKE3, bytes 25 to 28",
+          "value": 1856450474,
+          "width": 4
+        },
+        {
+          "at": 29,
+          "name": "The engine's BLAKE3, bytes 29 to 32",
+          "value": 2795493391,
+          "width": 4
+        }
+      ],
+      "length": 33,
+      "module": "Seal",
+      "name": "Sealed engine",
+      "tag": 80
     }
   ],
   "request": 8192

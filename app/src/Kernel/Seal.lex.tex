@@ -1,0 +1,31 @@
+\begin{lexlean}{Kernel.Seal}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: sealedWord,
+  parameters: [place : Nat],
+  result: Nat,
+  body: (if (place =? 0) then 4203842552 else (if (place =? 1) then 1859647707 else (if (place =? 2) then 749398859 else (if (place =? 3) then 3470494264 else (if (place =? 4) then 776371297 else (if (place =? 5) then 2761623211 else (if (place =? 6) then 1856450474 else 2795493391)))))))
+}
+
+definition{
+  name: engineSealed,
+  parameters: [w0 : Nat, w1 : Nat, w2 : Nat, w3 : Nat, w4 : Nat, w5 : Nat, w6 : Nat, w7 : Nat],
+  result: Bool,
+  body: ((((((((w0 =? (sealedWord 0)) && (w1 =? (sealedWord 1))) && (w2 =? (sealedWord 2))) && (w3 =? (sealedWord 3))) && (w4 =? (sealedWord 4))) && (w5 =? (sealedWord 5))) && (w6 =? (sealedWord 6))) && (w7 =? (sealedWord 7)))
+}
+
+definition{
+  name: sealAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (engineSealed (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 4) (Kernel.Wire::fieldAt value 21 4) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4)) then (prim utf8_encode "sealed" : Bytes) else (prim utf8_encode "not the sealed engine" : Bytes)) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

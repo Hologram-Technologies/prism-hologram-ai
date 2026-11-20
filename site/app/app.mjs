@@ -129,7 +129,7 @@ async function load() {
     // The page states Bonsai's size itself; for a model named in the address the size is the record's, said before the download starts.
     if (asked.get("repo")) $("model-name").textContent += ` About ${Math.round(file.size / 1e6)} MB, downloaded once per visit.`;
 
-    const module = await openModule("./engine/engine.wasm");
+    const module = await openModule("./engine/engine.wasm", ask);
     status("Checking the container…");
     const { engine } = await loadContainer({
       url: base + MODEL.path,

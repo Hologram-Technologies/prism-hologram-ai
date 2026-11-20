@@ -279,6 +279,13 @@ Feature: gpu
     And onToken was called once per token, and the sixteen tokens are the reference's
     And every embedding's bits are GP-35's
 
+  @GP-50 @build
+  Scenario: Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled
+    Given the assembled page, and the same page serving engine.wasm with one bit of one byte flipped
+    When the page opens its engine through openModule, which every caller reaches
+    Then the page records the engine check passing with the kernel's answer sealed, and loads the container
+    And with the flipped engine it stops at the engine check with not the sealed engine, before the module is compiled and before any container byte is read
+
   @GP-51 @build
   Scenario: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
     Given the page's integer engine (site/app/engine/integer.mjs) and GP-19's Qwen3-shaped ONNX export

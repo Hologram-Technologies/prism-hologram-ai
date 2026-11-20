@@ -1954,6 +1954,79 @@ fn gpu_gp_41() {
     }
 }
 
+/// `GP-50`: Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled
+#[test]
+fn gpu_gp_50() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // One way in: openModule takes the page's asker, hashes the bytes it
+    // fetched, asks decision 80, and compiles those same bytes only after.
+    let loader = read("site/app/engine/loader.mjs");
+    let open = loader
+        .split("export async function openModule(url, ask) {")
+        .nth(1)
+        .expect("openModule takes the page's asker");
+    let fetched = open
+        .find("const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());")
+        .expect("openModule fetches the bytes once");
+    let asked = open
+        .find("await ask(\"engine\", \"engine.wasm is the engine the kernel seals (decision 80)\", join(new Uint8Array([80]), blake3(bytes)), \"sealed\");")
+        .expect("openModule asks decision 80 about the bytes' BLAKE3");
+    let compiled = open
+        .find("return moduleOf(await WebAssembly.compile(bytes));")
+        .expect("openModule compiles the bytes it checked");
+    assert!(
+        fetched < asked && asked < compiled,
+        "the engine is compiled before decision 80 is asked"
+    );
+    // Bytes become a module in one place; everything else, the integer worker
+    // included, is handed that module (GP-41) and never fetches or compiles one.
+    assert_eq!(
+        loader.matches("WebAssembly.compile(").count(),
+        1,
+        "the engine is compiled in one place"
+    );
+    assert!(!loader.contains("WebAssembly.instantiate("));
+    let worker = read("site/app/engine/integer-worker.mjs");
+    assert!(
+        !worker.contains("fetch(") && !worker.contains("WebAssembly."),
+        "the integer worker must take the module openModule checked, not bytes of its own"
+    );
+    for (caller, call) in [
+        (
+            "site/app/app.mjs",
+            "openModule(\"./engine/engine.wasm\", ask)",
+        ),
+        (
+            "site/app/engine/pipeline.mjs",
+            "openModule(new URL(\"./engine.wasm\", import.meta.url), ask)",
+        ),
+    ] {
+        assert!(
+            read(caller).contains(call),
+            "{caller} does not open the engine through decision 80"
+        );
+    }
+    // The journey serves a flipped engine and requires the refusal by name,
+    // at decision 80, with the engine never compiled and the container never read.
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "await context.route(\"**/app/engine/engine.wasm\"",
+        "body[body.length >> 1] ^= 0x01;",
+        "unsealedStop?.step !== \"engine\"",
+        "answered \"not the sealed engine\"",
+        "unsealed.compiled.includes(unsealed.engineLength)",
+        "unsealed.containerReads !== 0",
+        "answered \"sealed\"",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey does not check `{wanted}`"
+        );
+    }
+}
+
 /// `GP-51`: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
 #[test]
 fn gpu_gp_51() {

@@ -1650,6 +1650,37 @@ and another way outside.
 | Planted defect | Result |
 | --- | --- |
 | a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
+
+## KN-71, one token per step
+
+Row 14 of the plan: tokens leave the guest one per step. A step's logits are
+151,936 binary32 values for Qwen, about 600 KB, and a request is at most
+8 KiB with no state kept between calls, so the logits stream in: decision 71
+reads `[71][flags][count, 2 bytes][state, 40 hex characters][count logits, 4
+bytes each]`, folds them into a greedy pick, and answers the carried pick as
+hex, or, on the last chunk, the picked token and the next position (`context
+full` when the position is at capacity). A chunk holds up to 2,037 logits, so
+a Qwen step takes 75 calls. The order is KN-55's: `Engine.Stage.Greedy::key`,
+with a later logit taken only when its key is strictly larger, so the first
+of equal keys wins.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Feeding two chunks one after the other gives the pick that feeding them joined gives, for every pick | `step_cut` in `app/src/Proofs/Step.lex.tex` | proved by Lean in the gate |
+| The guest's loop over a request's logits is that fold | `step_reads_its_chunk` | proved by Lean in the gate |
+| The picked logit's key is the largest key the fold has seen | `picked_key_is_max` (after the first logit), `fresh_takes_first` (the first logit starts the pick) | proved by Lean in the gate |
+| The pick is KN-55's greedy token | `pick_is_greedy_ordered`, `_first_of_ties`, `_all_negative`, `_zeros_tie`, `_one`: the fold equals `Engine.Stage.Greedy::greedy` on five lists, worked out by Lean | checked on fixtures |
+| Decision 71 answers as its definition does in the compiled guest | 9 claims in `claims.json`: a step in one call and in two calls, a tie, the capacity limit, five refusals | replayed on CI |
+
+That the picked index is below the number of logits seen is checked by the
+claims, not proved: the proof needs the induction hypothesis inside linear
+arithmetic, which the pinned lexlean 0.3.0 cannot combine.
+
+### The pinned test: `kernel_kn_71`
+
+| Planted defect | Result |
+| --- | --- |
+| a step allowed at the capacity (`capacity <? position` for `capacity <? (position + 1)`) | rejected: `decision 71 must refuse a step past the capacity` |
 | none | passed |
 
 ## KN-57, the q4 group sum
@@ -1855,3 +1886,45 @@ is the crate's.
 | decision 46 not routed | rejected: `decision 46 must be routed to Kernel.Chat::chatAnswer` |
 | none | passed |
 
+
+## KN-80, the sealed engine
+
+Set by Ilya on 2026-11-19: the page's `engine.wasm` must be byte-identical on
+every build, sealed, and self-verifying. Decision 80 is the seal's verdict.
+The request is the tag and the engine's 32-byte BLAKE3; the kernel reads it as
+eight big-endian 4-byte words, the widths the wire format has, and answers
+`sealed` exactly when each is `sealedWord` at its place, `not the sealed
+engine` for any other address, and `invalid request` for any length but 33.
+
+`sealedWord` in `app/src/Kernel/Seal.lex.tex` is the one place the address is
+written. `xtask engine-seal` reads the same eight literals to fail a build
+whose module is not that address (EN-90), and `kernel_kn_80` derives the
+decision-80 claims from them, so a moved seal fails until `claims.json`
+follows. The theorems name `sealedWord`, not its numbers, so moving the seal
+changes no proof. Every change to `crates/`, `Cargo.lock` or
+`rust-toolchain.toml` moves it, in the same change.
+
+### The pinned test: `kernel_kn_80`
+
+Planted on 2026-11-19, `cargo test -p repo-conformance --test kernel kernel_kn_80`:
+
+| Planted | Result |
+| --- | --- |
+| decision 80 answering `refused` where it answers `not the sealed engine` | rejected: `sealAnswer changed` |
+| `sealedWord 0` moved by one (`1322057574`) with `claims.json` left as it was | rejected: `no claim answers decision 80's 504eccff66… with sealed` |
+| none | passed |
+
+### The proof gate: `seal_decides` and `seal_refuses_another_first_word`
+
+Checked on the hosted LexLean prover (`prism-app` profile, the gateway's
+Lean 4 toolchain) on 2026-11-19, with `Kernel.Seal`, `Kernel.Wire` and the
+two `Foundation.Bytes` definitions it reads:
+
+| Planted | Result |
+| --- | --- |
+| `engineSealed` with its eighth comparison replaced by `true`, CI's lexlean 0.3.0 in WSL | rejected: Lean, `HologramAi.Proofs.Seal`, omega could not prove the goal (`seal_decides`) |
+| none, with CI's lexlean 0.3.0 in WSL (`lexlean verify src/Proofs/Seal.lex.tex`) | `verified 4 modules`, attestation `a22cf1fbf28f84915e204e0fc4b0efce0d16782df4714b67b91921a370294ae0` |
+| none, hosted prover | verified, task-184 |
+
+Lean 4 v4.32.1 attested both theorems. The guest's replay of the three decision-80 claims and `lexlean verify` over
+every proof module run in the acceptance gate on CI.
