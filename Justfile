@@ -161,6 +161,14 @@ engine-build out:
       amd64=$(docker buildx imagetools inspect "$image" --raw | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const m = JSON.parse(s).manifests?.find((x) => x.platform?.os === "linux" && x.platform?.architecture === "amd64"); if (!m) process.exit(1); console.log(m.digest); })') \
         || { echo "engine-build: $image lists no linux/amd64 manifest" >&2; exit 64; }
       image="${image%@*}@$amd64"
+      # GitHub's arm64 runner runs no amd64 binary of itself ("exec format
+      # error", run 44821949449): QEMU's amd64 emulator is registered with the
+      # host's kernel first, by the image docker/setup-qemu-action uses, pinned
+      # by digest (tonistiigi/binfmt qemu-v9.2.2-52). It must run privileged to
+      # write the kernel's binfmt_misc; registering again changes nothing.
+      # Chosen by Ilya on 2026-11-20.
+      docker run --rm --privileged tonistiigi/binfmt@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install amd64 >/dev/null \
+        || { echo "engine-build: could not register amd64 emulation on this $(uname -m) host" >&2; exit 64; }
       echo "engine-build: $(uname -m) host, building the engine in $image as linux/amd64"
       exec docker run --rm --platform linux/amd64 \
         --user "$(id -u):$(id -g)" \

@@ -3174,7 +3174,13 @@ So `engine-build` on any host but x86_64 runs itself in the linux/amd64
 variant of the SDK image `prismpm.lock` pins (the gate checks the image lists
 both platforms), named by that manifest's own digest from the image's index, since
 Docker will not pull a second platform under the index digest a host already
-holds (`cannot overwrite digest`, the first arm64 run, 44815391796), under the host's emulation, with the workspace mounted at the
+holds (`cannot overwrite digest`, the first arm64 run, 44815391796), under
+QEMU amd64 emulation, which GitHub's arm64 runner lacks (`exec format error`, the
+second, 44821949449) and `engine-build` registers first with
+`tonistiigi/binfmt@sha256:1b804311…39e6` (qemu-v9.2.2-52, the image
+`docker/setup-qemu-action` uses), privileged because it writes the host
+kernel's `binfmt_misc`, chosen by Ilya over checking only that two arm64 builds
+agree; and under the host's emulation, with the workspace mounted at the
 same path, the gate's home setup and a target directory of its own
 (`target/engine-amd64`). Every host then checks the one engine that is
 published, which `pages.yml` builds on amd64. Decided by Ilya on 2026-11-20

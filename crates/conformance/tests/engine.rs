@@ -11948,6 +11948,8 @@ fn engine_en_90() {
         // other than amd64 builds in the SDK image's amd64 variant.
         "if [[ $(uname -m) != x86_64 ]]; then",
         "exec docker run --rm --platform linux/amd64",
+        // The emulator the host registers first, by one exact image.
+        "docker run --rm --privileged tonistiigi/binfmt@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install amd64",
         "\"$image\" just engine-build \"$out\"",
     ] {
         assert!(build.contains(wanted), "engine-build does not `{wanted}`:\n{build}");
