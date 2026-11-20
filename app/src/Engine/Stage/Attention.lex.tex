@@ -1,0 +1,124 @@
+\begin{lexlean}{Engine.Stage.Attention}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: powTwo,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (match n | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (powTwo rest) : Nat)),
+  recursive_argument: n
+}
+
+definition{
+  name: minOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (prim subtract kept (prim subtract kept next : Nat) : Nat)
+}
+
+definition{
+  name: wordAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::nth words i) 4294967296 0 : Nat)
+}
+
+definition{
+  name: fieldOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient bits 8388608 0 : Nat) 256 0 : Nat)
+}
+
+definition{
+  name: negOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim quotient bits 2147483648 0 : Nat)
+}
+
+definition{
+  name: mantissaOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (fieldOf bits) ((prim remainder bits 8388608 0 : Nat) + 8388608) (prim remainder bits 8388608 0 : Nat))
+}
+
+definition{
+  name: scaleOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::maxOf (fieldOf bits) 1)
+}
+
+definition{
+  name: product,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply (mantissaOf bits) 6196328019 : Nat) root : Nat)
+}
+
+definition{
+  name: magnitude,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 213 (scaleOf bits)) (prim multiply (product bits root) (powTwo (prim subtract (scaleOf bits) 214 : Nat)) : Nat) (Engine.Stage.Softmax::divideEven (product bits root) (powTwo (prim subtract 214 (scaleOf bits) : Nat))))
+}
+
+definition{
+  name: encoded,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (negOf bits) (prim remainder (prim subtract 18446744073709551616 (minOf (magnitude bits root) 9223372036854775808) : Nat) 18446744073709551616 0 : Nat) (minOf (magnitude bits root) 9223372036854775807))
+}
+
+definition{
+  name: lowWord,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (prim remainder v 4294967296 0 : Nat)
+}
+
+definition{
+  name: highWord,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (prim quotient v 4294967296 0 : Nat)
+}
+
+definition{
+  name: exponentWordsFrom,
+  parameters: [scores : (List Nat), root : Nat, i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (lowWord (encoded (wordAt scores i) root)) (cons (highWord (encoded (wordAt scores i) root)) (exponentWordsFrom scores root (i + 1) rest)))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: weights,
+  parameters: [scores : (List Nat), root : Nat, count : Nat],
+  result: (List Nat),
+  body: (Engine.Stage.Softmax::run (exponentWordsFrom scores root 0 count) count)
+}
+
+definition{
+  name: kvHead,
+  parameters: [hq : Nat, group : Nat],
+  result: Nat,
+  body: (prim quotient hq group 0 : Nat)
+}
+
+definition{
+  name: keyBase,
+  parameters: [t : Nat, kv : Nat, kvHeads : Nat, headDim : Nat],
+  result: Nat,
+  body: (prim multiply ((prim multiply t kvHeads : Nat) + kv) headDim : Nat)
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -1,0 +1,151 @@
+\begin{lexlean}{Proofs.StageAttention}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: attention_exponents_closed,
+  parameters: [],
+  statement: ((Engine.Stage.Attention::exponentWordsFrom (cons 1065353216 (cons 3221225472 (cons 0 (cons 1 (cons 2139095039 (cons 4286578687 (cons 1040187392 (nil Nat)))))))) 137438953472 0 7) = (cons 46 (cons 0 (cons 4294967204 (cons 4294967295 (cons 0 (cons 0 (cons 0 (cons 0 (cons 4294967295 (cons 2147483647 (cons 0 (cons 2147483648 (cons 6 (cons 0 (nil Nat)))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_min_at_most,
+  parameters: [m : Nat, c : Nat],
+  statement: ((Engine.Stage.Attention::minOf m c) <= c),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Attention::minOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_below_given,
+  parameters: [x : Nat],
+  statement: ((x <= 9223372036854775807) -> (x < 18446744073709551616)),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Attention::minOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_clamp_below,
+  parameters: [m : Nat],
+  statement: ((Engine.Stage.Attention::minOf m 9223372036854775807) < 18446744073709551616),
+  proof: simplify{definitions: [attention_below_given, attention_min_at_most]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_remainder_below,
+  parameters: [a : Nat],
+  statement: ((prim remainder a 18446744073709551616 0 : Nat) < 18446744073709551616),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Attention::minOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_pick_below,
+  parameters: [f : Nat, x : Nat, y : Nat, c : Nat],
+  statement: ((x < c) -> ((y < c) -> ((Engine.Stage.Greedy::pick f x y) < c))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: []
+}
+
+theorem{
+  name: attention_encoded_below,
+  parameters: [bits : Nat, root : Nat],
+  statement: ((Engine.Stage.Attention::encoded bits root) < 18446744073709551616),
+  proof: simplify{
+    definitions: [
+      attention_clamp_below,
+      attention_pick_below,
+      attention_remainder_below,
+      Engine.Stage.Attention::encoded
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_high_given,
+  parameters: [v : Nat],
+  statement: ((v < 18446744073709551616) -> ((Engine.Stage.Attention::highWord v) < 4294967296)),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Attention::highWord]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_high_word,
+  parameters: [bits : Nat, root : Nat],
+  statement: ((Engine.Stage.Attention::highWord (Engine.Stage.Attention::encoded bits root)) < 4294967296),
+  proof: simplify{definitions: [attention_encoded_below, attention_high_given]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_low_word,
+  parameters: [v : Nat],
+  statement: ((Engine.Stage.Attention::lowWord v) < 4294967296),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Attention::lowWord]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_share_count,
+  parameters: [words : (List Nat), top : Nat, total : Nat, i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Softmax::runFrom words top total i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Softmax::runFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Softmax::runFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: attention_weights_count,
+  parameters: [scores : (List Nat), root : Nat, count : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Attention::weights scores root count)) = count),
+  proof: simplify{
+    definitions: [
+      attention_share_count,
+      Engine.Stage.Attention::weights,
+      Engine.Stage.Softmax::run,
+      Engine.Stage.Softmax::runAt
+    ]
+  },
+  axioms: [propext]
+}
+\end{semanticmodule}
+\end{lexlean}
