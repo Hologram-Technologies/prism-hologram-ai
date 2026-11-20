@@ -1632,5 +1632,494 @@ theorem{
   },
   axioms: [Quot.sound, propext]
 }
+
+theorem{
+  name: word_3,
+  parameters: [],
+  statement: ((Engine.Gpu::word 3) = 3),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: word_4,
+  parameters: [],
+  statement: ((Engine.Gpu::word 4) = 4),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: word_7,
+  parameters: [],
+  statement: ((Engine.Gpu::word 7) = 7),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: word_8,
+  parameters: [],
+  statement: ((Engine.Gpu::word 8) = 8),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: word_15,
+  parameters: [],
+  statement: ((Engine.Gpu::word 15) = 15),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: word_32,
+  parameters: [],
+  statement: ((Engine.Gpu::word 32) = 32),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rem_two_15,
+  parameters: [],
+  statement: ((prim remainder 15 2 0 : Nat) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: quot_two_15,
+  parameters: [],
+  statement: ((prim quotient 15 2 0 : Nat) = 7),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rem_two_7,
+  parameters: [],
+  statement: ((prim remainder 7 2 0 : Nat) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: quot_two_7,
+  parameters: [],
+  statement: ((prim quotient 7 2 0 : Nat) = 3),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rem_two_3,
+  parameters: [],
+  statement: ((prim remainder 3 2 0 : Nat) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: quot_two_3,
+  parameters: [],
+  statement: ((prim quotient 3 2 0 : Nat) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rem_two_1,
+  parameters: [],
+  statement: ((prim remainder 1 2 0 : Nat) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: quot_two_1,
+  parameters: [],
+  statement: ((prim quotient 1 2 0 : Nat) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rem_two_0,
+  parameters: [],
+  statement: ((prim remainder 0 2 0 : Nat) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: quot_two_0,
+  parameters: [],
+  statement: ((prim quotient 0 2 0 : Nat) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: mul_zero_right,
+  parameters: [y : Nat],
+  statement: ((prim multiply y 0 : Nat) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: add_zero_right,
+  parameters: [y : Nat],
+  statement: ((y + 0) = y),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: and_seven_unfold,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::andBits 32 x 7) = ((prim multiply (prim remainder x 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient x 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 (prim multiply (prim remainder (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) : Nat)) : Nat))),
+  proof: simplify{
+    definitions: [
+      add_zero_right,
+      mul_zero_right,
+      quot_two_0,
+      quot_two_1,
+      quot_two_3,
+      quot_two_7,
+      rem_two_0,
+      rem_two_1,
+      rem_two_3,
+      rem_two_7,
+      Engine.Gpu::andBits
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: and_seven_value,
+  parameters: [x : Nat],
+  statement: (((prim multiply (prim remainder x 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient x 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 (prim multiply (prim remainder (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) : Nat)) : Nat)) = (prim remainder x 8 0 : Nat)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: and_seven,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::andBits 32 x 7) = (prim remainder x 8 0 : Nat)),
+  proof: simplify{definitions: [and_seven_unfold, and_seven_value]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: and_fifteen_unfold,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::andBits 32 x 15) = ((prim multiply (prim remainder x 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient x 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 (prim multiply (prim remainder (prim quotient (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) : Nat)) : Nat)) : Nat))),
+  proof: simplify{
+    definitions: [
+      add_zero_right,
+      mul_zero_right,
+      quot_two_0,
+      quot_two_1,
+      quot_two_15,
+      quot_two_3,
+      quot_two_7,
+      rem_two_0,
+      rem_two_1,
+      rem_two_15,
+      rem_two_3,
+      rem_two_7,
+      Engine.Gpu::andBits
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: and_fifteen_value,
+  parameters: [x : Nat],
+  statement: (((prim multiply (prim remainder x 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient x 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 ((prim multiply (prim remainder (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) + (prim multiply 2 (prim multiply (prim remainder (prim quotient (prim quotient (prim quotient x 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 2 0 : Nat) 1 : Nat) : Nat)) : Nat)) : Nat)) = (prim remainder x 16 0 : Nat)),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: and_fifteen,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::andBits 32 x 15) = (prim remainder x 16 0 : Nat)),
+  proof: simplify{definitions: [and_fifteen_unfold, and_fifteen_value]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: and_seven_word,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::u32and x (Engine.Gpu::word 7)) = (prim remainder x 8 0 : Nat)),
+  proof: simplify{definitions: [and_seven, word_7, Engine.Gpu::u32and]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: and_fifteen_word,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::u32and x (Engine.Gpu::word 15)) = (prim remainder x 16 0 : Nat)),
+  proof: simplify{definitions: [and_fifteen, word_15, Engine.Gpu::u32and]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shift_power_three,
+  parameters: [],
+  statement: ((Engine.Gpu::shiftPower (prim remainder 3 32 0 : Nat)) = 8),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: shr_three_word,
+  parameters: [x : Nat],
+  statement: ((Engine.Gpu::u32shr x (Engine.Gpu::word 3)) = (prim quotient x 8 0 : Nat)),
+  proof: simplify{definitions: [shift_power_three, word_3, Engine.Gpu::u32shr]},
+  axioms: [propext]
+}
+
+theorem{
+  name: mod8_lt,
+  parameters: [x : Nat],
+  statement: ((prim remainder x 8 0 : Nat) < 8),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_0,
+  parameters: [y : Nat],
+  statement: ((0 < 8) -> ((prim quotient y 1 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 0))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_1,
+  parameters: [y : Nat],
+  statement: ((1 < 8) -> ((prim quotient y 16 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 1))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_2,
+  parameters: [y : Nat],
+  statement: ((2 < 8) -> ((prim quotient y 256 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 2))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_3,
+  parameters: [y : Nat],
+  statement: ((3 < 8) -> ((prim quotient y 4096 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 3))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_4,
+  parameters: [y : Nat],
+  statement: ((4 < 8) -> ((prim quotient y 65536 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 4))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_5,
+  parameters: [y : Nat],
+  statement: ((5 < 8) -> ((prim quotient y 1048576 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 5))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_6,
+  parameters: [y : Nat],
+  statement: ((6 < 8) -> ((prim quotient y 16777216 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 6))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_7,
+  parameters: [y : Nat],
+  statement: ((7 < 8) -> ((prim quotient y 268435456 0 : Nat) = (Engine.Stage.Q4Sum::shiftDown y 7))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Q4Sum::shiftDown]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shr_any,
+  parameters: [j : Nat, y : Nat],
+  statement: ((j < 8) -> ((Engine.Gpu::u32shr y (Engine.Gpu::word (prim multiply (Engine.Gpu::word 4) j : Nat))) = (Engine.Stage.Q4Sum::shiftDown y j))),
+  proof: cases{
+    branches: [
+      {proof: apply{arguments: [y], theorem: shr_0}, binders: [], constructor: zero},
+      {
+        proof: cases{
+          branches: [
+            {proof: apply{arguments: [y], theorem: shr_1}, binders: [], constructor: zero},
+            {
+              proof: cases{
+                branches: [
+                  {proof: apply{arguments: [y], theorem: shr_2}, binders: [], constructor: zero},
+                  {
+                    proof: cases{
+                      branches: [
+                        {
+                          proof: apply{arguments: [y], theorem: shr_3},
+                          binders: [],
+                          constructor: zero
+                        },
+                        {
+                          proof: cases{
+                            branches: [
+                              {
+                                proof: apply{arguments: [y], theorem: shr_4},
+                                binders: [],
+                                constructor: zero
+                              },
+                              {
+                                proof: cases{
+                                  branches: [
+                                    {
+                                      proof: apply{arguments: [y], theorem: shr_5},
+                                      binders: [],
+                                      constructor: zero
+                                    },
+                                    {
+                                      proof: cases{
+                                        branches: [
+                                          {
+                                            proof: apply{arguments: [y], theorem: shr_6},
+                                            binders: [],
+                                            constructor: zero
+                                          },
+                                          {
+                                            proof: cases{
+                                              branches: [
+                                                {
+                                                  proof: apply{arguments: [y], theorem: shr_7},
+                                                  binders: [],
+                                                  constructor: zero
+                                                },
+                                                {
+                                                  proof: linear_arithmetic{},
+                                                  binders: [j8],
+                                                  constructor: succ
+                                                }
+                                              ],
+                                              scrutinee: j7
+                                            },
+                                            binders: [j7],
+                                            constructor: succ
+                                          }
+                                        ],
+                                        scrutinee: j6
+                                      },
+                                      binders: [j6],
+                                      constructor: succ
+                                    }
+                                  ],
+                                  scrutinee: j5
+                                },
+                                binders: [j5],
+                                constructor: succ
+                              }
+                            ],
+                            scrutinee: j4
+                          },
+                          binders: [j4],
+                          constructor: succ
+                        }
+                      ],
+                      scrutinee: j3
+                    },
+                    binders: [j3],
+                    constructor: succ
+                  }
+                ],
+                scrutinee: j2
+              },
+              binders: [j2],
+              constructor: succ
+            }
+          ],
+          scrutinee: j1
+        },
+        binders: [j1],
+        constructor: succ
+      }
+    ],
+    scrutinee: j
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: nth_same,
+  parameters: [l : (List Nat), i : Nat],
+  statement: ((Engine.Gpu::nth l i) = (Engine.Stage.Greedy::nth l i)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Gpu::nth, Engine.Stage.Greedy::nth]},
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: cases{
+          branches: [
+            {
+              proof: simplify{definitions: [Engine.Gpu::nth, Engine.Stage.Greedy::nth]},
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: simplify{definitions: [ih, Engine.Gpu::nth, Engine.Stage.Greedy::nth]},
+              binders: [ir],
+              constructor: succ
+            }
+          ],
+          scrutinee: i
+        },
+        binders: [hd, tl, ih],
+        constructor: cons
+      }
+    ],
+    generalizing: [i],
+    scrutinee: l
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: nibble_kernel,
+  parameters: [w : (List Nat), g : Nat],
+  statement: ((Engine.Gpu::u32and (Engine.Gpu::u32shr (Engine.Gpu::nth w (Engine.Gpu::u32shr g (Engine.Gpu::word 3))) (Engine.Gpu::word (prim multiply (Engine.Gpu::word 4) (Engine.Gpu::u32and g (Engine.Gpu::word 7)) : Nat))) (Engine.Gpu::word 15)) = (Engine.Stage.Q4Sum::nibble w g)),
+  proof: simplify{
+    definitions: [
+      and_fifteen_word,
+      and_seven_word,
+      mod8_lt,
+      nth_same,
+      shr_any,
+      shr_three_word,
+      Engine.Stage.Q4Sum::nibble
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
