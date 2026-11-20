@@ -286,6 +286,14 @@ Feature: gpu
     Then the page records the engine check passing with the kernel's answer sealed, and loads the container
     And with the flipped engine it stops at the engine check with not the sealed engine, before the module is compiled and before any container byte is read
 
+  @GP-55 @build
+  Scenario: Code written for transformers.js's encoders runs on the engine unchanged: pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline("text-classification") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs
+    Given GP-35's BERT- and DistilBERT-shaped encoder fixtures and their hub records, served to one page
+    When `just page-journey` imports site/app/engine/transformers.mjs and calls it as transformers.js is called
+    Then pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are hologram-ai-cpu-encode's embeddings bit for bit
+    And an extractor called without pooling is refused by decision 82 before it runs
+    And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
+
   @GP-29 @build
   Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
     Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each

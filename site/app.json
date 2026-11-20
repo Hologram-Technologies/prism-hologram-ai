@@ -337,6 +337,11 @@
       "name": "kernel_kn_70",
       "what": "The nine theorems' statements and axioms, how each transformers.js device name maps, the order the refusals are checked in, the request length, and that decision 70 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
       "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
+      "name": "kernel_kn_82",
+      "what": "The six theorems' statements and axioms, which pooling and normalizing each encoder task runs with, the request length, and that decision 82 is routed to this answer. A string-matching test, not a theorem: a planted defect fails it.",
+      "where": "crates/conformance/tests/kernel.rs"
     }
   ],
   "trusted": [

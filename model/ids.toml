@@ -990,6 +990,24 @@ suite = "gpu"
 statement = "Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled"
 
 [[id]]
+id = "KN-82"
+level = "build"
+suite = "kernel"
+statement = "An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name"
+
+[[id]]
+id = "EN-95"
+level = "build"
+suite = "engine"
+statement = "A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do"
+
+[[id]]
+id = "GP-55"
+level = "build"
+suite = "gpu"
+statement = "Code written for transformers.js's encoders runs on the engine unchanged: pipeline(\"feature-extraction\") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline(\"text-classification\") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs"
+
+[[id]]
 id = "EN-91"
 level = "build"
 suite = "engine"

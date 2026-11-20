@@ -5521,3 +5521,57 @@ fn kernel_kn_73() {
         );
     }
 }
+
+/// `KN-82`: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+#[test]
+fn kernel_kn_82() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Encode.lex.tex");
+    let proofs = model("app/src/Proofs/Encode.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "encode_embedding_runs",
+            "((pooling = 1) -> ((normalize = 1) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 0)))",
+            "propext",
+        ),
+        (
+            "encode_embedding_pooling_refused",
+            "(((pooling =? 1) = false) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 1))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_embedding_normalize_refused",
+            "(((normalize =? 1) = false) -> ((Kernel.Encode::encodeCode 1 1 normalize) = 2))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_runs",
+            "((pooling = 0) -> ((normalize = 0) -> ((Kernel.Encode::encodeCode 2 pooling normalize) = 0)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_options_refused",
+            "((1 <= (pooling + normalize)) -> (1 <= (Kernel.Encode::encodeCode 2 pooling normalize)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_task_refused",
+            "((3 <= task) -> ((Kernel.Encode::encodeCode task pooling normalize) = 3))",
+            "Quot.sound, propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "encodeCode",
+            "body: (if (task =? 1) then (if (pooling =? 1) then (if (normalize =? 1) then 0 else 2) else 1) else (if (task =? 2) then (if (pooling =? 0) then (if (normalize =? 0) then 0 else 2) else 1) else 3))",
+        ),
+        ("encodeAnswer", "((Foundation.Bytes::byteLength value) =? 4)"),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:
+{found}");
+    }
+    assert_routed(82, "Kernel.Encode::encodeAnswer");
+}

@@ -2173,6 +2173,50 @@ fn gpu_gp_51() {
     );
 }
 
+/// `GP-55`: Code written for transformers.js's encoders runs on the engine unchanged: pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline("text-classification") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs
+#[test]
+fn gpu_gp_55() {
+    // The journey calls the encoder surface on a page with no page code in
+    // between (`just page-journey`); this test reads that each call is put to
+    // decision 82 before it runs, answers transformers.js's shapes, scores by
+    // the module's integer softmax, and that the journey checks each of them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let surface = read("site/app/engine/transformers.mjs");
+    for wanted in [
+        "export class Tensor {",
+        "await ask(\"call\", \"a transformers.js feature-extraction call (decision 82)\", encodeRequest(1, options), \"run\");",
+        "await ask(\"call\", \"a transformers.js text-classification call (decision 82)\", encodeRequest(2, rest), \"run\");",
+        "return new Tensor(\"float32\", data, [texts.length, width]);",
+        "run.module.callWith(\"encode_probabilities\"",
+    ] {
+        assert!(
+            surface.contains(wanted),
+            "site/app/engine/transformers.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        !surface.contains("Math.exp"),
+        "the classifier's scores must be the module's integer softmax, not Math.exp"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "const { pipeline } = await import(\"./engine/transformers.mjs\");",
+        "transformers extractor: expected a float32 Tensor",
+        "is not hologram-ai-cpu-encode's embedding",
+        "no pooling must be refused by decision 82",
+        "transformers classifier: expected [{ label:",
+        "highest first, summing to 1",
+        "an array with top_k 1 must answer one { label, score } per text",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
 /// `GP-52`: On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens
 #[test]
 fn gpu_gp_52() {
