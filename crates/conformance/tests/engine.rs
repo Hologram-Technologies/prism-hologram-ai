@@ -6178,9 +6178,11 @@ fn engine_en_31() {
         );
         assert_eq!((model.tensors[3].file, model.tensors[3].offset), (1, 256));
         assert_eq!(model.operators, ["MatMulNBits", "Mul"]);
+        // MatMulNBits stores 4-bit weights in either style, so a graph whose
+        // only com.microsoft operator it is stays decomposed (Qwen2.5's export).
         assert!(
-            model.fused,
-            "a graph naming a com.microsoft operator is fused"
+            !model.fused,
+            "a graph whose only com.microsoft operator is MatMulNBits is decomposed"
         );
         match &first {
             None => first = Some((model, kernel.asked)),
@@ -6196,7 +6198,7 @@ fn engine_en_31() {
     let (model, asked) = first.expect("an import");
 
     // What was asked, and in what order: each inline span as the graph passes
-    // it, after the previous; the graph whole; each operator in the fused
+    // it, after the previous; the graph whole; each operator in the decomposed
     // style; the data file's spans before any of its bytes; that file whole;
     // and each 4-bit part against its shape.
     let graph_file = chunk::File {
@@ -6226,8 +6228,8 @@ fn engine_en_31() {
             graph.len() as u64,
         )
         .to_vec(),
-        opname::request(opname::Style::Fused, &name("MatMulNBits")).to_vec(),
-        opname::request(opname::Style::Fused, &name("Mul")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("MatMulNBits")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("Mul")).to_vec(),
         chunk::request(data_file, 0, 256, 0).to_vec(),
         chunk::request(data_file, 256, 64, 256).to_vec(),
         admission::request(
@@ -6262,6 +6264,28 @@ fn engine_en_31() {
     assert_eq!(
         kernel.asked.last().expect("asked"),
         &opname::request(opname::Style::Decomposed, &name("Add")).to_vec()
+    );
+
+    // Any other com.microsoft operator makes the graph fused.
+    let fused = onnx_file(
+        &[opset("", 21), opset("com.microsoft", 1)],
+        Some(&proto_field_bytes(
+            1,
+            &node(b"GroupQueryAttention", "com.microsoft"),
+        )),
+    );
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &fused));
+    reading.take(&fused, &mut kernel).expect("it reads");
+    let model = import::whole(
+        reading.finish(&mut kernel).expect("it finishes"),
+        &mut kernel,
+    )
+    .expect("it imports");
+    assert!(model.fused);
+    assert_eq!(
+        kernel.asked.last().expect("asked"),
+        &opname::request(opname::Style::Fused, &name("GroupQueryAttention")).to_vec()
     );
 }
 
@@ -6959,7 +6983,8 @@ fn engine_en_33() {
             table["operators"],
             serde_json::json!(["MatMulNBits", "Mul"])
         );
-        assert_eq!(table["fused"], serde_json::json!(true));
+        // MatMulNBits alone stores weights; it does not make a graph fused.
+        assert_eq!(table["fused"], serde_json::json!(false));
     }
 }
 
