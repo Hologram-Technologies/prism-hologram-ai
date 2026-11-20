@@ -11944,6 +11944,11 @@ fn engine_en_90() {
         "export CARGO_ENCODED_RUSTFLAGS=\"--remap-path-prefix=$PWD=/workspace\"$'\\x1f'\"--remap-path-prefix=$registry=/registry\"",
         "export SOURCE_DATE_EPOCH=0",
         "cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm",
+        // Stable cargo hashes the host into every crate's metadata, so a host
+        // other than amd64 builds in the SDK image's amd64 variant.
+        "if [[ $(uname -m) != x86_64 ]]; then",
+        "exec docker run --rm --platform linux/amd64",
+        "\"$image\" just engine-build \"$out\"",
     ] {
         assert!(build.contains(wanted), "engine-build does not `{wanted}`:\n{build}");
     }

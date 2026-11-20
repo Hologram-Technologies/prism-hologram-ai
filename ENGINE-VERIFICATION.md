@@ -3154,6 +3154,37 @@ pins the recipe, the toolchain, the profile and the workflow, and runs
 `engine-seal` on a module that is not the engine: it must fail naming both
 addresses. Passed on 2026-11-19.
 
+### Every host builds the amd64 engine
+
+Found on 2026-11-20: the gate's arm64 leg (`bootstrap.yml`, `acceptance /
+ubuntu-24.04-arm`) had failed on every main push since at least cac123b,
+`just engine` building `blake3:5d2ee896…` where the seal names the amd64
+build (`blake3:b5fd8212…` at fd721e7, run 44799617959). The two modules are
+the same 2,070,681 bytes, 51,383 of them different. Stable cargo mixes
+`rustc -vV`, which names the host, into every crate's metadata hash; the hash
+reaches the symbol names rustc orders items by, so the module's layout follows
+the host. Shown in WSL on x86 at main 9864dcf: `just engine-build` gives the
+sealed `blake3:b5fd8212…`, and the same build with `RUSTC` a wrapper that only
+rewrites `rustc -vV`'s `host:` line to `aarch64-unknown-linux-gnu` gives
+`blake3:5d2ee896…`, arm64's module exactly. Cargo offers no stable setting that
+leaves the host out, and a wrapper on arm64 would misbuild the build scripts
+cargo runs on the host.
+
+So `engine-build` on any host but x86_64 runs itself in the linux/amd64
+variant of the SDK image `prismpm.lock` pins (the gate checks the image lists
+both platforms), under the host's emulation, with the workspace mounted at the
+same path, the gate's home setup and a target directory of its own
+(`target/engine-amd64`). Every host then checks the one engine that is
+published, which `pages.yml` builds on amd64. Decided by Ilya on 2026-11-20
+over the alternative of checking only that two arm64 builds agree.
+
+| Planted | Result |
+| --- | --- |
+| none of this, the engine built natively on arm64 (main before this change) | rejected on CI, run 44799617959: `engine.wasm is blake3:5d2ee896…, but app/src/Kernel/Seal.lex.tex seals blake3:b5fd8212…` |
+| the same build on x86 with rustc naming an aarch64 host | the same module, `blake3:5d2ee896…`: the host string alone makes the difference |
+| the amd64 path removed from `engine-build` | rejected by `engine_en_90`: ``engine-build does not `if [[ $(uname -m) != x86_64 ]]; then` `` |
+| none, WSL on x86 | `engine_en_90` passed; `just engine-build` gave the sealed `blake3:b5fd8212…` |
+
 ## EN-95, a classifier's probabilities
 
 transformers.js scores a text-classification by the softmax of the label

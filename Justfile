@@ -138,9 +138,32 @@ engine:
 # a dependency that starts reading the clock cannot make two builds differ.
 # The toolchain and target are rust-toolchain.toml's; codegen-units is 1 in
 # the release profile.
+#
+# One engine is sealed, and it is the one amd64 builds. Found on 2026-11-20:
+# stable cargo mixes `rustc -vV`, which names the host, into every crate's
+# metadata hash, which reaches the symbol names rustc orders items by, so an
+# arm64 host builds the same tree to other bytes (x86 told by a wrapper that
+# its host was aarch64 gave arm64's engine exactly). On any other host the
+# build runs in the linux/amd64 variant of the SDK image prismpm.lock pins,
+# under the host's emulation, with the workspace at the same path and a target
+# directory of its own, so every host checks the one engine that is published.
 engine-build out:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [[ $(uname -m) != x86_64 ]]; then
+      image=$(sed -n 's/.*"sdk_image":"\([^"]*\)".*/\1/p' prismpm.lock)
+      [[ -n $image ]] || { echo "engine-build: prismpm.lock names no SDK image to build the amd64 engine in" >&2; exit 64; }
+      case "{{out}}" in /*) out="{{out}}" ;; *) out="$PWD/{{out}}" ;; esac
+      [[ $out == "$PWD"/* ]] || { echo "engine-build: on $(uname -m) the engine is built in an amd64 container, which sees only this workspace; {{out}} is outside it" >&2; exit 64; }
+      echo "engine-build: $(uname -m) host, building the engine in $image as linux/amd64"
+      exec docker run --rm --platform linux/amd64 \
+        --user "$(id -u):$(id -g)" \
+        --tmpfs /tmp:rw,exec,nosuid,size=2g \
+        --volume "$PWD:$PWD" --workdir "$PWD" \
+        --env HOME=/tmp/prismpm-home --env PRISMPM_EPHEMERAL_HOME=1 \
+        --env CARGO_TARGET_DIR="$PWD/target/engine-amd64" \
+        "$image" just engine-build "$out"
+    fi
     unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER CARGO_BUILD_RUSTC_WRAPPER CARGO_INCREMENTAL RUSTDOCFLAGS
     for name in $(compgen -e | grep '^CARGO_PROFILE_' || true); do unset "$name"; done
     meta=$(cargo metadata --format-version 1 --locked)
