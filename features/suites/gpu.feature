@@ -294,6 +294,12 @@ Feature: gpu
     And an extractor called without pooling is refused by decision 82 before it runs
     And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
 
+  @GP-29 @build
+  Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
+    Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each
+    When crates/conformance/tests/gpu/q4-run.mjs reads the quantiser, the 128-code group-sum kernel, the accumulator and the rounding kernel from decision 48's claims, as the guest prints them, and runs them in that order on WebGPU in headless Chromium
+    Then every stage the GPU writes is hologram_ai_exact's, word for word, and WebGPU reports no error
+
   @GP-51 @build
   Scenario: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
     Given the page's integer engine (site/app/engine/integer.mjs) and GP-19's Qwen3-shaped ONNX export

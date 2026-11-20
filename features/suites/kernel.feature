@@ -442,11 +442,11 @@ Feature: kernel
     And the theorems of Proofs.Call state it and are pinned with their axioms
 
   @KN-49 @build
-  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request
     Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
-    When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
+    When the Lean kernel checks the twelve printed-text theorems during lexlean verify in the gate
     Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
-    And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests
+    And the app recipe replays every piece of the 128-code q4 kernel, of the exponent kernel and of the three q4 product kernels through the compiled guest, the empty piece past each end, and the refused requests
 
   @KN-60 @build
   Scenario: A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
@@ -510,3 +510,10 @@ Feature: kernel
     Then the answer is run for feature-extraction with mean pooling and normalizing, and for text-classification with neither
     And any other pooling is refused as pooling, an unnormalized embedding as normalize, and another task as unsupported task
     And the theorems of Proofs.Encode state it and are pinned with their axioms
+
+  @KN-73 @build
+  Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
+    Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex
+    When the Lean kernel runs them through Engine.GpuRun during lexlean verify in the gate
+    Then the quantiser's codes and power are hologram_ai_exact's for the fixture's 32 activations
+    And the accumulator then the rounding kernel give hologram_ai_exact's binary32 for the fixture's first two rows, one negative and one positive
