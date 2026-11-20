@@ -86,7 +86,7 @@ app:
     test -s .prism-proof/attestation
     holos=( app/.prism/build/*/*.holo )
     [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
-    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims.json
+    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims
 
 # The engine the page loads: this repository's crates as one WebAssembly
 # module, built for the browser and put where the page asks for it. Release,

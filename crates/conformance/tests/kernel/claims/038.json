@@ -1,0 +1,17 @@
+{
+  "decision": 38,
+  "claims": [
+    {
+      "request": "260000000025",
+      "answer": "5 2"
+    },
+    {
+      "request": "260000000100",
+      "answer": "invalid request"
+    },
+    {
+      "request": "2600000025",
+      "answer": "invalid request"
+    }
+  ]
+}

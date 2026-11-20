@@ -5,6 +5,9 @@
 //! restates them: they are read from `app/src/Kernel.lex.tex`, so an example
 //! added to or changed in the model is tested the next time this runs.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -8764,12 +8767,10 @@ fn engine_en_35() {
     assert_kernel_replays_claims();
 }
 
-/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// The claims `crates/conformance/tests/kernel/claims/` lists, as (the
 /// request in hex, the answer the guest must give).
 fn kernel_claims() -> Vec<(String, String)> {
-    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-        .expect("the claims the crates make of the kernel");
-    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    let value = claims_dir::document(&root());
     value["claims"]
         .as_array()
         .expect("a list of claims")
@@ -8796,7 +8797,7 @@ fn assert_kernel_replays_claims() {
     let replay = app
         .find(
             "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
-             crates/conformance/tests/kernel/claims.json",
+             crates/conformance/tests/kernel/claims",
         )
         .expect("the app recipe replays the claims through the holo's guest");
     assert!(

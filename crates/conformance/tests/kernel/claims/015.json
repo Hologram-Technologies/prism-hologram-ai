@@ -1,0 +1,17 @@
+{
+  "decision": 15,
+  "claims": [
+    {
+      "request": "0f000100000007020000000700000003",
+      "answer": "keep"
+    },
+    {
+      "request": "0f000100000007020000000300000007",
+      "answer": "penalise"
+    },
+    {
+      "request": "0f0001000000070200000007000000",
+      "answer": "invalid request"
+    }
+  ]
+}

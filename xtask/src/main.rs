@@ -88,7 +88,7 @@ fn engine_seal(root: &Path, path: &Path) -> Result<(), Fail> {
         return Err(format!(
             "{} is blake3:{found}, but {SEAL} seals blake3:{sealed}. \
              If the change to the engine's inputs is meant, seal it in the same change: \
-             sealedWord's words become {}, and the decision-80 claims in claims.json and \
+             sealedWord's words become {}, and the claims in crates/conformance/tests/kernel/claims/080.json and \
              fields in site/decision-names.json follow (EN-90).",
             path.display(),
             new.join(" ")

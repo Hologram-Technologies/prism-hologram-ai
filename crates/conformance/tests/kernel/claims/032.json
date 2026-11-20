@@ -1,0 +1,21 @@
+{
+  "decision": 32,
+  "claims": [
+    {
+      "request": "200000000000000002000000000000000400010200",
+      "answer": "exact replay"
+    },
+    {
+      "request": "200000000000000002000000000000000400010100",
+      "answer": "approximate replay"
+    },
+    {
+      "request": "200000000200000002000000000000000400010200",
+      "answer": "out of range"
+    },
+    {
+      "request": "2000000000000000020000000000000004000102",
+      "answer": "invalid request"
+    }
+  ]
+}

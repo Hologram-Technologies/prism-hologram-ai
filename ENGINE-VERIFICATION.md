@@ -2234,7 +2234,7 @@ each defect planted alone.
 | the chain based at the highest power, not the lowest | `engine_en_38`: a row that fits is reported too wide |
 | a negative term added as positive | `engine_en_38`: `a link's claimed partial is not its partial plus its terms` |
 | a sum written least significant first | `engine_en_38`: the same |
-| partials up to `2^63` chained | not rejected by `engine_en_38`: no case reaches `2^62`; the guest answers such a link `too wide`, as the edge requests in KERNEL-VERIFICATION.md's KN-40 section show |
+| partials up to `2^63` chained | not rejected by `engine_en_38`: no case reaches `2^62`; the guest answers such a link `too wide`, as the edge requests in kernel-verification/KN-40.md show |
 | none | passed |
 
 Over the real export, 3,640 rows of Qwen3-0.6B were chained, none too wide, and
@@ -2269,7 +2269,7 @@ code. Run on 2026-11-18; each defect planted alone.
 
 The test found one defect in decision 41 itself: an all-zero group was answered
 `not the largest power`. The fix is on branch `kn39` and recorded in
-KERNEL-VERIFICATION.md's KN-41 section. The transcription is checked by
+kernel-verification/KN-41.md. The transcription is checked by
 reading, not generated from the model; that the compiled guest answers these
 requests `exact` is not run, because building a holo needs
 `prism-code build --remote github`, which pushes.
@@ -2281,7 +2281,7 @@ and the fast path is gated equal to it. For the q4 group sum the definition
 is `Kernel.Block` (KN-34); this gate ties `hologram-ai-exact` to it. Eight
 blocks, at both ends of the sum's range, with every weight zero, and four
 drawn at random, are summed by the crate's own path and written by
-`block_check::request`. `crates/conformance/tests/kernel/claims.json` lists 17
+`block_check::request`. `crates/conformance/tests/kernel/claims/` lists 17
 claims: each sum `exact`, each sum plus one `differs`, and one 52-byte request
 `invalid request`. `engine_en_35` checks that every crate sum and sum plus one
 is listed, and that the `app` recipe runs
@@ -2299,7 +2299,7 @@ file has no such limit.
 fields, `byteFromEnd` and the high half for an even index, so a wrong layout
 fails in the Rust suite as well as in the guest.
 
-### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo claims.json`
+### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo crates/conformance/tests/kernel/claims`
 
 The holo published from main at 2026-11-18 (`site/app.holo` on the project's
 Pages, which carries decision 34) answered all 17 claims as listed. With the
@@ -2341,7 +2341,7 @@ sums at both ends of a block's range and zero, times halves that are one, the
 largest, the smallest subnormal, the smallest normal, negative and negative
 zero, give 18 claims from the crate's `Dyadic::from_binary16`, each product
 `exact` and each product plus one `differs`, with one `not finite` and one
-`invalid request`. They join `crates/conformance/tests/kernel/claims.json`,
+`invalid request`. They join `crates/conformance/tests/kernel/claims/`,
 which the `app` recipe replays through the guest it builds.
 
 The first form of this change added its own `half_units` to the crate; #52

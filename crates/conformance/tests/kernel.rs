@@ -12,6 +12,9 @@
 //! read from the wrong offset, or a verdict decided some other way would still
 //! verify, and would no longer be the claim the register makes.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::path::PathBuf;
 
 fn root() -> PathBuf {
@@ -38,15 +41,35 @@ fn declaration<'a>(model: &'a str, name: &str) -> &'a str {
 }
 
 /// The proofs count only if the gate checks them. The `app` recipe must verify
-/// every module under `app/src/Proofs`, by a glob that fails when it matches
-/// nothing, and no theorem may sit where that command does not look.
+/// every module under `app/src/Proofs`, each either in this run or by an
+/// earlier verification of byte-identical inputs whose attestation it checks
+/// (`xtask proofs`), and fail when there is none; no theorem may sit where that
+/// command does not look.
 fn assert_proofs_are_gated() {
     let justfile = model("Justfile");
+    let app = justfile.split("
+app:
+").nth(1).expect("an app recipe");
+    let app = app.split("
+
+").next().unwrap_or(app);
     assert!(
-        justfile.contains("shopt -s failglob")
-            && justfile.contains("lexlean verify src/Proofs/*.lex.tex"),
+        app.contains("shopt -s failglob")
+            && app.contains("cargo run -q --locked -p xtask -- proofs"),
         "the app recipe must run lexlean verify over every proof module"
     );
+    let proofs = model("xtask/src/proofs.rs");
+    for needle in [
+        "const PROOFS: &str = \"src/Proofs\";",
+        "read_dir(app.join(PROOFS))",
+        "holds no proof module",
+        "let mut args = vec![\"verify\"];",
+    ] {
+        assert!(
+            proofs.contains(needle),
+            "xtask proofs must discover every proof module and verify each it cannot reuse: {needle}"
+        );
+    }
     // The executable modules are discovered, not listed: a list would go stale
     // the first time a decision was added, and a module nobody reads reports
     // nothing.
@@ -131,15 +154,12 @@ fn assert_routed(tag: u8, answer: &str) {
     );
 }
 
-/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims.json`,
+/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims/`,
 /// which the `app` recipe replays through the guest of the holo it has just built. So
 /// a refusal that row 10 of the plan names is the compiled kernel's own answer, not
 /// only a reading of the model's text.
 fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let listed: Vec<(&str, &str)> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3399,10 +3419,7 @@ fn kernel_kn_37() {
     assert_routed(37, "Kernel.Scale::scaleAnswer");
     // The claims the crates make of decision 37 cover every answer, a scale
     // that is not finite included; the app recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3912,10 +3929,7 @@ fn kernel_kn_42() {
     assert_routed(42, "Kernel.Round::roundAnswer");
     // The claims the crates make of decision 42 cover every answer; the app
     // recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -4179,11 +4193,7 @@ fn kernel_kn_46() {
     assert_routed(45, "Kernel.Template::templateAnswer");
     // The claims cover every answer; the app recipe replays them in the guest.
     use hologram_ai_kernel_client::template;
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let mine: Vec<(String, String)> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -4257,11 +4267,7 @@ fn kernel_kn_47() {
         declaration(&kernel, name);
     }
     assert_routed(46, "Kernel.Chat::chatAnswer");
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -5233,7 +5239,7 @@ fn kernel_kn_80() {
     // The sealed address is sealedWord's eight words, each `then` literal and
     // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
     // claims the guest replays are derived from it here, so the seal has one
-    // source: a moved seal fails until claims.json follows.
+    // source: a moved seal fails until claims/080.json follows.
     let chain = declaration(&kernel, "sealedWord");
     let tokens: Vec<&str> = chain
         .split(|c: char| !c.is_ascii_alphanumeric())
