@@ -1,0 +1,93 @@
+\begin{lexlean}{Kernel.Step}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Blake3}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Step}
+\importmodule{Foundation.Bytes}
+\importmodule{Kernel.Stream}
+\importmodule{Kernel.Wire}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+definition{
+  name: stepChar,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (4 + (prim multiply 1 index : Nat)) 1),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: logitAt,
+  parameters: [value : Bytes, index : Nat],
+  result: Nat,
+  body: (Kernel.Wire::fieldAt value (44 + (prim multiply 4 index : Nat)) 4),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: stepHexValid,
+  parameters: [fuel : Nat, value : Bytes, index : Nat],
+  result: Bool,
+  body: (match fuel
+    | Nat.zero => true
+    | Nat.succ rest => (if (((47 <? (stepChar value index)) && ((stepChar value index) <? 58)) || ((96 <? (stepChar value index)) && ((stepChar value index) <? 103))) then (stepHexValid rest value (index + 1)) else false)),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: stepWordAt,
+  parameters: [value : Bytes, word : Nat],
+  result: Nat,
+  body: ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 0))) 16 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 1))) 1 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 2))) 4096 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 3))) 256 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 4))) 1048576 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 5))) 65536 : Nat) + ((prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 6))) 268435456 : Nat) + (prim multiply (Kernel.Stream::nibble (stepChar value ((prim multiply 8 word : Nat) + 7))) 16777216 : Nat)))))))),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: stepFeed,
+  parameters: [fuel : Nat, kept : Engine.Step::Pick, value : Bytes, index : Nat],
+  result: Engine.Step::Pick,
+  body: (match fuel
+    | Nat.zero => kept
+    | Nat.succ rest => (stepFeed rest (Engine.Step::advance kept (logitAt value index)) value (index + 1))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: stepChunk,
+  parameters: [fuel : Nat, value : Bytes, index : Nat],
+  result: (List Nat),
+  body: (match fuel
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (logitAt value index) (stepChunk rest value (index + 1)))),
+  axioms: [Quot.sound, propext],
+  recursive_argument: fuel
+}
+
+definition{
+  name: pickHex,
+  parameters: [kept : Engine.Step::Pick, position : Nat, capacity : Nat],
+  result: Bytes,
+  body: (prim append (prim append (Engine.Blake3::hexWord (Engine.Blake3::word32 (project kept seen))) (prim append (Engine.Blake3::hexWord (Engine.Blake3::word32 (project kept best))) (Engine.Blake3::hexWord (Engine.Blake3::word32 (project kept bits))) : Bytes) : Bytes) (prim append (Engine.Blake3::hexWord (Engine.Blake3::word32 position)) (Engine.Blake3::hexWord (Engine.Blake3::word32 capacity)) : Bytes) : Bytes),
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: tokenOut,
+  parameters: [kept : Engine.Step::Pick, position : Nat, capacity : Nat],
+  result: Bytes,
+  body: (if ((project kept seen) =? 0) then (prim utf8_encode "invalid request" : Bytes) else (if (capacity <? (position + 1)) then (prim utf8_encode "context full" : Bytes) else (prim append (Kernel.Wire::decimal (project kept best)) (prim append 0x20 (Kernel.Wire::decimal (position + 1)) : Bytes) : Bytes)))
+}
+
+definition{
+  name: stepAnswer,
+  parameters: [value : Bytes],
+  result: Bytes,
+  body: (if ((((Foundation.Bytes::byteLength value) =? (44 + (prim multiply 4 (Kernel.Wire::fieldAt value 2 2) : Nat))) && ((Kernel.Wire::fieldAt value 1 1) <=? 3)) && (stepHexValid 40 value 0)) then (if ((prim quotient (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (tokenOut (stepFeed (Kernel.Wire::fieldAt value 2 2) (if ((prim remainder (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (record Engine.Step::Pick {seen := (stepWordAt value 0), best := (stepWordAt value 1), bits := (stepWordAt value 2)}) else (Engine.Step::freshPick)) value 0) (stepWordAt value 3) (stepWordAt value 4)) else (pickHex (stepFeed (Kernel.Wire::fieldAt value 2 2) (if ((prim remainder (Kernel.Wire::fieldAt value 1 1) 2 0 : Nat) =? 1) then (record Engine.Step::Pick {seen := (stepWordAt value 0), best := (stepWordAt value 1), bits := (stepWordAt value 2)}) else (Engine.Step::freshPick)) value 0) (stepWordAt value 3) (stepWordAt value 4))) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

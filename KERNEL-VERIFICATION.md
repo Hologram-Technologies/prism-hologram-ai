@@ -1650,6 +1650,37 @@ and another way outside.
 | Planted defect | Result |
 | --- | --- |
 | a "32-step" multiply of 48 steps | rejected: `the 32-step multiply must be two 16-step halves` |
+
+## KN-71, one token per step
+
+Row 14 of the plan: tokens leave the guest one per step. A step's logits are
+151,936 binary32 values for Qwen, about 600 KB, and a request is at most
+8 KiB with no state kept between calls, so the logits stream in: decision 71
+reads `[71][flags][count, 2 bytes][state, 40 hex characters][count logits, 4
+bytes each]`, folds them into a greedy pick, and answers the carried pick as
+hex, or, on the last chunk, the picked token and the next position (`context
+full` when the position is at capacity). A chunk holds up to 2,037 logits, so
+a Qwen step takes 75 calls. The order is KN-55's: `Engine.Stage.Greedy::key`,
+with a later logit taken only when its key is strictly larger, so the first
+of equal keys wins.
+
+| Claim | Evidence | Level |
+| --- | --- | --- |
+| Feeding two chunks one after the other gives the pick that feeding them joined gives, for every pick | `step_cut` in `app/src/Proofs/Step.lex.tex` | proved by Lean in the gate |
+| The guest's loop over a request's logits is that fold | `step_reads_its_chunk` | proved by Lean in the gate |
+| The picked logit's key is the largest key the fold has seen | `picked_key_is_max` (after the first logit), `fresh_takes_first` (the first logit starts the pick) | proved by Lean in the gate |
+| The pick is KN-55's greedy token | `pick_is_greedy_ordered`, `_first_of_ties`, `_all_negative`, `_zeros_tie`, `_one`: the fold equals `Engine.Stage.Greedy::greedy` on five lists, worked out by Lean | checked on fixtures |
+| Decision 71 answers as its definition does in the compiled guest | 9 claims in `claims.json`: a step in one call and in two calls, a tie, the capacity limit, five refusals | replayed on CI |
+
+That the picked index is below the number of logits seen is checked by the
+claims, not proved: the proof needs the induction hypothesis inside linear
+arithmetic, which the pinned lexlean 0.3.0 cannot combine.
+
+### The pinned test: `kernel_kn_71`
+
+| Planted defect | Result |
+| --- | --- |
+| a step allowed at the capacity (`capacity <? position` for `capacity <? (position + 1)`) | rejected: `decision 71 must refuse a step past the capacity` |
 | none | passed |
 
 ## KN-57, the q4 group sum
