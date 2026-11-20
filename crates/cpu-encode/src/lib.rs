@@ -685,3 +685,26 @@ pub fn label(scores: &[u32]) -> Option<u32> {
     }
     best.and_then(|(i, _)| u32::try_from(i).ok())
 }
+
+/// A classifier's label probabilities, as transformers.js answers a
+/// text-classification: the softmax of the scores on the certified exponent
+/// table (EN-43, EN-44), with no scale (`2^40` stands for 1 in [`exponent`]),
+/// each probability in units of `2^-30` rounded once to binary32 (EN-95).
+///
+/// # Errors
+///
+/// [`EncodeError::Exact`] for a score that is not finite.
+pub fn probabilities(scores: &[u32]) -> Result<Vec<u32>, EncodeError> {
+    let exponents = scores
+        .iter()
+        .map(|&s| exponent(s, 1 << 40))
+        .collect::<Result<Vec<i64>, EncodeError>>()?;
+    Ok(exact::softmax_exp2(&exponents)
+        .into_iter()
+        .map(|p| {
+            let mut row = Row::ZERO;
+            row.add_scaled(u128::from(p), -30, false);
+            exact::round_to_binary32(&row)
+        })
+        .collect())
+}

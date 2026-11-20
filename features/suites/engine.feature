@@ -846,6 +846,14 @@ Feature: engine
     And the engine-twice recipe builds it twice, from two copies of the tree with two cargo homes of different lengths and a host flag in the environment of the second, and fails on any byte that differs
     And engine.yml runs engine-twice on every change to the engine's inputs, keyed by every one of them, and re-derives the address of a kept module before it is trusted
 
+  @EN-95 @build
+  Scenario: A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do
+    Given a classifier's label scores as binary32 bits
+    When hologram-ai-cpu-encode::probabilities and the module's encode_probabilities answer their softmax
+    Then two equal scores answer exactly a half each, wherever they lie
+    And each probability lies within 2^-12 of the double-precision softmax, they order as the scores do and sum to 1 within 2^-20
+    And a score that is not finite is refused, and the module answers the crate's bits
+
   @EN-91 @build
   Scenario: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
     Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
@@ -853,3 +861,16 @@ Feature: engine
     Then the two sessions hold the same keys and values, bit for bit
     And the sixteen greedy tokens and every logit of each are the same bits
     And an id past the vocabulary is refused by advance as by step
+
+  @EN-92 @build
+  Scenario: hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt and sixteen greedy steps run with every product answered by its slices, each written to bytes and read back, cut two, three and seven ways
+    Then each product's slices joined are the whole product's bits
+    And the tokens and every logit are step's, bit for bit
+
+  @FL-80 @build
+  Scenario: A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it
+    Given the fixture model
+    When a step's products are answered one row short
+    Then the step is refused as DecodeError::Elsewhere
