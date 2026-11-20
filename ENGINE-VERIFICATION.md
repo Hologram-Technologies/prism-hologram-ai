@@ -3215,6 +3215,23 @@ A model's file arrives over seconds or minutes. So that a layer can run as soon 
 
 ### The gate: `cargo test -p repo-conformance --test engine engine_en_110 engine_fl_110`
 
+## EN-97, probes read the run's own values
+
+The session takes a probe for its next step, a layer and a component, and the
+step keeps what it computed there: the residual after the layer, attention's
+output projection or the feed-forward's down projection. `decode_probe` sets
+it and `decode_probed` reads it once. Nothing else changes, so a probed run is
+the run. The engine is resealed at `blake3:a8d3c758…3a3638` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every component of every layer, two positions past GP-19's prompt, reads the residual stream's width, and a second replay reads the same bits | `engine_en_97` | tested |
+| Each layer's residual differs from the one before it; a layer past the model's reads nothing | the same | tested |
+| A run with a probe set gives every logit the run without one gives | the same | tested |
+| A fourth component is refused | the same | tested |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_97`
+
 Planted on 2026-11-20:
 
 | Planted | Result |
@@ -3253,3 +3270,9 @@ Planted on 2026-11-20:
 | none | passed, with EN-52, EN-53 and FL-59 |
 
 With EN-110 to EN-112 the module is 2,091,948 bytes by `just engine-build` (main's was 2,070,681), and EN-26's own build stays under 2,097,152. To fit, every forward function takes its products as `&mut dyn Products`, so each is compiled once rather than once per route, and `onnx_so_far` answers text lines rather than JSON. Decision 80 seals the module at `blake3:5e45aec59f1626b902e808d706ae16d205202e120f91a35192fa5cf629d15a83` (EN-90).
+
+Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,101,194 bytes in EN-26's own build. The cause was `with_model`: it is generic over its closure, so the weight map and `read_first` were compiled once for every call that reads the model. They now sit in `model_of`, compiled once, and the module is 2,055,353 bytes by `just engine-build`. Decision 80 seals it at `blake3:8b4e99905330e261448ec7deccf7d4cde182ad9269f1938078e9c1f590d11c51` (EN-90).
+
+| a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
+| none | passed |
+

@@ -1,30 +1,31 @@
-// The engine page: verify the kernel, load Bonsai through the checks, answer a
-// prompt by greedy decoding. Everything shown is also on window.__qengine, so a
+// The engine page: verify the kernel, load an ONNX export through the checks,
+// answer a prompt by greedy decoding on the integer engine. Everything shown is also on window.__qengine, so a
 // test reads the verdicts and timings rather than the screen.
 
-import { createEngine } from "./engine/gpu.mjs";
-import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
-import { CAPACITY, be, join, pipeline, turner } from "./engine/pipeline.mjs";
+import { asker, checklist } from "./engine/loader.mjs";
+import { pipeline, receiptFrom, receiptText } from "./engine/pipeline.mjs";
 
-// The model to run: Bonsai unless the address names another, so a link can say
-// "run this model" (?repo=owner/name&path=file&index=hub index base), or an
-// ONNX export on the hub, read from its own files with no repack
-// (?onnx=owner/name&precision=q4f16).
+// The model to run: Qwen3-0.6B's ONNX export, read from its own files with no
+// repack, unless the address names another (?onnx=owner/name&precision=q4f16,
+// and &index= for another hub index). Milestone 2 runs ONNX exports only; the
+// repacked Bonsai container returns in milestone 3, on the integer engine.
 const asked = new URLSearchParams(location.search);
 const MODEL = {
-  repo: asked.get("repo") ?? "HOLOGRAMTECH/q-ternary-bonsai-1.7b",
-  path: asked.get("path") ?? "q-ternary-bonsai-1.7b.v1.holo",
+  onnx: asked.get("onnx") ?? "onnx-community/Qwen3-0.6B-ONNX",
   indexBase: asked.get("index") ?? "https://hologram-technologies.github.io/hub/data/index",
-  fallback: asked.get("repo") ? null : "https://huggingface.co/HOLOGRAMTECH/q-ternary-bonsai-1.7b/resolve/c6d6a12384ecc52ae7e006bef263bfedf5e7496c/",
-  onnx: asked.get("onnx"),
   precision: asked.get("precision"),
 };
 
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
-if (asked.get("repo")) $("model-name").textContent = `${MODEL.repo}, file ${MODEL.path}, from the index at ${MODEL.indexBase}.`;
-if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
-const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
+if (asked.get("onnx")) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
+const state = { phase: "idle", checks: [], output: null, stats: null, error: null, receipt: null, check: null };
+// A link may carry a receipt (#receipt=…): once the model is loaded, the page
+// runs it again here and shows the kernel's verdict (GP-59).
+const linked = (() => {
+  const text = new URLSearchParams(location.hash.slice(1)).get("receipt");
+  try { return text ? receiptFrom(text) : null; } catch { return null; }
+})();
 window.__qengine = state;
 
 // This page's own worker (sw.js beside it) keeps the page's files, the kernel
@@ -114,52 +115,7 @@ async function load() {
       ? await adapter.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: limit, maxBufferSize: adapter.limits.maxBufferSize } })
       : null;
 
-    if (MODEL.onnx) {
-      await loadOnnxModel({ kernel, ask, device, started });
-      return;
-    }
-
-    status("Reading the model's record…");
-    const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.repo, checks });
-    const file = record.files.find((f) => f.path === MODEL.path);
-    if (!file || !file.sha256) throw new Error("the record names no SHA-256 for the model file");
-    const base = record.origin?.resolve ?? MODEL.fallback;
-    if (!base) throw new Error("the record names no origin and no fallback is configured");
-    checks.add("record", "file named by the record", "pass", `${file.size} bytes, sha256 ${file.sha256}, from ${base}`);
-    // The page states Bonsai's size itself; for a model named in the address the size is the record's, said before the download starts.
-    if (asked.get("repo")) $("model-name").textContent += ` About ${Math.round(file.size / 1e6)} MB, downloaded once per visit.`;
-
-    const module = await openModule("./engine/engine.wasm", ask);
-    status("Checking the container…");
-    const { engine } = await loadContainer({
-      url: base + MODEL.path,
-      size: file.size,
-      sha256: file.sha256,
-      module,
-      ask,
-      checks,
-      preflight: async (dims, entries) => {
-        // The largest buffer the engine binds, per format: a ternary block is two
-        // planes of N*K/8 bytes and N*K/32 bytes of scales, so one plane is 4/9 of
-        // it; a q4 block is N*K/2 bytes of codes and N*K/8 of scales, so the codes
-        // are 4/5; anything else is bound whole.
-        const share = { q1: 4 / 9, q4: 4 / 5 };
-        const largest = Math.max(...entries.map((e) => e.length * (share[e.fmt] ?? 1)));
-        await ask("backend", "backend for this device", join(new Uint8Array([12, device ? 1 : 0]), be(limit, 8), be(Math.ceil(largest), 8)), "webgpu");
-        status("Downloading and checking every block…");
-        $("progress").hidden = false;
-      },
-      onProgress: (done, total) => { $("progress").value = done / total; },
-      build: async (dims, tensors) => {
-        status("Uploading to the GPU…");
-        return createEngine({ device, dims, tensors, capacity: CAPACITY });
-      },
-    });
-    session = { generate: turner({ engine, module, ask }) };
-    state.phase = "ready";
-    state.loadSeconds = (performance.now() - started) / 1000;
-    status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU`);
-    $("send").disabled = false;
+    await loadOnnxModel({ kernel, ask, device, started });
   } catch (error) {
     state.phase = "failed";
     state.error = String(error.message ?? error);
@@ -210,10 +166,24 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
     early = null;
     $("send").disabled = false;
   }
+  if (linked) await checkReceipt(linked).catch((e) => { $("verdict").textContent = `Stopped: ${e.message}`; });
 }
 
 // The text sent while the model was still loading, if any (GP-70).
 let early = null;
+
+// GP-59: run a receipt again in this tab and put its output label to the
+// kernel; "confirmed" means this device produced the same bytes.
+async function checkReceipt(receipt) {
+  $("verdict").textContent = "Running the answer again here…";
+  const said = await session.generate.check(receipt);
+  state.check = said;
+  $("verdict").textContent = said.verdict === "confirmed"
+    ? `Confirmed: this ${session.generate.device === "webgpu" ? "GPU" : "CPU"} produced the same ${receipt.output.tokens} tokens, output BLAKE3 ${said.replayed.slice(0, 16)}…`
+    : said.verdict === "mismatch"
+      ? `Mismatch: the answer claimed output ${said.claimed.slice(0, 16)}…, this device produced ${said.replayed.slice(0, 16)}…`
+      : `Not comparable: ${said.ready ? "the run promised less than every device agreeing" : "this receipt is for another model"} (model ${receipt.model.label.slice(0, 16)}…)`;
+}
 
 
 async function send(event) {
@@ -251,13 +221,26 @@ async function answer(given = null) {
   state.output = { prompt: out.prompt, promptIds: out.promptIds, promptTokens: out.promptTokens, tokens: out.tokens, text: out.text, reuse: out.reuse, computed: out.computed };
   state.stats = { timeToFirstToken: out.timeToFirstToken, tokensPerSecond: out.tokensPerSecond, generated: out.tokens.length, early: out.early === true, clickToFirstToken: state.clickToFirstToken ?? null };
   const reused = out.promptTokens - out.computed;
-  $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
+  $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
+  // GP-58: the answer's receipt, and a link that carries it.
+  if (out.receipt) {
+    state.receipt = out.receipt;
+    const link = `${location.origin}${location.pathname}${location.search}#receipt=${receiptText(out.receipt)}`;
+    $("receipt").innerHTML = "";
+    $("receipt").append(`Receipt: model ${out.receipt.model.label.slice(0, 12)}…, output ${out.receipt.output.label.slice(0, 12)}…, the same ${out.receipt.class}. `);
+    const a = document.createElement("a");
+    a.href = link;
+    a.textContent = "Link to check it";
+    $("receipt").append(a);
+    $("check").hidden = false;
+  }
 }
 
 $("load").addEventListener("click", load);
 // The button is disabled in the page until this module is listening, so a click is never lost.
 $("load").disabled = false;
 $("ask").addEventListener("submit", send);
+$("check").addEventListener("click", () => state.receipt && checkReceipt(state.receipt).catch((e) => { $("verdict").textContent = `Stopped: ${e.message}`; }));
 // Enter sends, Shift+Enter starts a new line; Enter that ends an IME composition does neither.
 $("prompt").addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;

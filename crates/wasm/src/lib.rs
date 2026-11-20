@@ -999,6 +999,14 @@ fn with_model<T>(
     config: Config,
     run: impl FnOnce(&decode::Model<'_>) -> Result<T, CallError>,
 ) -> Result<T, CallError> {
+    run(&model_of(decode, config)?)
+}
+
+/// The model the held nodes and weights make under `config`, as far as
+/// its layers are held (EN-112). Apart from `with_model` so that it is
+/// compiled once, not once for each call that reads the model.
+#[inline(never)]
+fn model_of(decode: &Decode, config: Config) -> Result<decode::Model<'_>, CallError> {
     let initializers: BTreeMap<String, Initializer<'_>> = decode
         .tensors
         .iter()
@@ -1013,9 +1021,7 @@ fn with_model<T>(
         })
         .collect();
     let held = decode.held.unwrap_or(usize::MAX);
-    let model = decode::read_first(&decode.nodes, &initializers, config, held)
-        .map_err(CallError::Decode)?;
-    run(&model)
+    decode::read_first(&decode.nodes, &initializers, config, held).map_err(CallError::Decode)
 }
 
 fn word(bytes: &[u8], at: usize) -> Result<u32, CallError> {
@@ -1274,6 +1280,29 @@ pub extern "C" fn decode_prefill(at: u32, len: u32) -> u32 {
     })
 }
 
+// ─── Probes: one layer's component at one position (EN-97) ────────────────
+//
+// Why: an answer is interpretable when any layer at any position opens to the
+// exact integers that produced it. The page replays the run to that position
+// (decision 32 says whether the replay is exact) and reads the component the
+// step computed, so nothing is recorded while generating.
+
+/// Read `component` (0 the residual after the layer, 1 attention's output, 2
+/// the feed-forward's) of `layer` in the next `decode_step` or
+/// `decode_advance`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probe(layer: u32, component: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let component = decode::Component::numbered(component).ok_or(CallError::WrongSize)?;
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            session.probe(layer as usize, component);
+            Ok(Vec::new())
+        })
+    })
+}
+
 /// The prefill's next layer, once the page has handed in every weight of
 /// the first `held` layers (EN-112): the model is read that far from now on.
 /// Answers how many layers the prefill has been through, four little-endian
@@ -1335,6 +1364,20 @@ pub extern "C" fn decode_prefill_finish() -> u32 {
                 d.prefill = Some(prefill);
             }
             stepped_answer(&finished?)
+        })
+    })
+}
+
+/// What the probe read: one binary32 bit pattern per value, four bytes each,
+/// little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probed() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            let read = session.probed().ok_or(CallError::NothingRead)?;
+            Ok(read.iter().flat_map(|w| w.to_le_bytes()).collect())
         })
     })
 }

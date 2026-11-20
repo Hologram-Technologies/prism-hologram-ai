@@ -158,9 +158,11 @@ export async function pipeline(task, model, options = {}) {
   const session = { module, ask, engine: null, stops: null, chat: null, kernels: null, pending: null };
   const generate = turner(session);
   const streaming = !encoding && typeof options.early === "function";
+  // A layer is one the decoder reads a query projection of; the final norm
+  // of a fused export is named under the layer after the last.
   const layerOf = (name) => Number(/(?:^|\.)layers\.(\d+)\./.exec(name)?.[1] ?? -1);
   const listed = [...(manifest.get(path)?.tensors ?? [])];
-  const layers = Math.max(0, ...listed.map((t) => layerOf(t.name) + 1));
+  const layers = new Set(listed.filter((t) => /\.q_proj\./.test(t.name)).map((t) => layerOf(t.name))).size;
   const needs = Array.from({ length: layers }, (_, l) => listed.filter((t) => layerOf(t.name) === l).map((t) => t.name));
   const embedding = listed.find((t) => /embed_tokens/.test(t.name))?.name;
   const got = new Set();
@@ -170,7 +172,14 @@ export async function pipeline(task, model, options = {}) {
   let rope = null;
   let adding = Promise.resolve();
   let earlyFailure = null;
+  const deviceFor = async ({ d, heads, hd, ff, largest }) => {
+    const usable = gpu && globalThis.crossOriginIsolated === true && [d, heads * hd, ff].every((w) => PRINTED.includes(w));
+    if (want === "webgpu" && !usable) throw new Error(`device webgpu: ${globalThis.crossOriginIsolated !== true ? "this page is not cross-origin isolated, so the integer engine cannot wait on the GPU" : `the guest prints no group-sum kernel for every width of this model (${d}, ${heads * hd}, ${ff})`}`);
+    const limit = usable ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
+    return ask("device", "device to run on", join(new Uint8Array([22, usable ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
+  };
   const onHeader = async ({ config, configText, chat, stops }) => {
+    session.configText = configText;
     session.chat = chat;
     session.stops = stops;
     const candidates = ropeCandidates(config);
@@ -184,12 +193,6 @@ export async function pipeline(task, model, options = {}) {
     const hd = config.head_dim ?? config.hidden_size / heads;
     const largest = Math.max(0, ...listed.filter((t) => /_Q4$/.test(t.name)).map((t) => t.length));
     on = await deviceFor({ d: config.hidden_size, heads, hd, ff: config.intermediate_size, largest });
-  };
-  const deviceFor = async ({ d, heads, hd, ff, largest }) => {
-    const usable = gpu && globalThis.crossOriginIsolated === true && [d, heads * hd, ff].every((w) => PRINTED.includes(w));
-    if (want === "webgpu" && !usable) throw new Error(`device webgpu: ${globalThis.crossOriginIsolated !== true ? "this page is not cross-origin isolated, so the integer engine cannot wait on the GPU" : `the guest prints no group-sum kernel for every width of this model (${d}, ${heads * hd}, ${ff})`}`);
-    const limit = usable ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
-    return ask("device", "device to run on", join(new Uint8Array([22, usable ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
   };
   const onArrived = async (tensors, bytesAt) => {
     if (!rope || earlyFailure) return;
@@ -240,7 +243,7 @@ export async function pipeline(task, model, options = {}) {
       }
     },
     onProgress: (file, done) => { if (file === 0) onProgress(done / graph.size); },
-    onHeader: streaming ? async (header) => { session.configText = header.configText; await onHeader(header); } : null,
+    onHeader: streaming ? onHeader : null,
     onArrived: streaming ? onArrived : null,
     build: async (dims, tensors, raw) => {
       // A streamed engine has every weight the graph file held already; the
@@ -293,9 +296,55 @@ export async function pipeline(task, model, options = {}) {
   }
   if (encoding) return encoderPipeline({ task, model, dtype: chosen, record, module, ask, checks, loaded, size: sizes[chosen].bytes });
   const { engine, stops, chat } = loaded;
-  Object.assign(session, { engine, stops, chat });
-  return Object.assign(generate, { task, model, dtype: chosen, device: on, engine, module, record });
+  // GP-58: what this run promises (decision 30). Every product and every other
+  // stage is exact on integers, on the CPU and on WebGPU alike, and no float
+  // is summed in any order, so the kernel's class is "everywhere".
+  const promised = await ask("class", "reproducibility class of this run (decision 30)", new Uint8Array([30, 1, 1, 0]), (a) => a === "everywhere");
+  const identity = modelIdentity({ record, model, dtype: chosen, paths: [path, ...dataPaths], module });
+  checks.add("receipt", "the model named by the BLAKE3 of the files that decide its answers", "pass", `${identity.label}: ${identity.files.map((f) => `${f.path} ${f.blake3.slice(0, 12)}…`).join(", ")}`);
+  // The turn exists before the model does (GP-70); what the load found joins it.
+  Object.assign(session, { engine, stops, chat, identity, promised, device: on, adapter: engine.gpu?.adapter ?? null });
+  return Object.assign(generate, { task, model, dtype: chosen, device: on, engine, module, record, identity, promised });
 }
+
+// The BLAKE3 of `bytes`, as hex, by the module.
+function blake3Of(m, bytes) {
+  const id = new DataView(m.call("hash_start").slice().buffer).getUint32(0, true);
+  m.callWith("hash_take", bytes, id);
+  return Array.from(m.call("hash_finish", id).slice(), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// The files whose bytes decide a run's answers, given the token ids: the
+// graph and its data files (every weight), config.json (the shapes and the
+// rotary parameters) and generation_config.json (the stop ids). The tokenizer
+// and the chat template only turn text into ids, and a receipt carries the
+// ids. Each is named by the BLAKE3 the hub's record gives it, which the load
+// checked; the model's label is the BLAKE3 of those lines, sorted by path.
+function modelIdentity({ record, model, dtype, paths, module }) {
+  const named = new Set([...paths, "config.json", "generation_config.json"]);
+  const files = record.files
+    .filter((f) => named.has(f.path) && f.blake3)
+    .map((f) => ({ path: f.path, blake3: f.blake3 }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const lines = new TextEncoder().encode(files.map((f) => `${f.path}\t${f.blake3}\n`).join(""));
+  return { repo: model, revision: record.revision ?? null, dtype, files, label: blake3Of(module, lines) };
+}
+
+// A receipt's labels: the input is its token ids and its budget, the output
+// the token ids it produced, each as four little-endian bytes; the budget
+// follows the input's ids.
+const idBytes = (ids, extra = []) => {
+  const all = [...ids, ...extra];
+  const bytes = new Uint8Array(4 * all.length);
+  const view = new DataView(bytes.buffer);
+  all.forEach((id, i) => view.setUint32(4 * i, id, true));
+  return bytes;
+};
+const unhexLabel = (hex) => Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
+
+// A receipt as text for a link (`#receipt=…`), and back.
+export const receiptText = (receipt) => btoa(JSON.stringify(receipt)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+export const receiptFrom = (text) => JSON.parse(atob(text.replace(/-/g, "+").replace(/_/g, "/")));
 
 // An encoder's task on the module's integer engine: `embed(text)` answers
 // the sentence embedding's bits and their Float32Array view, `classify(text)`
@@ -352,13 +401,69 @@ export function turner(session) {
   let head = null;
   let held = null;
 
-  // The ids the model stops on: its own files' (EN-28); a file naming none
-  // runs to the turn's budget.
-  const stopsOf = () => {
-    const said = session.stops ? null : m.call("tokeniser_stops_at");
-    const stops = session.stops ?? new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
-    return stops;
+  // The ids a run stops on: the model's own (EN-28), or the vocabulary's
+  // single stop id for a file naming none.
+  const stopIds = () => {
+    if (session.stops) return session.stops;
+    const said = m.call("tokeniser_stops_at");
+    return new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
   };
+
+  // GP-58: a run's receipt. Everything needed to run it again and to check
+  // the answer byte for byte: the model's label, the input's ids and budget
+  // and their label, the output's label, and the class the kernel gave.
+  const receiptOf = (ids, budget, tokens) => ({
+    v: 1,
+    model: { repo: session.identity.repo, revision: session.identity.revision, dtype: session.identity.dtype, label: session.identity.label },
+    input: { ids: Array.from(ids), budget, label: blake3Of(m, idBytes(ids, [budget])) },
+    output: { tokens: tokens.length, label: blake3Of(m, idBytes(tokens)) },
+    class: session.promised,
+    device: session.device,
+  });
+
+  // GP-59: run a receipt again in this tab, on this device, from its own ids,
+  // and put the two output labels to the kernel (decision 31). The model is
+  // ready for it only when this tab's model has the receipt's label; a run
+  // from another device is comparable because the class is "everywhere".
+  async function check(receipt) {
+    const { engine } = session;
+    const ready = receipt?.model?.label === session.identity.label ? 1 : 0;
+    const stops = stopIds();
+    let replayed = { label: "0".repeat(64), tokens: [] };
+    if (ready) {
+      await engine.reset();
+      const tokens = await engine.run(receipt.input.ids, receipt.input.budget, { stops });
+      replayed = { label: blake3Of(m, idBytes(tokens)), tokens };
+    }
+    const classCode = { everywhere: 2, "same hardware": 1, none: 0 }[receipt.class] ?? 0;
+    const sameAdapter = receipt.device === session.device ? 1 : 0;
+    const verdict = await ask("receipt", "a receipt replayed and its output label compared (decision 31)", join(new Uint8Array([31]), unhexLabel(receipt.output.label), unhexLabel(replayed.label), new Uint8Array([ready, classCode, sameAdapter])), (a) => ["confirmed", "mismatch", "not comparable"].includes(a));
+    return { verdict, ready: ready === 1, claimed: receipt.output.label, replayed: replayed.label, tokens: replayed.tokens };
+  }
+
+  // GP-60: open a past answer at one layer, position and component. The
+  // receipt is run again to recover its output ids (and checked, decision
+  // 31), the kernel says whether the replay is exact (decision 32), and the
+  // engine replays the ids to that position and reads the component there:
+  // the value that produced the answer, named by its BLAKE3.
+  const COMPONENTS = ["residual", "attention", "feed-forward"];
+  async function probe(receipt, { layer, position, component = "residual" }) {
+    const { engine } = session;
+    const checked = await check(receipt);
+    if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };
+    const ids = [...receipt.input.ids, ...checked.tokens];
+    const positions = ids.length - 1;
+    const layers = engine.sizes.layers;
+    const index = COMPONENTS.indexOf(component);
+    const classCode = { everywhere: 2, "same hardware": 1, none: 0 }[receipt.class] ?? 0;
+    const sameAdapter = receipt.device === session.device ? 1 : 0;
+    const verdict = await ask("probe", "a probe of a past answer (decision 32)", join(new Uint8Array([32]), be(layer, 4), be(layers, 4), be(position, 4), be(positions, 4), new Uint8Array([index < 0 ? 255 : index, COMPONENTS.length, classCode, sameAdapter])), (a) => ["exact replay", "approximate replay", "out of range"].includes(a));
+    if (verdict === "out of range") return { verdict, checked };
+    const bits = await engine.probe(ids, position, layer, index);
+    return { verdict, layer, position, component, label: blake3Of(m, bits), values: Array.from(new Uint32Array(bits.buffer, bits.byteOffset, bits.length / 4)), checked };
+  }
+
+  // A turn's budget: decision 9.
   const budgetOf = async (prompt, max_new_tokens) => Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(max_new_tokens, 8)), (a) => /^\d+$/.test(a)));
 
   // A turn given while the model is still arriving (GP-70): its ids and its
@@ -374,12 +479,14 @@ export function turner(session) {
   // `template: false` runs the text as it is, as transformers.js runs a string.
   async function generate(text, { max_new_tokens = 256, onToken = () => {}, template = true } = {}) {
     const { engine } = session;
-    const stops = stopsOf();
+    // The model stops on the ids its own files name (EN-28); a file naming
+    // none runs to the turn's budget.
+    const stops = stopIds();
     const pending = template && session.pending?.text === text ? session.pending : null;
     session.pending = null;
     if (pending) {
-      // Its layers ran as they arrived; the last of them, the final norm and
-      // the head now, then the rest of the turn.
+      // Its layers ran as they arrived; the final norm and the head now,
+      // then the rest of the turn.
       await pending.started;
       let firstAt = pending.at;
       const tokens = await engine.finish(pending.budget, {
@@ -390,6 +497,7 @@ export function turner(session) {
       });
       const end = performance.now();
       return {
+        receipt: session.identity ? receiptOf(pending.prompt, pending.budget, tokens) : null,
         prompt: text,
         promptIds: pending.prompt,
         promptTokens: pending.prompt.length,
@@ -433,7 +541,9 @@ export function turner(session) {
     if (!held && head > 0 && head < prompt.length) {
       held = { length: head, label: label(prompt.slice(0, head)), state: await engine.saveState(head) };
     }
+    const receipt = session.identity ? receiptOf(prompt, budget, tokens) : null;
     return {
+      receipt,
       prompt: text,
       promptIds: prompt,
       promptTokens: prompt.length,
@@ -445,5 +555,5 @@ export function turner(session) {
       tokensPerSecond: tokens.length > 1 ? (tokens.length - 1) / ((end - firstAt) / 1000) : 0,
     };
   }
-  return Object.assign(generate, { render, decode, early });
+  return Object.assign(generate, { render, decode, check, probe, early });
 }
