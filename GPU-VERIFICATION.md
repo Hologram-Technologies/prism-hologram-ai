@@ -43,7 +43,7 @@ the diagnostic and the restored result.
 | The engine gives the same tokens on a real GPU as on the software renderer | not checked here: CI has no GPU. The same test runs on a named laptop before checkpoint 1 is called done | not tested |
 
 The page's numbers are integers. What Lean proves of the WebGPU kernels is in
-KN-73 and KN-87 and the section on them below; the claims in this table are
+KN-73 and KN-95 and the section on them below; the claims in this table are
 tested, not proved.
 
 ## How the tests run
@@ -65,7 +65,7 @@ the integer engine. The claims that were about those engines are retired with
 them, their tests and runners removed: GP-01, GP-02, GP-04, GP-05, GP-08 to
 GP-11, GP-13 to GP-16 and GP-18. What they covered that the page still does is
 claimed on the integer engine: the forward pass and its rotary frequencies
-(EN-48 to EN-51, EN-96), products on WebGPU (GP-56, KN-73, KN-87), the encoder
+(EN-48 to EN-51, EN-96), products on WebGPU (GP-56, KN-73, KN-95), the encoder
 (GP-35, GP-36), tensors kept by address (GP-31) and prefix reuse (GP-23,
 GP-32). GP-12 and GP-17 keep their role maps, which the integer engine reads.
 The journey's stale-kernel, foreign-signature and flipped-engine runs moved
