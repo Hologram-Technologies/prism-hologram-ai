@@ -5196,6 +5196,169 @@ fn kernel_kn_58() {
     );
 }
 
+/// `KN-80`: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+#[test]
+fn kernel_kn_80() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Seal.lex.tex");
+    let proofs = model("app/src/Proofs/Seal.lex.tex");
+    let words = (0..8)
+        .map(|i| format!("(Kernel.Seal::sealedWord {i})"))
+        .collect::<Vec<_>>();
+    assert_pinned(
+        &proofs,
+        "seal_decides",
+        &format!(
+            r"(((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = true) <-> ((w0 = {}) /\ ((w1 = {}) /\ ((w2 = {}) /\ ((w3 = {}) /\ ((w4 = {}) /\ ((w5 = {}) /\ ((w6 = {}) /\ (w7 = {})))))))))",
+            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
+        ),
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "seal_refuses_another_first_word",
+        "(((w0 =? (Kernel.Seal::sealedWord 0)) = false) -> ((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = false))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "engineSealed");
+    assert!(
+        found.contains("body: ((((((((w0 =? (sealedWord 0)) && (w1 =? (sealedWord 1))) && (w2 =? (sealedWord 2))) && (w3 =? (sealedWord 3))) && (w4 =? (sealedWord 4))) && (w5 =? (sealedWord 5))) && (w6 =? (sealedWord 6))) && (w7 =? (sealedWord 7)))"),
+        "engineSealed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sealAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (engineSealed (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 4) (Kernel.Wire::fieldAt value 21 4) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4)) then (prim utf8_encode \"sealed\" : Bytes) else (prim utf8_encode \"not the sealed engine\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "sealAnswer changed:\n{found}"
+    );
+    // The sealed address is sealedWord's eight words, each `then` literal and
+    // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
+    // claims the guest replays are derived from it here, so the seal has one
+    // source: a moved seal fails until claims.json follows.
+    let chain = declaration(&kernel, "sealedWord");
+    let tokens: Vec<&str> = chain
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let sealed: Vec<u32> = tokens
+        .windows(2)
+        .filter(|pair| pair[0] == "then" || pair[0] == "else")
+        .filter_map(|pair| pair[1].parse().ok())
+        .collect();
+    assert_eq!(sealed.len(), 8, "sealedWord names eight words:\n{chain}");
+    let address: Vec<u8> = sealed.iter().flat_map(|w| w.to_be_bytes()).collect();
+    let request = |bytes: &[u8]| [&[80u8][..], bytes].concat();
+    let mut flipped = address.clone();
+    flipped[0] ^= 0x01;
+    assert_claimed(
+        80,
+        &[
+            (request(&address), "sealed"),
+            (request(&flipped), "not the sealed engine"),
+            (request(&address[..31]), "invalid request"),
+        ],
+    );
+    // The page's form for decision 80 starts at the sealed address, so it
+    // answers sealed as shown; it follows the seal as the claims do.
+    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
+        .expect("decision-names.json is JSON");
+    for (i, word) in sealed.iter().enumerate() {
+        assert_eq!(
+            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            serde_json::json!(word),
+            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            1 + 4 * i
+        );
+    }
+    assert_routed(80, "Kernel.Seal::sealAnswer");
+}
+
+/// `KN-71`: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+#[test]
+fn kernel_kn_71() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Step.lex.tex");
+    assert_pinned(
+        &proofs,
+        "step_cut",
+        "((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "step_reads_its_chunk",
+        "((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "picked_key_is_max",
+        "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
+        "Quot.sound, propext",
+    );
+    for fixture in [
+        "pick_is_greedy_ordered",
+        "pick_is_greedy_first_of_ties",
+        "pick_is_greedy_all_negative",
+        "pick_is_greedy_zeros_tie",
+        "pick_is_greedy_one",
+    ] {
+        let found = declaration(&proofs, fixture);
+        assert!(
+            found.contains("= (Engine.Stage.Greedy::greedy ")
+                && found.contains("proof: reflexivity{}"),
+            "{fixture} must check the pick against KN-55's greedy:
+{found}"
+        );
+    }
+    let step = model("app/src/Kernel/Step.lex.tex");
+    let found = declaration(&step, "stepAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (44 + (prim multiply 4 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(stepHexValid 40 value 0)")
+            && found.contains("(stepFeed (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 71 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    let found = declaration(&step, "tokenOut");
+    assert!(
+        found.contains("(capacity <? (position + 1))") && found.contains("context full"),
+        "decision 71 must refuse a step past the capacity:\n{found}"
+    );
+    assert_routed(71, "Kernel.Step::stepAnswer");
+    let state = |position: u32, capacity: u32| -> Vec<u8> {
+        let mut hex = String::new();
+        for word in [0u32, 0, 0, position, capacity] {
+            for byte in word.to_le_bytes() {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+        }
+        hex.into_bytes()
+    };
+    let request = |flags: u8, logits: &[u32], state: Vec<u8>| {
+        let mut r = vec![71, flags];
+        r.extend((logits.len() as u16).to_be_bytes());
+        r.extend(state);
+        for logit in logits {
+            r.extend(logit.to_be_bytes());
+        }
+        r
+    };
+    assert_claimed(
+        71,
+        &[
+            (
+                request(2, &[1065353216, 1077936128, 1073741824], state(5, 10)),
+                "1 6",
+            ),
+            (
+                request(2, &[1073741824, 1084227584, 1084227584], state(5, 10)),
+                "1 6",
+            ),
+            (request(2, &[1065353216], state(10, 10)), "context full"),
+            (request(2, &[], state(5, 10)), "invalid request"),
+        ],
+    );
+}
+
 /// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
 #[test]
 fn kernel_kn_81() {

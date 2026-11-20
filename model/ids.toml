@@ -677,6 +677,12 @@ suite = "kernel"
 statement = "Every product and limb sum an integer stage reasons about is a LexLean function with proved laws, since lexlean 0.3.0 can prove nothing about prim multiply of two variables: mulB, shift-and-add over a list of steps, splits into its low and high halves, is additive and scales in its multiplicand, and the 64-bit product of two words built from four 16-bit partial products equals mulB over 32 steps as two 32-bit limbs, each below 2^32, each partial at most 65535^2; add-with-carry over little-endian 32-bit limbs gives the sum of the two values and the carry in, the carry out at the weight of the limbs, and limbs below 2^32; that mulB equals the native multiply in exported code is trusted, not proved"
 
 [[id]]
+id = "KN-71"
+level = "build"
+suite = "kernel"
+statement = "Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request"
+
+[[id]]
 id = "EN-29"
 level = "build"
 suite = "engine"
@@ -952,6 +958,24 @@ id = "GP-41"
 level = "build"
 suite = "gpu"
 statement = "The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's"
+
+[[id]]
+id = "KN-80"
+level = "build"
+suite = "kernel"
+statement = "Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33"
+
+[[id]]
+id = "EN-90"
+level = "build"
+suite = "engine"
+statement = "engine.wasm is byte-identical on every build: the pinned toolchain and target, codegen-units 1, path prefixes remapped, SOURCE_DATE_EPOCH fixed and every host flag cleared, so two builds in different directories with different cargo homes give the same bytes, and the build fails unless their BLAKE3 is the address the model seals"
+
+[[id]]
+id = "GP-50"
+level = "build"
+suite = "gpu"
+statement = "Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled"
 
 [[id]]
 id = "KN-81"
