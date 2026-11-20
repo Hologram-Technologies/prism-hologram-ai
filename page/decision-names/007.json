@@ -1,0 +1,28 @@
+{
+  "decision": 7,
+  "name": "Trimming the conversation",
+  "asks": "Is this the right amount to forget?",
+  "fields": {
+    "1": {
+      "name": "Context, tokens",
+      "value": 2048
+    },
+    "9": {
+      "name": "The part never dropped",
+      "value": 100
+    },
+    "17": {
+      "name": "Every pair, together",
+      "value": 3000
+    },
+    "25": {
+      "name": "Dropped",
+      "value": 1100
+    },
+    "33": {
+      "name": "The newest dropped pair",
+      "value": 200
+    }
+  },
+  "purpose": "whether a trim of the conversation is right"
+}

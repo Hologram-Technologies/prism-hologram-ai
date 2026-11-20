@@ -1,0 +1,20 @@
+{
+  "decision": 8,
+  "name": "The decode bucket",
+  "asks": "How much attention cache does this turn need?",
+  "fields": {
+    "1": {
+      "name": "Tokens needed",
+      "value": 100
+    },
+    "9": {
+      "name": "Bucket now",
+      "value": 64
+    },
+    "17": {
+      "name": "The model's context",
+      "value": 2048
+    }
+  },
+  "purpose": "the next attention cache size"
+}

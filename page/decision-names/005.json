@@ -1,0 +1,26 @@
+{
+  "decision": 5,
+  "name": "Hash admission",
+  "asks": "Are these the bytes the archive named?",
+  "fields": {
+    "1": {
+      "name": "Label expected",
+      "kind": "label",
+      "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+    },
+    "33": {
+      "name": "Label observed",
+      "kind": "label",
+      "value": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+    },
+    "65": {
+      "name": "Length declared",
+      "value": 0
+    },
+    "73": {
+      "name": "Length observed",
+      "value": 0
+    }
+  },
+  "purpose": "whether a buffer is admitted"
+}

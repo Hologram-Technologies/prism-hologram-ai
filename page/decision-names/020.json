@@ -1,0 +1,38 @@
+{
+  "decision": 20,
+  "name": "A MatMulNBits length",
+  "asks": "How many bytes is this part of a 4-bit ONNX weight?",
+  "fields": {
+    "1": {
+      "name": "Part",
+      "choice": [
+        [
+          "codes",
+          0
+        ],
+        [
+          "f32 scales",
+          1
+        ],
+        [
+          "f16 scales",
+          2
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Rows",
+      "value": 1536
+    },
+    "6": {
+      "name": "Columns",
+      "value": 1536
+    },
+    "10": {
+      "name": "Block size",
+      "value": 32
+    }
+  },
+  "purpose": "how long a 4-bit ONNX weight's parts are"
+}

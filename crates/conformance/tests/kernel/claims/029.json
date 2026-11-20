@@ -1,0 +1,17 @@
+{
+  "decision": 29,
+  "claims": [
+    {
+      "request": "1d08040520",
+      "answer": "exact"
+    },
+    {
+      "request": "1d08081120",
+      "answer": "may overflow"
+    },
+    {
+      "request": "1d080405",
+      "answer": "invalid request"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "decision": 28,
+  "name": "A model's manifest",
+  "asks": "Is every tensor this manifest lists held and admitted?",
+  "fields": {
+    "1": {
+      "name": "Label the manifest gives",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "33": {
+      "name": "Label of the addresses admitted",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "65": {
+      "name": "Tensors listed",
+      "value": 339
+    },
+    "73": {
+      "name": "Tensors admitted",
+      "value": 339
+    }
+  },
+  "purpose": "whether a model's manifest is satisfied"
+}

@@ -1,0 +1,17 @@
+{
+  "decision": 43,
+  "claims": [
+    {
+      "request": "2b000000000000000a00000003",
+      "answer": "exact"
+    },
+    {
+      "request": "2b000000000000000a00000004",
+      "answer": "differs"
+    },
+    {
+      "request": "2b000000000000000a000003",
+      "answer": "invalid request"
+    }
+  ]
+}

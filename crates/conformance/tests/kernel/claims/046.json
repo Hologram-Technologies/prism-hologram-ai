@@ -1,0 +1,121 @@
+{
+  "decision": 46,
+  "claims": [
+    {
+      "request": "2e01013137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e01003137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n"
+    },
+    {
+      "request": "2e01013137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>system\nSpeak French.<|im_end|>\n<|im_start|>user\nagain<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e01003137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>system\nSpeak French.<|im_end|>\n<|im_start|>user\nagain<|im_end|>\n"
+    },
+    {
+      "request": "2e01033137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e01013031204a616e20323032350101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e02013137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e02003137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n"
+    },
+    {
+      "request": "2e02013137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>system\nSpeak French.<|im_end|>\n<|im_start|>user\nagain<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e02003137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>system\nSpeak French.<|im_end|>\n<|im_start|>user\nagain<|im_end|>\n"
+    },
+    {
+      "request": "2e02033137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+      "request": "2e02013031204a616e20323032350101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e03013137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e03003137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|>"
+    },
+    {
+      "request": "2e03013137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>system<|end_header_id|>\n\nSpeak French.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nagain<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e03003137204e6f7620323032360301000100020d05006869000000000000000000000000537065616b204672656e63682e00616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>system<|end_header_id|>\n\nSpeak French.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nagain<|eot_id|>"
+    },
+    {
+      "request": "2e03033137204e6f7620323032360101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e03013031204a616e20323032350101000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 01 Jan 2025\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e01013137204e6f76203230323602000100000902000042652062726965662e0000000000686900000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "request": "2e02033137204e6f76203230323602000100000902000042652062726965662e0000000000686900000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+      "request": "2e03013137204e6f76203230323602000100000b0200002042652062726965662e20000000686900000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\nBe brief.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e02003137204e6f76203230323602010200000208000068690000000000000000000000000a0a48656c6c6f2e00000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n"
+    },
+    {
+      "request": "2e02033137204e6f762032303236030102010002060500686900000000000000000000000048656c6c6f2e0000000000000000616761696e0000000000000000000000000000000000000000000000",
+      "answer": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\nHello.<|im_end|>\n<|im_start|>user\nagain<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+      "request": "2e03013137204e6f7620323032360201020000090b0000c2a020686920e380800000000000e2808348656c6c6f2ec28500000000000000000000000000000000000000000000000000000000000000",
+      "answer": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 17 Nov 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nHello.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+      "request": "2e01003137204e6f762032303236030102000002060d00686900000000000000000000000048656c6c6f2e0000000000000000537065616b204672656e63682e000000000000000000000000000000",
+      "answer": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\nHello.<|im_end|>\n<|im_start|>system\nSpeak French.<|im_end|>\n"
+    },
+    {
+      "request": "2e02013137204e6f7620323032360102000000080000003c2f7468696e6b3e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "refused: reasoning in a turn"
+    },
+    {
+      "request": "2e01013137204e6f7620323032360103000000020000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "refused: unknown role"
+    },
+    {
+      "request": "2e01013137204e6f76203230323601010000000200000068690000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "invalid request"
+    },
+    {
+      "request": "2e01013137204e6f76203230323601010000000f0000006869000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "answer": "invalid request"
+    }
+  ]
+}
