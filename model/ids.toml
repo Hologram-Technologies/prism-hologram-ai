@@ -419,6 +419,12 @@ suite = "gpu"
 statement = "The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name"
 
 [[id]]
+id = "GP-29"
+level = "build"
+suite = "gpu"
+statement = "The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows"
+
+[[id]]
 id = "GP-21"
 level = "build"
 suite = "gpu"

@@ -270,3 +270,10 @@ Feature: gpu
     And a messages list answers [{ generated_text: [...messages, { role: "assistant", content }] }] with the one call's text, and a TextStreamer receives that text as it is made
     And a string answers [{ generated_text: prompt + completion }]
     And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read
+
+  @GP-29 @build
+  Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
+    Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each
+    When crates/conformance/tests/gpu/q4-run.mjs reads the quantiser, the 128-code group-sum kernel, the accumulator and the rounding kernel from decision 48's claims, as the guest prints them, and runs them in that order on WebGPU in headless Chromium
+    Then every stage the GPU writes is hologram_ai_exact's, word for word, and WebGPU reports no error
+
