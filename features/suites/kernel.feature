@@ -503,6 +503,15 @@ Feature: kernel
     And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
     And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests
 
+  @KN-59 @build
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+    Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageRowSum in the gate
+    Then row_is_signed_total holds for every input: a row's twelve words have the value rowTotal
+    And run_row and run_starts_at_row_zero show run emits exactly those twelve words for each row in turn
+    And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
+    And add_exact, complement_twelve and subtract_exact hold for every register and term
+
   @KN-81 @build
   Scenario: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
     Given the stage in app/src/Engine/Stage/Softmax.lex.tex and its proofs in app/src/Proofs/StageSoftmax.lex.tex, which are about the stage itself
@@ -532,3 +541,11 @@ Feature: kernel
     When Lean checks dense_accumulate_code_prints_tree and dense_row_matches_exact, and the app recipe replays decision 48's claims for kernel 6 through the compiled guest
     Then the guest prints renderKernel's text of the tree, and the kernels' rows are hologram_ai_exact's
     And the printed text names no f32 or f16
+
+  @KN-62 @build
+  Scenario: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/Attention.lex.tex, its rounding in app/src/Engine/Stage/Binary32.lex.tex, and their proofs in app/src/Proofs/StageAttention.lex.tex and app/src/Proofs/StageBinary32.lex.tex
+    When lexlean verify checks Proofs.StageAttention and Proofs.StageBinary32 in the gate
+    Then attention_score_is_word and attention_out_is_word hold for every input, and attention_head_count gives head_dim words for every head
+    And binary32_round_is_word holds for every value the rounding takes
+    And attention_head_row_0 to attention_head_row_3 and binary32_row_0 to binary32_row_11 evaluate the stage, and kernel_kn_62 replays each through cpu-decode's attend_head and crates/exact's round_to_binary32 and finds the same words

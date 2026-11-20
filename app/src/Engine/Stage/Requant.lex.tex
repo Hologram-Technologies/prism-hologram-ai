@@ -1,0 +1,180 @@
+\begin{lexlean}{Engine.Stage.Requant}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: word,
+  parameters: [x : Nat],
+  result: Nat,
+  body: (prim remainder x 4294967296 0 : Nat)
+}
+
+definition{
+  name: inputAt,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat],
+  result: Nat,
+  body: (word (Engine.Stage.Greedy::nth inputs ((prim multiply 32 g : Nat) + i)))
+}
+
+definition{
+  name: absBits,
+  parameters: [x : Nat],
+  result: Nat,
+  body: (prim remainder x 2147483648 0 : Nat)
+}
+
+definition{
+  name: expField,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (prim quotient a 8388608 0 : Nat)
+}
+
+definition{
+  name: mantOf,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (expField a) ((prim remainder a 8388608 0 : Nat) + 8388608) (prim remainder a 8388608 0 : Nat))
+}
+
+definition{
+  name: maxOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (kept + (prim subtract next kept : Nat))
+}
+
+definition{
+  name: minOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (prim subtract kept (prim subtract kept next : Nat) : Nat)
+}
+
+definition{
+  name: equal,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim subtract 1 ((Engine.Stage.Greedy::below a b) + (Engine.Stage.Greedy::below b a)) : Nat)
+}
+
+definition{
+  name: pow2,
+  parameters: [k : Nat],
+  result: Nat,
+  body: (Engine.Stage.HalfScale::shiftSteps 1 k 31)
+}
+
+definition{
+  name: bestFrom,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => (maxOf (absBits (inputAt inputs g i)) (bestFrom inputs g (i + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: best,
+  parameters: [inputs : (List Nat), g : Nat],
+  result: Nat,
+  body: (bestFrom inputs g 0 32)
+}
+
+definition{
+  name: bitsFrom,
+  parameters: [m : Nat, j : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::below (prim subtract (pow2 j) 1 : Nat) m) + (bitsFrom m (j + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{name: expOf, parameters: [top : Nat], result: Nat, body: (maxOf (expField top) 1)}
+
+definition{name: bitsOf, parameters: [top : Nat], result: Nat, body: (bitsFrom (mantOf top) 0 24)}
+
+definition{
+  name: past,
+  parameters: [top : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 15 (bitsOf top)) (Engine.Stage.Greedy::below (prim multiply 32767 (pow2 (prim subtract (bitsOf top) 15 : Nat)) : Nat) (mantOf top)) 0)
+}
+
+definition{
+  name: shiftOf,
+  parameters: [top : Nat],
+  result: Nat,
+  body: (prim subtract (prim subtract 31 (bitsOf top) : Nat) (past top) : Nat)
+}
+
+definition{
+  name: rightCode,
+  parameters: [mg : Nat, r : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 24 r) 0 ((prim quotient mg (pow2 r) 0 : Nat) + (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (pow2 (prim subtract r 1 : Nat)) (prim remainder mg (pow2 r) 0 : Nat)) 1 (Engine.Stage.Greedy::pick (equal (prim remainder mg (pow2 r) 0 : Nat) (pow2 (prim subtract r 1 : Nat))) (prim remainder (prim quotient mg (pow2 r) 0 : Nat) 2 0 : Nat) 0))))
+}
+
+definition{
+  name: magnitude,
+  parameters: [a : Nat, top : Nat, k : Nat],
+  result: Nat,
+  body: (minOf (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below ((expOf a) + k) ((expOf top) + 16)) (rightCode (mantOf a) (prim subtract ((expOf top) + 16) ((expOf a) + k) : Nat)) (word (Engine.Stage.HalfScale::shiftSteps (mantOf a) (prim subtract ((expOf a) + k) ((expOf top) + 16) : Nat) 31))) 32767)
+}
+
+definition{
+  name: code,
+  parameters: [x : Nat, top : Nat, k : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 2147483647 x) (word (prim subtract 4294967296 (magnitude (absBits x) top k) : Nat)) (magnitude (absBits x) top k))
+}
+
+definition{
+  name: codesFrom,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat, top : Nat, k : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (code (inputAt inputs g i) top k) (match (equal i 31)
+      | Nat.zero => (codesFrom inputs g (i + 1) top k rest)
+      | Nat.succ last => (codesFrom inputs (g + 1) 0 (best inputs (g + 1)) (shiftOf (best inputs (g + 1))) rest)))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: codes,
+  parameters: [inputs : (List Nat), groups : Nat],
+  result: (List Nat),
+  body: (codesFrom inputs 0 0 (best inputs 0) (shiftOf (best inputs 0)) (prim multiply 32 groups : Nat))
+}
+
+definition{
+  name: power,
+  parameters: [top : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick top (word (((shiftOf top) + 134) + (prim subtract 4294967296 (expOf top) : Nat))) 0)
+}
+
+definition{
+  name: powersFrom,
+  parameters: [inputs : (List Nat), g : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (power (best inputs g)) (powersFrom inputs (g + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: powers,
+  parameters: [inputs : (List Nat), groups : Nat],
+  result: (List Nat),
+  body: (powersFrom inputs 0 groups)
+}
+\end{semanticmodule}
+\end{lexlean}

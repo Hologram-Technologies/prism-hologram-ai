@@ -744,6 +744,48 @@ fn exponent(score: u32, root: i128) -> Result<i64, DecodeError> {
     Ok(i64::try_from(scaled).unwrap_or(if scaled < 0 { i64::MIN } else { i64::MAX }))
 }
 
+/// One attention head (S10, `KN-62`): each cached key's score with `query`,
+/// summed exactly and rounded once, its softmax exponent, the weights, and
+/// each output the weights times the cached values, summed exactly and
+/// rounded once. `keys` and `values` hold `seen` positions of `kv_heads`
+/// heads of `query.len()` binary32 values; this head reads key head `kv`.
+///
+/// # Errors
+///
+/// [`DecodeError::Exact`] for a value that is not finite.
+pub fn attend_head(
+    query: &[u32],
+    keys: &[u32],
+    values: &[u32],
+    kv: usize,
+    kv_heads: usize,
+    root: i128,
+) -> Result<Vec<u32>, DecodeError> {
+    let head_dim = query.len();
+    let at = |t: usize| (t * kv_heads + kv) * head_dim;
+    let exponents = (0..keys.len() / (kv_heads * head_dim))
+        .map(|t| {
+            let mut row = Row::ZERO;
+            for (&a, &b) in query.iter().zip(&keys[at(t)..at(t) + head_dim]) {
+                let (a, b) = (value(a)?, value(b)?);
+                add_to(&mut row, a.mantissa * b.mantissa, a.exponent + b.exponent);
+            }
+            exponent(exact::round_to_binary32(&row), root)
+        })
+        .collect::<Result<Vec<i64>, DecodeError>>()?;
+    let weights = exact::softmax_exp2(&exponents);
+    (0..head_dim)
+        .map(|j| {
+            let mut row = Row::ZERO;
+            for (t, &p) in weights.iter().enumerate() {
+                let v = value(values[at(t) + j])?;
+                add_to(&mut row, i128::from(p) * v.mantissa, v.exponent - 30);
+            }
+            Ok(exact::round_to_binary32(&row))
+        })
+        .collect()
+}
+
 /// One token through the model: its logits, binary32 bit patterns, one per
 /// token id.
 ///
@@ -1432,31 +1474,17 @@ fn layer_through(
     }
     session.keys[l].extend_from_slice(&k);
     session.values[l].extend_from_slice(&v);
-    let seen = session.keys[l].len() / (kv_heads * head_dim);
     let mut attended = Vec::with_capacity(heads * head_dim);
     for (hq, query) in q.chunks(head_dim).enumerate() {
-        let kv = hq / group;
-        let at = |t: usize| (t * kv_heads + kv) * head_dim;
-        let exponents = (0..seen)
-            .map(|t| {
-                let key = &session.keys[l][at(t)..at(t) + head_dim];
-                let mut row = Row::ZERO;
-                for (&a, &b) in query.iter().zip(key) {
-                    let (a, b) = (value(a)?, value(b)?);
-                    add_to(&mut row, a.mantissa * b.mantissa, a.exponent + b.exponent);
-                }
-                exponent(exact::round_to_binary32(&row), model.root)
-            })
-            .collect::<Result<Vec<i64>, DecodeError>>()?;
-        let weights = exact::softmax_exp2(&exponents);
-        for j in 0..head_dim {
-            let mut row = Row::ZERO;
-            for (t, &p) in weights.iter().enumerate() {
-                let v = value(session.values[l][at(t) + j])?;
-                add_to(&mut row, i128::from(p) * v.mantissa, v.exponent - 30);
-            }
-            attended.push(exact::round_to_binary32(&row));
-        }
+        let (keys, values) = (&session.keys[l], &session.values[l]);
+        attended.extend(attend_head(
+            query,
+            keys,
+            values,
+            hq / group,
+            kv_heads,
+            model.root,
+        )?);
     }
     let o = times(Product::Output(l), &attended)?;
     if session.probe == Some((l, Component::Attention)) {

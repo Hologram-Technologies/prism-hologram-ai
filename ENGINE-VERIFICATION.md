@@ -3271,7 +3271,7 @@ Planted on 2026-11-20:
 
 With EN-110 to EN-112 the module is 2,091,948 bytes by `just engine-build` (main's was 2,070,681), and EN-26's own build stays under 2,097,152. To fit, every forward function takes its products as `&mut dyn Products`, so each is compiled once rather than once per route, and `onnx_so_far` answers text lines rather than JSON. Decision 80 seals the module at `blake3:5e45aec59f1626b902e808d706ae16d205202e120f91a35192fa5cf629d15a83` (EN-90).
 
-Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,101,194 bytes in EN-26's own build. The cause was `with_model`: it is generic over its closure, so the weight map and `read_first` were compiled once for every call that reads the model. They now sit in `model_of`, compiled once, and the module is 2,055,353 bytes by `just engine-build`. Decision 80 seals it at `blake3:8b4e99905330e261448ec7deccf7d4cde182ad9269f1938078e9c1f590d11c51` (EN-90).
+Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,101,194 bytes in EN-26's own build. The cause was `with_model`: it is generic over its closure, so the weight map and `read_first` were compiled once for every call that reads the model. They now sit in `model_of`, compiled once, and the module is 2,055,353 bytes by `just engine-build`. Decision 80 seals it at `blake3:8b4e99905330e261448ec7deccf7d4cde182ad9269f1938078e9c1f590d11c51` (EN-90). Merged with #113, whose attention is `attend_head` (KN-80), `layer_through` calls `attend_head` too. Decision 80 then seals `blake3:5c3b24bdb8f10938befc588e392567e606b4faa93507d1ba676b1f281ef2c712`, 2,055,222 bytes.
 
 | a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
 | none | passed |

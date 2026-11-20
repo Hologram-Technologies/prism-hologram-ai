@@ -5451,6 +5451,114 @@ fn kernel_kn_71() {
     );
 }
 
+/// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+#[test]
+fn kernel_kn_59() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/RowSum.lex.tex");
+    let accumulate = model("app/src/Engine/Stage/Accumulate.lex.tex");
+    let proofs = model("app/src/Proofs/StageRowSum.lex.tex");
+    // The value both S3 and the accumulate kernel are proved to reach.
+    assert!(
+        declaration(&accumulate, "rowTotal").contains(
+            "body: (prim remainder (signedTotal entries powers units (prim multiply row units : Nat) units) 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 0 : Nat)"
+        ),
+        "rowTotal changed"
+    );
+    assert_pinned(
+        &proofs,
+        "row_is_signed_total",
+        "((rowValue e p u row) = (Engine.Stage.Accumulate::rowTotal e p u row))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_row",
+        "((Engine.Stage.RowSum::runWords e p u row 0 (total0 e p u row) (n + 12)) = (cons (Engine.Stage.RowSum::word (total0 e p u row)) (cons (Engine.Stage.RowSum::word (total1 e p u row)) (cons (Engine.Stage.RowSum::word (total2 e p u row)) (cons (Engine.Stage.RowSum::word (total3 e p u row)) (cons (Engine.Stage.RowSum::word (total4 e p u row)) (cons (Engine.Stage.RowSum::word (total5 e p u row)) (cons (Engine.Stage.RowSum::word (total6 e p u row)) (cons (Engine.Stage.RowSum::word (total7 e p u row)) (cons (Engine.Stage.RowSum::word (total8 e p u row)) (cons (Engine.Stage.RowSum::word (total9 e p u row)) (cons (Engine.Stage.RowSum::word (total10 e p u row)) (cons (Engine.Stage.RowSum::word (total11 e p u row)) (Engine.Stage.RowSum::runWords e p u (row + 1) 0 (total0 e p u (row + 1)) n))))))))))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_starts_at_row_zero",
+        "((Engine.Stage.RowSum::run e p u rows) = (Engine.Stage.RowSum::runWords e p u 0 0 (total0 e p u 0) (prim multiply 12 rows : Nat)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "columns_are_signed_total",
+        "(((colValue e p u g n) + (Engine.Stage.RowSum::negatives e g n)) = (Engine.Stage.Accumulate::signedTotal e p u g n))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "carries_close",
+        "(((rowValue e p u row) + (prim multiply 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 (prim quotient (total11 e p u row) 4294967296 0 : Nat) : Nat)) = ((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "column_bound",
+        "((Engine.Stage.RowSum::column e p u g i n) <= (prim multiply 4294967295 n : Nat))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "negatives_bound",
+        "((Engine.Stage.RowSum::negatives e g n) <= n)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "output_is_word",
+        "((Engine.Stage.RowSum::word x) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "term_words_value",
+        "((Engine.Word::limbsValue (termFrom lo hi pos 12)) = (Engine.Stage.Accumulate::termValue lo hi pos))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "add_exact",
+        "((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "complement_twelve",
+        "(((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "subtract_exact",
+        "((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816))",
+        "Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.RowSum}")
+            && !proofs.contains("\n  name: column,"),
+        "the proofs must read the stage, not restate it"
+    );
+    for (name, body) in [
+        (
+            "position",
+            "body: (word (((entryAt entries g 3) + 168) + (prim subtract 4294967296 (word (Engine.Stage.Greedy::nth powers (prim remainder g units 0 : Nat))) : Nat)))",
+        ),
+        (
+            "run",
+            "body: (runWords entries powers units 0 0 (startTotal entries powers units 0) (prim multiply 12 rows : Nat))",
+        ),
+    ] {
+        assert!(
+            declaration(&stage, name).contains(body),
+            "{name} changed"
+        );
+    }
+}
+
 /// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
 #[test]
 fn kernel_kn_81() {
@@ -5728,4 +5836,101 @@ fn kernel_kn_95() {
             "invalid request",
         )],
     );
+}
+
+/// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_62() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageAttention.lex.tex");
+    let rounding = model("app/src/Proofs/StageBinary32.lex.tex");
+    for (module, name) in [
+        (&proofs, "attention_score_is_word"),
+        (&proofs, "attention_out_is_word"),
+        (&proofs, "attention_head_count"),
+        (&rounding, "binary32_round_is_word"),
+    ] {
+        assert!(
+            module.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut heads = 0;
+    while proofs.contains(&format!("\n  name: attention_head_row_{heads},\n")) {
+        let found = declaration(&proofs, &format!("attention_head_row_{heads}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "attention_head_row_{heads} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Attention::attend ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("attention_head_row_{heads} is not an evaluation of attend"));
+        let (query, rest) = cons_list(statement);
+        let (keys, rest) = cons_list(rest.trim_start());
+        let (values, rest) = cons_list(rest.trim_start());
+        let (numbers, rest) = rest.trim_start().split_once(')').expect("the head's sizes");
+        let n: Vec<usize> = numbers
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let [hq, group, kv_heads, head_dim, seen, root] = n[..] else {
+            panic!("attention_head_row_{heads}: six sizes")
+        };
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let words = |xs: &[u64]| xs.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+        let (query, keys, values) = (words(&query), words(&keys), words(&values));
+        let rust: Vec<u64> = hologram_ai_cpu_decode::attend_head(
+            &query[hq * head_dim..(hq + 1) * head_dim],
+            &keys[..seen * kv_heads * head_dim],
+            &values[..seen * kv_heads * head_dim],
+            hq / group,
+            kv_heads,
+            root as i128,
+        )
+        .expect("finite values")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        assert_eq!(
+            rust, expected,
+            "attention_head_row_{heads}: cpu-decode disagrees with the stage"
+        );
+        heads += 1;
+    }
+    assert!(heads >= 4, "four heads are evaluated, found {heads}");
+    let mut rows = 0;
+    while rounding.contains(&format!("\n  name: binary32_row_{rows},\n")) {
+        let found = declaration(&rounding, &format!("binary32_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "binary32_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Binary32::round ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("binary32_row_{rows} is not an evaluation of round"));
+        let (args, result) = statement.split_once(") = ").expect("an equation");
+        let args: Vec<u128> = args
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number below 2^128"))
+            .collect();
+        let (negative, n, k) = (args[0] == 1, args[1], args[2] as i32);
+        let expected: u32 = result
+            .split(')')
+            .next()
+            .unwrap_or(result)
+            .parse()
+            .expect("bits");
+        let mut row = hologram_ai_exact::Row::ZERO;
+        row.add_scaled(n & u128::from(u64::MAX), -k, negative);
+        row.add_scaled(n >> 64, 64 - k, negative);
+        assert_eq!(
+            hologram_ai_exact::round_to_binary32(&row),
+            expected,
+            "binary32_row_{rows}: crates/exact rounds (-1)^{negative} {n} 2^-{k} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
 }

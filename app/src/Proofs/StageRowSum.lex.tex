@@ -1,0 +1,1299 @@
+\begin{lexlean}{Proofs.StageRowSum}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Accumulate}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.RowSum}
+\importmodule{Engine.Word}
+\importmodule{Proofs.Word}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: termFrom,
+  parameters: [lo : Nat, hi : Nat, pos : Nat, count : Nat],
+  result: (List Nat),
+  body: (match count
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (Engine.Stage.RowSum::termWord lo hi pos (prim subtract 12 (rest + 1) : Nat)) (termFrom lo hi pos rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: complement,
+  parameters: [limbs : (List Nat)],
+  result: (List Nat),
+  body: (match limbs
+    | List.nil => (nil Nat)
+    | List.cons low high => (cons (prim subtract 4294967295 low : Nat) (complement high))),
+  recursive_argument: limbs
+}
+
+definition{
+  name: zeros,
+  parameters: [count : Nat],
+  result: (List Nat),
+  body: (match count | Nat.zero => (nil Nat) | Nat.succ rest => (cons 0 (zeros rest))),
+  recursive_argument: count
+}
+
+definition{
+  name: colValue,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, n : Nat],
+  result: Nat,
+  body: ((((((((((((Engine.Stage.RowSum::column e p u g 0 n) + (prim multiply 4294967296 (Engine.Stage.RowSum::column e p u g 1 n) : Nat)) + (prim multiply 18446744073709551616 (Engine.Stage.RowSum::column e p u g 2 n) : Nat)) + (prim multiply 79228162514264337593543950336 (Engine.Stage.RowSum::column e p u g 3 n) : Nat)) + (prim multiply 340282366920938463463374607431768211456 (Engine.Stage.RowSum::column e p u g 4 n) : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 (Engine.Stage.RowSum::column e p u g 5 n) : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 (Engine.Stage.RowSum::column e p u g 6 n) : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 (Engine.Stage.RowSum::column e p u g 7 n) : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 (Engine.Stage.RowSum::column e p u g 8 n) : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 (Engine.Stage.RowSum::column e p u g 9 n) : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 (Engine.Stage.RowSum::column e p u g 10 n) : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 (Engine.Stage.RowSum::column e p u g 11 n) : Nat))
+}
+
+definition{
+  name: total0,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: (Engine.Stage.RowSum::startTotal e p u row)
+}
+
+definition{
+  name: total1,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 1 u) + (prim quotient (total0 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total2,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 2 u) + (prim quotient (total1 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total3,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 3 u) + (prim quotient (total2 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total4,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 4 u) + (prim quotient (total3 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total5,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 5 u) + (prim quotient (total4 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total6,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 6 u) + (prim quotient (total5 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total7,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 7 u) + (prim quotient (total6 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total8,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 8 u) + (prim quotient (total7 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total9,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 9 u) + (prim quotient (total8 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total10,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 10 u) + (prim quotient (total9 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: total11,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 11 u) + (prim quotient (total10 e p u row) 4294967296 0 : Nat))
+}
+
+definition{
+  name: rowValue,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  result: Nat,
+  body: ((((((((((((Engine.Stage.RowSum::word (total0 e p u row)) + (prim multiply 4294967296 (Engine.Stage.RowSum::word (total1 e p u row)) : Nat)) + (prim multiply 18446744073709551616 (Engine.Stage.RowSum::word (total2 e p u row)) : Nat)) + (prim multiply 79228162514264337593543950336 (Engine.Stage.RowSum::word (total3 e p u row)) : Nat)) + (prim multiply 340282366920938463463374607431768211456 (Engine.Stage.RowSum::word (total4 e p u row)) : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 (Engine.Stage.RowSum::word (total5 e p u row)) : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 (Engine.Stage.RowSum::word (total6 e p u row)) : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 (Engine.Stage.RowSum::word (total7 e p u row)) : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 (Engine.Stage.RowSum::word (total8 e p u row)) : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 (Engine.Stage.RowSum::word (total9 e p u row)) : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 (Engine.Stage.RowSum::word (total10 e p u row)) : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 (Engine.Stage.RowSum::word (total11 e p u row)) : Nat))
+}
+
+theorem{
+  name: complement_value,
+  parameters: [lo : Nat, hi : Nat, pos : Nat, n : Nat],
+  statement: (((Engine.Word::limbsValue (complement (termFrom lo hi pos n))) + ((Engine.Word::limbsValue (termFrom lo hi pos n)) + 1)) = (Engine.Word::shifted (termFrom lo hi pos n) 1)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Word::limbsValue, Engine.Word::shifted, complement, termFrom]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Stage.RowSum::termWord,
+            Engine.Stage.RowSum::word,
+            Engine.Word::limbsValue,
+            Engine.Word::shifted,
+            complement,
+            termFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: shifted_by_length,
+  parameters: [lo : Nat, hi : Nat, pos : Nat, n : Nat],
+  statement: ((Engine.Word::shifted (termFrom lo hi pos n) 1) = (Engine.Word::shifted (zeros n) 1)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Word::shifted, termFrom, zeros]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Word::shifted, termFrom, zeros]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: zeros_span,
+  parameters: [],
+  statement: ((Engine.Word::shifted (zeros 12) 1) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: term_spans_twelve_words,
+  parameters: [lo : Nat, hi : Nat, pos : Nat],
+  statement: ((Engine.Word::shifted (termFrom lo hi pos 12) 1) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816),
+  proof: simplify{definitions: [shifted_by_length, zeros_span]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: complement_twelve,
+  parameters: [lo : Nat, hi : Nat, pos : Nat],
+  statement: (((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816),
+  proof: simplify{definitions: [complement_value, term_spans_twelve_words]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: add_exact,
+  parameters: [register : (List Nat), lo : Nat, hi : Nat, pos : Nat],
+  statement: ((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0)),
+  proof: simplify{definitions: [Proofs.Word::limbs_add_with_carry]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: subtract_given,
+  parameters: [register : (List Nat), lo : Nat, hi : Nat, pos : Nat],
+  statement: (((Engine.Word::sumOf register (complement (termFrom lo hi pos 12)) 1) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (complement (termFrom lo hi pos 12)))) + 1)) -> ((((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816) -> ((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)))),
+  proof: linear_arithmetic{definitions: [Engine.Word::sumOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: subtract_exact,
+  parameters: [register : (List Nat), lo : Nat, hi : Nat, pos : Nat],
+  statement: ((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)),
+  proof: simplify{
+    definitions: [complement_twelve, subtract_given, Proofs.Word::limbs_add_with_carry]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: signed_word_bound,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, i : Nat],
+  statement: ((Engine.Stage.RowSum::signedWord e p u g i) <= 4294967295),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::signedWord,
+      Engine.Stage.RowSum::termWord,
+      Engine.Stage.RowSum::word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: column_step,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, i : Nat, n : Nat],
+  statement: (((Engine.Stage.RowSum::signedWord e p u g i) <= 4294967295) -> (((Engine.Stage.RowSum::column e p u (g + 1) i n) <= (prim multiply 4294967295 n : Nat)) -> (((Engine.Stage.RowSum::signedWord e p u g i) + (Engine.Stage.RowSum::column e p u (g + 1) i n)) <= (prim multiply 4294967295 (n + 1) : Nat)))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: column_bound,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, i : Nat, n : Nat],
+  statement: ((Engine.Stage.RowSum::column e p u g i n) <= (prim multiply 4294967295 n : Nat)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.RowSum::column]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [column_step, hypothesis, signed_word_bound, Engine.Stage.RowSum::column]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [g],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: negative_flag_bound,
+  parameters: [e : (List Nat), g : Nat],
+  statement: ((Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0) <= 1),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: negatives_step,
+  parameters: [e : (List Nat), g : Nat, n : Nat],
+  statement: (((Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0) <= 1) -> (((Engine.Stage.RowSum::negatives e (g + 1) n) <= n) -> (((Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0) + (Engine.Stage.RowSum::negatives e (g + 1) n)) <= (n + 1)))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: negatives_bound,
+  parameters: [e : (List Nat), g : Nat, n : Nat],
+  statement: ((Engine.Stage.RowSum::negatives e g n) <= n),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.RowSum::negatives]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            negative_flag_bound,
+            negatives_step,
+            Engine.Stage.RowSum::negatives
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [g],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: output_is_word,
+  parameters: [x : Nat],
+  statement: ((Engine.Stage.RowSum::word x) < 4294967296),
+  proof: linear_arithmetic{definitions: [Engine.Stage.RowSum::word]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: term_word_bound,
+  parameters: [lo : Nat, hi : Nat, pos : Nat, i : Nat],
+  statement: ((Engine.Stage.RowSum::termWord lo hi pos i) <= 4294967295),
+  proof: linear_arithmetic{definitions: [Engine.Stage.RowSum::termWord, Engine.Stage.RowSum::word]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: group_concrete,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat],
+  statement: (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 0) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 1) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 2) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 3) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 4) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 5) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 6) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 7) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 8) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 9) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 10) <= 4294967295) -> (((Engine.Stage.RowSum::termWord (Engine.Stage.RowSum::entryAt e g 1) (Engine.Stage.RowSum::entryAt e g 2) (Engine.Stage.RowSum::position e p u g) 11) <= 4294967295) -> ((((((((((((((Engine.Stage.RowSum::signedWord e p u g 0) + (prim multiply 4294967296 (Engine.Stage.RowSum::signedWord e p u g 1) : Nat)) + (prim multiply 18446744073709551616 (Engine.Stage.RowSum::signedWord e p u g 2) : Nat)) + (prim multiply 79228162514264337593543950336 (Engine.Stage.RowSum::signedWord e p u g 3) : Nat)) + (prim multiply 340282366920938463463374607431768211456 (Engine.Stage.RowSum::signedWord e p u g 4) : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 (Engine.Stage.RowSum::signedWord e p u g 5) : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 (Engine.Stage.RowSum::signedWord e p u g 6) : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 (Engine.Stage.RowSum::signedWord e p u g 7) : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 (Engine.Stage.RowSum::signedWord e p u g 8) : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 (Engine.Stage.RowSum::signedWord e p u g 9) : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 (Engine.Stage.RowSum::signedWord e p u g 10) : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 (Engine.Stage.RowSum::signedWord e p u g 11) : Nat)) + (Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0)) = (Engine.Stage.Accumulate::signedTerm e p u g)))))))))))))),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Accumulate::signedTerm,
+      Engine.Stage.Accumulate::termValue,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::signedWord
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: group_value,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat],
+  statement: ((((((((((((((Engine.Stage.RowSum::signedWord e p u g 0) + (prim multiply 4294967296 (Engine.Stage.RowSum::signedWord e p u g 1) : Nat)) + (prim multiply 18446744073709551616 (Engine.Stage.RowSum::signedWord e p u g 2) : Nat)) + (prim multiply 79228162514264337593543950336 (Engine.Stage.RowSum::signedWord e p u g 3) : Nat)) + (prim multiply 340282366920938463463374607431768211456 (Engine.Stage.RowSum::signedWord e p u g 4) : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 (Engine.Stage.RowSum::signedWord e p u g 5) : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 (Engine.Stage.RowSum::signedWord e p u g 6) : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 (Engine.Stage.RowSum::signedWord e p u g 7) : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 (Engine.Stage.RowSum::signedWord e p u g 8) : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 (Engine.Stage.RowSum::signedWord e p u g 9) : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 (Engine.Stage.RowSum::signedWord e p u g 10) : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 (Engine.Stage.RowSum::signedWord e p u g 11) : Nat)) + (Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0)) = (Engine.Stage.Accumulate::signedTerm e p u g)),
+  proof: simplify{definitions: [group_concrete, term_word_bound]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: swap_from_group,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, n : Nat],
+  statement: (((((((((((((((Engine.Stage.RowSum::signedWord e p u g 0) + (prim multiply 4294967296 (Engine.Stage.RowSum::signedWord e p u g 1) : Nat)) + (prim multiply 18446744073709551616 (Engine.Stage.RowSum::signedWord e p u g 2) : Nat)) + (prim multiply 79228162514264337593543950336 (Engine.Stage.RowSum::signedWord e p u g 3) : Nat)) + (prim multiply 340282366920938463463374607431768211456 (Engine.Stage.RowSum::signedWord e p u g 4) : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 (Engine.Stage.RowSum::signedWord e p u g 5) : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 (Engine.Stage.RowSum::signedWord e p u g 6) : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 (Engine.Stage.RowSum::signedWord e p u g 7) : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 (Engine.Stage.RowSum::signedWord e p u g 8) : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 (Engine.Stage.RowSum::signedWord e p u g 9) : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 (Engine.Stage.RowSum::signedWord e p u g 10) : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 (Engine.Stage.RowSum::signedWord e p u g 11) : Nat)) + (Engine.Stage.Greedy::pick (Engine.Stage.RowSum::entryAt e g 0) 1 0)) = (Engine.Stage.Accumulate::signedTerm e p u g)) -> (((colValue e p u g (n + 1)) + (Engine.Stage.RowSum::negatives e g (n + 1))) = ((Engine.Stage.Accumulate::signedTerm e p u g) + ((colValue e p u (g + 1) n) + (Engine.Stage.RowSum::negatives e (g + 1) n))))),
+  proof: linear_arithmetic{
+    definitions: [Engine.Stage.RowSum::column, Engine.Stage.RowSum::negatives, colValue]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: swap_step,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, n : Nat],
+  statement: (((colValue e p u g (n + 1)) + (Engine.Stage.RowSum::negatives e g (n + 1))) = ((Engine.Stage.Accumulate::signedTerm e p u g) + ((colValue e p u (g + 1) n) + (Engine.Stage.RowSum::negatives e (g + 1) n)))),
+  proof: simplify{definitions: [group_value, swap_from_group]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: swap_given,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, n : Nat],
+  statement: ((((colValue e p u g (n + 1)) + (Engine.Stage.RowSum::negatives e g (n + 1))) = ((Engine.Stage.Accumulate::signedTerm e p u g) + ((colValue e p u (g + 1) n) + (Engine.Stage.RowSum::negatives e (g + 1) n)))) -> ((((colValue e p u (g + 1) n) + (Engine.Stage.RowSum::negatives e (g + 1) n)) = (Engine.Stage.Accumulate::signedTotal e p u (g + 1) n)) -> (((colValue e p u g (n + 1)) + (Engine.Stage.RowSum::negatives e g (n + 1))) = (Engine.Stage.Accumulate::signedTotal e p u g (n + 1))))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Accumulate::signedTotal]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: columns_are_signed_total,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, g : Nat, n : Nat],
+  statement: (((colValue e p u g n) + (Engine.Stage.RowSum::negatives e g n)) = (Engine.Stage.Accumulate::signedTotal e p u g n)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [
+            Engine.Stage.Accumulate::signedTotal,
+            Engine.Stage.RowSum::column,
+            Engine.Stage.RowSum::negatives,
+            colValue
+          ]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{definitions: [hypothesis, swap_step, Engine.Stage.Accumulate::signedTotal]},
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [g],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: carries_close,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  statement: (((rowValue e p u row) + (prim multiply 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 (prim quotient (total11 e p u row) 4294967296 0 : Nat) : Nat)) = ((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u))),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.RowSum::startTotal,
+      Engine.Stage.RowSum::word,
+      colValue,
+      rowValue,
+      total0,
+      total1,
+      total10,
+      total11,
+      total2,
+      total3,
+      total4,
+      total5,
+      total6,
+      total7,
+      total8,
+      total9
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: row_value_below,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  statement: ((rowValue e p u row) < 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816),
+  proof: linear_arithmetic{definitions: [Engine.Stage.RowSum::word, rowValue]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: row_value_given,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  statement: ((((rowValue e p u row) + (prim multiply 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 (prim quotient (total11 e p u row) 4294967296 0 : Nat) : Nat)) = ((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u))) -> ((((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u)) = (Engine.Stage.Accumulate::signedTotal e p u (prim multiply row u : Nat) u)) -> (((rowValue e p u row) < 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816) -> ((Engine.Stage.Accumulate::rowTotal e p u row) = (rowValue e p u row))))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Accumulate::rowTotal]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: signed_total_is_row,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  statement: ((Engine.Stage.Accumulate::rowTotal e p u row) = (rowValue e p u row)),
+  proof: simplify{
+    definitions: [carries_close, columns_are_signed_total, row_value_below, row_value_given]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: row_is_signed_total,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat],
+  statement: ((rowValue e p u row) = (Engine.Stage.Accumulate::rowTotal e p u row)),
+  proof: simplify{definitions: [signed_total_is_row]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: run_step,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, i : Nat, t : Nat, n : Nat],
+  statement: ((Engine.Stage.RowSum::runWords e p u row i t (n + 1)) = (cons (Engine.Stage.RowSum::word t) (Engine.Stage.RowSum::runWords e p u (Engine.Stage.RowSum::nextRow row i) (Engine.Stage.RowSum::nextWord i) (Engine.Stage.RowSum::nextTotal e p u row i t) n))),
+  proof: simplify{definitions: [Engine.Stage.RowSum::runWords]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_0_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 0 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_1_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 1 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_2_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 2 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_3_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 3 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_4_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 4 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_5_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 5 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_6_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 6 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_7_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 7 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_8_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 8 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_9_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 9 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_10_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 10 11) = 0),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: equal_11_eleven,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::equal 11 11) = 1),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.RowSum::equal]},
+  axioms: [propext]
+}
+
+theorem{
+  name: next_row_0,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 0) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_0,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 0) = 1),
+  proof: simplify{
+    definitions: [equal_0_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_0,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 0 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 1 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_0_eleven,
+      next_row_0,
+      next_word_0,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_1,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 1) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_1,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 1) = 2),
+  proof: simplify{
+    definitions: [equal_1_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_1,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 1 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 2 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_1_eleven,
+      next_row_1,
+      next_word_1,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_2,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 2) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_2,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 2) = 3),
+  proof: simplify{
+    definitions: [equal_2_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_2,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 2 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 3 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_2_eleven,
+      next_row_2,
+      next_word_2,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_3,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 3) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_3,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 3) = 4),
+  proof: simplify{
+    definitions: [equal_3_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_3,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 3 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 4 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_3_eleven,
+      next_row_3,
+      next_word_3,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_4,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 4) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_4,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 4) = 5),
+  proof: simplify{
+    definitions: [equal_4_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_4,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 4 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 5 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_4_eleven,
+      next_row_4,
+      next_word_4,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_5,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 5) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_5,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 5) = 6),
+  proof: simplify{
+    definitions: [equal_5_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_5,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 5 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 6 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_5_eleven,
+      next_row_5,
+      next_word_5,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_6,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 6) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_6,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 6) = 7),
+  proof: simplify{
+    definitions: [equal_6_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_6,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 6 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 7 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_6_eleven,
+      next_row_6,
+      next_word_6,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_7,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 7) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_7,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 7) = 8),
+  proof: simplify{
+    definitions: [equal_7_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_7,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 7 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 8 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_7_eleven,
+      next_row_7,
+      next_word_7,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_8,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 8) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_8,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 8) = 9),
+  proof: simplify{
+    definitions: [equal_8_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_8,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 8 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 9 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_8_eleven,
+      next_row_8,
+      next_word_8,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_9,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 9) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_9,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 9) = 10),
+  proof: simplify{
+    definitions: [equal_9_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_9,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 9 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 10 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_9_eleven,
+      next_row_9,
+      next_word_9,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_10,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 10) = row),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_word_10,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 10) = 11),
+  proof: simplify{
+    definitions: [equal_10_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_10,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 10 t) = ((Engine.Stage.RowSum::column e p u (prim multiply row u : Nat) 11 u) + (prim quotient t 4294967296 0 : Nat))),
+  proof: simplify{
+    definitions: [
+      equal_10_eleven,
+      next_row_10,
+      next_word_10,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: next_row_11,
+  parameters: [row : Nat],
+  statement: ((Engine.Stage.RowSum::nextRow row 11) = (row + 1)),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::below,
+      Engine.Stage.RowSum::equal,
+      Engine.Stage.RowSum::nextRow
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_word_11,
+  parameters: [],
+  statement: ((Engine.Stage.RowSum::nextWord 11) = 0),
+  proof: simplify{
+    definitions: [equal_11_eleven, Engine.Stage.Greedy::pick, Engine.Stage.RowSum::nextWord]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: next_total_11,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, t : Nat],
+  statement: ((Engine.Stage.RowSum::nextTotal e p u row 11 t) = (total0 e p u (row + 1))),
+  proof: simplify{
+    definitions: [
+      equal_11_eleven,
+      next_row_11,
+      next_word_11,
+      total0,
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.RowSum::nextTotal,
+      Engine.Stage.RowSum::startTotal
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: run_row,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, row : Nat, n : Nat],
+  statement: ((Engine.Stage.RowSum::runWords e p u row 0 (total0 e p u row) (n + 12)) = (cons (Engine.Stage.RowSum::word (total0 e p u row)) (cons (Engine.Stage.RowSum::word (total1 e p u row)) (cons (Engine.Stage.RowSum::word (total2 e p u row)) (cons (Engine.Stage.RowSum::word (total3 e p u row)) (cons (Engine.Stage.RowSum::word (total4 e p u row)) (cons (Engine.Stage.RowSum::word (total5 e p u row)) (cons (Engine.Stage.RowSum::word (total6 e p u row)) (cons (Engine.Stage.RowSum::word (total7 e p u row)) (cons (Engine.Stage.RowSum::word (total8 e p u row)) (cons (Engine.Stage.RowSum::word (total9 e p u row)) (cons (Engine.Stage.RowSum::word (total10 e p u row)) (cons (Engine.Stage.RowSum::word (total11 e p u row)) (Engine.Stage.RowSum::runWords e p u (row + 1) 0 (total0 e p u (row + 1)) n)))))))))))))),
+  proof: simplify{
+    definitions: [
+      next_row_0,
+      next_row_1,
+      next_row_10,
+      next_row_11,
+      next_row_2,
+      next_row_3,
+      next_row_4,
+      next_row_5,
+      next_row_6,
+      next_row_7,
+      next_row_8,
+      next_row_9,
+      next_total_0,
+      next_total_1,
+      next_total_10,
+      next_total_11,
+      next_total_2,
+      next_total_3,
+      next_total_4,
+      next_total_5,
+      next_total_6,
+      next_total_7,
+      next_total_8,
+      next_total_9,
+      next_word_0,
+      next_word_1,
+      next_word_10,
+      next_word_11,
+      next_word_2,
+      next_word_3,
+      next_word_4,
+      next_word_5,
+      next_word_6,
+      next_word_7,
+      next_word_8,
+      next_word_9,
+      run_step,
+      total1,
+      total10,
+      total11,
+      total2,
+      total3,
+      total4,
+      total5,
+      total6,
+      total7,
+      total8,
+      total9
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: run_starts_at_row_zero,
+  parameters: [e : (List Nat), p : (List Nat), u : Nat, rows : Nat],
+  statement: ((Engine.Stage.RowSum::run e p u rows) = (Engine.Stage.RowSum::runWords e p u 0 0 (total0 e p u 0) (prim multiply 12 rows : Nat))),
+  proof: simplify{definitions: [total0, Engine.Stage.RowSum::run]},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_0,
+  parameters: [],
+  statement: (((prim subtract 12 (0 + 1) : Nat) = 11) /\ ((prim subtract 12 1 : Nat) = 11)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_1,
+  parameters: [],
+  statement: (((prim subtract 12 (1 + 1) : Nat) = 10) /\ ((prim subtract 12 2 : Nat) = 10)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_2,
+  parameters: [],
+  statement: (((prim subtract 12 (2 + 1) : Nat) = 9) /\ ((prim subtract 12 3 : Nat) = 9)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_3,
+  parameters: [],
+  statement: (((prim subtract 12 (3 + 1) : Nat) = 8) /\ ((prim subtract 12 4 : Nat) = 8)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_4,
+  parameters: [],
+  statement: (((prim subtract 12 (4 + 1) : Nat) = 7) /\ ((prim subtract 12 5 : Nat) = 7)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_5,
+  parameters: [],
+  statement: (((prim subtract 12 (5 + 1) : Nat) = 6) /\ ((prim subtract 12 6 : Nat) = 6)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_6,
+  parameters: [],
+  statement: (((prim subtract 12 (6 + 1) : Nat) = 5) /\ ((prim subtract 12 7 : Nat) = 5)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_7,
+  parameters: [],
+  statement: (((prim subtract 12 (7 + 1) : Nat) = 4) /\ ((prim subtract 12 8 : Nat) = 4)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_8,
+  parameters: [],
+  statement: (((prim subtract 12 (8 + 1) : Nat) = 3) /\ ((prim subtract 12 9 : Nat) = 3)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_9,
+  parameters: [],
+  statement: (((prim subtract 12 (9 + 1) : Nat) = 2) /\ ((prim subtract 12 10 : Nat) = 2)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_10,
+  parameters: [],
+  statement: (((prim subtract 12 (10 + 1) : Nat) = 1) /\ ((prim subtract 12 11 : Nat) = 1)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: index_11,
+  parameters: [],
+  statement: (((prim subtract 12 (11 + 1) : Nat) = 0) /\ ((prim subtract 12 12 : Nat) = 0)),
+  proof: linear_arithmetic{},
+  axioms: [propext]
+}
+
+theorem{
+  name: term_words_nested,
+  parameters: [lo : Nat, hi : Nat, pos : Nat],
+  statement: ((Engine.Word::limbsValue (termFrom lo hi pos 12)) = ((Engine.Stage.RowSum::termWord lo hi pos 0) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 1) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 2) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 3) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 4) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 5) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 6) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 7) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 8) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 9) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 10) + (prim multiply 4294967296 ((Engine.Stage.RowSum::termWord lo hi pos 11) + (prim multiply 4294967296 0 : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat))),
+  proof: simplify{
+    definitions: [
+      index_0,
+      index_1,
+      index_10,
+      index_11,
+      index_2,
+      index_3,
+      index_4,
+      index_5,
+      index_6,
+      index_7,
+      index_8,
+      index_9,
+      termFrom,
+      Engine.Word::limbsValue
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: nested_is_weighted,
+  parameters: [
+    w0 : Nat,
+    w1 : Nat,
+    w2 : Nat,
+    w3 : Nat,
+    w4 : Nat,
+    w5 : Nat,
+    w6 : Nat,
+    w7 : Nat,
+    w8 : Nat,
+    w9 : Nat,
+    w10 : Nat,
+    w11 : Nat
+  ],
+  statement: ((w0 + (prim multiply 4294967296 (w1 + (prim multiply 4294967296 (w2 + (prim multiply 4294967296 (w3 + (prim multiply 4294967296 (w4 + (prim multiply 4294967296 (w5 + (prim multiply 4294967296 (w6 + (prim multiply 4294967296 (w7 + (prim multiply 4294967296 (w8 + (prim multiply 4294967296 (w9 + (prim multiply 4294967296 (w10 + (prim multiply 4294967296 (w11 + (prim multiply 4294967296 0 : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) : Nat)) = (((((((((((w0 + (prim multiply 4294967296 w1 : Nat)) + (prim multiply 18446744073709551616 w2 : Nat)) + (prim multiply 79228162514264337593543950336 w3 : Nat)) + (prim multiply 340282366920938463463374607431768211456 w4 : Nat)) + (prim multiply 1461501637330902918203684832716283019655932542976 w5 : Nat)) + (prim multiply 6277101735386680763835789423207666416102355444464034512896 w6 : Nat)) + (prim multiply 26959946667150639794667015087019630673637144422540572481103610249216 w7 : Nat)) + (prim multiply 115792089237316195423570985008687907853269984665640564039457584007913129639936 w8 : Nat)) + (prim multiply 497323236409786642155382248146820840100456150797347717440463976893159497012533375533056 w9 : Nat)) + (prim multiply 2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576 w10 : Nat)) + (prim multiply 9173994463960286046443283581208347763186259956673124494950355357547691504353939232280074212440502746218496 w11 : Nat))),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: term_words_value,
+  parameters: [lo : Nat, hi : Nat, pos : Nat],
+  statement: ((Engine.Word::limbsValue (termFrom lo hi pos 12)) = (Engine.Stage.Accumulate::termValue lo hi pos)),
+  proof: simplify{
+    definitions: [nested_is_weighted, term_words_nested, Engine.Stage.Accumulate::termValue]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

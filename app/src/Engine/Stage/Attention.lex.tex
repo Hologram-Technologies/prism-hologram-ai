@@ -1,0 +1,303 @@
+\begin{lexlean}{Engine.Stage.Attention}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Binary32}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: powTwo,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (match n | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (powTwo rest) : Nat)),
+  recursive_argument: n
+}
+
+definition{
+  name: minOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (prim subtract kept (prim subtract kept next : Nat) : Nat)
+}
+
+definition{
+  name: wordAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::nth words i) 4294967296 0 : Nat)
+}
+
+definition{
+  name: fieldOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient bits 8388608 0 : Nat) 256 0 : Nat)
+}
+
+definition{
+  name: negOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (prim quotient bits 2147483648 0 : Nat)
+}
+
+definition{
+  name: mantissaOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (fieldOf bits) ((prim remainder bits 8388608 0 : Nat) + 8388608) (prim remainder bits 8388608 0 : Nat))
+}
+
+definition{
+  name: scaleOf,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::maxOf (fieldOf bits) 1)
+}
+
+definition{
+  name: product,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply (mantissaOf bits) 6196328019 : Nat) root : Nat)
+}
+
+definition{
+  name: magnitude,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 213 (scaleOf bits)) (prim multiply (product bits root) (powTwo (prim subtract (scaleOf bits) 214 : Nat)) : Nat) (Engine.Stage.Softmax::divideEven (product bits root) (powTwo (prim subtract 214 (scaleOf bits) : Nat))))
+}
+
+definition{
+  name: encoded,
+  parameters: [bits : Nat, root : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (negOf bits) (prim remainder (prim subtract 18446744073709551616 (minOf (magnitude bits root) 9223372036854775808) : Nat) 18446744073709551616 0 : Nat) (minOf (magnitude bits root) 9223372036854775807))
+}
+
+definition{
+  name: lowWord,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (prim remainder v 4294967296 0 : Nat)
+}
+
+definition{
+  name: highWord,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (prim quotient v 4294967296 0 : Nat)
+}
+
+definition{
+  name: exponentWordsFrom,
+  parameters: [scores : (List Nat), root : Nat, i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (lowWord (encoded (wordAt scores i) root)) (cons (highWord (encoded (wordAt scores i) root)) (exponentWordsFrom scores root (i + 1) rest)))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: weights,
+  parameters: [scores : (List Nat), root : Nat, count : Nat],
+  result: (List Nat),
+  body: (Engine.Stage.Softmax::run (exponentWordsFrom scores root 0 count) count)
+}
+
+definition{
+  name: kvHead,
+  parameters: [hq : Nat, group : Nat],
+  result: Nat,
+  body: (prim quotient hq group 0 : Nat)
+}
+
+definition{
+  name: keyBase,
+  parameters: [t : Nat, kv : Nat, kvHeads : Nat, headDim : Nat],
+  result: Nat,
+  body: (prim multiply ((prim multiply t kvHeads : Nat) + kv) headDim : Nat)
+}
+
+definition{
+  name: parity,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim remainder ((negOf a) + (negOf b)) 2 0 : Nat)
+}
+
+definition{
+  name: pairTerm,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply (mantissaOf a) (mantissaOf b) : Nat) (powTwo (prim subtract ((scaleOf a) + (scaleOf b)) 2 : Nat)) : Nat)
+}
+
+definition{
+  name: dotPos,
+  parameters: [
+    queries : (List Nat),
+    keys : (List Nat),
+    qBase : Nat,
+    kBase : Nat,
+    j : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (parity (wordAt queries (qBase + j)) (wordAt keys (kBase + j))) 0 (pairTerm (wordAt queries (qBase + j)) (wordAt keys (kBase + j)))) + (dotPos queries keys qBase kBase (j + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: dotNeg,
+  parameters: [
+    queries : (List Nat),
+    keys : (List Nat),
+    qBase : Nat,
+    kBase : Nat,
+    j : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (parity (wordAt queries (qBase + j)) (wordAt keys (kBase + j))) (pairTerm (wordAt queries (qBase + j)) (wordAt keys (kBase + j))) 0) + (dotNeg queries keys qBase kBase (j + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: signedRound,
+  parameters: [positive : Nat, negative : Nat, k : Nat],
+  result: Nat,
+  body: (Engine.Stage.Binary32::round (Engine.Stage.Greedy::below positive negative) ((prim subtract positive negative : Nat) + (prim subtract negative positive : Nat)) k 1280)
+}
+
+definition{
+  name: scoreAt,
+  parameters: [queries : (List Nat), keys : (List Nat), qBase : Nat, kBase : Nat, headDim : Nat],
+  result: Nat,
+  body: (signedRound (dotPos queries keys qBase kBase 0 headDim) (dotNeg queries keys qBase kBase 0 headDim) 298)
+}
+
+definition{
+  name: headExponentsFrom,
+  parameters: [
+    queries : (List Nat),
+    keys : (List Nat),
+    qBase : Nat,
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    root : Nat,
+    t : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (lowWord (encoded (scoreAt queries keys qBase (keyBase t kv kvHeads headDim) headDim) root)) (cons (highWord (encoded (scoreAt queries keys qBase (keyBase t kv kvHeads headDim) headDim) root)) (headExponentsFrom queries keys qBase kv kvHeads headDim root (t + 1) rest)))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: valueTerm,
+  parameters: [p : Nat, v : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply p (mantissaOf v) : Nat) (powTwo (prim subtract (scaleOf v) 1 : Nat)) : Nat)
+}
+
+definition{
+  name: mixPos,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    j : Nat,
+    t : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (negOf (wordAt values ((keyBase t kv kvHeads headDim) + j))) 0 (valueTerm (Engine.Stage.Greedy::nth shares t) (wordAt values ((keyBase t kv kvHeads headDim) + j)))) + (mixPos shares values kv kvHeads headDim j (t + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: mixNeg,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    j : Nat,
+    t : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (negOf (wordAt values ((keyBase t kv kvHeads headDim) + j))) (valueTerm (Engine.Stage.Greedy::nth shares t) (wordAt values ((keyBase t kv kvHeads headDim) + j))) 0) + (mixNeg shares values kv kvHeads headDim j (t + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: outAt,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    j : Nat
+  ],
+  result: Nat,
+  body: (signedRound (mixPos shares values kv kvHeads headDim j 0 seen) (mixNeg shares values kv kvHeads headDim j 0 seen) 179)
+}
+
+definition{
+  name: outFrom,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    j : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (outAt shares values kv kvHeads headDim seen j) (outFrom shares values kv kvHeads headDim seen (j + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: attend,
+  parameters: [
+    queries : (List Nat),
+    keys : (List Nat),
+    values : (List Nat),
+    hq : Nat,
+    group : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    root : Nat
+  ],
+  result: (List Nat),
+  body: (outFrom (Engine.Stage.Softmax::run (headExponentsFrom queries keys (prim multiply hq headDim : Nat) (kvHead hq group) kvHeads headDim root 0 seen) seen) values (kvHead hq group) kvHeads headDim seen 0 headDim)
+}
+\end{semanticmodule}
+\end{lexlean}
