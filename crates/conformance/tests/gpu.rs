@@ -2316,7 +2316,7 @@ fn gpu_gp_52() {
     );
 }
 
-/// `GP-56`: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
+/// `GP-56`: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and the dense output head with the dense kernel (KN-95) when its half weights fit one binding, any other product on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
 #[test]
 fn gpu_gp_56() {
     // GP-29 shows the printed kernels give hologram_ai_exact's rows on WebGPU
@@ -2337,8 +2337,11 @@ fn gpu_gp_56() {
         "site/app/engine/integer-gpu.mjs",
         &[
             "request[0] = 48;",
-            "return { quantise: await printed(3, 0, 0), sums, accumulate: await printed(4, 0, 0), finish: await printed(5, 0, 0) };",
-            "export const onGpu = (s) => s.kind === 1 && s.block === 32 && s.scaleKind === 2 && s.packed === 0 && s.start === 0 && PRINTED.includes(s.columns);",
+            "return { quantise: await printed(3, 0, 0), sums, accumulate: await printed(4, 0, 0), finish: await printed(5, 0, 0), dense: await printed(6, 0, 0) };",
+            "export const onGpu = (s) => (s.kind === 1 && s.block === 32 && s.scaleKind === 2 && s.packed === 0 && s.start === 0 && PRINTED.includes(s.columns))",
+            "|| (s.kind === 2 && s.start === 0 && s.columns % 32 === 0 && s.columns <= DENSE_WIDTH);",
+            "export const DENSE_WIDTH = 2048;",
+            "await step(kernels.dense, s.rows, [shared.codes, buffer(words(s.weights)), shared.powers, registers, rows, buffer(new Uint32Array([s.columns]))]),",
             "cpu.callWith(\"slices_hold\", held);",
             "const slices = m.call(\"decode_slices\", 0, 1);",
             "Atomics.wait(control, ANSWERED, 0);",
@@ -2381,7 +2384,7 @@ fn gpu_gp_56() {
         &[
             "return { isolated: globalThis.crossOriginIsolated, webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
             "for (const [name, device] of [[\"webgpu\", \"webgpu\"], [\"auto\", \"webgpu\"], [\"cpu\", \"cpu\"]]) {",
-            "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected ${7 * layers} and the head`)",
+            "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected all ${7 * layers + 1}, the head among them`)",
             "fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`)",
             "const device = gpu && run.isolated ? \"webgpu\" : \"cpu\";",
         ],

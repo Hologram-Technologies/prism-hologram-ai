@@ -101,5 +101,13 @@ theorem{
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
+
+theorem{
+  name: dense_accumulate_code_prints_tree,
+  parameters: [],
+  statement: ((Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0), p1 := (Engine.Code::denseAccumulateCode1), p2 := (Engine.Code::denseAccumulateCode2), p3 := (Engine.Code::denseAccumulateCode3), p4 := (Engine.Code::denseAccumulateCode4), p5 := (Engine.Code::denseAccumulateCode5), p6 := (Engine.Code::denseAccumulateCode6), p7 := (Engine.Code::denseAccumulateCode7), p8 := (Engine.Code::denseAccumulateCode8), p9 := (Engine.Code::denseAccumulateCode9), p10 := (Engine.Code::denseAccumulateCode10), p11 := (Engine.Code::denseAccumulateCode11), p12 := (Engine.Code::denseAccumulateCode12), p13 := (Engine.Code::denseAccumulateCode13), p14 := (Engine.Code::denseAccumulateCode14), p15 := (Engine.Code::denseAccumulateCode15), p16 := (Engine.Code::denseAccumulateCode16), p17 := (Engine.Code::denseAccumulateCode17), p18 := (Engine.Code::denseAccumulateCode18), p19 := (Engine.Code::denseAccumulateCode19), p20 := (Engine.Code::denseAccumulateCode20), p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 43 (Engine.Gpu::denseAccumulate))),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

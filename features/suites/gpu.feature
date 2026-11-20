@@ -322,9 +322,9 @@ Feature: gpu
     And both turns' sixteen tokens are the reference's
 
   @GP-56 @build
-  Scenario: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
+  Scenario: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and the dense output head with the dense kernel (KN-95) when its half weights fit one binding, any other product on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
     Given GP-19's Qwen3-shaped ONNX export, 128 wide with a feed-forward of 256, and the engine page's service worker
     When `just page-journey` loads the page, reloads it under its worker, and runs a turn on WebGPU, on the device the kernel chooses, and on the CPU
-    Then the reloaded page is cross-origin isolated, and WebGPU and the kernel's choice run the integer engine on WebGPU with every q4 product there and the head on the module
+    Then the reloaded page is cross-origin isolated, and WebGPU and the kernel's choice run the integer engine on WebGPU with every product there, the head on the dense kernel
     And all three turns' sixteen tokens are the reference's, and WebGPU's are the CPU's
     And a first visit, not isolated, runs on the CPU
