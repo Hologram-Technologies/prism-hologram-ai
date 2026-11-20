@@ -9,7 +9,7 @@
 theorem{
   name: exp2_code_prints_tree,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1))),
+  statement: ((Engine.Code::renderKernelC 3 7 (record Engine.Code::Pieces {p0 := (Engine.Code::exp2NegCode0), p1 := (Engine.Code::exp2NegCode1), p2 := (Engine.Code::exp2NegCode2), p3 := (Engine.Code::exp2NegCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -17,7 +17,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k128,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -25,7 +25,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k256,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -33,7 +33,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k1024,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -41,7 +41,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k1536,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -49,7 +49,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k2048,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -57,7 +57,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k3072,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -65,7 +65,7 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k8192,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }
@@ -73,7 +73,31 @@ theorem{
 theorem{
   name: q4_code_prints_tree_k8960,
   parameters: [],
-  statement: ((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false))),
+  statement: ((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false))),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: q4_quantise_code_prints_tree,
+  parameters: [],
+  statement: ((Engine.Code::renderKernelC 3 21 (record Engine.Code::Pieces {p0 := (Engine.Code::q4QuantiseCode0), p1 := (Engine.Code::q4QuantiseCode1), p2 := (Engine.Code::q4QuantiseCode2), p3 := (Engine.Code::q4QuantiseCode3), p4 := (Engine.Code::q4QuantiseCode4), p5 := (Engine.Code::q4QuantiseCode5), p6 := (Engine.Code::q4QuantiseCode6), p7 := (Engine.Code::q4QuantiseCode7), p8 := (Engine.Code::q4QuantiseCode8), p9 := (Engine.Code::q4QuantiseCode9), p10 := (Engine.Code::q4QuantiseCode10), p11 := (Engine.Code::q4QuantiseCode11), p12 := (Engine.Code::q4QuantiseCode12), p13 := (Engine.Code::q4QuantiseCode13), p14 := (Engine.Code::q4QuantiseCode14), p15 := (Engine.Code::q4QuantiseCode15), p16 := (Engine.Code::q4QuantiseCode16), p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 21 (Engine.Gpu::q4Quantise))),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: q4_finish_code_prints_tree,
+  parameters: [],
+  statement: ((Engine.Code::renderKernelC 5 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4FinishCode0), p1 := (Engine.Code::q4FinishCode1), p2 := (Engine.Code::q4FinishCode2), p3 := (Engine.Code::q4FinishCode3), p4 := (Engine.Code::q4FinishCode4), p5 := (Engine.Code::q4FinishCode5), p6 := (Engine.Code::q4FinishCode6), p7 := (Engine.Code::q4FinishCode7), p8 := (Engine.Code::q4FinishCode8), p9 := (Engine.Code::q4FinishCode9), p10 := (Engine.Code::q4FinishCode10), p11 := (Engine.Code::q4FinishCode11), p12 := (Engine.Code::q4FinishCode12), p13 := (Engine.Code::q4FinishCode13), p14 := (Engine.Code::q4FinishCode14), p15 := (Engine.Code::q4FinishCode15), p16 := (Engine.Code::q4FinishCode16), p17 := (Engine.Code::q4FinishCode17), p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 5 40 (Engine.Gpu::q4Finish))),
+  proof: reflexivity{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: q4_accumulate_code_prints_tree,
+  parameters: [],
+  statement: ((Engine.Code::renderKernelC 6 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4AccumulateCode0), p1 := (Engine.Code::q4AccumulateCode1), p2 := (Engine.Code::q4AccumulateCode2), p3 := (Engine.Code::q4AccumulateCode3), p4 := (Engine.Code::q4AccumulateCode4), p5 := (Engine.Code::q4AccumulateCode5), p6 := (Engine.Code::q4AccumulateCode6), p7 := (Engine.Code::q4AccumulateCode7), p8 := (Engine.Code::q4AccumulateCode8), p9 := (Engine.Code::q4AccumulateCode9), p10 := (Engine.Code::q4AccumulateCode10), p11 := (Engine.Code::q4AccumulateCode11), p12 := (Engine.Code::q4AccumulateCode12), p13 := (Engine.Code::q4AccumulateCode13), p14 := (Engine.Code::q4AccumulateCode14), p15 := (Engine.Code::q4AccumulateCode15), p16 := (Engine.Code::q4AccumulateCode16), p17 := (Engine.Code::q4AccumulateCode17), p18 := (Engine.Code::q4AccumulateCode18), p19 := (Engine.Code::q4AccumulateCode19), p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 40 (Engine.Gpu::q4Accumulate))),
   proof: reflexivity{},
   axioms: [Quot.sound, propext]
 }

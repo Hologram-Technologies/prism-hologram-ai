@@ -6,19 +6,59 @@
 \importmodule{Kernel.Wire}
 \title{Bounded byte buffer}
 \begin{semanticmodule}
+structure{
+  name: Pieces,
+  type_parameters: [],
+  parameters: [],
+  fields: [
+    {name: p0, type: Bytes},
+    {name: p1, type: Bytes},
+    {name: p2, type: Bytes},
+    {name: p3, type: Bytes},
+    {name: p4, type: Bytes},
+    {name: p5, type: Bytes},
+    {name: p6, type: Bytes},
+    {name: p7, type: Bytes},
+    {name: p8, type: Bytes},
+    {name: p9, type: Bytes},
+    {name: p10, type: Bytes},
+    {name: p11, type: Bytes},
+    {name: p12, type: Bytes},
+    {name: p13, type: Bytes},
+    {name: p14, type: Bytes},
+    {name: p15, type: Bytes},
+    {name: p16, type: Bytes},
+    {name: p17, type: Bytes},
+    {name: p18, type: Bytes},
+    {name: p19, type: Bytes},
+    {name: p20, type: Bytes},
+    {name: p21, type: Bytes},
+    {name: p22, type: Bytes},
+    {name: p23, type: Bytes},
+    {name: p24, type: Bytes},
+    {name: p25, type: Bytes},
+    {name: p26, type: Bytes},
+    {name: p27, type: Bytes},
+    {name: p28, type: Bytes},
+    {name: p29, type: Bytes},
+    {name: p30, type: Bytes},
+    {name: p31, type: Bytes}
+  ]
+}
+
 definition{
   name: opAt,
-  parameters: [code : Bytes, pos : Nat],
+  parameters: [code : Pieces, pos : Nat],
   result: Nat,
-  body: (Kernel.Wire::fieldAt code pos 1),
+  body: (if (pos <? 512) then (if (pos <? 256) then (if (pos <? 128) then (if (pos <? 64) then (if (pos <? 32) then (Kernel.Wire::fieldAt (project code p0) (prim subtract pos 0 : Nat) 1) else (Kernel.Wire::fieldAt (project code p1) (prim subtract pos 32 : Nat) 1)) else (if (pos <? 96) then (Kernel.Wire::fieldAt (project code p2) (prim subtract pos 64 : Nat) 1) else (Kernel.Wire::fieldAt (project code p3) (prim subtract pos 96 : Nat) 1))) else (if (pos <? 192) then (if (pos <? 160) then (Kernel.Wire::fieldAt (project code p4) (prim subtract pos 128 : Nat) 1) else (Kernel.Wire::fieldAt (project code p5) (prim subtract pos 160 : Nat) 1)) else (if (pos <? 224) then (Kernel.Wire::fieldAt (project code p6) (prim subtract pos 192 : Nat) 1) else (Kernel.Wire::fieldAt (project code p7) (prim subtract pos 224 : Nat) 1)))) else (if (pos <? 384) then (if (pos <? 320) then (if (pos <? 288) then (Kernel.Wire::fieldAt (project code p8) (prim subtract pos 256 : Nat) 1) else (Kernel.Wire::fieldAt (project code p9) (prim subtract pos 288 : Nat) 1)) else (if (pos <? 352) then (Kernel.Wire::fieldAt (project code p10) (prim subtract pos 320 : Nat) 1) else (Kernel.Wire::fieldAt (project code p11) (prim subtract pos 352 : Nat) 1))) else (if (pos <? 448) then (if (pos <? 416) then (Kernel.Wire::fieldAt (project code p12) (prim subtract pos 384 : Nat) 1) else (Kernel.Wire::fieldAt (project code p13) (prim subtract pos 416 : Nat) 1)) else (if (pos <? 480) then (Kernel.Wire::fieldAt (project code p14) (prim subtract pos 448 : Nat) 1) else (Kernel.Wire::fieldAt (project code p15) (prim subtract pos 480 : Nat) 1))))) else (if (pos <? 768) then (if (pos <? 640) then (if (pos <? 576) then (if (pos <? 544) then (Kernel.Wire::fieldAt (project code p16) (prim subtract pos 512 : Nat) 1) else (Kernel.Wire::fieldAt (project code p17) (prim subtract pos 544 : Nat) 1)) else (if (pos <? 608) then (Kernel.Wire::fieldAt (project code p18) (prim subtract pos 576 : Nat) 1) else (Kernel.Wire::fieldAt (project code p19) (prim subtract pos 608 : Nat) 1))) else (if (pos <? 704) then (if (pos <? 672) then (Kernel.Wire::fieldAt (project code p20) (prim subtract pos 640 : Nat) 1) else (Kernel.Wire::fieldAt (project code p21) (prim subtract pos 672 : Nat) 1)) else (if (pos <? 736) then (Kernel.Wire::fieldAt (project code p22) (prim subtract pos 704 : Nat) 1) else (Kernel.Wire::fieldAt (project code p23) (prim subtract pos 736 : Nat) 1)))) else (if (pos <? 896) then (if (pos <? 832) then (if (pos <? 800) then (Kernel.Wire::fieldAt (project code p24) (prim subtract pos 768 : Nat) 1) else (Kernel.Wire::fieldAt (project code p25) (prim subtract pos 800 : Nat) 1)) else (if (pos <? 864) then (Kernel.Wire::fieldAt (project code p26) (prim subtract pos 832 : Nat) 1) else (Kernel.Wire::fieldAt (project code p27) (prim subtract pos 864 : Nat) 1))) else (if (pos <? 960) then (if (pos <? 928) then (Kernel.Wire::fieldAt (project code p28) (prim subtract pos 896 : Nat) 1) else (Kernel.Wire::fieldAt (project code p29) (prim subtract pos 928 : Nat) 1)) else (if (pos <? 992) then (Kernel.Wire::fieldAt (project code p30) (prim subtract pos 960 : Nat) 1) else (Kernel.Wire::fieldAt (project code p31) (prim subtract pos 992 : Nat) 1)))))),
   axioms: [Quot.sound, propext]
 }
 
 definition{
   name: wordAt,
-  parameters: [code : Bytes, pos : Nat],
+  parameters: [code : Pieces, pos : Nat],
   result: Nat,
-  body: (Kernel.Wire::fieldAt code pos 4),
+  body: ((prim multiply ((prim multiply ((prim multiply (opAt code pos) 256 : Nat) + (opAt code (pos + 1))) 256 : Nat) + (opAt code (pos + 2))) 256 : Nat) + (opAt code (pos + 3))),
   axioms: [Quot.sound, propext]
 }
 
@@ -32,7 +72,7 @@ definition{
 
 definition{
   name: skipE,
-  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  parameters: [fuel : Nat, code : Pieces, pos : Nat],
   result: Nat,
   body: (match fuel
     | Nat.zero => pos
@@ -43,7 +83,7 @@ definition{
 
 definition{
   name: closedC,
-  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  parameters: [fuel : Nat, code : Pieces, pos : Nat],
   result: Bool,
   body: (match fuel
     | Nat.zero => false
@@ -54,7 +94,7 @@ definition{
 
 definition{
   name: foldC,
-  parameters: [fuel : Nat, code : Bytes, params : Bytes, pos : Nat],
+  parameters: [fuel : Nat, code : Pieces, params : Bytes, pos : Nat],
   result: Nat,
   body: (match fuel
     | Nat.zero => 0
@@ -65,7 +105,7 @@ definition{
 
 definition{
   name: renderEC,
-  parameters: [fuel : Nat, slots : Nat, code : Bytes, params : Bytes, pos : Nat],
+  parameters: [fuel : Nat, slots : Nat, code : Pieces, params : Bytes, pos : Nat],
   result: Bytes,
   body: (match fuel
     | Nat.zero => (Engine.Gpu::text "")
@@ -76,7 +116,7 @@ definition{
 
 definition{
   name: skipS,
-  parameters: [fuel : Nat, code : Bytes, pos : Nat],
+  parameters: [fuel : Nat, code : Pieces, pos : Nat],
   result: Nat,
   body: (match fuel
     | Nat.zero => pos
@@ -87,7 +127,7 @@ definition{
 
 definition{
   name: writesC,
-  parameters: [fuel : Nat, code : Bytes, pos : Nat, buffer : Nat],
+  parameters: [fuel : Nat, code : Pieces, pos : Nat, buffer : Nat],
   result: Bool,
   body: (match fuel
     | Nat.zero => false
@@ -98,7 +138,7 @@ definition{
 
 definition{
   name: renderSC,
-  parameters: [fuel : Nat, slots : Nat, depth : Nat, code : Bytes, params : Bytes, pos : Nat],
+  parameters: [fuel : Nat, slots : Nat, depth : Nat, code : Pieces, params : Bytes, pos : Nat],
   result: Bytes,
   body: (match fuel
     | Nat.zero => (Engine.Gpu::text "")
@@ -109,7 +149,7 @@ definition{
 
 definition{
   name: bindingsC,
-  parameters: [buffer : Nat, left : Nat, code : Bytes],
+  parameters: [buffer : Nat, left : Nat, code : Pieces],
   result: Bytes,
   body: (match left
     | Nat.zero => (Engine.Gpu::text "")
@@ -120,24 +160,446 @@ definition{
 
 definition{
   name: renderKernelC,
-  parameters: [buffers : Nat, slots : Nat, code : Bytes, params : Bytes],
+  parameters: [buffers : Nat, slots : Nat, code : Pieces, params : Bytes],
   result: Bytes,
   body: (Engine.Gpu::cat (bindingsC 0 buffers code) (Engine.Gpu::cat (Engine.Gpu::text "override invocations: u32;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\nlet k = gid.x;\nif (k >= invocations) { return; }\nvar l: array<u32, ") (Engine.Gpu::cat (Engine.Gpu::decimalText (if (slots =? 0) then 1 else slots)) (Engine.Gpu::cat (Engine.Gpu::text ">;\n") (Engine.Gpu::cat (renderSC 64 slots 0 code params 0) (Engine.Gpu::text "}\n")))))),
   axioms: [Quot.sound, propext]
 }
 
 definition{
-  name: q4GroupSumsCode,
+  name: q4GroupSumsCode0,
   parameters: [],
   result: Bytes,
-  body: 0x030100010301010803000f000301020903000f00030106000000000803010300000000000305000000000000002004030105050703010f01050703020000000020030401030503030704000507030200000000200304060c0a04010a030500000000030700000000040c03050000000007000000000f0306020303000303
+  body: 0x030100010301010803000f000301020903000f00030106000000000803010300
 }
 
 definition{
-  name: exp2NegCode,
+  name: q4GroupSumsCode1,
   parameters: [],
   result: Bytes,
-  body: 0x030100010301010400030003010204010c030100000000ff0301030a030100000000080301040a030203030301050603020b030403030301060b00000000010603030000000001020203000e03030e0d030300000000200503040e0d0306030500000000010e060305030600000000000c0304000000000100000000000302
+  body: 0x000000000305000000000000002004030105050703010f010507030200000000
 }
+
+definition{
+  name: q4GroupSumsCode2,
+  parameters: [],
+  result: Bytes,
+  body: 0x20030401030503030704000507030200000000200304060c0a04010a03050000
+}
+
+definition{
+  name: q4GroupSumsCode3,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000030700000000040c03050000000007000000000f0306020303000303
+}
+
+definition{
+  name: exp2NegCode0,
+  parameters: [],
+  result: Bytes,
+  body: 0x030100010301010400030003010204010c030100000000ff0301030a03010000
+}
+
+definition{
+  name: exp2NegCode1,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000080301040a030203030301050603020b030403030301060b000000000106
+}
+
+definition{
+  name: exp2NegCode2,
+  parameters: [],
+  result: Bytes,
+  body: 0x03030000000001020203000e03030e0d030300000000200503040e0d03060305
+}
+
+definition{
+  name: exp2NegCode3,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000000010e060305030600000000000c0304000000000100000000000302
+}
+
+definition{
+  name: q4QuantiseCode0,
+  parameters: [],
+  result: Bytes,
+  body: 0x0301000103010107030000000000200301020000000000030500000000000000
+}
+
+definition{
+  name: q4QuantiseCode1,
+  parameters: [],
+  result: Bytes,
+  body: 0x200301020e0d0302090400050301030300800000000904000503010303008000
+}
+
+definition{
+  name: q4QuantiseCode2,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000302030301050a030200000000170301060e030505090302000080000000
+}
+
+definition{
+  name: q4QuantiseCode3,
+  parameters: [],
+  result: Bytes,
+  body: 0x0080000009030200008000000301070e0d030500000000010000000001030503
+}
+
+definition{
+  name: q4QuantiseCode4,
+  parameters: [],
+  result: Bytes,
+  body: 0x01080000000000030500000000000000180901080e0a03060309050309000000
+}
+
+definition{
+  name: q4QuantiseCode5,
+  parameters: [],
+  result: Bytes,
+  body: 0x0001030803010a06000000001f030803010b0e0d000000000f03080d0b000000
+}
+
+definition{
+  name: q4QuantiseCode6,
+  parameters: [],
+  result: Bytes,
+  body: 0x7fff060308000000000f03060000000000010a06030a030b0305000000000000
+}
+
+definition{
+  name: q4QuantiseCode7,
+  parameters: [],
+  result: Bytes,
+  body: 0x0020030301140400050301030303010409031400800000000301050a03040000
+}
+
+definition{
+  name: q4QuantiseCode8,
+  parameters: [],
+  result: Bytes,
+  body: 0x00001703010c0e0d030500000000010000000001030503010d0e030505090304
+}
+
+definition{
+  name: q4QuantiseCode9,
+  parameters: [],
+  result: Bytes,
+  body: 0x00008000000000800000090304000080000003010e0d05030c030a0503070000
+}
+
+definition{
+  name: q4QuantiseCode10,
+  parameters: [],
+  result: Bytes,
+  body: 0x00001003010f06050307000000001005030c030a0301100e0d0000000018030f
+}
+
+definition{
+  name: q4QuantiseCode11,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000000000a030d030f03011106030d0b0310030f0301120b00000000010603
+}
+
+definition{
+  name: q4QuantiseCode12,
+  parameters: [],
+  result: Bytes,
+  body: 0x0f00000000010301130e030e0e0d0000000018030f00000000000503100e0d03
+}
+
+definition{
+  name: q4QuantiseCode13,
+  parameters: [],
+  result: Bytes,
+  body: 0x12031100000000010e0e06031103120000000000000000000109031000000000
+}
+
+definition{
+  name: q4QuantiseCode14,
+  parameters: [],
+  result: Bytes,
+  body: 0x0200000000000b030d0605030c030a05030700000000100301130e0d03130000
+}
+
+definition{
+  name: q4QuantiseCode15,
+  parameters: [],
+  result: Bytes,
+  body: 0x007fff03130000007fff020105030103030e0a0314000000001f060000000000
+}
+
+definition{
+  name: q4QuantiseCode16,
+  parameters: [],
+  result: Bytes,
+  body: 0x03130313020203000e03020506030a030700000000860000000000
+}
+
+definition{
+  name: q4AccumulateCode0,
+  parameters: [],
+  result: Bytes,
+  body: 0x03010001030101070300000000000c0305000000000000000c17020305030103
+}
+
+definition{
+  name: q4AccumulateCode1,
+  parameters: [],
+  result: Bytes,
+  body: 0x17000000000005000000000000011802040d0302040500000000000301270507
+}
+
+definition{
+  name: q4AccumulateCode2,
+  parameters: [],
+  result: Bytes,
+  body: 0x03000405000000000003020301030400032703010504010a0327000000000103
+}
+
+definition{
+  name: q4AccumulateCode3,
+  parameters: [],
+  result: Bytes,
+  body: 0x0106090a030507090327000000000200000000100000010000030107090a0306
+}
+
+definition{
+  name: q4AccumulateCode4,
+  parameters: [],
+  result: Bytes,
+  body: 0x000000000a00000000200301080e030705090306000000040000000004000903
+}
+
+definition{
+  name: q4AccumulateCode5,
+  parameters: [],
+  result: Bytes,
+  body: 0x06000000040003010409050a0303000000001f0a0306000000000f0000000002
+}
+
+definition{
+  name: q4AccumulateCode6,
+  parameters: [],
+  result: Bytes,
+  body: 0x0301030e0a0303000000001f060000000000030303030303010e0a0303000000
+}
+
+definition{
+  name: q4AccumulateCode7,
+  parameters: [],
+  result: Bytes,
+  body: 0x001003010f09030300000100000301100a030800000000100301110903080000
+}
+
+definition{
+  name: q4AccumulateCode8,
+  parameters: [],
+  result: Bytes,
+  body: 0x0100000301120507030f031007030e03110301130d031207030f031003010d05
+}
+
+definition{
+  name: q4AccumulateCode9,
+  parameters: [],
+  result: Bytes,
+  body: 0x07030f03110b03120000000010010c05050507030e03100a031200000000100b
+}
+
+definition{
+  name: q4AccumulateCode10,
+  parameters: [],
+  result: Bytes,
+  body: 0x031300000000100d030d07030f031103010906050e0d03070000000001000000
+}
+
+definition{
+  name: q4AccumulateCode11,
+  parameters: [],
+  result: Bytes,
+  body: 0x0001030700000000a70402030203010a0a0309000000000503010b0903090000
+}
+
+definition{
+  name: q4AccumulateCode12,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000200301140b030d030b0301150e030b050a030d060000000020030b0b030c
+}
+
+definition{
+  name: q4AccumulateCode13,
+  parameters: [],
+  result: Bytes,
+  body: 0x030b030c0301160e030b0a030c060000000020030b000000000003011a000000
+}
+
+definition{
+  name: q4AccumulateCode14,
+  parameters: [],
+  result: Bytes,
+  body: 0x000005000000000000000c17030118040305030103170301190e0e060317030a
+}
+
+definition{
+  name: q4AccumulateCode15,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000000000000000000103140e0e06031705030a000000000100000000000000
+}
+
+definition{
+  name: q4AccumulateCode16,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000103150e0e06031705030a00000000020000000000000000000103160000
+}
+
+definition{
+  name: q4AccumulateCode17,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000003011b050503180319031a03011c060603180319031a03020305030103
+}
+
+definition{
+  name: q4AccumulateCode18,
+  parameters: [],
+  result: Bytes,
+  body: 0x170e0304031c031b011a0e0304050d031803190d0603180319031a050d050318
+}
+
+definition{
+  name: q4AccumulateCode19,
+  parameters: [],
+  result: Bytes,
+  body: 0x031903180d031b0503180319
+}
+
+definition{
+  name: q4FinishCode0,
+  parameters: [],
+  result: Bytes,
+  body: 0x03010001030101070300000000000c0301240a0403050301000000000b000000
+}
+
+definition{
+  name: q4FinishCode1,
+  parameters: [],
+  result: Bytes,
+  body: 0x001f0304032403011a000000000105000000000000000c17030118050600ffff
+}
+
+definition{
+  name: q4FinishCode2,
+  parameters: [],
+  result: Bytes,
+  body: 0xffff04030503010317031a03011a0e031a0e0603180000000000000000000000
+}
+
+definition{
+  name: q4FinishCode3,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000000100000000000203050301031703180303011d00000000000301230000
+}
+
+definition{
+  name: q4FinishCode4,
+  parameters: [],
+  result: Bytes,
+  body: 0x000000030500000000000001801e011d0e090a04030503010a031e0000000005
+}
+
+definition{
+  name: q4FinishCode5,
+  parameters: [],
+  result: Bytes,
+  body: 0x09031e0000000020000000000205031e0000000001031d03011f0e0d06031d00
+}
+
+definition{
+  name: q4FinishCode6,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000018000000002b000000002b06031d00000000180301250e0d031f031d06
+}
+
+definition{
+  name: q4FinishCode7,
+  parameters: [],
+  result: Bytes,
+  body: 0x031d031f0000000000030120050a04030503010a031f000000000509031f0000
+}
+
+definition{
+  name: q4FinishCode8,
+  parameters: [],
+  result: Bytes,
+  body: 0x0000200e09031f00000000200b0403050301050a031f00000000050000000001
+}
+
+definition{
+  name: q4FinishCode9,
+  parameters: [],
+  result: Bytes,
+  body: 0x06000000002009031f000000002000000000000301210e0d0325000000002009
+}
+
+definition{
+  name: q4FinishCode10,
+  parameters: [],
+  result: Bytes,
+  body: 0x03200b000000000103250320030122090a04030503010a06031f000000000100
+}
+
+definition{
+  name: q4FinishCode11,
+  parameters: [],
+  result: Bytes,
+  body: 0x000000050906031f000000000100000000200000000002030500000000000001
+}
+
+definition{
+  name: q4FinishCode12,
+  parameters: [],
+  result: Bytes,
+  body: 0x801e01230e0d05031e0000000001031f0e090a04030503010a031e0000000005
+}
+
+definition{
+  name: q4FinishCode13,
+  parameters: [],
+  result: Bytes,
+  body: 0x09031e000000002000000000020000000001032303230301210503210e03220e
+}
+
+definition{
+  name: q4FinishCode14,
+  parameters: [],
+  result: Bytes,
+  body: 0x0323000000000109032100000000020000000000030126050b06031f00000000
+}
+
+definition{
+  name: q4FinishCode15,
+  parameters: [],
+  result: Bytes,
+  body: 0x2b000000001703210301260e0d0000000140031d007f8000000e0d0326007f80
+}
+
+definition{
+  name: q4FinishCode16,
+  parameters: [],
+  result: Bytes,
+  body: 0x00000326007f80000001260e031d03260000000000020403000503260b0e0326
+}
+
+definition{name: q4FinishCode17, parameters: [], result: Bytes, body: 0x03240000000000000000001f}
 \end{semanticmodule}
 \end{lexlean}
