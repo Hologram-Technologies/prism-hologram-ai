@@ -2,8 +2,10 @@
 \useglossary{lexlean.std.bool@1.2.0}
 \useglossary{lexlean.std.nat@1.2.0}
 \importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Binary32}
 \importmodule{Engine.Stage.Greedy}
 \importmodule{Engine.Stage.Softmax}
+\importmodule{Proofs.StageBinary32}
 \title{Natural numbers}
 \begin{semanticmodule}
 theorem{
@@ -145,6 +147,110 @@ theorem{
       Engine.Stage.Softmax::runAt
     ]
   },
+  axioms: [propext]
+}
+
+theorem{
+  name: attention_scores_reference,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Attention::scoreAt (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (nil Nat))) 0 0 2) (cons (Engine.Stage.Attention::scoreAt (cons 1065353216 (cons 897581056 (nil Nat))) (cons 1065353216 (cons 1027604480 (nil Nat))) 0 0 2) (cons (Engine.Stage.Attention::scoreAt (cons 1 (cons 1 (nil Nat))) (cons 1 (cons 2376221280 (nil Nat))) 0 0 2) (nil Nat)))) = (cons 1073741824 (cons 1065353216 (cons 2147483648 (nil Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_head_reference,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (cons 1077936128 (cons 3204448256 (nil Nat))))) (cons 1065353216 (cons 3226468352 (cons 1073741824 (cons 3226468352 (nil Nat))))) 0 1 1 2 2 777472127993) (cons (Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (nil Nat))) (cons 3226468352 (cons 1065353216 (nil Nat))) 0 1 1 2 1 777472127993) (nil (List Nat)))) = (cons (cons 1069547520 (cons 3226468352 (nil Nat))) (cons (cons 3226468352 (cons 1065353216 (nil Nat))) (nil (List Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_score_is_word,
+  parameters: [queries : (List Nat), keys : (List Nat), qBase : Nat, kBase : Nat, headDim : Nat],
+  statement: ((Engine.Stage.Attention::scoreAt queries keys qBase kBase headDim) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::scoreAt,
+      Engine.Stage.Attention::signedRound,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_out_is_word,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    j : Nat
+  ],
+  statement: ((Engine.Stage.Attention::outAt shares values kv kvHeads headDim seen j) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::outAt,
+      Engine.Stage.Attention::signedRound,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: attention_out_count,
+  parameters: [
+    shares : (List Nat),
+    values : (List Nat),
+    kv : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    j : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Attention::outFrom shares values kv kvHeads headDim seen j n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Attention::outFrom, Engine.Stage.Greedy::size]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Attention::outFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [j],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: attention_head_count,
+  parameters: [
+    queries : (List Nat),
+    keys : (List Nat),
+    values : (List Nat),
+    hq : Nat,
+    group : Nat,
+    kvHeads : Nat,
+    headDim : Nat,
+    seen : Nat,
+    root : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Attention::attend queries keys values hq group kvHeads headDim seen root)) = headDim),
+  proof: simplify{definitions: [attention_out_count, Engine.Stage.Attention::attend]},
   axioms: [propext]
 }
 \end{semanticmodule}
