@@ -21,6 +21,7 @@ import { startIntegerEncoder } from "./integer-encoder.mjs";
 import { PRINTED, printedKernels } from "./integer-gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
+import { ropeCandidates } from "./onnx-roles.mjs";
 import { fetched, loadOnnx } from "./onnx-load.mjs";
 import { keepFiles, manifestReady } from "./files.mjs";
 
