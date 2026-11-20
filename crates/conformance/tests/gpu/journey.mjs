@@ -1,6 +1,6 @@
-// GP-03's journey: the engine page, served with the holo and the wasm module
-// the build made, loads a weight container through the verified kernel, and
-// refuses a tampered one where it should. Prints one JSON line.
+// The engine page's journey: the page, served with the holo and the wasm
+// module the build made, loads ONNX exports through the verified kernel and
+// refuses tampered ones where it should. Prints one JSON line.
 //
 //   node crates/conformance/tests/gpu/journey.mjs <assembled site directory>
 //
@@ -10,7 +10,7 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { buildFixture, buildOnnxFixture, hubFiles, onnxHubFiles, onnxInitializers, uorIndexFiles } from "./fixture.mjs";
+import { buildOnnxFixture, onnxHubFiles, onnxInitializers, uorIndexFiles } from "./fixture.mjs";
 import { referenceModel } from "./reference.mjs";
 import { blake3Hex } from "../../../../try/vendor/prism-code/src/blake3.mjs";
 import { mintTrust, signRoot } from "./hub-sign.mjs";
@@ -38,24 +38,6 @@ const bundleFor = async (root, through = trust) => {
   const key = `${through === trust ? "t" : "f"}:${blake3Hex(root)}`;
   if (!bundles.has(key)) bundles.set(key, await signRoot(through, root));
   return bundles.get(key);
-};
-
-const fixture = buildFixture();
-// One byte inside a block the loader takes after many others: its label no
-// longer matches, so the kernel must refuse that block and nothing after it.
-const victim = fixture.dir.find((e) => e.name === "l1.wq");
-const flipped = Buffer.from(fixture.container);
-flipped[victim.off + Math.floor(victim.len / 2)] ^= 0x01;
-
-const variants = {
-  good: { container: fixture.container, sha256: fixture.sha256 },
-  flip: { container: flipped, sha256: fixture.sha256 },
-  root: { container: fixture.container, sha256: "f".repeat(64) },
-  // The deploy lists a kernel other than the one the browser holds, as when the
-  // service worker serves app.holo from an earlier deploy's cache.
-  stale: { container: fixture.container, sha256: fixture.sha256, staleKernel: true },
-  // GP-27: the index root signed by a key the page's policy does not name.
-  foreign: { container: fixture.container, sha256: fixture.sha256, foreignKey: true },
 };
 
 // GP-19: an ONNX export read from its own files. A byte of the graph flipped
@@ -124,6 +106,11 @@ const flippedGraph = Buffer.from(onnx.files.get(onnx.path));
 flippedGraph[Math.floor(flippedGraph.length * 0.6)] ^= 0x01;
 const onnxVariants = {
   good: { files: onnx.files },
+  // GP-06: the deploy lists a kernel other than the one the browser holds, as
+  // when the service worker serves app.holo from an earlier deploy's cache.
+  stale: { files: onnx.files, staleKernel: true },
+  // GP-27: the index root signed by a key the page's policy does not name.
+  foreign: { files: onnx.files, foreignKey: true },
   cpu: { files: onnx.files, noGpu: true },
   flip: { files: new Map([...onnx.files, [onnx.path, flippedGraph]]), blake3: { [onnx.path]: onnx.b3(onnx.files.get(onnx.path)) } },
   tokenizer: { files: onnx.files, blake3: { "tokenizer.json": "e".repeat(64) } },
@@ -196,26 +183,6 @@ const server = http.createServer(async (request, response) => {
   if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
   requested.push(path);
-  const fixtureRoute = path.match(/^\/fixture\/(\w+)\/(.*)$/);
-  if (fixtureRoute && variants[fixtureRoute[1]]) {
-    const v = variants[fixtureRoute[1]];
-    const hub = hubFiles(fixture, { resolve: `/fixture/${fixtureRoute[1]}/`, sha256: v.sha256 });
-    const rest = fixtureRoute[2];
-    if (rest === "index/root.json") return response.end(hub.root);
-    if (rest === `index/models/${fixture.repo}.json`) return response.end(hub.record);
-    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root, v.foreignKey ? foreignTrust : trust));
-    if (rest === fixture.path) {
-      const range = /bytes=(\d+)-(\d+)?/.exec(request.headers.range ?? "");
-      if (!range) return response.end(v.container);
-      const start = Number(range[1]);
-      const end = range[2] === undefined ? v.container.length - 1 : Number(range[2]);
-      response.statusCode = 206;
-      response.setHeader("content-range", `bytes ${start}-${end}/${v.container.length}`);
-      return response.end(v.container.subarray(start, end + 1));
-    }
-    response.statusCode = 404;
-    return response.end();
-  }
   const encoderRoute = path.match(/^\/encoder\/(bert|distil)\/(.*)$/);
   if (encoderRoute) {
     const f = encoders[encoderRoute[1]];
@@ -242,7 +209,7 @@ const server = http.createServer(async (request, response) => {
     if (rest === "index/root.json") return response.end(hub.root);
     const model = /^index\/models\/(.+)\.json$/.exec(rest);
     if (model && hub.records.has(model[1])) return response.end(hub.records.get(model[1]));
-    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root));
+    if (rest === "index/index.sigstore.json") return response.end(await bundleFor(hub.root, v.foreignKey ? foreignTrust : trust));
     if (rest === "uor/root.json") return response.end(uorOf(onnxRoute[1]).root);
     const shard = rest.startsWith("uor/") ? uorOf(onnxRoute[1]).shards.get(rest.slice(4)) : null;
     if (shard) return response.end(shard);
@@ -276,46 +243,9 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, args: ["--enable-unsafe-swiftshader", "--enable-unsafe-webgpu"] });
 const results = {};
 try {
-  for (const name of Object.keys(variants)) {
-    const page = await browser.newPage();
-    const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e.message)));
-    if (variants[name].staleKernel) {
-      await page.route("**/precache.json", async (route) => {
-        const listing = await (await route.fetch()).json();
-        for (const f of listing.files) if (f.path === "./app.holo") f.blake3 = "0".repeat(64);
-        await route.fulfill({ contentType: "application/json", body: JSON.stringify(listing) });
-      });
-    }
-    await page.goto(`${origin}/app/?repo=${fixture.repo}&path=${fixture.path}&index=/fixture/${name}/index`);
-    await page.click("#load");
-    page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
-    try {
-      await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 });
-    } catch {
-      // Say where it stuck, not only that it did.
-      const stuck = await page.evaluate(() => ({ phase: window.__qengine?.phase, status: document.getElementById("status")?.textContent, checks: window.__qengine?.checks ?? [] }));
-      results[name] = { ...stuck, timeout: true, errors, victim: victim.name };
-      await page.close();
-      continue;
-    }
-    let output = null;
-    let promptStart = null;
-    if (name === "good") {
-      promptStart = await page.inputValue("#prompt");
-      await page.fill("#prompt", "hi");
-      await page.press("#prompt", "Enter");
-      await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error, null, { timeout: 180000 }).catch(() => {});
-      output = await page.evaluate(() => window.__qengine.output);
-    }
-    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks }));
-    results[name] = { ...state, output, promptStart, errors, victim: victim.name };
-    await page.close();
-  }
-
   // GP-50: the deploy's engine.wasm with one bit of one byte flipped. The
   // page must ask decision 80 about the bytes' BLAKE3 and stop at "not the
-  // sealed engine" before it compiles them or reads the container. Every
+  // sealed engine" before it compiles them or reads the model's graph. Every
   // module the page compiles is recorded by its length; the engine's is the
   // one that must not appear. The route is the context's: the page's own
   // service worker fetches engine.wasm itself once it takes over, and only a
@@ -343,28 +273,36 @@ try {
       engineLength = body.length;
       await route.fulfill({ body, contentType: "application/wasm" });
     });
-    const containerReads = () => requested.filter((path) => path === `/fixture/good/${fixture.path}`).length;
-    const before = containerReads();
-    await page.goto(`${origin}/app/?repo=${fixture.repo}&path=${fixture.path}&index=/fixture/good/index`);
+    const graphReads = () => sent.filter((s) => s.variant === "good" && s.path === onnx.path).length;
+    const before = graphReads();
+    await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/good/index`);
     await page.click("#load");
     await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks, compiled: window.__compiled }));
-    results.unsealed = { ...state, engineLength, containerReads: containerReads() - before, errors };
+    results.unsealed = { ...state, engineLength, graphReads: graphReads() - before, errors };
     await context.close();
   }
 
   // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
   // the CPU; and refused where its files are not the record's.
   results.onnx = {};
-  for (const name of ["good", "cpu", "flip", "tokenizer", "q4", "noblake3"]) {
+  for (const name of ["good", "cpu", "flip", "tokenizer", "q4", "noblake3", "stale", "foreign"]) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
+    if (onnxVariants[name].staleKernel) {
+      await page.route("**/precache.json", async (route) => {
+        const listing = await (await route.fetch()).json();
+        for (const f of listing.files) if (f.path === "./app.holo") f.blake3 = "0".repeat(64);
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify(listing) });
+      });
+    }
     if (onnxVariants[name].noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined }));
     await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/${name}/index${onnxVariants[name].precision ? `&precision=${onnxVariants[name].precision}` : ""}`);
     await page.click("#load");
     await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
     let output = null;
+    const promptStart = await page.inputValue("#prompt");
     if ((await page.evaluate(() => window.__qengine.phase)) === "ready") {
       await page.fill("#prompt", "hi");
       await page.press("#prompt", "Enter");
@@ -373,7 +311,7 @@ try {
       output.second = await secondTurn(page);
     }
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, integer: window.__qengine.integer ?? false, gpu: window.__qengine.gpu ?? null, isolated: globalThis.crossOriginIsolated === true, checks: window.__qengine.checks }));
-    results.onnx[name] = { ...state, output, errors };
+    results.onnx[name] = { ...state, output, promptStart, errors };
     await page.close();
   }
 
@@ -826,14 +764,14 @@ try {
     await seed.goto(`${origin}/precache.json`);
     await seed.evaluate(async (origin) => {
       const cache = await caches.open("prism-earlier");
-      await cache.put(`${origin}/app/engine/gpu.mjs`, new Response("// an earlier deploy's engine"));
+      await cache.put(`${origin}/app/engine/pipeline.mjs`, new Response("// an earlier deploy's engine"));
       await cache.put(`${origin}/app/app.css`, await fetch(`${origin}/app/app.css`));
     }, origin);
     await seed.close();
   };
   const held = (page) => page.evaluate(async (origin) => {
     const cache = await caches.open("prism-earlier");
-    return { engine: Boolean(await cache.match(`${origin}/app/engine/gpu.mjs`)), css: Boolean(await cache.match(`${origin}/app/app.css`)) };
+    return { engine: Boolean(await cache.match(`${origin}/app/engine/pipeline.mjs`)), css: Boolean(await cache.match(`${origin}/app/app.css`)) };
   }, origin);
   {
     const context = await browser.newContext();
@@ -868,18 +806,6 @@ try {
 }
 
 // The answer the page gave, against the reference run over the same prompt ids.
-const good = results.good;
-if (good.output) {
-  const reference = referenceModel(fixture.model);
-  let last;
-  for (const id of good.output.promptIds) last = reference.step(id);
-  const expected = [];
-  while (expected.length < 16) {
-    expected.push(last.token);
-    last = reference.step(last.token);
-  }
-  good.expected = expected;
-}
 // The ONNX answers against the reference over the same prompt ids.
 for (const run of Object.values(results.onnx)) {
   if (!run.output) continue;
@@ -909,51 +835,32 @@ const failures = [];
 const fail = (why) => failures.push(why);
 const stoppedAt = (r) => r.checks.filter((c) => c.verdict === "fail")[0];
 
-if (good.phase !== "ready") fail(`good: the page did not reach ready (${good.phase}: ${good.error ?? (good.timeout ? "timed out" : "")})`);
-if (good.checks.some((c) => c.verdict === "fail")) fail(`good: a check failed: ${stoppedAt(good)?.subject}`);
-const alias = good.checks.find((c) => c.step === "alias");
-if (!alias || alias.verdict !== "pass") fail("good: the tied output head was not confirmed as the embedding's bytes");
-if (!good.checks.some((c) => c.step === "root" && c.verdict === "pass")) fail("good: the whole-file root was not checked");
-if (!good.output) fail("good: no answer");
-else {
-  const got = good.output.tokens.slice(0, 16);
-  if (got.length < 16 || got.some((t, i) => t !== good.expected[i])) fail(`good: the page's tokens ${got} are not the reference's ${good.expected}`);
-}
+// GP-50, GP-06 and GP-27 on the ONNX export the page loads.
+const good = results.onnx.good;
 // GP-50: the sealed engine passes decision 80 before it is compiled.
 const sealedCheck = good.checks.find((c) => c.step === "engine" && c.subject.includes("decision 80"));
 if (sealedCheck?.verdict !== "pass" || !/answered "sealed"/.test(sealedCheck.detail)) fail(`good: the engine was not checked by decision 80 (${sealedCheck?.verdict ?? "no check"}: ${sealedCheck?.detail ?? ""})`);
 // A flipped engine is refused by name, at that check, before it is compiled
-// and before any container byte is asked for.
+// and before any byte of the model's graph is asked for.
 const unsealed = results.unsealed;
 const unsealedStop = stoppedAt(unsealed);
 if (unsealed.phase !== "failed" || unsealedStop?.step !== "engine" || !/answered "not the sealed engine"/.test(unsealedStop?.detail ?? "") || !/not the sealed engine/.test(unsealed.error ?? ""))
   fail(`unsealed: expected to stop with "not the sealed engine" at decision 80, stopped at ${unsealedStop?.step}: ${unsealedStop?.detail} (${unsealed.phase}: ${unsealed.error})`);
 if (!unsealed.engineLength || unsealed.compiled.includes(unsealed.engineLength)) fail(`unsealed: the flipped engine (${unsealed.engineLength} bytes) was compiled: ${unsealed.compiled}`);
-if (unsealed.containerReads !== 0) fail(`unsealed: the container was read ${unsealed.containerReads} times after the engine was refused`);
+if (unsealed.graphReads !== 0) fail(`unsealed: the model's graph was read ${unsealed.graphReads} times after the engine was refused`);
 const listed = good.checks.find((c) => c.subject === "kernel is the one this deploy lists");
 if (listed?.verdict !== "pass") fail(`good: the kernel was not compared with the deploy's listing (${listed?.verdict ?? "no check"})`);
 if (good.promptStart !== "") fail(`good: the prompt box started with text, so typing would join it: ${JSON.stringify(good.promptStart)}`);
-if (good.errors.length) fail(`good: page errors: ${good.errors.join(" | ")}`);
-
-const flip = results.flip;
-const flipStop = stoppedAt(flip);
-if (flip.phase !== "failed" || flipStop?.step !== "admit" || flipStop?.subject !== `${victim.name} label and length`)
-  fail(`flip: expected to stop at the admission of ${victim.name}, stopped at ${flipStop?.step}: ${flipStop?.subject} (${flip.phase})`);
-if (flip.checks.some((c) => c.subject === "download → compile")) fail("flip: the load went on to compile");
-
-const root = results.root;
-const rootStop = stoppedAt(root);
-if (root.phase !== "failed" || rootStop?.step !== "root") fail(`root: expected to stop at the whole-file root, stopped at ${rootStop?.step}: ${rootStop?.subject} (${root.phase})`);
 
 const signature = (r) => r.checks.find((c) => c.subject === "index root signature");
 if (signature(good)?.verdict !== "pass") fail("good: the index root's signature was not checked");
-const foreignHub = results.foreign;
+const foreignHub = results.onnx.foreign;
 const foreignStop = stoppedAt(foreignHub);
 if (foreignHub.phase !== "failed" || foreignStop?.subject !== "index root signature" || !/^RootUnverified: .*chain/.test(foreignStop?.detail ?? ""))
   fail(`foreign: expected to stop at the index root signature as RootUnverified, chain failed; stopped at ${foreignStop?.step}: ${foreignStop?.subject} (${foreignStop?.detail})`);
 if (foreignHub.checks.some((c) => c.subject === "hub record matches the index root")) fail("foreign: the page read a record under a root it could not prove");
 
-const stale = results.stale;
+const stale = results.onnx.stale;
 const staleStop = stoppedAt(stale);
 if (stale.phase !== "failed" || staleStop?.subject !== "kernel is the one this deploy lists" || !/^stale kernel/.test(stale.error ?? ""))
   fail(`stale: expected to stop with "stale kernel" at the deploy comparison, stopped at ${staleStop?.step}: ${staleStop?.subject} (${stale.phase}: ${stale.error})`);

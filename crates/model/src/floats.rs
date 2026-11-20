@@ -18,12 +18,16 @@ pub const RUST: [&str; 4] = [
 /// The page's side of the integer path: it hands the module bytes and text
 /// and reads back the token and the logits' binary32 bits, or an encoder's
 /// embedding and label scores (row 9), in the worker that runs them off the
-/// page's thread, and hands the decoder's q4 products to WebGPU (GP-56).
-pub const SCRIPT: [&str; 4] = [
+/// page's thread, hands its products to helpers on other threads (GP-52) or
+/// to WebGPU (GP-56). With the float engines gone, these are every script the
+/// page computes an answer in.
+pub const SCRIPT: [&str; 6] = [
     "site/app/engine/integer.mjs",
     "site/app/engine/integer-encoder.mjs",
     "site/app/engine/integer-worker.mjs",
     "site/app/engine/integer-gpu.mjs",
+    "site/app/engine/integer-helpers.mjs",
+    "site/app/engine/integer-helper.mjs",
 ];
 
 /// Floats still on the way to the integer path, each reported on every run as
