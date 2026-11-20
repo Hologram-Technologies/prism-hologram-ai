@@ -415,6 +415,38 @@ try {
     await page.close();
   }
 
+  // GP-55: transformers.js's own encoder calls, unchanged: an extractor with
+  // mean pooling and normalizing answers a Tensor, a classifier answers
+  // [{ label, score }], and pooling transformers.js would not give is
+  // refused by decision 82 before anything runs.
+  {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ bert, distil, bertTexts, distilTexts }) => {
+      const { pipeline } = await import("./engine/transformers.mjs");
+      const hex = (data) => Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), (b) => b.toString(16).padStart(2, "0")).join("");
+      try {
+        const extractor = await pipeline("feature-extraction", bert, { index: "/encoder/bert/index" });
+        const tensor = await extractor(bertTexts, { pooling: "mean", normalize: true });
+        const width = tensor.dims[1];
+        const rows = bertTexts.map((_, i) => hex(tensor.data.subarray(i * width, (i + 1) * width)));
+        let pooling = null;
+        try { await extractor(bertTexts[0]); } catch (e) { pooling = String(e.message ?? e); }
+        const classifier = await pipeline("text-classification", distil, { index: "/encoder/distil/index" });
+        const top = await classifier(distilTexts[0]);
+        const all = await classifier(distilTexts, { top_k: null });
+        const each = await classifier(distilTexts);
+        return { dims: tensor.dims, type: tensor.type, list: tensor.tolist().length, rows, pooling, top, all, each };
+      } catch (e) {
+        return { failed: String(e.message ?? e) };
+      }
+    }, { bert: encoders.bert.repo, distil: encoders.distil.repo, bertTexts: ENCODER_TEXTS.bert, distilTexts: ENCODER_TEXTS.distil });
+    results.encoder.transformers = { ...run, errors };
+    await page.close();
+  }
+
   // GP-40: transformers.js's own calls, unchanged, through decision 70: a
   // messages list and a string on one generator, and three calls refused by
   // name before anything loads or runs.
@@ -955,6 +987,28 @@ for (const kind of ["bert", "distil"]) {
     if (kind === "distil" && (got.label !== w.label || got.name !== ["NEGATIVE", "POSITIVE"][w.label])) fail(`${what}: "${got.text}" is ${got.name} (${got.label}), not label ${w.label}`);
   });
   if (run.errors.length) fail(`${what}: page errors: ${run.errors.join(" | ")}`);
+}
+
+// GP-55: transformers.js's encoder shapes, and decision 82's refusal.
+{
+  const run = results.encoder.transformers;
+  if (run.failed) fail(`transformers encoders: the call failed: ${run.failed}`);
+  else {
+    const want = encoderExpected.bert;
+    if (run.type !== "float32" || run.dims?.[0] !== want.length || run.list !== want.length) fail(`transformers extractor: expected a float32 Tensor of dims [${want.length}, width], saw ${run.type} ${JSON.stringify(run.dims)}`);
+    run.rows.forEach((bits, i) => { if (bits !== want[i].bits) fail(`transformers extractor: row ${i} is not hologram-ai-cpu-encode's embedding`); });
+    if (!/kernel answered "refused: pooling"/.test(run.pooling ?? "")) fail(`transformers extractor: no pooling must be refused by decision 82, saw ${run.pooling}`);
+    const labels = ["NEGATIVE", "POSITIVE"];
+    const first = encoderExpected.distil[0];
+    if (!Array.isArray(run.top) || run.top.length !== 1 || run.top[0].label !== labels[first.label]) fail(`transformers classifier: expected [{ label: ${labels[first.label]}, score }], saw ${JSON.stringify(run.top)}`);
+    for (const [i, list] of run.all.entries()) {
+      const sum = list.reduce((n, x) => n + x.score, 0);
+      if (list.length !== 2 || list[0].score < list[1].score || Math.abs(sum - 1) > 1e-6) fail(`transformers classifier: text ${i} must answer both labels, highest first, summing to 1, saw ${JSON.stringify(list)}`);
+      if (list[0].label !== labels[encoderExpected.distil[i].label]) fail(`transformers classifier: text ${i}'s top label is ${list[0].label}, not the module's ${labels[encoderExpected.distil[i].label]}`);
+    }
+    if (run.each.length !== encoderExpected.distil.length || run.each.some((x, i) => x.label !== run.all[i][0].label)) fail(`transformers classifier: an array with top_k 1 must answer one { label, score } per text, saw ${JSON.stringify(run.each)}`);
+  }
+  if (run.errors?.length) fail(`transformers encoders: page errors: ${run.errors.join(" | ")}`);
 }
 
 // GP-40: transformers.js's shapes, and its refusals by decision 70.

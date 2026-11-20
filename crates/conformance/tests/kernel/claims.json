@@ -1450,15 +1450,71 @@
       "answer": "invalid request"
     },
     {
-      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "request": "505f6895f3a5fee9431eabb0cf188e0e51d473b7db33534f9a0705ee2f9cb310a2",
       "answer": "sealed"
     },
     {
-      "request": "504fccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "request": "505e6895f3a5fee9431eabb0cf188e0e51d473b7db33534f9a0705ee2f9cb310a2",
       "answer": "not the sealed engine"
     },
     {
-      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bf",
+      "request": "505f6895f3a5fee9431eabb0cf188e0e51d473b7db33534f9a0705ee2f9cb310",
+      "answer": "invalid request"
+    },
+    {
+      "request": "52010101",
+      "answer": "run"
+    },
+    {
+      "request": "52010000",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010001",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010201",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "5201ff01",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010100",
+      "answer": "refused: normalize"
+    },
+    {
+      "request": "52020000",
+      "answer": "run"
+    },
+    {
+      "request": "52020100",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52020001",
+      "answer": "refused: normalize"
+    },
+    {
+      "request": "52020101",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52000101",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "52030000",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "52ff0101",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "520101",
       "answer": "invalid request"
     }
   ]

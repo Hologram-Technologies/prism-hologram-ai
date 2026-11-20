@@ -12030,3 +12030,68 @@ fn engine_en_90() {
         "engine-seal must name both addresses: {said}"
     );
 }
+
+/// `EN-95`: A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do
+#[test]
+fn engine_en_95() {
+    let f = |x: f32| x.to_bits();
+    let read = |bits: &[u32]| {
+        bits.iter()
+            .map(|&b| f32::from_bits(b))
+            .collect::<Vec<f32>>()
+    };
+    // Equal scores answer equal probabilities: two labels a half each,
+    // exactly, wherever the scores lie.
+    for s in [0.0f32, 1.5, -3.25, 40.0] {
+        let p = encode::probabilities(&[f(s), f(s)]).expect("finite scores");
+        assert_eq!(p, vec![f(0.5), f(0.5)], "two equal scores at {s}");
+    }
+    assert!(encode::probabilities(&[]).expect("no scores").is_empty());
+    // Against the double-precision softmax: within 2^-12 of each, ordered as
+    // the scores are, summing to 1 within 2^-20.
+    for scores in [
+        vec![2.0f32, -1.0],
+        vec![0.25, 0.5, -4.0, 3.0],
+        vec![-7.5, 6.5, 0.0],
+    ] {
+        let bits: Vec<u32> = scores.iter().map(|&s| f(s)).collect();
+        let p = read(&encode::probabilities(&bits).expect("finite scores"));
+        let top = scores.iter().copied().fold(f32::MIN, f32::max) as f64;
+        let e: Vec<f64> = scores.iter().map(|&s| (s as f64 - top).exp()).collect();
+        let sum: f64 = e.iter().sum();
+        for (i, (&got, &w)) in p.iter().zip(&e).enumerate() {
+            assert!(
+                (got as f64 - w / sum).abs() < 2f64.powi(-12),
+                "{scores:?}[{i}]: {got} against {}",
+                w / sum
+            );
+        }
+        for i in 0..scores.len() {
+            for j in 0..scores.len() {
+                if scores[i] > scores[j] {
+                    assert!(
+                        p[i] >= p[j],
+                        "{scores:?}: probabilities do not order as the scores"
+                    );
+                }
+            }
+        }
+        let total: f64 = p.iter().map(|&x| x as f64).sum();
+        assert!(
+            (total - 1.0).abs() < 2f64.powi(-20),
+            "{scores:?}: the probabilities sum to {total}"
+        );
+    }
+    // A score that is not finite is refused.
+    assert!(encode::probabilities(&[f(f32::NAN)]).is_err());
+    // The module answers the same bits as the crate.
+    let scores: Vec<u32> = [1.0f32, -2.0, 0.5].iter().map(|&s| f(s)).collect();
+    let bytes: Vec<u8> = scores.iter().flat_map(|b| b.to_le_bytes()).collect();
+    let at = wasm::given(&bytes);
+    assert_eq!(wasm::encode_probabilities(at, bytes.len() as u32), 0);
+    let said: Vec<u32> = wasm::last_answer()
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(said, encode::probabilities(&scores).expect("finite scores"));
+}

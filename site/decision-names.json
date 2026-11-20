@@ -4095,35 +4095,87 @@
       "fields": {
         "1": {
           "name": "The engine's BLAKE3, bytes 1 to 4",
-          "value": 1322057575
+          "value": 1600689651
         },
         "5": {
           "name": "The engine's BLAKE3, bytes 5 to 8",
-          "value": 531147022
+          "value": 2784946499
         },
         "9": {
           "name": "The engine's BLAKE3, bytes 9 to 12",
-          "value": 610228015
+          "value": 514568399
         },
         "13": {
           "name": "The engine's BLAKE3, bytes 13 to 16",
-          "value": 489198711
+          "value": 411962961
         },
         "17": {
           "name": "The engine's BLAKE3, bytes 17 to 20",
-          "value": 630788877
+          "value": 3564353499
         },
         "21": {
           "name": "The engine's BLAKE3, bytes 21 to 24",
-          "value": 1468128957
+          "value": 861097882
         },
         "25": {
           "name": "The engine's BLAKE3, bytes 25 to 28",
-          "value": 2247463847
+          "value": 117829167
         },
         "29": {
           "name": "The engine's BLAKE3, bytes 29 to 32",
-          "value": 2802237366
+          "value": 2628980898
+        }
+      }
+    },
+    "82": {
+      "name": "A transformers.js encoder call",
+      "asks": "Does this transformers.js encoder call ask for what the module's encoder gives?",
+      "fields": {
+        "1": {
+          "name": "Task",
+          "choice": [
+            [
+              "feature-extraction",
+              1
+            ],
+            [
+              "text-classification",
+              2
+            ]
+          ],
+          "value": 1
+        },
+        "2": {
+          "name": "Pooling",
+          "choice": [
+            [
+              "none",
+              0
+            ],
+            [
+              "mean",
+              1
+            ],
+            [
+              "cls",
+              2
+            ]
+          ],
+          "value": 1
+        },
+        "3": {
+          "name": "normalize",
+          "choice": [
+            [
+              "false",
+              0
+            ],
+            [
+              "true",
+              1
+            ]
+          ],
+          "value": 1
         }
       }
     }

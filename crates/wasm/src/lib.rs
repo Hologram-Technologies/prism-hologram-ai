@@ -1584,6 +1584,26 @@ pub extern "C" fn encode_classify(at: u32, len: u32) -> u32 {
     })
 }
 
+/// A classifier's scores, as binary32 bits four bytes each, to its label
+/// probabilities (`hologram_ai_cpu_encode::probabilities`, EN-95), the same
+/// layout, as transformers.js scores a text-classification.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_probabilities(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        if given.len() % TOKEN_BYTES != 0 {
+            return Err(CallError::WrongSize);
+        }
+        let scores: Vec<u32> = given
+            .chunks_exact(TOKEN_BYTES)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let probabilities = encode::probabilities(&scores).map_err(CallError::Encode)?;
+        Ok(probabilities.iter().flat_map(|b| b.to_le_bytes()).collect())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

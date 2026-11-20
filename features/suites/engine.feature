@@ -845,3 +845,11 @@ Feature: engine
     And it fails, naming both addresses, unless the module's BLAKE3 is the address app/src/Kernel/Seal.lex.tex seals
     And the engine-twice recipe builds it twice, from two copies of the tree with two cargo homes of different lengths and a host flag in the environment of the second, and fails on any byte that differs
     And engine.yml runs engine-twice on every change to the engine's inputs, keyed by every one of them, and re-derives the address of a kept module before it is trusted
+
+  @EN-95 @build
+  Scenario: A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do
+    Given a classifier's label scores as binary32 bits
+    When hologram-ai-cpu-encode::probabilities and the module's encode_probabilities answer their softmax
+    Then two equal scores answer exactly a half each, wherever they lie
+    And each probability lies within 2^-12 of the double-precision softmax, they order as the scores do and sum to 1 within 2^-20
+    And a score that is not finite is refused, and the module answers the crate's bits
