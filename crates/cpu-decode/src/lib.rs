@@ -129,15 +129,15 @@ pub struct Dims {
 }
 
 struct Layer<'a> {
-    input_norm: &'a [u8],
+    input_norm: Dense<'a>,
     query: Q4Matrix<'a>,
     key: Q4Matrix<'a>,
     value: Q4Matrix<'a>,
-    biases: Option<[&'a [u8]; 3]>,
+    biases: Option<[Dense<'a>; 3]>,
     output: Q4Matrix<'a>,
-    query_norm: Option<&'a [u8]>,
-    key_norm: Option<&'a [u8]>,
-    post_norm: &'a [u8],
+    query_norm: Option<Dense<'a>>,
+    key_norm: Option<Dense<'a>>,
+    post_norm: Dense<'a>,
     gate: Q4Matrix<'a>,
     up: Q4Matrix<'a>,
     down: Q4Matrix<'a>,
@@ -147,9 +147,9 @@ struct Layer<'a> {
 pub struct Model<'a> {
     /// Its sizes.
     pub dims: Dims,
-    embedding: &'a [u8],
+    embedding: Dense<'a>,
     layers: Vec<Layer<'a>>,
-    final_norm: &'a [u8],
+    final_norm: Dense<'a>,
     frequencies: Vec<u64>,
     epsilon: u64,
     root: i128,
@@ -186,20 +186,22 @@ fn int(node: &Node, key: &str) -> Option<i64> {
     node.ints.iter().find(|(k, _)| k == key).map(|&(_, v)| v)
 }
 
-/// A vector of `length` halves read by the node `name`.
-fn halves<'a>(
+/// A vector of `length` values read by the node `name`: halves, as a q4f16
+/// export stores them, or binary32, as a q4 export does.
+fn vector<'a>(
     nodes: &[Node],
     initializers: &BTreeMap<String, Initializer<'a>>,
     name: &str,
     role: Role,
     length: usize,
-) -> Result<&'a [u8], DecodeError> {
+) -> Result<Dense<'a>, DecodeError> {
     let w =
         weight(node(nodes, name, role)?, initializers, 0).ok_or(DecodeError::Unrecognised(role))?;
-    if w.data_type != 10 || w.bytes.len() != 2 * length {
-        return Err(DecodeError::Unrecognised(role));
+    match w.data_type {
+        10 if w.bytes.len() == 2 * length => Ok(Dense::F16(w.bytes)),
+        1 if w.bytes.len() == 4 * length => Ok(Dense::F32(w.bytes)),
+        _ => Err(DecodeError::Unrecognised(role)),
     }
-    Ok(w.bytes)
 }
 
 /// A `MatMulNBits` node's matrix, at four bits with an exact codec.
@@ -369,11 +371,14 @@ pub fn read<'a>(
     )?;
     let hidden = query.columns;
     let head_dim = query.rows / heads;
-    let vocab = embedding.bytes.len() / 2 / hidden.max(1);
-    if embedding.data_type != 10
-        || embedding.bytes.len() != 2 * vocab * hidden
-        || head_dim * heads != query.rows
-    {
+    // The embedding, and the head that reads it, as halves or binary32.
+    let width = match embedding.data_type {
+        10 => 2,
+        1 => 4,
+        _ => return Err(DecodeError::Unrecognised(Role::Embedding)),
+    };
+    let vocab = embedding.bytes.len() / width / hidden.max(1);
+    if embedding.bytes.len() != width * vocab * hidden || head_dim * heads != query.rows {
         return Err(DecodeError::Unrecognised(Role::Embedding));
     }
     let dims = Dims {
@@ -400,9 +405,9 @@ pub fn read<'a>(
     for l in 0..layers {
         let at = |rest: &str| format!("/model/layers.{l}/{rest}");
         let kv = kv_heads * head_dim;
-        let head_norm = |p: &str, role: Role| -> Result<Option<&'a [u8]>, DecodeError> {
+        let head_norm = |p: &str, role: Role| -> Result<Option<Dense<'a>>, DecodeError> {
             if normed {
-                Ok(Some(halves(
+                Ok(Some(vector(
                     nodes,
                     initializers,
                     &at(&format!("attn/{p}_norm/SimplifiedLayerNormalization")),
@@ -415,7 +420,7 @@ pub fn read<'a>(
         };
         let biases = if biased {
             let bias = |p: &str, role: Role, width: usize| {
-                halves(
+                vector(
                     nodes,
                     initializers,
                     &at(&format!("{}/{p}_proj/Add", style.attention)),
@@ -432,7 +437,7 @@ pub fn read<'a>(
             None
         };
         read_layers.push(Layer {
-            input_norm: halves(
+            input_norm: vector(
                 nodes,
                 initializers,
                 &style.input_norm(l),
@@ -466,7 +471,7 @@ pub fn read<'a>(
             )?,
             query_norm: head_norm("q", Role::QueryNorm)?,
             key_norm: head_norm("k", Role::KeyNorm)?,
-            post_norm: halves(
+            post_norm: vector(
                 nodes,
                 initializers,
                 &style.post_norm(l),
@@ -503,7 +508,7 @@ pub fn read<'a>(
             )?,
         });
     }
-    let final_norm = halves(
+    let final_norm = vector(
         nodes,
         initializers,
         &style.final_norm(layers),
@@ -518,7 +523,11 @@ pub fn read<'a>(
         .map_err(|_| refused)?;
     Ok(Model {
         dims,
-        embedding: embedding.bytes,
+        embedding: if width == 2 {
+            Dense::F16(embedding.bytes)
+        } else {
+            Dense::F32(embedding.bytes)
+        },
         layers: read_layers,
         final_norm,
         frequencies,
@@ -575,9 +584,8 @@ impl Session {
     }
 }
 
-fn half(bytes: &[u8], i: usize) -> Result<Dyadic, DecodeError> {
-    Dyadic::from_binary16(u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]))
-        .ok_or(DecodeError::Exact(ExactError::ScaleNotFinite))
+fn half(weights: Dense<'_>, i: usize) -> Result<Dyadic, DecodeError> {
+    weights.at(i).map_err(DecodeError::Exact)
 }
 
 fn value(bits: u32) -> Result<Dyadic, DecodeError> {
@@ -590,7 +598,7 @@ fn add_to(row: &mut Row, product: i128, exponent: i32) {
 
 /// RMSNorm of binary32 `x` with half weights: each value entering EN-47 in
 /// units of `2^-16`, the normalised value times its weight rounded once.
-fn norm(x: &[u32], weights: &[u8], epsilon: u64) -> Result<Vec<u32>, DecodeError> {
+fn norm(x: &[u32], weights: Dense<'_>, epsilon: u64) -> Result<Vec<u32>, DecodeError> {
     let fixed = x
         .iter()
         .map(|&b| {
@@ -898,10 +906,11 @@ fn answered(
 pub enum Slice<'a> {
     /// Rows of a q4 matrix.
     Q4(Q4Matrix<'a>),
-    /// Rows of the head: each `columns` halves, row after row.
+    /// Rows of the head: each `columns` values, halves or binary32, row
+    /// after row.
     Head {
-        /// The rows' bytes.
-        bytes: &'a [u8],
+        /// The rows' values.
+        weights: Dense<'a>,
         /// The input's length.
         columns: usize,
         /// How many rows.
@@ -919,12 +928,12 @@ impl Slice<'_> {
         Ok(match *self {
             Self::Q4(matrix) => exact::q4_product_with(input, &matrix, SCHEME)?,
             Self::Head {
-                bytes,
+                weights,
                 columns,
                 rows,
             } => exact::dense_product_with(
                 input,
-                Dense::F16(bytes),
+                weights,
                 DenseLayout::OutputMajor,
                 columns,
                 rows,
@@ -967,11 +976,16 @@ impl Slice<'_> {
                 out.extend_from_slice(zeros);
             }
             Self::Head {
-                bytes,
+                weights,
                 columns,
                 rows,
             } => {
-                for n in [2, rows, columns, bytes.len()] {
+                // Kind 2 holds halves, kind 3 binary32.
+                let (kind, bytes) = match weights {
+                    Dense::F32(b) => (3, b),
+                    Dense::F16(b) | Dense::Bf16(b) => (2, b),
+                };
+                for n in [kind, rows, columns, bytes.len()] {
                     word(n);
                 }
                 out.extend_from_slice(bytes);
@@ -1003,7 +1017,7 @@ impl Held {
         };
         let words = match word(0)? {
             1 => 9,
-            2 => 4,
+            2 | 3 => 4,
             _ => return Err(DecodeError::Elsewhere),
         };
         let shape = (0..words)
@@ -1057,7 +1071,11 @@ impl Held {
             })
         } else {
             Slice::Head {
-                bytes: &self.bytes,
+                weights: if s[0] == 3 {
+                    Dense::F32(&self.bytes)
+                } else {
+                    Dense::F16(&self.bytes)
+                },
                 columns: s[2],
                 rows: s[1],
             }
@@ -1125,10 +1143,16 @@ impl<'a> Model<'a> {
                 })
             }
             None => {
-                let width = 2 * self.dims.hidden;
+                let hidden = self.dims.hidden;
+                let rows =
+                    |width: usize, b: &'a [u8]| &b[start * width * hidden..end * width * hidden];
                 Slice::Head {
-                    bytes: &self.embedding[start * width..end * width],
-                    columns: self.dims.hidden,
+                    weights: match self.embedding {
+                        Dense::F32(b) => Dense::F32(rows(4, b)),
+                        Dense::F16(b) => Dense::F16(rows(2, b)),
+                        Dense::Bf16(b) => Dense::Bf16(rows(2, b)),
+                    },
+                    columns: hidden,
                     rows: end - start,
                 }
             }
