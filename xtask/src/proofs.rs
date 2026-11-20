@@ -393,9 +393,15 @@ pub fn verify(root: &Path) -> Result<(), Fail> {
         let mut args = vec!["verify"];
         args.extend(misses.iter().map(String::as_str));
         let out = run(&app, "lexlean", &args)?;
-        let report = String::from_utf8_lossy(&out.stderr);
-        eprint!("{report}");
-        print!("{}", String::from_utf8_lossy(&out.stdout));
+        let (stdout, stderr) = (
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+        print!("{stdout}");
+        eprint!("{stderr}");
+        // lexlean 0.3.0 reports `verified N modules; attestation <id>` on
+        // stdout; read both streams so a move between them is not a failure.
+        let report = format!("{stdout}\n{stderr}");
         if !out.status.success() {
             return Err("lexlean verify failed on the proof modules above".into());
         }
