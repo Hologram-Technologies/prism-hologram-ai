@@ -1,0 +1,112 @@
+\begin{lexlean}{Engine.Stage.HalfScale}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Word}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: eleven,
+  parameters: [],
+  result: (List Nat),
+  body: (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))
+}
+
+definition{
+  name: sumNeg,
+  parameters: [word : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 2147483647 word)
+}
+
+definition{
+  name: sumMag,
+  parameters: [word : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (sumNeg word) (prim subtract 4294967296 word : Nat) word)
+}
+
+definition{
+  name: halfAt,
+  parameters: [scales : (List Nat), g : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::pick (prim remainder g 2 0 : Nat) (prim quotient (Engine.Stage.Greedy::nth scales (prim quotient g 2 0 : Nat)) 65536 0 : Nat) (Engine.Stage.Greedy::nth scales (prim quotient g 2 0 : Nat))) 65536 0 : Nat)
+}
+
+definition{
+  name: exponent,
+  parameters: [half : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient half 1024 0 : Nat) 32 0 : Nat)
+}
+
+definition{
+  name: mantissa,
+  parameters: [half : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (exponent half) (1024 + (prim remainder half 1024 0 : Nat)) (prim remainder half 1024 0 : Nat))
+}
+
+definition{
+  name: halfNeg,
+  parameters: [half : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 32767 half)
+}
+
+definition{
+  name: shiftSteps,
+  parameters: [value : Nat, count : Nat, steps : Nat],
+  result: Nat,
+  body: (match steps
+    | Nat.zero => value
+    | Nat.succ rest => (shiftSteps (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below rest count) (prim multiply 2 value : Nat) value) count rest)),
+  recursive_argument: steps
+}
+
+definition{
+  name: product,
+  parameters: [word : Nat, half : Nat],
+  result: Nat,
+  body: (Engine.Word::mulB (eleven) (sumMag word) (mantissa half))
+}
+
+definition{
+  name: offset,
+  parameters: [half : Nat],
+  result: Nat,
+  body: (prim subtract (exponent half) 1 : Nat)
+}
+
+definition{
+  name: size,
+  parameters: [word : Nat, half : Nat],
+  result: Nat,
+  body: (shiftSteps (product word half) (offset half) 29)
+}
+
+definition{
+  name: sign,
+  parameters: [word : Nat, half : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 0 (product word half)) (prim remainder ((sumNeg word) + (halfNeg half)) 2 0 : Nat) 0)
+}
+
+definition{
+  name: runFrom,
+  parameters: [sums : (List Nat), scales : (List Nat), g : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (sign (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) (cons (prim remainder (product (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (cons (prim quotient (product (Engine.Stage.Greedy::nth sums g) (halfAt scales g)) 4294967296 0 : Nat) (cons (offset (halfAt scales g)) (runFrom sums scales (g + 1) rest)))))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: run,
+  parameters: [sums : (List Nat), scales : (List Nat), groups : Nat],
+  result: (List Nat),
+  body: (runFrom sums scales 0 groups)
+}
+\end{semanticmodule}
+\end{lexlean}

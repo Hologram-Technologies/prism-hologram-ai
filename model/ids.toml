@@ -653,6 +653,12 @@ suite = "kernel"
 statement = "The q4 group sum is defined in LexLean, not Rust: output k of Engine.Stage.Q4Sum::run is the 32-term sum of each signed 4-bit weight code less 8 times the signed 16-bit activation code, written as a two's complement word; Lean proves, for every input, that the word plus the negative terms equals the positive terms plus 2^32 when the sum is negative, that the word is below 2^31 exactly when the sum is not negative, and that each side is at most 2^24, over the shipped stage, and that its one product, the native multiply, equals Engine.Word::mulB for every multiplier up to 8"
 
 [[id]]
+id = "KN-58"
+level = "build"
+suite = "kernel"
+statement = "The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative"
+
+[[id]]
 id = "KN-49"
 level = "build"
 suite = "kernel"
@@ -946,3 +952,9 @@ id = "GP-40"
 level = "build"
 suite = "gpu"
 statement = "Code written for transformers.js runs on the engine unchanged: pipeline(task, model, { device, dtype, progress_callback }) loads through decision 70 and the one call; a messages list answers [{ generated_text: [...messages, { role: assistant, content }] }] with the one call's text, a string answers [{ generated_text: prompt + completion }], a TextStreamer receives the answer as it is made, and an fp32 dtype, an unknown device or do_sample are refused by name by decision 70 before anything loads or runs"
+
+[[id]]
+id = "GP-41"
+level = "build"
+suite = "gpu"
+statement = "The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's"

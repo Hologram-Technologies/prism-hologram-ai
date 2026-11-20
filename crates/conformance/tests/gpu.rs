@@ -1112,7 +1112,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
         "const stops = session.stops ??",
     ] {
         assert!(
@@ -1319,7 +1319,7 @@ fn gpu_gp_23() {
         "join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))",
         "engine.restoreState(held.state);",
         "const tokens = await engine.run(prompt.slice(from), budget, {",
-        "held = { length: head, label: label(prompt.slice(0, head)), state: engine.saveState(head) };",
+        "held = { length: head, label: label(prompt.slice(0, head)), state: await engine.saveState(head) };",
     ] {
         assert!(
             page.contains(wanted),
@@ -1439,8 +1439,8 @@ fn gpu_gp_28() {
     };
     let pipeline = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "import { createIntegerEngine } from \"./integer.mjs\";",
-        "createIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "import { startIntegerEngine } from \"./integer.mjs\";",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
     ] {
         assert!(
             pipeline.contains(wanted),
@@ -1768,7 +1768,7 @@ fn gpu_gp_35() {
     for wanted in [
         "const ENCODER_TASKS = new Set([\"feature-extraction\", \"text-classification\"]);",
         "encoder: encoding,",
-        "const encoder = createIntegerEncoder({ module, ...loaded });",
+        "const encoder = await startIntegerEncoder({ module, ...loaded });",
     ] {
         assert!(
             pipeline.contains(wanted),
@@ -1894,6 +1894,58 @@ fn gpu_gp_40() {
         "[\"device\", \"refused: unsupported device\"]",
         "[\"sampling\", \"refused: sampling\"]",
         "transformers dtype: the load went on past decision 70",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+}
+
+/// `GP-41`: The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's
+#[test]
+fn gpu_gp_41() {
+    // The journey runs the page (`just page-journey`) and counts the page
+    // thread's own calls into the module; this test reads that the pipeline
+    // builds both integer engines in the worker, that the worker opens them
+    // with the engines the page used before, and that the journey checks it.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "const encoder = await startIntegerEncoder({ module, ...loaded });",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    for gone in ["createIntegerEngine(", "createIntegerEncoder("] {
+        assert!(
+            !pipeline.contains(gone),
+            "pipeline.mjs builds an integer engine on the page's thread: `{gone}`"
+        );
+    }
+    let worker = read("site/app/engine/integer-worker.mjs");
+    for wanted in [
+        "const module = moduleOf(data.compiled, data.memory);",
+        "createIntegerEncoder(given) : createIntegerEngine({ ...given, rope: data.rope, capacity: data.capacity })",
+        "onToken: (out) => say(\"token\", out)",
+    ] {
+        assert!(
+            worker.contains(wanted),
+            "integer-worker.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "Object.defineProperty(WebAssembly.Instance.prototype, \"exports\", {",
+        "worker: the page's own thread computed:",
+        "worker: tokens did not arrive one per step:",
+        "worker: the encoder's bits are not GP-35's",
+        "unanswered in the turn",
     ] {
         assert!(
             journey.contains(wanted),

@@ -40,6 +40,16 @@ export function keptFetch(name = "hologram-hub") {
 // The wasm module's calls, with bytes in and out through its linear memory.
 // Every call answers 0 for yes; a no leaves the failure's name as the result.
 export async function openModule(url) {
+  return moduleOf(await WebAssembly.compile(await (await fetch(url)).arrayBuffer()));
+}
+
+// The module's calls on a fresh instance of `compiled`. Given `memory`, the
+// bytes of another instance's linear memory taken between calls, the new
+// instance starts as that one stands: the same graph read, the same heap.
+// Between calls the stack pointer is back at its start, so the memory is all
+// of the module's state; the integer worker (integer-worker.mjs) runs the
+// page's module this way off the page's thread.
+export function moduleOf(compiled, memory = null) {
   // The module reaches the kernel through one import, `kernel.ask`: the
   // request at `at`, `len` bytes, and the answer written at `out`, at most
   // `cap` bytes; it answers the answer's whole length, so a longer one is cut
@@ -57,8 +67,12 @@ export async function openModule(url) {
       },
     },
   };
-  const { instance } = await WebAssembly.instantiate(await (await fetch(url)).arrayBuffer(), imports);
-  x = instance.exports;
+  x = new WebAssembly.Instance(compiled, imports).exports;
+  if (memory) {
+    const pages = memory.byteLength / 65536 - x.memory.buffer.byteLength / 65536;
+    if (pages > 0) x.memory.grow(pages);
+    new Uint8Array(x.memory.buffer).set(memory);
+  }
   const result = () => new Uint8Array(x.memory.buffer).slice(x.result_at(), x.result_at() + x.result_len());
   const check = (name, status) => {
     if (status !== 0) throw new Error(`${name}: ${text.decode(result())}`);
@@ -80,7 +94,9 @@ export async function openModule(url) {
   const setKernel = (ask) => {
     kernel = ask;
   };
-  return { x, call, callWith, setKernel };
+  // This instance's memory as it stands, for `moduleOf(compiled, memory)`.
+  const snapshot = () => new Uint8Array(x.memory.buffer).slice();
+  return { x, call, callWith, setKernel, compiled, snapshot };
 }
 
 const u64 = (bytes, at) => Number(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(at, true));
