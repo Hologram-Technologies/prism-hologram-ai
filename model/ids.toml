@@ -1014,6 +1014,12 @@ suite = "gpu"
 statement = "Code written for transformers.js's encoders runs on the engine unchanged: pipeline(\"feature-extraction\") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline(\"text-classification\") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs"
 
 [[id]]
+id = "GP-57"
+level = "build"
+suite = "gpu"
+statement = "The engine page loads an ONNX export whose graph file holds no tensor, every one in a data file beside it, as Llama 3.2 1B's q4f16 export keeps them: the tensor manifest takes each tensor's BLAKE3 address from the hub's UOR index row under the file it lies in, refuses a listed tensor without one, and refuses only a model none of whose files lists any tensor; the importer reads the data file and the page answers with the reference's tokens"
+
+[[id]]
 id = "EN-91"
 level = "build"
 suite = "engine"
