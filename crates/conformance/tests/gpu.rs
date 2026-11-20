@@ -341,6 +341,7 @@ fn gpu_gp_12() {
             "interleaved",
             "rope: /model/layers.0/attn/q_rotary/RotaryEmbedding rotates interleaved",
         ),
+        ("floatIndex", "unplaced: Gather /model/Gather_2"),
     ] {
         let got = result["refusals"][case].as_str().unwrap_or_default();
         assert!(
@@ -348,6 +349,13 @@ fn gpu_gp_12() {
             "{case}: refused with {got:?}, not {start:?}"
         );
     }
+    // Qwen2.5's int64 constants, read by /model/Gather_2 and its like, are
+    // indices into a shape, not weights: the roles place the model with them.
+    assert!(
+        result["indexConstant"].is_null(),
+        "an int64 constant was refused: {}",
+        result["indexConstant"]
+    );
 }
 
 /// `GP-17`: Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels
