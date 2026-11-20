@@ -3206,3 +3206,18 @@ Planted on 2026-11-20:
 | --- | --- |
 | `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
 | none | passed |
+
+## EN-110, a prompt a layer at a time
+
+A model's file arrives over seconds or minutes. So that a layer can run as soon as its weights are held, `hologram-ai-cpu-decode` reads a model as far as its layers have arrived (`read_first`) and prefills a prompt a layer at a time (`prefill_start`, `prefill_layer`, `prefill_finish`). Every prompt row goes through layer `l` before any row enters layer `l + 1`. Row `i`'s work in layer `l` reads its own row and layer `l`'s keys and values at positions up to its own. All of those are in the cache, with the same bits, whatever order the rows and layers run in. So the result is `step`'s.
+
+`engine_en_110` runs GP-19's Qwen3, Qwen2 and Llama fixtures. It reads the model again with one more layer held before each layer, and compares against a run that steps every id. Every key and value, the last prompt id's logits, and the sixteen tokens after it with each of their logits must be the same bits. `engine_fl_110` refuses with `DecodeError::NotHeld` each of: a step on a model with a layer missing, a layer the model does not hold, a finish before the last layer, an empty prompt, and a layer on a cache that another prefill has grown. A refusal leaves the session as it was.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_110 engine_fl_110`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| Every prompt row rotated at the prefill's first position (`start + i * 0`) | rejected: `qwen3: the prefill left another cache than step` |
+| none | passed, with FL-110, EN-91 and EN-49 |

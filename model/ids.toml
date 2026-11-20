@@ -1054,3 +1054,9 @@ id = "EN-96"
 level = "build"
 suite = "engine"
 statement = "The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"
+
+[[id]]
+id = "EN-110"
+level = "build"
+suite = "engine"
+statement = "hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit"

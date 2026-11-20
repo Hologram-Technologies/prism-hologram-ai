@@ -880,3 +880,17 @@ Feature: engine
     Given a Qwen3-shaped fixture written as a q4 export, binary32 scales, embedding and norms
     When hologram-ai-cpu-decode reads its graph and runs the prompt and sixteen greedy steps, twice
     Then the tokens are the float reference's, every logit within 2^-7, and the two runs' bits agree
+
+  @EN-110 @build
+  Scenario: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt is prefilled a layer at a time, the model read again with one more layer held before each layer, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the prefill's logits for the last prompt id are step's
+    And the sixteen greedy tokens after it and every logit of each are the same bits
+
+  @FL-110 @build
+  Scenario: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+    Given the fixture model read with only its first layer held
+    When it is stepped, prefilled past that layer, finished early, prefilled from an empty prompt, or prefilled on a cache another prefill has grown
+    Then each is refused as DecodeError::NotHeld and the session is left as it was

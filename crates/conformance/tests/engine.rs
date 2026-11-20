@@ -12233,3 +12233,102 @@ fn engine_fl_80() {
         Some(decode::DecodeError::Elsewhere)
     );
 }
+
+/// `EN-110`: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+#[test]
+fn engine_en_110() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let config = en_49_config(&fixture);
+        let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        let mut by_step = decode::Session::new(&model);
+        let mut last = Vec::new();
+        for &id in &fixture.prompt {
+            last = decode::step(&model, &mut by_step, id).expect("the prompt steps");
+        }
+        // The embedding alone first, then one more layer before each layer.
+        let first =
+            decode::read_first(&nodes, &initializers, config, 0).expect("the embedding reads");
+        let mut session = decode::Session::new(&first);
+        let mut prefill =
+            decode::prefill_start(&first, &session, &fixture.prompt).expect("the prefill starts");
+        for l in 0..model.dims.layers {
+            let held = decode::read_first(&nodes, &initializers, config, l + 1)
+                .expect("the layers so far read");
+            decode::prefill_layer(&held, &mut session, &mut prefill).expect("the layer runs");
+            assert_eq!(prefill.layers(), l + 1);
+        }
+        let mut logits =
+            decode::prefill_finish(&model, &mut session, prefill).expect("the prefill finishes");
+        assert_eq!(
+            session, by_step,
+            "{family}: the prefill left another cache than step"
+        );
+        assert_eq!(
+            logits, last,
+            "{family}: the prefill's logits are not step's"
+        );
+        let (mut tokens, mut all) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            let next = decode::greedy(&logits).expect("a token");
+            tokens.push(next);
+            all.push(logits);
+            logits = decode::step(&model, &mut session, next).expect("a token steps");
+        }
+        assert_eq!(
+            (tokens, all),
+            stepped,
+            "{family}: a token or a logit's bits changed"
+        );
+    }
+}
+
+/// `FL-110`: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+#[test]
+fn engine_fl_110() {
+    use hologram_ai_cpu_decode::{self as decode, DecodeError};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let config = en_49_config(&fixture);
+    let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+    let partial = decode::read_first(&nodes, &initializers, config, 1).expect("one layer reads");
+    let mut session = decode::Session::new(&partial);
+    assert_eq!(
+        decode::step(&partial, &mut session, 1).err(),
+        Some(DecodeError::NotHeld),
+        "a step ran on a model with a layer missing"
+    );
+    assert_eq!(session.position(), 0, "a refused step moved the session");
+    assert_eq!(
+        decode::prefill_start(&partial, &session, &[]).err(),
+        Some(DecodeError::NotHeld),
+        "an empty prompt started"
+    );
+    let mut prefill =
+        decode::prefill_start(&partial, &session, &fixture.prompt).expect("the prefill starts");
+    decode::prefill_layer(&partial, &mut session, &mut prefill).expect("layer 0 runs");
+    let before = session.clone();
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut prefill).err(),
+        Some(DecodeError::NotHeld),
+        "layer 1 ran without its weights"
+    );
+    assert_eq!(session, before, "a refused layer changed the cache");
+    assert_eq!(
+        decode::prefill_finish(&model, &mut session, prefill.clone()).err(),
+        Some(DecodeError::NotHeld),
+        "a prefill finished before its last layer"
+    );
+    // A second prefill on a session the first one is midway through.
+    let mut other =
+        decode::prefill_start(&partial, &decode::Session::new(&partial), &fixture.prompt)
+            .expect("a second prefill starts");
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut other).err(),
+        Some(DecodeError::NotHeld),
+        "a layer ran on a cache another prefill had grown"
+    );
+}

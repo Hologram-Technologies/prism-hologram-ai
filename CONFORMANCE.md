@@ -90,6 +90,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-91` | `build` | hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it |
 | `EN-92` | `build` | hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits |
 | `EN-96` | `build` | The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits |
+| `EN-110` | `build` | hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit |
 
 ## gpu
 
@@ -282,6 +283,7 @@ not that the test provokes the failure.
 | `FL-73` | `cpu-encode` | `EncodeError::TokenOutOfRange` | A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table |
 | `FL-74` | `wasm` | `CallError::Encode` | An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure |
 | `FL-80` | `cpu-decode` | `DecodeError::Elsewhere` | A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it |
+| `FL-110` | `cpu-decode` | `DecodeError::NotHeld` | A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt |
 
 ## Cited authorities
 
