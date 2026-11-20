@@ -202,9 +202,13 @@ pub fn binds(
         ));
     }
     if text(&att, "/build_manifest/sha256")? != sha256_hex(kept_manifest) {
-        return Err("the build manifest kept beside the attestation is not the one it names".into());
+        return Err(
+            "the build manifest kept beside the attestation is not the one it names".into(),
+        );
     }
-    if att.pointer("/build_manifest/byte_length").and_then(Value::as_u64)
+    if att
+        .pointer("/build_manifest/byte_length")
+        .and_then(Value::as_u64)
         != Some(kept_manifest.len() as u64)
     {
         return Err("the kept build manifest's length is not the one the attestation names".into());
@@ -415,8 +419,9 @@ pub fn verify(root: &Path) -> Result<(), Fail> {
             }
             // What was just verified must pass the very check a later run
             // makes; if it does not, the key or the check is wrong.
-            binds(&id, &attestation, &kept_manifest, manifest, &tools)
-                .map_err(|why| format!("{module}: the fresh attestation fails the read check: {why}"))?;
+            binds(&id, &attestation, &kept_manifest, manifest, &tools).map_err(|why| {
+                format!("{module}: the fresh attestation fails the read check: {why}")
+            })?;
             std::fs::write(store.join("keys").join(key), format!("{id}\n"))?;
         }
     }
@@ -497,7 +502,10 @@ mod tests {
             "lexlean-attestation-v1",
             &[("attestation-body", format!("{{{body}").as_bytes())],
         );
-        (id.clone(), format!("{{\"attestation_id\":\"{id}\",{body}\n").into_bytes())
+        (
+            id.clone(),
+            format!("{{\"attestation_id\":\"{id}\",{body}\n").into_bytes(),
+        )
     }
 
     #[test]
