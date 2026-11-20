@@ -54,7 +54,8 @@
     <option value="48">50. Rotary cache entry</option>
     <option value="49">54. File stream</option>
     <option value="50">70. A transformers.js call</option>
-    <option value="51">80. Sealed engine</option>
+    <option value="51">71. Token step</option>
+    <option value="52">80. Sealed engine</option>
   </select>
   <p id="asks" class="asks">May this step be taken, and where does it lead?</p>
   <div id="fields" class="fields">
@@ -5179,6 +5180,119 @@
       "module": "Call",
       "name": "A transformers.js call",
       "tag": 70
+    },
+    {
+      "asks": "Which token does this step give, or what pick is carried to its next chunk?",
+      "fields": [
+        {
+          "at": 1,
+          "choice": [
+            [
+              "start, more follows",
+              0
+            ],
+            [
+              "carried, more follows",
+              1
+            ],
+            [
+              "start, last chunk",
+              2
+            ],
+            [
+              "carried, last chunk",
+              3
+            ]
+          ],
+          "name": "Carry the pick, finish",
+          "value": 2,
+          "width": 1
+        },
+        {
+          "at": 2,
+          "name": "Logits in the chunk",
+          "value": 1,
+          "width": 2
+        }
+      ],
+      "length": {
+        "base": 44,
+        "countAt": 2,
+        "stride": 4
+      },
+      "list": {
+        "countAt": 2,
+        "groups": [
+          {
+            "from": 4,
+            "name": "Carried pick and position, as hex characters",
+            "per": 0,
+            "plus": 40,
+            "reader": "stepChar",
+            "scaled": 0,
+            "value": 48,
+            "values": [
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48,
+              48
+            ],
+            "width": 1
+          },
+          {
+            "from": 44,
+            "name": "Logits, binary32 bit patterns",
+            "per": 1,
+            "plus": 0,
+            "reader": "logitAt",
+            "scaled": 0,
+            "value": 1065353216,
+            "values": [
+              1065353216
+            ],
+            "width": 4
+          }
+        ]
+      },
+      "module": "Step",
+      "name": "Token step",
+      "tag": 71
     },
     {
       "asks": "Is this engine.wasm the one the kernel seals?",

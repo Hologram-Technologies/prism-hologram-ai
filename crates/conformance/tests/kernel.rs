@@ -5272,6 +5272,93 @@ fn kernel_kn_80() {
     assert_routed(80, "Kernel.Seal::sealAnswer");
 }
 
+/// `KN-71`: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+#[test]
+fn kernel_kn_71() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Step.lex.tex");
+    assert_pinned(
+        &proofs,
+        "step_cut",
+        "((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "step_reads_its_chunk",
+        "((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "picked_key_is_max",
+        "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
+        "Quot.sound, propext",
+    );
+    for fixture in [
+        "pick_is_greedy_ordered",
+        "pick_is_greedy_first_of_ties",
+        "pick_is_greedy_all_negative",
+        "pick_is_greedy_zeros_tie",
+        "pick_is_greedy_one",
+    ] {
+        let found = declaration(&proofs, fixture);
+        assert!(
+            found.contains("= (Engine.Stage.Greedy::greedy ")
+                && found.contains("proof: reflexivity{}"),
+            "{fixture} must check the pick against KN-55's greedy:
+{found}"
+        );
+    }
+    let step = model("app/src/Kernel/Step.lex.tex");
+    let found = declaration(&step, "stepAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (44 + (prim multiply 4 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(stepHexValid 40 value 0)")
+            && found.contains("(stepFeed (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 71 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    let found = declaration(&step, "tokenOut");
+    assert!(
+        found.contains("(capacity <? (position + 1))") && found.contains("context full"),
+        "decision 71 must refuse a step past the capacity:\n{found}"
+    );
+    assert_routed(71, "Kernel.Step::stepAnswer");
+    let state = |position: u32, capacity: u32| -> Vec<u8> {
+        let mut hex = String::new();
+        for word in [0u32, 0, 0, position, capacity] {
+            for byte in word.to_le_bytes() {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+        }
+        hex.into_bytes()
+    };
+    let request = |flags: u8, logits: &[u32], state: Vec<u8>| {
+        let mut r = vec![71, flags];
+        r.extend((logits.len() as u16).to_be_bytes());
+        r.extend(state);
+        for logit in logits {
+            r.extend(logit.to_be_bytes());
+        }
+        r
+    };
+    assert_claimed(
+        71,
+        &[
+            (
+                request(2, &[1065353216, 1077936128, 1073741824], state(5, 10)),
+                "1 6",
+            ),
+            (
+                request(2, &[1073741824, 1084227584, 1084227584], state(5, 10)),
+                "1 6",
+            ),
+            (request(2, &[1065353216], state(10, 10)), "context full"),
+            (request(2, &[], state(5, 10)), "invalid request"),
+        ],
+    );
+}
+
 /// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
 #[test]
 fn kernel_kn_59() {
