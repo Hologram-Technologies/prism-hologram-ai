@@ -1153,6 +1153,25 @@ pub extern "C" fn decode_step(token: u32) -> u32 {
     })
 }
 
+/// One token through the open model with no logits (EN-91, GP-51): the run is
+/// left as `decode_step` leaves it, and the answer is empty. The page uses it
+/// for every prompt id but the last, the head being a quarter of a token.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_advance(token: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let advanced = with_model(d, config, |model| {
+                decode::advance(model, &mut session, token).map_err(CallError::Decode)
+            });
+            d.session = Some(session);
+            advanced.map(|()| Vec::new())
+        })
+    })
+}
+
 /// Keep the run as it was after its first `length` tokens, for a later turn
 /// that opens the same way: answers the number `decode_restore` takes, four
 /// bytes little-endian.

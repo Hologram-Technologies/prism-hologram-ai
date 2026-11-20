@@ -293,3 +293,10 @@ Feature: gpu
     Then pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are hologram-ai-cpu-encode's embeddings bit for bit
     And an extractor called without pooling is refused by decision 82 before it runs
     And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
+
+  @GP-51 @build
+  Scenario: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
+    Given the page's integer engine (site/app/engine/integer.mjs) and GP-19's Qwen3-shaped ONNX export
+    When `just page-journey` runs a turn on the CPU device, in the worker, and a second turn on a restored prefix
+    Then integer.mjs's run calls decode_advance for every prompt id but the last and decode_step for the last and each generated token
+    And the sixteen tokens are the reference's, and the second turn's are the first's

@@ -2027,6 +2027,53 @@ fn gpu_gp_50() {
     }
 }
 
+/// `GP-51`: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
+#[test]
+fn gpu_gp_51() {
+    // EN-91 proves advance leaves the cache step leaves; this reads that the
+    // page's run uses it for every prompt id but the last, and nowhere else,
+    // and that the journey still holds the CPU, worker and second-turn tokens
+    // to the reference.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let integer = read("site/app/engine/integer.mjs");
+    let run = integer
+        .split("async function run(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n  }\n").next())
+        .expect("integer.mjs has run");
+    for wanted in [
+        "if (i < prompt.length - 1) {",
+        "m.call(\"decode_advance\", t);",
+        "} else last = stepSync(t).token;",
+        "if (out.length < count) last = stepSync(last).token;",
+    ] {
+        assert!(run.contains(wanted), "run no longer has `{wanted}`");
+    }
+    assert_eq!(
+        integer.matches("\"decode_advance\"").count(),
+        1,
+        "decode_advance is called outside run's prompt"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "fail(`onnx ${name}: the page's tokens ${got} are not the reference's ${run.expected}`)",
+        "fail(`worker: the tokens ${got} are not the reference's ${run.expected}`)",
+        "fail(`onnx ${name}: the second turn's tokens ${got} are not the reference's ${run.expectedSecond}`)",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks `{wanted}`"
+        );
+    }
+    let wasm = read("crates/wasm/src/lib.rs");
+    assert!(
+        wasm.contains("decode::advance(model, &mut session, token)"),
+        "the module's decode_advance is not hologram-ai-cpu-decode's advance"
+    );
+}
+
 /// `GP-55`: Code written for transformers.js's encoders runs on the engine unchanged: pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline("text-classification") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs
 #[test]
 fn gpu_gp_55() {

@@ -853,3 +853,11 @@ Feature: engine
     Then two equal scores answer exactly a half each, wherever they lie
     And each probability lies within 2^-12 of the double-precision softmax, they order as the scores do and sum to 1 within 2^-20
     And a score that is not finite is refused, and the module answers the crate's bits
+
+  @EN-91 @build
+  Scenario: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt's ids but the last are advanced and the last is stepped, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the sixteen greedy tokens and every logit of each are the same bits
+    And an id past the vocabulary is refused by advance as by step
