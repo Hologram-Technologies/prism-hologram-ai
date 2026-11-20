@@ -1,0 +1,38 @@
+{
+  "decision": 22,
+  "name": "The device",
+  "asks": "Does this model run on WebGPU, on the CPU, or not at all?",
+  "fields": {
+    "1": {
+      "name": "A GPU is there",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Largest binding, bytes",
+      "value": 134217728
+    },
+    "10": {
+      "name": "Largest buffer, bytes",
+      "value": 268435456
+    },
+    "18": {
+      "name": "Model, bytes",
+      "value": 1221878940
+    },
+    "26": {
+      "name": "CPU ceiling, bytes",
+      "value": 1073741824
+    }
+  },
+  "purpose": "whether the model runs on WebGPU, on the CPU or not at all"
+}

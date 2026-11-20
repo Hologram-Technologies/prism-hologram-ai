@@ -12,6 +12,9 @@
 //! read from the wrong offset, or a verdict decided some other way would still
 //! verify, and would no longer be the claim the register makes.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::path::PathBuf;
 
 fn root() -> PathBuf {
@@ -38,15 +41,31 @@ fn declaration<'a>(model: &'a str, name: &str) -> &'a str {
 }
 
 /// The proofs count only if the gate checks them. The `app` recipe must verify
-/// every module under `app/src/Proofs`, by a glob that fails when it matches
-/// nothing, and no theorem may sit where that command does not look.
+/// every module under `app/src/Proofs`, each either in this run or by an
+/// earlier verification of byte-identical inputs whose attestation it checks
+/// (`xtask proofs`), and fail when there is none; no theorem may sit where that
+/// command does not look.
 fn assert_proofs_are_gated() {
     let justfile = model("Justfile");
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
     assert!(
-        justfile.contains("shopt -s failglob")
-            && justfile.contains("lexlean verify src/Proofs/*.lex.tex"),
+        app.contains("shopt -s failglob")
+            && app.contains("cargo run -q --locked -p xtask -- proofs"),
         "the app recipe must run lexlean verify over every proof module"
     );
+    let proofs = model("xtask/src/proofs.rs");
+    for needle in [
+        "const PROOFS: &str = \"src/Proofs\";",
+        "read_dir(app.join(PROOFS))",
+        "holds no proof module",
+        "let mut args = vec![\"verify\"];",
+    ] {
+        assert!(
+            proofs.contains(needle),
+            "xtask proofs must discover every proof module and verify each it cannot reuse: {needle}"
+        );
+    }
     // The executable modules are discovered, not listed: a list would go stale
     // the first time a decision was added, and a module nobody reads reports
     // nothing.
@@ -116,30 +135,88 @@ fn assert_pinned(proofs: &str, theorem: &str, statement: &str, axioms: &str) {
     );
 }
 
+/// The decisions after 80 have slots, one definition each, so a pull request
+/// that adds one edits only its own slot's body and its import.
+const SLOTS: std::ops::RangeInclusive<u8> = 81..=112;
+const INVALID: &str = "(prim utf8_encode \"invalid request\" : Bytes)";
+
+/// The slot table's `<=?` tree over `from..=to`, as `slots` must write it.
+fn slot_tree(from: u8, to: u8) -> String {
+    if from == to {
+        return format!("(slot{from} tag value)");
+    }
+    let mid = from + (to - from) / 2;
+    format!(
+        "(if (tag <=? {mid}) then {} else {})",
+        slot_tree(from, mid),
+        slot_tree(mid + 1, to)
+    )
+}
+
+/// The dispatch is a fixed table: the route's last fallback is `slots`, which
+/// reaches each slot by a `<=?` tree and names no tag of its own, and each slot
+/// is empty (the refusal, no axioms) or answers exactly its own tag. The entry
+/// module's imports are sorted, so two new imports land apart.
+fn assert_slot_table(kernel: &str) {
+    let route = declaration(kernel, "route");
+    assert!(
+        route.contains(" else (slots tag value))"),
+        "the route's last fallback must be the slot table:\n{route}"
+    );
+    let slots = declaration(kernel, "slots");
+    assert!(
+        slots.contains(&format!(
+            "body: {},",
+            slot_tree(*SLOTS.start(), *SLOTS.end())
+        )),
+        "the slot table must reach each slot by its <=? tree:\n{slots}"
+    );
+    for tag in SLOTS {
+        let slot = declaration(kernel, &format!("slot{tag}"));
+        let empty = slot.contains(&format!("body: {INVALID},")) && slot.contains("axioms: []");
+        let filled = slot.contains(&format!("body: (if (tag =? {tag}) then (Kernel."))
+            && slot.contains(&format!(" value) else {INVALID}),"))
+            && slot.matches("(tag =? ").count() == 1;
+        assert!(
+            empty ^ filled,
+            "slot{tag} must refuse, or answer exactly decision {tag}:\n{slot}"
+        );
+    }
+    let imports: Vec<&str> = kernel
+        .lines()
+        .filter(|line| line.starts_with("\\importmodule{"))
+        .collect();
+    let mut sorted = imports.clone();
+    sorted.sort_unstable();
+    assert_eq!(imports, sorted, "the entry module's imports are sorted");
+}
+
 /// Decision `tag` is answered by `answer`, and nothing else answers for it.
 fn assert_routed(tag: u8, answer: &str) {
     let kernel = model("app/src/Kernel.lex.tex");
-    let route = declaration(&kernel, "route");
+    assert_slot_table(&kernel);
+    let route = if SLOTS.contains(&tag) {
+        declaration(&kernel, &format!("slot{tag}"))
+    } else {
+        declaration(&kernel, "route")
+    };
     assert!(
         route.contains(&format!("(if (tag =? {tag}) then ({answer} value)")),
         "decision {tag} must be routed to {answer}:\n{route}"
     );
     assert_eq!(
-        route.matches(&format!("(tag =? {tag})")).count(),
+        kernel.matches(&format!("(tag =? {tag})")).count(),
         1,
         "decision {tag} is routed once"
     );
 }
 
-/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims.json`,
+/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims/`,
 /// which the `app` recipe replays through the guest of the holo it has just built. So
 /// a refusal that row 10 of the plan names is the compiled kernel's own answer, not
 /// only a reading of the model's text.
 fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let listed: Vec<(&str, &str)> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3399,10 +3476,7 @@ fn kernel_kn_37() {
     assert_routed(37, "Kernel.Scale::scaleAnswer");
     // The claims the crates make of decision 37 cover every answer, a scale
     // that is not finite included; the app recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3912,10 +3986,7 @@ fn kernel_kn_42() {
     assert_routed(42, "Kernel.Round::roundAnswer");
     // The claims the crates make of decision 42 cover every answer; the app
     // recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -4179,11 +4250,7 @@ fn kernel_kn_46() {
     assert_routed(45, "Kernel.Template::templateAnswer");
     // The claims cover every answer; the app recipe replays them in the guest.
     use hologram_ai_kernel_client::template;
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let mine: Vec<(String, String)> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -4257,11 +4324,7 @@ fn kernel_kn_47() {
         declaration(&kernel, name);
     }
     assert_routed(46, "Kernel.Chat::chatAnswer");
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -5233,7 +5296,7 @@ fn kernel_kn_80() {
     // The sealed address is sealedWord's eight words, each `then` literal and
     // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
     // claims the guest replays are derived from it here, so the seal has one
-    // source: a moved seal fails until claims.json follows.
+    // source: a moved seal fails until claims/080.json follows.
     let chain = declaration(&kernel, "sealedWord");
     let tokens: Vec<&str> = chain
         .split(|c: char| !c.is_ascii_alphanumeric())
@@ -5259,13 +5322,13 @@ fn kernel_kn_80() {
     );
     // The page's form for decision 80 starts at the sealed address, so it
     // answers sealed as shown; it follows the seal as the claims do.
-    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
-        .expect("decision-names.json is JSON");
+    let names: serde_json::Value = serde_json::from_str(&model("page/decision-names/080.json"))
+        .expect("page/decision-names/080.json is JSON");
     for (i, word) in sealed.iter().enumerate() {
         assert_eq!(
-            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            names["fields"][(1 + 4 * i).to_string()]["value"],
             serde_json::json!(word),
-            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            "page/decision-names/080.json's field {} is not sealedWord {i}",
             1 + 4 * i
         );
     }

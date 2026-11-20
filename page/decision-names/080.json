@@ -1,0 +1,40 @@
+{
+  "decision": 80,
+  "name": "Sealed engine",
+  "asks": "Is this engine.wasm the one the kernel seals?",
+  "fields": {
+    "1": {
+      "name": "The engine's BLAKE3, bytes 1 to 4",
+      "value": 1600689651
+    },
+    "5": {
+      "name": "The engine's BLAKE3, bytes 5 to 8",
+      "value": 2784946499
+    },
+    "9": {
+      "name": "The engine's BLAKE3, bytes 9 to 12",
+      "value": 514568399
+    },
+    "13": {
+      "name": "The engine's BLAKE3, bytes 13 to 16",
+      "value": 411962961
+    },
+    "17": {
+      "name": "The engine's BLAKE3, bytes 17 to 20",
+      "value": 3564353499
+    },
+    "21": {
+      "name": "The engine's BLAKE3, bytes 21 to 24",
+      "value": 861097882
+    },
+    "25": {
+      "name": "The engine's BLAKE3, bytes 25 to 28",
+      "value": 117829167
+    },
+    "29": {
+      "name": "The engine's BLAKE3, bytes 29 to 32",
+      "value": 2628980898
+    }
+  },
+  "purpose": "whether engine.wasm is the engine this kernel seals, by its BLAKE3"
+}

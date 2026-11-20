@@ -1,0 +1,89 @@
+{
+  "decision": 71,
+  "name": "Token step",
+  "asks": "Which token does this step give, or what pick is carried to its next chunk?",
+  "fields": {
+    "1": {
+      "name": "Carry the pick, finish",
+      "choice": [
+        [
+          "start, more follows",
+          0
+        ],
+        [
+          "carried, more follows",
+          1
+        ],
+        [
+          "start, last chunk",
+          2
+        ],
+        [
+          "carried, last chunk",
+          3
+        ]
+      ],
+      "value": 2
+    },
+    "2": {
+      "name": "Logits in the chunk",
+      "value": 1
+    }
+  },
+  "list": {
+    "stepChar": {
+      "name": "Carried pick and position, as hex characters",
+      "value": 48,
+      "values": [
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48,
+        48
+      ]
+    },
+    "logitAt": {
+      "name": "Logits, binary32 bit patterns",
+      "value": 1065353216,
+      "values": [
+        1065353216
+      ]
+    }
+  },
+  "purpose": "which token a step gives once its logits have streamed in"
+}

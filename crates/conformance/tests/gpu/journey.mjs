@@ -172,6 +172,17 @@ const apart = (bytes) => onnxInitializers(bytes).filter((t) => t.length >= 4096)
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
 // GP-50: every path the server is asked for, in order.
 const requested = [];
+// A Range read answers that span, as Hugging Face does; a plain read the whole file.
+function span(request, response, served) {
+  const range = /bytes=(\d+)-(\d+)/.exec(request.headers.range ?? "");
+  if (!range) return response.end(served);
+  const [from, to] = [Number(range[1]), Number(range[2]) + 1];
+  response.statusCode = 206;
+  response.setHeader("content-range", `bytes ${from}-${to - 1}/${served.length}`);
+  response.setHeader("access-control-expose-headers", "content-range");
+  return response.end(served.subarray(from, to));
+}
+
 const server = http.createServer(async (request, response) => {
   if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
@@ -210,7 +221,7 @@ const server = http.createServer(async (request, response) => {
     const shard = rest.startsWith("uor/") ? uor.shards.get(rest.slice(4)) : null;
     if (shard) return response.end(shard);
     const served = rest.startsWith("files/") ? f.files.get(rest.slice(6)) : null;
-    if (served) return response.end(served);
+    if (served) return span(request, response, served);
     response.statusCode = 404;
     return response.end();
   }
@@ -228,15 +239,9 @@ const server = http.createServer(async (request, response) => {
     if (shard) return response.end(shard);
     const served = rest.startsWith("files/") && !v.offline ? v.files.get(rest.slice(6)) : null;
     if (served) {
-      // A Range read answers that span, as Hugging Face does.
       const range = /bytes=(\d+)-(\d+)/.exec(request.headers.range ?? "");
-      const [from, to] = range ? [Number(range[1]), Number(range[2]) + 1] : [0, served.length];
-      sent.push({ variant: onnxRoute[1], path: rest.slice(6), from, to });
-      if (!range) return response.end(served);
-      response.statusCode = 206;
-      response.setHeader("content-range", `bytes ${from}-${to - 1}/${served.length}`);
-      response.setHeader("access-control-expose-headers", "content-range");
-      return response.end(served.subarray(from, to));
+      sent.push({ variant: onnxRoute[1], path: rest.slice(6), from: range ? Number(range[1]) : 0, to: range ? Number(range[2]) + 1 : served.length });
+      return span(request, response, served);
     }
     response.statusCode = 404;
     return response.end();

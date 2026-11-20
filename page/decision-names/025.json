@@ -1,0 +1,34 @@
+{
+  "decision": 25,
+  "name": "Stopping",
+  "asks": "Does generation stop at this token?",
+  "fields": {
+    "1": {
+      "name": "How many stop ids follow",
+      "value": 2
+    },
+    "2": {
+      "name": "The token",
+      "value": 151645
+    },
+    "6": {
+      "name": "Tokens generated",
+      "value": 5
+    },
+    "10": {
+      "name": "Budget, tokens",
+      "value": 256
+    }
+  },
+  "list": {
+    "stopIdAt": {
+      "name": "Stop ids",
+      "value": 1,
+      "values": [
+        151645,
+        151643
+      ]
+    }
+  },
+  "purpose": "whether generation stops"
+}

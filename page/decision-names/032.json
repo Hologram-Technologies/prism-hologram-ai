@@ -1,0 +1,64 @@
+{
+  "decision": 32,
+  "name": "Probe",
+  "asks": "Will opening this part of a past answer show the value that produced it?",
+  "fields": {
+    "1": {
+      "name": "Layer",
+      "value": 12
+    },
+    "5": {
+      "name": "Layers",
+      "value": 28
+    },
+    "9": {
+      "name": "Position",
+      "value": 40
+    },
+    "13": {
+      "name": "Positions",
+      "value": 64
+    },
+    "17": {
+      "name": "Component",
+      "value": 0
+    },
+    "18": {
+      "name": "Components",
+      "value": 4
+    },
+    "19": {
+      "name": "Reproducibility of the run",
+      "choice": [
+        [
+          "none",
+          0
+        ],
+        [
+          "same hardware",
+          1
+        ],
+        [
+          "everywhere",
+          2
+        ]
+      ],
+      "value": 2
+    },
+    "20": {
+      "name": "Same adapter",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    }
+  },
+  "purpose": "whether opening part of a past answer shows the value that produced it"
+}

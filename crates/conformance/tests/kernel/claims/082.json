@@ -1,0 +1,61 @@
+{
+  "decision": 82,
+  "claims": [
+    {
+      "request": "52010101",
+      "answer": "run"
+    },
+    {
+      "request": "52010000",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010001",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010201",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "5201ff01",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52010100",
+      "answer": "refused: normalize"
+    },
+    {
+      "request": "52020000",
+      "answer": "run"
+    },
+    {
+      "request": "52020100",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52020001",
+      "answer": "refused: normalize"
+    },
+    {
+      "request": "52020101",
+      "answer": "refused: pooling"
+    },
+    {
+      "request": "52000101",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "52030000",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "52ff0101",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "520101",
+      "answer": "invalid request"
+    }
+  ]
+}
