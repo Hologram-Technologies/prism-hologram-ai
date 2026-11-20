@@ -74,8 +74,12 @@ export function moduleOf(compiled, memory = null) {
         new Uint8Array(x.memory.buffer).set(answer.subarray(0, Math.min(answer.length, cap)), out);
         return answer.length;
       },
+      // A product handed to the engine's helpers (GP-52), once
+      // setProducts names them; until then every product is refused.
+      product: (number, at, len, out, cap) => (products ? products(number, at, len, out, cap) : 1),
     },
   };
+  let products = null;
   x = new WebAssembly.Instance(compiled, imports).exports;
   if (memory) {
     const pages = memory.byteLength / 65536 - x.memory.buffer.byteLength / 65536;
@@ -105,7 +109,10 @@ export function moduleOf(compiled, memory = null) {
   };
   // This instance's memory as it stands, for `moduleOf(compiled, memory)`.
   const snapshot = () => new Uint8Array(x.memory.buffer).slice();
-  return { x, call, callWith, setKernel, compiled, snapshot };
+  const setProducts = (answer) => {
+    products = answer;
+  };
+  return { x, call, callWith, setKernel, setProducts, compiled, snapshot };
 }
 
 const u64 = (bytes, at) => Number(new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(at, true));

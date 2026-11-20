@@ -996,6 +996,24 @@ suite = "kernel"
 statement = "Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust"
 
 [[id]]
+id = "KN-82"
+level = "build"
+suite = "kernel"
+statement = "An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name"
+
+[[id]]
+id = "EN-95"
+level = "build"
+suite = "engine"
+statement = "A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do"
+
+[[id]]
+id = "GP-55"
+level = "build"
+suite = "gpu"
+statement = "Code written for transformers.js's encoders runs on the engine unchanged: pipeline(\"feature-extraction\") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline(\"text-classification\") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs"
+
+[[id]]
 id = "EN-91"
 level = "build"
 suite = "engine"
@@ -1006,3 +1024,15 @@ id = "GP-51"
 level = "build"
 suite = "gpu"
 statement = "The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before"
+
+[[id]]
+id = "EN-92"
+level = "build"
+suite = "engine"
+statement = "hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits"
+
+[[id]]
+id = "GP-52"
+level = "build"
+suite = "gpu"
+statement = "On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens"

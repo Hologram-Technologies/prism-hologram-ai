@@ -18,6 +18,7 @@
 \importmodule{Kernel.Determinism}
 \importmodule{Kernel.Device}
 \importmodule{Kernel.Divide}
+\importmodule{Kernel.Encode}
 \importmodule{Kernel.Evict}
 \importmodule{Kernel.Exact}
 \importmodule{Kernel.Family}
@@ -71,8 +72,8 @@ definition{
   name: slot82,
   parameters: [tag : Nat, value : Bytes],
   result: Bytes,
-  body: (prim utf8_encode "invalid request" : Bytes),
-  axioms: []
+  body: (if (tag =? 82) then (Kernel.Encode::encodeAnswer value) else (prim utf8_encode "invalid request" : Bytes)),
+  axioms: [Quot.sound, propext]
 }
 
 definition{
@@ -320,7 +321,7 @@ definition{
   parameters: [tag : Nat, value : Bytes],
   result: Bytes,
   body: (if (tag <=? 96) then (if (tag <=? 88) then (if (tag <=? 84) then (if (tag <=? 82) then (if (tag <=? 81) then (slot81 tag value) else (slot82 tag value)) else (if (tag <=? 83) then (slot83 tag value) else (slot84 tag value))) else (if (tag <=? 86) then (if (tag <=? 85) then (slot85 tag value) else (slot86 tag value)) else (if (tag <=? 87) then (slot87 tag value) else (slot88 tag value)))) else (if (tag <=? 92) then (if (tag <=? 90) then (if (tag <=? 89) then (slot89 tag value) else (slot90 tag value)) else (if (tag <=? 91) then (slot91 tag value) else (slot92 tag value))) else (if (tag <=? 94) then (if (tag <=? 93) then (slot93 tag value) else (slot94 tag value)) else (if (tag <=? 95) then (slot95 tag value) else (slot96 tag value))))) else (if (tag <=? 104) then (if (tag <=? 100) then (if (tag <=? 98) then (if (tag <=? 97) then (slot97 tag value) else (slot98 tag value)) else (if (tag <=? 99) then (slot99 tag value) else (slot100 tag value))) else (if (tag <=? 102) then (if (tag <=? 101) then (slot101 tag value) else (slot102 tag value)) else (if (tag <=? 103) then (slot103 tag value) else (slot104 tag value)))) else (if (tag <=? 108) then (if (tag <=? 106) then (if (tag <=? 105) then (slot105 tag value) else (slot106 tag value)) else (if (tag <=? 107) then (slot107 tag value) else (slot108 tag value))) else (if (tag <=? 110) then (if (tag <=? 109) then (slot109 tag value) else (slot110 tag value)) else (if (tag <=? 111) then (slot111 tag value) else (slot112 tag value)))))),
-  axioms: []
+  axioms: [Quot.sound, propext]
 }
 
 definition{
