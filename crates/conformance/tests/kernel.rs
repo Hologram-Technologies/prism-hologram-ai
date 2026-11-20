@@ -5195,3 +5195,67 @@ fn kernel_kn_58() {
         "the stage multiplies only by 2"
     );
 }
+
+/// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each column sum over n groups is at most n(2^32 - 1), that the negative count is at most n, that each output is a word, and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus the term
+#[test]
+fn kernel_kn_59() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/RowSum.lex.tex");
+    let proofs = model("app/src/Proofs/StageRowSum.lex.tex");
+    assert_pinned(
+        &proofs,
+        "column_bound",
+        "((Engine.Stage.RowSum::column e p u g i n) <= (prim multiply 4294967295 n : Nat))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "negatives_bound",
+        "((Engine.Stage.RowSum::negatives e g n) <= n)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "output_is_word",
+        "((Engine.Stage.RowSum::word x) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "add_exact",
+        "((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "complement_twelve",
+        "(((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "subtract_exact",
+        "((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816))",
+        "Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.RowSum}")
+            && !proofs.contains("\n  name: column,"),
+        "the proofs must read the stage, not restate it"
+    );
+    for (name, body) in [
+        (
+            "position",
+            "body: (word (((entryAt entries g 3) + 168) + (prim subtract 4294967296 (word (Engine.Stage.Greedy::nth powers (prim remainder g units 0 : Nat))) : Nat)))",
+        ),
+        (
+            "run",
+            "body: (runWords entries powers units 0 0 (startTotal entries powers units 0) (prim multiply 12 rows : Nat))",
+        ),
+    ] {
+        assert!(
+            declaration(&stage, name).contains(body),
+            "{name} changed"
+        );
+    }
+}

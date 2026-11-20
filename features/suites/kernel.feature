@@ -486,3 +486,11 @@ Feature: kernel
     And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
     And size_bound bounds the product shifted by its offset by 2^64 under the same condition
     And scaled_zero_is_not_negative holds for every input
+
+  @KN-59 @build
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each column sum over n groups is at most n(2^32 - 1), that the negative count is at most n, that each output is a word, and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus the term
+    Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageRowSum in the gate
+    Then column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
+    And output_is_word holds for every output
+    And add_exact, complement_twelve and subtract_exact hold for every register and term
