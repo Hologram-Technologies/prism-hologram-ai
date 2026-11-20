@@ -285,4 +285,4 @@ asked for. On the true engine it requires the `engine` check to pass with
 | decision 80 asked after `WebAssembly.instantiate` | rejected: `the engine is compiled before decision 80 is asked` |
 | none | passed |
 
-`just page-journey` (in the acceptance gate and `pages.yml`): JOURNEY_RESULT
+`just page-journey` (in the acceptance gate and `pages.yml`): passed in acceptance run 44702842589, the engine with one bit flipped stopped at the `engine` check with "not the sealed engine", nothing of its size compiled and the container not read. The run before it (44642776590) failed here because the flip was routed on the page and the page's service worker fetched the engine itself; the route is now the context's.
