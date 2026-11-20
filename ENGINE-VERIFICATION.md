@@ -3172,7 +3172,9 @@ cargo runs on the host.
 
 So `engine-build` on any host but x86_64 runs itself in the linux/amd64
 variant of the SDK image `prismpm.lock` pins (the gate checks the image lists
-both platforms), under the host's emulation, with the workspace mounted at the
+both platforms), named by that manifest's own digest from the image's index, since
+Docker will not pull a second platform under the index digest a host already
+holds (`cannot overwrite digest`, the first arm64 run, 44815391796), under the host's emulation, with the workspace mounted at the
 same path, the gate's home setup and a target directory of its own
 (`target/engine-amd64`). Every host then checks the one engine that is
 published, which `pages.yml` builds on amd64. Decided by Ilya on 2026-11-20

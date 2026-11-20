@@ -155,6 +155,12 @@ engine-build out:
       [[ -n $image ]] || { echo "engine-build: prismpm.lock names no SDK image to build the amd64 engine in" >&2; exit 64; }
       case "{{out}}" in /*) out="{{out}}" ;; *) out="$PWD/{{out}}" ;; esac
       [[ $out == "$PWD"/* ]] || { echo "engine-build: on $(uname -m) the engine is built in an amd64 container, which sees only this workspace; {{out}} is outside it" >&2; exit 64; }
+      # The lock names the image's index, which this host already holds as its
+      # own platform; Docker will not pull another platform under that digest
+      # ("cannot overwrite digest"), so the amd64 manifest is named by its own.
+      amd64=$(docker buildx imagetools inspect "$image" --raw | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const m = JSON.parse(s).manifests?.find((x) => x.platform?.os === "linux" && x.platform?.architecture === "amd64"); if (!m) process.exit(1); console.log(m.digest); })') \
+        || { echo "engine-build: $image lists no linux/amd64 manifest" >&2; exit 64; }
+      image="${image%@*}@$amd64"
       echo "engine-build: $(uname -m) host, building the engine in $image as linux/amd64"
       exec docker run --rm --platform linux/amd64 \
         --user "$(id -u):$(id -g)" \
