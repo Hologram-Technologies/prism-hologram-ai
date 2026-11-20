@@ -26,8 +26,12 @@ use hologram_ai_onnx_preflight::OnnxError;
 use crate::Kernel;
 
 /// The domain of the runtime's fused extension operators. A graph that names
-/// any of them is in the fused export style.
+/// any of them is in the fused export style, except `MatMulNBits`: that is how
+/// 4-bit weights are stored in either style, and Qwen2.5's decomposed export
+/// carries it beside a `Pow`, `ReduceMean` and `Softmax` that only the
+/// decomposed list holds.
 const FUSED_DOMAIN: &str = "com.microsoft";
+const EITHER_STYLE: &str = "MatMulNBits";
 
 /// One file of a model, as its record gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -337,7 +341,10 @@ impl Graph {
             .map_err(ImportError::Unreadable)?;
         self.taking.finish(kernel)?;
 
-        let fused = self.nodes.iter().any(|node| node.domain == FUSED_DOMAIN);
+        let fused = self
+            .nodes
+            .iter()
+            .any(|node| node.domain == FUSED_DOMAIN && node.op_type != EITHER_STYLE);
         let style = if self.encoder {
             opname::Style::Encoder
         } else if fused {

@@ -1629,7 +1629,9 @@ Nothing is decided here; the kernel is asked:
   taken;
 - **decision 5**, each whole file against its record's SHA-256 and length;
 - **decision 18**, each operator the graph names, in the fused style when any
-  node is in the `com.microsoft` domain and the decomposed style otherwise;
+  node other than `MatMulNBits` is in the `com.microsoft` domain and the
+  decomposed style otherwise: `MatMulNBits` stores 4-bit weights in either
+  style, and Qwen2.5's decomposed export names it;
 - **decision 20**, each MatMulNBits weight's codes and scales against the
   node's `N`, `K` and `block_size`.
 
@@ -1673,6 +1675,15 @@ Five, planted one at a time and then restored. Every one was rejected.
 
 Two of the plants were first written against lines `cargo fmt` had reflowed;
 they applied to nothing, and were planted again against the formatted text.
+
+On 2026-11-20 the style rule stopped counting `MatMulNBits`: Qwen2.5-1.5B's
+q4f16 export (onnx-community/Qwen2.5-1.5B-Instruct at `d54957e`) writes
+normalisation, rotation and attention out in standard operators, all 27 on
+the decomposed list, but stores its weights as `MatMulNBits`, so it was asked
+in the fused style and refused at its sixth operator, `Pow`. The old rule,
+planted back, fails EN-31 with `a graph whose only com.microsoft operator is
+MatMulNBits is decomposed`; restored, it passes. EN-31 also holds a graph
+naming `GroupQueryAttention` to the fused style.
 
 ### Run over a real export
 
@@ -3180,7 +3191,7 @@ read as `exact::Dense`, halves or binary32, each value exactly
 (`Dense::at`), and the head's slices carry which they hold (kind 2 halves,
 kind 3 binary32), so a q4 export runs on the integer engine with the same
 rounding rules as a q4f16 one. The engine changed, so its seal moved to
-`blake3:15edd556…d5d63d` (EN-90).
+`blake3:b5fd8212…a7bb26` (EN-90).
 
 | Claim | Evidence | Kind |
 | --- | --- | --- |

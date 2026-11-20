@@ -32,9 +32,10 @@ export const TASKS = { "text-generation": 0, "feature-extraction": 1, "text-clas
 const ENCODER_TASKS = new Set(["feature-extraction", "text-classification"]);
 // What the kernel's choice of precision and device is weighed against. No
 // browser reports how much memory a GPU has, so its budget is a stated 4 GiB;
-// the CPU engine, single-threaded on a static host, takes models up to 1 GiB.
+// the CPU engine, single-threaded on a static host, takes models up to 2 GiB,
+// so milestone 2's three text models all run on it (Ilya, 2026-11-20).
 export const GPU_BUDGET = 4 * 2 ** 30;
-export const CPU_CEILING = 2 ** 30;
+export const CPU_CEILING = 2 * 2 ** 30;
 export const CAPACITY = 2048;
 const INDEX = "https://hologram-technologies.github.io/hub/data/index";
 
