@@ -266,7 +266,7 @@ the input into a SharedArrayBuffer, posts the product's number to a WebGPU
 worker and waits on `Atomics.wait`; the WebGPU worker dispatches the four
 kernels, reads the rows back, writes them where the model's worker reads them
 and wakes it. The weights reach that worker once, as `decode_slices` writes
-them. The dense f16 output head runs on the dense kernel (KN-87) when its weights fit
+them. The dense f16 output head runs on the dense kernel (KN-95) when its weights fit
 one binding. A product no printed kernel takes is answered on an instance of
 the same `engine.wasm` holding only it: a head too large to bind or stored as
 binary32, and any matrix with binary32 scales or zero points.
