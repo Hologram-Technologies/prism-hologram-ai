@@ -179,7 +179,7 @@ export async function pipeline(task, model, options = {}) {
       const limit = gpu ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
       on = await ask("device", "device to run on", join(new Uint8Array([22, gpu ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
       onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : startIntegerEngine({ module, ...raw, capacity: CAPACITY });
+      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers });
     },
   });
   // A failed load forgets every file it read or kept here, since one of them

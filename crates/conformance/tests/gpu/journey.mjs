@@ -172,6 +172,17 @@ const apart = (bytes) => onnxInitializers(bytes).filter((t) => t.length >= 4096)
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm" };
 // GP-50: every path the server is asked for, in order.
 const requested = [];
+// A Range read answers that span, as Hugging Face does; a plain read the whole file.
+function span(request, response, served) {
+  const range = /bytes=(\d+)-(\d+)/.exec(request.headers.range ?? "");
+  if (!range) return response.end(served);
+  const [from, to] = [Number(range[1]), Number(range[2]) + 1];
+  response.statusCode = 206;
+  response.setHeader("content-range", `bytes ${from}-${to - 1}/${served.length}`);
+  response.setHeader("access-control-expose-headers", "content-range");
+  return response.end(served.subarray(from, to));
+}
+
 const server = http.createServer(async (request, response) => {
   if (down) return request.socket.destroy();
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
@@ -210,7 +221,7 @@ const server = http.createServer(async (request, response) => {
     const shard = rest.startsWith("uor/") ? uor.shards.get(rest.slice(4)) : null;
     if (shard) return response.end(shard);
     const served = rest.startsWith("files/") ? f.files.get(rest.slice(6)) : null;
-    if (served) return response.end(served);
+    if (served) return span(request, response, served);
     response.statusCode = 404;
     return response.end();
   }
@@ -228,15 +239,9 @@ const server = http.createServer(async (request, response) => {
     if (shard) return response.end(shard);
     const served = rest.startsWith("files/") && !v.offline ? v.files.get(rest.slice(6)) : null;
     if (served) {
-      // A Range read answers that span, as Hugging Face does.
       const range = /bytes=(\d+)-(\d+)/.exec(request.headers.range ?? "");
-      const [from, to] = range ? [Number(range[1]), Number(range[2]) + 1] : [0, served.length];
-      sent.push({ variant: onnxRoute[1], path: rest.slice(6), from, to });
-      if (!range) return response.end(served);
-      response.statusCode = 206;
-      response.setHeader("content-range", `bytes ${from}-${to - 1}/${served.length}`);
-      response.setHeader("access-control-expose-headers", "content-range");
-      return response.end(served.subarray(from, to));
+      sent.push({ variant: onnxRoute[1], path: rest.slice(6), from: range ? Number(range[1]) : 0, to: range ? Number(range[2]) + 1 : served.length });
+      return span(request, response, served);
     }
     response.statusCode = 404;
     return response.end();
@@ -415,6 +420,41 @@ try {
     await page.close();
   }
 
+  // GP-55: transformers.js's own encoder calls, unchanged: an extractor with
+  // mean pooling and normalizing answers a Tensor, a classifier answers
+  // [{ label, score }], and pooling transformers.js would not give is
+  // refused by decision 82 before anything runs.
+  {
+    // A fresh profile, so its store holds nothing GP-35's pages kept and every
+    // file is read whole, as the encoder fixture's server serves it.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const run = await page.evaluate(async ({ bert, distil, bertTexts, distilTexts }) => {
+      const { pipeline } = await import("./engine/transformers.mjs");
+      const hex = (data) => Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), (b) => b.toString(16).padStart(2, "0")).join("");
+      try {
+        const extractor = await pipeline("feature-extraction", bert, { index: "/encoder/bert/index" });
+        const tensor = await extractor(bertTexts, { pooling: "mean", normalize: true });
+        const width = tensor.dims[1];
+        const rows = bertTexts.map((_, i) => hex(tensor.data.subarray(i * width, (i + 1) * width)));
+        let pooling = null;
+        try { await extractor(bertTexts[0]); } catch (e) { pooling = String(e.message ?? e); }
+        const classifier = await pipeline("text-classification", distil, { index: "/encoder/distil/index" });
+        const top = await classifier(distilTexts[0]);
+        const all = await classifier(distilTexts, { top_k: null });
+        const each = await classifier(distilTexts);
+        return { dims: tensor.dims, type: tensor.type, list: tensor.tolist().length, rows, pooling, top, all, each };
+      } catch (e) {
+        return { failed: String(e.message ?? e) };
+      }
+    }, { bert: encoders.bert.repo, distil: encoders.distil.repo, bertTexts: ENCODER_TEXTS.bert, distilTexts: ENCODER_TEXTS.distil });
+    results.encoder.transformers = { ...run, errors };
+    await context.close();
+  }
+
   // GP-40: transformers.js's own calls, unchanged, through decision 70: a
   // messages list and a string on one generator, and three calls refused by
   // name before anything loads or runs.
@@ -507,13 +547,41 @@ try {
         const embed = await pipeline("feature-extraction", encoderRepo, { index: "/encoder/bert/index", checks: checklist() });
         const outputs = [];
         for (const text of texts) outputs.push(hex((await embed(text)).bits));
-        return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, checks: checks.items, calls: window.__pageCalls, longest, beats, streamed, outputs, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+        return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, isolated: globalThis.crossOriginIsolated, helpers: generate.engine.helpers, checks: checks.items, calls: window.__pageCalls, longest, beats, streamed, outputs, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
       } catch (e) {
         return { phase: "failed", error: String(e.message ?? e), checks: checks.items, calls: window.__pageCalls, output: null };
       }
     }, { repo: onnx.repo, encoderRepo: encoders.bert.repo, texts: ENCODER_TEXTS.bert });
     results.onnx.worker = { ...run, errors };
     await page.close();
+  }
+
+  // GP-52: the integer engine's products on helpers. A first visit is not
+  // cross-origin isolated (the engine page's worker answers nothing yet); the
+  // same page reloaded under its worker is, and its engine runs two helpers.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const first = await page.evaluate(() => globalThis.crossOriginIsolated);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    const run = await page.evaluate(async ({ repo }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const checks = checklist();
+      try {
+        const generate = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device: "cpu", helpers: 2 });
+        const out = await generate("hi", { max_new_tokens: 16 });
+        return { phase: "ready", isolated: globalThis.crossOriginIsolated, helpers: generate.engine.helpers, checks: checks.items, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+      } catch (e) {
+        return { phase: "failed", error: String(e.message ?? e), isolated: globalThis.crossOriginIsolated, checks: checks.items, output: null };
+      }
+    }, { repo: onnx.repo });
+    results.onnx.isolated = { ...run, first, errors };
+    await context.close();
   }
 
   // GP-21: four visits in one profile. The first downloads and keeps the
@@ -957,6 +1025,28 @@ for (const kind of ["bert", "distil"]) {
   if (run.errors.length) fail(`${what}: page errors: ${run.errors.join(" | ")}`);
 }
 
+// GP-55: transformers.js's encoder shapes, and decision 82's refusal.
+{
+  const run = results.encoder.transformers;
+  if (run.failed) fail(`transformers encoders: the call failed: ${run.failed}`);
+  else {
+    const want = encoderExpected.bert;
+    if (run.type !== "float32" || run.dims?.[0] !== want.length || run.list !== want.length) fail(`transformers extractor: expected a float32 Tensor of dims [${want.length}, width], saw ${run.type} ${JSON.stringify(run.dims)}`);
+    run.rows.forEach((bits, i) => { if (bits !== want[i].bits) fail(`transformers extractor: row ${i} is not hologram-ai-cpu-encode's embedding`); });
+    if (!/kernel answered "refused: pooling"/.test(run.pooling ?? "")) fail(`transformers extractor: no pooling must be refused by decision 82, saw ${run.pooling}`);
+    const labels = ["NEGATIVE", "POSITIVE"];
+    const first = encoderExpected.distil[0];
+    if (!Array.isArray(run.top) || run.top.length !== 1 || run.top[0].label !== labels[first.label]) fail(`transformers classifier: expected [{ label: ${labels[first.label]}, score }], saw ${JSON.stringify(run.top)}`);
+    for (const [i, list] of run.all.entries()) {
+      const sum = list.reduce((n, x) => n + x.score, 0);
+      if (list.length !== 2 || list[0].score < list[1].score || Math.abs(sum - 1) > 1e-6) fail(`transformers classifier: text ${i} must answer both labels, highest first, summing to 1, saw ${JSON.stringify(list)}`);
+      if (list[0].label !== labels[encoderExpected.distil[i].label]) fail(`transformers classifier: text ${i}'s top label is ${list[0].label}, not the module's ${labels[encoderExpected.distil[i].label]}`);
+    }
+    if (run.each.length !== encoderExpected.distil.length || run.each.some((x, i) => x.label !== run.all[i][0].label)) fail(`transformers classifier: an array with top_k 1 must answer one { label, score } per text, saw ${JSON.stringify(run.each)}`);
+  }
+  if (run.errors?.length) fail(`transformers encoders: page errors: ${run.errors.join(" | ")}`);
+}
+
 // GP-40: transformers.js's shapes, and its refusals by decision 70.
 {
   const run = results.onnx.transformers;
@@ -998,6 +1088,22 @@ for (const kind of ["bert", "distil"]) {
     if (!(run.beats > 0 && run.longest < 500)) fail(`worker: the page's thread went ${run.longest.toFixed(0)} ms unanswered in the turn (${run.beats} beats)`);
   }
   if (run.errors.length) fail(`worker: page errors: ${run.errors.join(" | ")}`);
+}
+
+// GP-52: helpers on an isolated return visit, none on a first visit, the
+// reference's tokens either way.
+{
+  const first = results.onnx.worker, again = results.onnx.isolated;
+  if (first.phase === "ready" && (first.isolated !== false || first.helpers !== 0)) fail(`isolation: a first visit was isolated (${first.isolated}) or ran ${first.helpers} helpers`);
+  if (again.first !== false) fail(`isolation: the page was isolated before its worker answered (${again.first})`);
+  if (again.phase !== "ready") fail(`isolation: the return visit did not reach ready (${again.phase}: ${again.error})`);
+  else {
+    if (again.isolated !== true) fail("isolation: the return visit under the engine page's worker was not cross-origin isolated");
+    if (again.helpers !== 2) fail(`isolation: the return visit ran ${again.helpers} helpers, not 2`);
+    const got = again.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== again.expected[i])) fail(`isolation: the tokens with helpers ${got} are not the reference's ${again.expected}`);
+  }
+  if (again.errors.length) fail(`isolation: page errors: ${again.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.

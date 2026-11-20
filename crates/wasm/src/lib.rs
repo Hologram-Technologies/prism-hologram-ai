@@ -632,6 +632,11 @@ extern "C" {
     /// written at `answer`, at most `capacity` bytes; the answer's length.
     #[link_name = "ask"]
     fn page_ask(request: u32, length: u32, answer: u32, capacity: u32) -> u32;
+    /// The engine's helpers (GP-52): product `number` of the input at
+    /// `input`, `length` bytes, its rows written at `rows`, `capacity` bytes;
+    /// 0 when every helper answered.
+    #[link_name = "product"]
+    fn page_product(number: u32, input: u32, length: u32, rows: u32, capacity: u32) -> u32;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -941,6 +946,8 @@ struct Decode {
     session: Option<Session>,
     /// Runs kept for a later turn, by the number `decode_save` gave.
     saved: BTreeMap<u32, Session>,
+    /// How many helpers answer each product (GP-52); none computes it here.
+    helpers: u32,
 }
 
 thread_local! {
@@ -1137,8 +1144,14 @@ pub extern "C" fn decode_step(token: u32) -> u32 {
         DECODE.with_borrow_mut(|d| {
             let config = d.config.ok_or(CallError::NothingRead)?;
             let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let helpers = d.helpers;
             let stepped = with_model(d, config, |model| {
-                decode::step(model, &mut session, token).map_err(CallError::Decode)
+                if helpers > 0 {
+                    decode::step_with(model, &mut session, token, &mut decode::Asked(helped))
+                } else {
+                    decode::step(model, &mut session, token)
+                }
+                .map_err(CallError::Decode)
             });
             d.session = Some(session);
             let logits = stepped?;
@@ -1163,11 +1176,157 @@ pub extern "C" fn decode_advance(token: u32) -> u32 {
         DECODE.with_borrow_mut(|d| {
             let config = d.config.ok_or(CallError::NothingRead)?;
             let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let helpers = d.helpers;
             let advanced = with_model(d, config, |model| {
-                decode::advance(model, &mut session, token).map_err(CallError::Decode)
+                if helpers > 0 {
+                    decode::advance_with(model, &mut session, token, &mut decode::Asked(helped))
+                } else {
+                    decode::advance(model, &mut session, token)
+                }
+                .map_err(CallError::Decode)
             });
             d.session = Some(session);
             advanced.map(|()| Vec::new())
+        })
+    })
+}
+
+// ─── Helpers: one model's products on several instances (GP-52) ───────────
+//
+// Why: a token's time is its products (#106's profile: 86 per cent), and
+// each output row of one is that row's weights times an input put on its
+// integers the same way for every row (EN-92). So the instance that runs the
+// model hands each product to helpers, fresh instances of this same module
+// each holding one slice of every matrix's rows, and joins their rows: the
+// same bits, computed at once. The page passes the input and the rows between
+// instances; nothing here decides who computes what but the row ranges.
+
+/// Asks the page's helpers for one product: its number, its input and room
+/// for its rows; true when every helper answered.
+fn helped(number: u32, given: &[u8], answer: &mut [u8]) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        #[allow(
+            unsafe_code,
+            reason = "the one way a model's products reach the page's helpers"
+        )]
+        // SAFETY: the import is called with the address and length of `given`
+        // and of `answer`, two buffers the caller holds for the whole call;
+        // the page writes at most `capacity` bytes into `answer` and reads
+        // nothing else.
+        let status = unsafe {
+            page_product(
+                number,
+                address(given),
+                given.len() as u32,
+                address(answer),
+                answer.len() as u32,
+            )
+        };
+        status == 0
+    }
+    // Outside a browser there are no helpers to ask.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (number, given, answer);
+        false
+    }
+}
+
+/// How many helpers answer the open model's products: 0, the default,
+/// computes every product here.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_helpers(count: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| d.helpers = count);
+        Ok(Vec::new())
+    })
+}
+
+/// Helper `helper` of `helpers`'s slice of every product of the open model:
+/// for each, four little-endian words (its number, its first row, the slice's
+/// length) then the slice as `hologram-ai-cpu-decode` writes it.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_slices(helper: u32, helpers: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            if helper >= helpers {
+                return Err(CallError::WrongSize);
+            }
+            with_model(d, config, |model| {
+                let (h, n) = (helper as usize, helpers as usize);
+                let mut out = Vec::new();
+                for which in model.products() {
+                    let rows = model.height(which);
+                    let start = rows * h / n;
+                    let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();
+                    for word in [which.number(model.dims.layers), start, bytes.len()] {
+                        out.extend_from_slice(&(word as u32).to_le_bytes());
+                    }
+                    out.extend_from_slice(&bytes);
+                }
+                Ok(out)
+            })
+        })
+    })
+}
+
+thread_local! {
+    /// A helper's slices, by product number: the first row and the rows.
+    static HELD: RefCell<BTreeMap<u32, (u32, decode::Held)>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Hold the slices `decode_slices` wrote, in a helper.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn slices_hold(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let mut held = BTreeMap::new();
+        let mut i = 0;
+        while i < given.len() {
+            let (number, start, length) = (
+                word(&given, i)?,
+                word(&given, i + 4)?,
+                word(&given, i + 8)? as usize,
+            );
+            let bytes = given
+                .get(i + 12..i + 12 + length)
+                .ok_or(CallError::WrongSize)?;
+            held.insert(
+                number,
+                (start, decode::Held::read(bytes).map_err(CallError::Decode)?),
+            );
+            i += 12 + length;
+        }
+        HELD.with_borrow_mut(|h| *h = held);
+        Ok(Vec::new())
+    })
+}
+
+/// A helper's rows of product `number` times the input at `at`, `len`
+/// bytes: its first row, four bytes, then one bit pattern per row.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn slices_run(at: u32, len: u32, number: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let input: Vec<u32> = given
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        HELD.with_borrow(|held| {
+            let (start, slice) = held.get(&number).ok_or(CallError::NothingRead)?;
+            let rows = slice.product(&input).map_err(CallError::Decode)?;
+            let mut out = Vec::with_capacity(4 + 4 * rows.len());
+            out.extend_from_slice(&start.to_le_bytes());
+            for bits in rows {
+                out.extend_from_slice(&bits.to_le_bytes());
+            }
+            Ok(out)
         })
     })
 }
@@ -1600,6 +1759,26 @@ pub extern "C" fn encode_classify(at: u32, len: u32) -> u32 {
             let label = encode::label(&scores).unwrap_or(u32::MAX);
             Ok(std::iter::once(label).chain(scores).collect())
         })
+    })
+}
+
+/// A classifier's scores, as binary32 bits four bytes each, to its label
+/// probabilities (`hologram_ai_cpu_encode::probabilities`, EN-95), the same
+/// layout, as transformers.js scores a text-classification.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_probabilities(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        if given.len() % TOKEN_BYTES != 0 {
+            return Err(CallError::WrongSize);
+        }
+        let scores: Vec<u32> = given
+            .chunks_exact(TOKEN_BYTES)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let probabilities = encode::probabilities(&scores).map_err(CallError::Encode)?;
+        Ok(probabilities.iter().flat_map(|b| b.to_le_bytes()).collect())
     })
 }
 

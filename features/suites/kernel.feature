@@ -520,6 +520,14 @@ Feature: kernel
     And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
     And add_exact, complement_twelve and subtract_exact hold for every register and term
 
+  @KN-82 @build
+  Scenario: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+    Given a request of the tag 82 carrying an encoder task, a pooling and whether to normalize, each in one byte, as transformers.js names them
+    When the kernel reads each code through Kernel.Encode
+    Then the answer is run for feature-extraction with mean pooling and normalizing, and for text-classification with neither
+    And any other pooling is refused as pooling, an unnormalized embedding as normalize, and another task as unsupported task
+    And the theorems of Proofs.Encode state it and are pinned with their axioms
+
   @KN-73 @build
   Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
     Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex
