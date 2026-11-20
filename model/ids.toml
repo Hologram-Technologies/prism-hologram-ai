@@ -1042,3 +1042,9 @@ id = "GP-52"
 level = "build"
 suite = "gpu"
 statement = "On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens"
+
+[[id]]
+id = "KN-61"
+level = "build"
+suite = "kernel"
+statement = "Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs"

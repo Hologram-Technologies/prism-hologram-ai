@@ -5773,3 +5773,90 @@ fn kernel_kn_82() {
     }
     assert_routed(82, "Kernel.Encode::encodeAnswer");
 }
+
+/// `KN-61`: Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs
+#[test]
+fn kernel_kn_61() {
+    use hologram_ai_exact::{Grouping, Scheme, Width};
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRequant.lex.tex");
+    for name in ["requant_codes_are_signed_16", "requant_power_is_word"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    // A group's 32 values are written as two lists of 16, joined.
+    let joined = |text: &str| -> (Vec<u64>, String) {
+        let rest = text
+            .strip_prefix("(Engine.Word::joined ")
+            .expect("a joined list");
+        let (mut first, rest) = cons_list(rest);
+        let (second, rest) = cons_list(rest.trim_start());
+        first.extend(second);
+        (
+            first,
+            rest.strip_prefix(')').expect("a closed join").to_string(),
+        )
+    };
+    let row = |name: &str, function: &str| -> (Vec<u64>, Vec<u64>) {
+        let found = declaration(&proofs, name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:
+{found}"
+        );
+        let statement = found
+            .split(&format!("statement: ((Engine.Stage.Requant::{function} "))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{name} is not an evaluation of {function}"));
+        let (input, rest) = joined(statement);
+        let rest = rest.trim_start().strip_prefix("1) = ").expect("one group");
+        let expected = if rest.starts_with("(Engine.Word::joined ") {
+            joined(rest).0
+        } else {
+            cons_list(rest).0
+        };
+        (input, expected)
+    };
+    let scheme = Scheme {
+        width: Width::Sixteen,
+        grouping: Grouping::Groups,
+    };
+    let mut groups = 0;
+    while proofs.contains(&format!(
+        "
+  name: requant_codes_row_{groups},
+"
+    )) {
+        let (input, codes) = row(&format!("requant_codes_row_{groups}"), "codes");
+        let (again, powers) = row(&format!("requant_powers_row_{groups}"), "powers");
+        assert_eq!(
+            input, again,
+            "group {groups}: one input for codes and power"
+        );
+        assert_eq!(input.len(), 32, "group {groups}: 32 inputs");
+        let words: Vec<u32> = input.iter().map(|&x| x as u32).collect();
+        let rust = hologram_ai_exact::quantise_with(&words, scheme).expect("finite inputs");
+        let rust_codes: Vec<u64> = rust
+            .codes()
+            .iter()
+            .map(|&c| u64::from(i32::from(c) as u32))
+            .collect();
+        assert_eq!(
+            rust_codes, codes,
+            "requant_codes_row_{groups}: crates/exact disagrees with the stage"
+        );
+        let rust_powers: Vec<u64> = rust
+            .exponents()
+            .iter()
+            .map(|&e| u64::from(e as u32))
+            .collect();
+        assert_eq!(
+            rust_powers, powers,
+            "requant_powers_row_{groups}: crates/exact's exponent disagrees with the stage"
+        );
+        groups += 1;
+    }
+    assert!(groups >= 4, "four groups are evaluated, found {groups}");
+}
