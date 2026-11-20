@@ -2,8 +2,11 @@
 // ModelProto (ir_version 1, opset_import 8, graph 7); GraphProto (node 1,
 // name 2, initializer 5); NodeProto (input 1, output 2, name 3, op_type 4,
 // attribute 5, domain 7); AttributeProto (name 1, i 3, type 20 = INT);
-// TensorProto (dims 1, data_type 2, name 8, raw_data 9). Every weight is
-// inline. Nothing here is read from a real export or from the importer.
+// TensorProto (dims 1, data_type 2, name 8, raw_data 9, external_data 13,
+// data_location 14); StringStringEntryProto (key 1, value 2). Every weight is
+// inline, or with `external` every weight lies in that data file beside the
+// graph, named by location, offset and length as onnxruntime's exports name
+// them. Nothing here is read from a real export or from the importer.
 
 import { asExport } from "./export.mjs";
 
@@ -40,7 +43,7 @@ const MICROSOFT = new Set(["MatMulNBits", "GroupQueryAttention", "RotaryEmbeddin
 const TYPES = { f32: 1, u8: 2, f16: 10 };
 
 // The model written as onnx-community's fused exports are, and its bytes.
-export function onnxFile(model, family, style = "fused") {
+export function onnxFile(model, family, style = "fused", { external = null } = {}) {
   const exp = asExport(model, style, family);
   let activation = 0;
   const nodes = exp.nodes.map(([op, name, inputs, attributes = {}]) => {
@@ -53,12 +56,22 @@ export function onnxFile(model, family, style = "fused") {
     parts.push(bytes(7, MICROSOFT.has(op) ? "com.microsoft" : ""));
     return bytes(1, join(parts));
   });
+  const data = [];
+  let at = 0;
+  const entry = (key, value) => bytes(13, join([bytes(1, key), bytes(2, String(value))]));
   const initializers = Object.entries(exp.tensors).map(([name, [dtype, dims]]) => {
     const parts = dims.map((d) => number(1, d));
-    parts.push(number(2, TYPES[dtype]), bytes(8, name), bytes(9, exp.bytes.get(name)));
+    parts.push(number(2, TYPES[dtype]), bytes(8, name));
+    const raw = exp.bytes.get(name);
+    if (!external) parts.push(bytes(9, raw));
+    else {
+      parts.push(entry("location", external), entry("offset", at), entry("length", raw.length), number(14, 1));
+      data.push(raw);
+      at += raw.length;
+    }
     return bytes(5, join(parts));
   });
   const graph = join([...nodes, bytes(2, "fixture"), ...initializers]);
   const opset = (domain, version) => bytes(8, join([bytes(1, domain), number(2, version)]));
-  return { bytes: join([number(1, 8), opset("", 21), opset("com.microsoft", 1), bytes(7, graph)]), config: exp.config };
+  return { bytes: join([number(1, 8), opset("", 21), opset("com.microsoft", 1), bytes(7, graph)]), config: exp.config, data: external ? join(data) : null };
 }

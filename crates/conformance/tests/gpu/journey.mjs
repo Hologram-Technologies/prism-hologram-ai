@@ -151,6 +151,8 @@ const onnxVariants = {
   lie: { files: onnx.files, lie: { repo: onnx.repo, name: "model.layers.0.attn.q_proj.MatMul.weight_Q4" } },
   // GP-32: two turns of the same text.
   again: { files: onnx.files },
+  // GP-57: every tensor in a data file beside the graph, none in the graph.
+  external: { files: onnx.external, uorFiles: onnx.external },
 };
 
 // GP-30: with `down` set the server answers nothing at all, as with the
@@ -165,7 +167,8 @@ const uorOf = (name) => {
     const v = onnxVariants[name];
     const graphs = [...(v.uorFiles ?? (v.twins ? v.files : onnx.files))].filter(([p]) => p.endsWith(".onnx"));
     const repos = v.uorRepos ?? [onnx.repo, ...(v.twins ?? []).map((t) => t.repo)];
-    const rows = repos.flatMap((repo) => graphs.map(([path, bytes]) => ({ repo, revision: onnx.revision, path, bytes, resolve: `/onnx/${name}/files/` })));
+    const data = (path) => new Map([...v.files].filter(([p]) => p.startsWith(`${path}_data`)));
+    const rows = repos.flatMap((repo) => graphs.map(([path, bytes]) => ({ repo, revision: onnx.revision, path, bytes, resolve: `/onnx/${name}/files/`, data: data(path) })));
     // An index that does not list the model still lists another.
     if (!rows.length) rows.push({ repo: "fixture/another", revision: onnx.revision, path: onnx.path, bytes: onnx.files.get(onnx.path), resolve: "/" });
     uorFor.set(name, uorIndexFiles(rows, { lie: v.lie }));
@@ -798,6 +801,14 @@ try {
     }
   }
 
+  // GP-57: the export whose graph file holds no tensor, all of them in its
+  // data file, in a fresh profile.
+  {
+    const context = await browser.newContext();
+    results.external = await onnxVisit(context, { variant: "external" });
+    await context.close();
+  }
+
   // GP-32: two turns of the same text, on WebGPU and on the CPU.
   results.reuse = {};
   for (const [name, noGpu] of [["webgpu", false], ["cpu", true]]) {
@@ -1299,6 +1310,18 @@ const storeSaid = (run) => /^(\d+) tensors read here \((\d+) bytes\), (\d+) down
   if (unlisted.checks.some((c) => ["file", "kept", "import"].includes(c.step)) || unlisted.sent.length) fail("store unlisted: the load read a file of a model the index does not list");
   if (lie.phase !== "failed" || !/decision 28 answered "refused"/.test(lie.error ?? "")) fail(`store lie: expected decision 28 to refuse an index whose address is not the bytes', saw ${lie.phase}: ${lie.error}`);
   if (lie.held.length) fail(`store lie: bytes were kept from a load decision 28 refused: ${JSON.stringify(lie.held)}`);
+}
+
+// GP-57: a graph whose tensors all live in its data file loads and answers.
+{
+  const run = results.external;
+  const graph = onnx.external.get(onnx.path);
+  const outside = onnxInitializers(graph);
+  if (!outside.length || outside.some((t) => t.location !== "model_q4f16.onnx_data")) fail("external: the fixture's graph holds a tensor of its own, so nothing is tested");
+  answered("external", run);
+  if (!new RegExp(`^${outside.length} tensors in 2 files, `).test(detail(run, "manifest") ?? "")) fail(`external: expected the manifest to list the data file's ${outside.length} tensors over the graph and its data file, saw ${detail(run, "manifest")}`);
+  if (!/, 1 data files$/.test(detail(run, "import") ?? "")) fail(`external: expected the importer to read one data file, saw ${detail(run, "import")}`);
+  if (!run.sent.some((x) => x.path === `${onnx.path}_data`)) fail("external: nothing was read from the data file");
 }
 
 // GP-32: the same text again reuses the head and gives the same tokens.
