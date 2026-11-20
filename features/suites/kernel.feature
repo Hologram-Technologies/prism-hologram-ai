@@ -495,6 +495,14 @@ Feature: kernel
     And the answer to decision 80 is sealed for the sealed address, not the sealed engine for any other, and invalid request for any length but 33
     And the compiled guest answers sealed for the sealed address, not the sealed engine for it with one bit of its first byte flipped, and invalid request for a short request, as the claims it replays list
 
+  @KN-71 @build
+  Scenario: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+    Given the pick in app/src/Engine/Step.lex.tex over KN-55's key in app/src/Engine/Stage/Greedy.lex.tex, decision 71 in app/src/Kernel/Step.lex.tex and its proofs in app/src/Proofs/Step.lex.tex
+    When the Lean kernel checks step_cut, step_reads_its_chunk, picked_key_is_max, fresh_takes_first and five pick_is_greedy fixtures during lexlean verify in the gate
+    Then two chunks fed one after the other give the pick the two joined give, and the guest's loop over a chunk is that fold
+    And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
+    And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests
+
   @KN-82 @build
   Scenario: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
     Given a request of the tag 82 carrying an encoder task, a pooling and whether to normalize, each in one byte, as transformers.js names them

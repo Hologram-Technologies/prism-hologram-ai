@@ -420,7 +420,10 @@ try {
   // [{ label, score }], and pooling transformers.js would not give is
   // refused by decision 82 before anything runs.
   {
-    const page = await browser.newPage();
+    // A fresh profile, so its store holds nothing GP-35's pages kept and every
+    // file is read whole, as the encoder fixture's server serves it.
+    const context = await browser.newContext();
+    const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
     await page.goto(`${origin}/app/`);
@@ -444,7 +447,7 @@ try {
       }
     }, { bert: encoders.bert.repo, distil: encoders.distil.repo, bertTexts: ENCODER_TEXTS.bert, distilTexts: ENCODER_TEXTS.distil });
     results.encoder.transformers = { ...run, errors };
-    await page.close();
+    await context.close();
   }
 
   // GP-40: transformers.js's own calls, unchanged, through decision 70: a
