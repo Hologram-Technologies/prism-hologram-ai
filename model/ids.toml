@@ -1048,3 +1048,15 @@ id = "KN-61"
 level = "build"
 suite = "kernel"
 statement = "Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs"
+
+[[id]]
+id = "GP-56"
+level = "build"
+suite = "gpu"
+statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
+
+[[id]]
+id = "EN-96"
+level = "build"
+suite = "engine"
+statement = "The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"

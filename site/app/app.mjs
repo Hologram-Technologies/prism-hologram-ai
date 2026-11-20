@@ -187,9 +187,11 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   state.phase = "ready";
   state.device = generate.device;
   state.integer = generate.engine.integer === true;
+  state.gpu = generate.engine.gpu ?? null;
+  state.isolated = globalThis.crossOriginIsolated === true;
   state.precision = generate.dtype;
   state.loadSeconds = (performance.now() - started) / 1000;
-  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${(generate.engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU` : "on the CPU"}`);
+  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${generate.engine.gpu.products} products on the GPU, in integers` : "on the CPU"}`);
   $("send").disabled = false;
 }
 

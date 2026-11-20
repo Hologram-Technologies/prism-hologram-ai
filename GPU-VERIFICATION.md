@@ -287,3 +287,59 @@ asked for. On the true engine it requires the `engine` check to pass with
 | none | passed |
 
 `just page-journey` (in the acceptance gate and `pages.yml`): passed in acceptance run 44702842589, the engine with one bit flipped stopped at the `engine` check with "not the sealed engine", nothing of its size compiled and the container not read. The run before it (44642776590) failed here because the flip was routed on the page and the page's service worker fetched the engine itself; the route is now the context's.
+
+## GP-56, the integer engine's products on WebGPU
+
+Row 15 runs the integer engine on WebGPU from the same definitions it runs on
+the CPU. A token's time is its products (86 per cent in #106's profile), and
+EN-92 already lets a product be answered outside the module that runs the
+model with every bit unchanged. So on WebGPU the module still runs the model
+and every stage between the products, and its q4 products are answered by the
+four kernels the guest prints (decision 48): the quantiser, the group sums for
+the product's width, the accumulator and the rounding. Every value is a `u32`
+word, no kernel names `f32` or `f16` (KN-73), and GP-29 shows the four give
+`hologram_ai_exact`'s rows on WebGPU, so the tokens are the CPU's.
+
+How the page does it (`site/app/engine/integer-gpu.mjs`): the module asks for
+a product through its `kernel.product` import, which must answer before it
+returns, and WebGPU answers only on an event loop. The model's worker writes
+the input into a SharedArrayBuffer, posts the product's number to a WebGPU
+worker and waits on `Atomics.wait`; the WebGPU worker dispatches the four
+kernels, reads the rows back, writes them where the model's worker reads them
+and wakes it. The weights reach that worker once, as `decode_slices` writes
+them. A product the printed kernels do not take is answered on an instance of
+the same `engine.wasm` holding only it: today the output head, which is dense
+f16, and any matrix with binary32 scales or zero points.
+
+WebGPU is usable, and offered to decision 22 as a GPU, only where both hold:
+the page is cross-origin isolated (shared memory; the engine page's service
+worker makes a return visit so, GP-52) and the guest prints the group-sum
+kernel for every width the model's products read (`Kernel.Render`'s
+`printedWidth`: 128, 256, 1024, 1536, 2048, 3072, 8192, 8960, which covers
+Qwen3-0.6B, Qwen2.5-1.5B, Llama 3.2 1B and GP-19's fixture). Elsewhere the
+kernel is told there is no usable GPU, so it chooses the CPU or refuses a model
+above the CPU ceiling; a page that asks for `device: "webgpu"` there is
+refused with the reason. The float WebGPU engine no longer runs an ONNX export;
+`gpu.mjs` and the `wgsl*.mjs` kernels still run the repacked container
+(`app.mjs`'s Bonsai path) and the conformance tests that use them as a
+yardstick, until those move too.
+
+`audit-float` (EN-58) now reads `integer-gpu.mjs` with the other integer-path
+scripts, and finds no float.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| The page's q4 products run on the guest's printed kernels and the tokens are the reference's and the CPU's, by name and by the kernel's choice, on an isolated page | `just page-journey`, GP-56's run: 14 products on WebGPU, the head on the module, 16 tokens each | tested on CI (SwiftShader) |
+| A first visit, not isolated, runs on the CPU, as the kernel's device | `just page-journey`, GP-19's runs, the device expected from whether the page was isolated | tested on CI |
+| The pieces between are in place and no ONNX export reaches the float engine | `gpu_gp_56` | tested |
+| Every kernel equals its stage for every input | not yet, as for GP-29: the stages are being defined in LexLean (row 13) | not proved |
+
+### The gate: `cargo test -p repo-conformance --test gpu gpu_gp_56`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `pipeline.mjs` importing `createEngine` from `./gpu.mjs` again | rejected: `pipeline.mjs still reaches the float engine` |
+| `onGpu` taking a matrix with binary32 scales | rejected: `site/app/engine/integer-gpu.mjs no longer has` the rule |
+| none | passed |
