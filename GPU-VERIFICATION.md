@@ -256,3 +256,33 @@ division by zero, and shift amounts are masked to five bits, as the model's
 are. The GPU runs invocations at once and the model one after another; they
 agree when each invocation writes only its own outputs and reads no buffer it
 writes, which holds for these kernels and is not yet checked.
+
+## GP-50, the page refuses an engine it was not built with
+
+Before the page compiles `engine.wasm`, `openModule` (site/app/engine/loader.mjs)
+hashes the bytes it fetched with the vendored BLAKE3 and asks decision 80
+(KN-80) whether they are the sealed engine; only those same bytes are then
+compiled. `openModule` takes the page's asker, so neither caller (`app.mjs`,
+`pipeline.mjs`) can open the engine without the check, and the integer worker
+(GP-41) is handed the module compiled there, never bytes of its own: `gpu_gp_50`
+requires one `WebAssembly.compile` in loader.mjs and no fetch or compile in
+integer-worker.mjs. A wrong engine (a stale
+cache's, one altered on the way, one built from other inputs) stops the load
+at the `engine` check with the kernel's `not the sealed engine`.
+
+The journey serves the deploy's engine with one bit of its middle byte
+flipped and requires: the load fails at the `engine` check with that answer;
+no module of the engine's length is compiled; and the container is never
+asked for. On the true engine it requires the `engine` check to pass with
+`sealed`.
+
+### The gates
+
+`cargo test -p repo-conformance --test gpu gpu_gp_50`, planted on 2026-11-19:
+
+| Planted | Result |
+| --- | --- |
+| decision 80 asked after `WebAssembly.instantiate` | rejected: `the engine is compiled before decision 80 is asked` |
+| none | passed |
+
+`just page-journey` (in the acceptance gate and `pages.yml`): passed in acceptance run 44702842589, the engine with one bit flipped stopped at the `engine` check with "not the sealed engine", nothing of its size compiled and the container not read. The run before it (44642776590) failed here because the flip was routed on the page and the page's service worker fetched the engine itself; the route is now the context's.

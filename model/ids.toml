@@ -952,3 +952,21 @@ id = "GP-41"
 level = "build"
 suite = "gpu"
 statement = "The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's"
+
+[[id]]
+id = "KN-80"
+level = "build"
+suite = "kernel"
+statement = "Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33"
+
+[[id]]
+id = "EN-90"
+level = "build"
+suite = "engine"
+statement = "engine.wasm is byte-identical on every build: the pinned toolchain and target, codegen-units 1, path prefixes remapped, SOURCE_DATE_EPOCH fixed and every host flag cleared, so two builds in different directories with different cargo homes give the same bytes, and the build fails unless their BLAKE3 is the address the model seals"
+
+[[id]]
+id = "GP-50"
+level = "build"
+suite = "gpu"
+statement = "Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled"
