@@ -2012,7 +2012,7 @@ fn gpu_gp_50() {
     // at decision 80, with the engine never compiled and the container never read.
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
-        "await page.route(\"**/app/engine/engine.wasm\"",
+        "await context.route(\"**/app/engine/engine.wasm\"",
         "body[body.length >> 1] ^= 0x01;",
         "unsealedStop?.step !== \"engine\"",
         "answered \"not the sealed engine\"",
