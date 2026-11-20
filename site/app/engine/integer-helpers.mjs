@@ -24,16 +24,17 @@ const CONTROL = 32;
 // helper only adds its messages. None without shared memory.
 export function helperCount(asked) {
   if (typeof SharedArrayBuffer !== "function" || globalThis.crossOriginIsolated === false) return 0;
-  if (Number.isInteger(asked) && asked >= 0) return Math.min(asked, 16);
+  if (Number.isInteger(asked) && asked >= 0) return asked < 16 ? asked : 16;
   const cores = globalThis.navigator?.hardwareConcurrency ?? 1;
-  return cores > 2 ? Math.min(cores - 1, 8) : 0;
+  return cores > 2 ? (cores - 1 < 8 ? cores - 1 : 8) : 0;
 }
 
 // Start `count` helpers for module `m`, whose model is open, and route its
 // products to them. Answers a function that stops them.
 export async function useHelpers(m, count, sizes) {
-  const widest = 4 * Math.max(sizes.hidden, sizes.heads * sizes.head_dim, sizes.ff);
-  const tallest = 4 * Math.max(sizes.vocab, sizes.hidden, sizes.ff, sizes.heads * sizes.head_dim);
+  const most = (...n) => n.reduce((a, b) => (b > a ? b : a), 0);
+  const widest = 4 * most(sizes.hidden, sizes.heads * sizes.head_dim, sizes.ff);
+  const tallest = 4 * most(sizes.vocab, sizes.hidden, sizes.ff, sizes.heads * sizes.head_dim);
   const shared = new SharedArrayBuffer(CONTROL + widest + tallest);
   const control = new Int32Array(shared, 0, CONTROL / 4);
   const bytes = new Uint8Array(shared);
