@@ -2238,5 +2238,189 @@ theorem{
   },
   axioms: [Quot.sound, propext]
 }
+
+theorem{
+  name: exec_seq,
+  parameters: [
+    n : Nat,
+    ev : (Fn (Engine.Gpu::Machine Engine.Gpu::Expr) Nat),
+    m : Engine.Gpu::Machine,
+    x : Engine.Gpu::Stmt,
+    y : Engine.Gpu::Stmt
+  ],
+  statement: ((Engine.GpuRun::exec (n + 1) ev m (ctor Engine.Gpu::Stmt.seq x y)) = (Engine.GpuRun::exec n ev (Engine.GpuRun::exec n ev m x) y)),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: exec_assign,
+  parameters: [
+    n : Nat,
+    ev : (Fn (Engine.Gpu::Machine Engine.Gpu::Expr) Nat),
+    m : Engine.Gpu::Machine,
+    i : Nat,
+    x : Engine.Gpu::Expr
+  ],
+  statement: ((Engine.GpuRun::exec (n + 1) ev m (ctor Engine.Gpu::Stmt.assign i x)) = (Engine.Gpu::withLocal m i (apply ev m x))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: exec_store,
+  parameters: [
+    n : Nat,
+    ev : (Fn (Engine.Gpu::Machine Engine.Gpu::Expr) Nat),
+    m : Engine.Gpu::Machine,
+    i : Nat,
+    x : Engine.Gpu::Expr,
+    y : Engine.Gpu::Expr
+  ],
+  statement: ((Engine.GpuRun::exec (n + 1) ev m (ctor Engine.Gpu::Stmt.store i x y)) = (Engine.Gpu::withStore m i (apply ev m x) (apply ev m y))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: exec_done,
+  parameters: [
+    n : Nat,
+    ev : (Fn (Engine.Gpu::Machine Engine.Gpu::Expr) Nat),
+    m : Engine.Gpu::Machine,
+    s : Nat,
+    i : Nat,
+    x : Engine.Gpu::Stmt
+  ],
+  statement: ((Engine.GpuRun::exec (n + 1) ev m (ctor Engine.Gpu::Stmt.repeat s 0 i x)) = m),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: kernel_tree,
+  parameters: [units : Nat, R : Nat],
+  statement: ((Engine.Gpu::q4GroupSums units R 0 false) = (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 0 (ctor Engine.Gpu::Expr.invocation)) (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 1 (ctor Engine.Gpu::Expr.div (ctor Engine.Gpu::Expr.local 0) (ctor Engine.Gpu::Expr.lit units))) (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 2 (ctor Engine.Gpu::Expr.rem (ctor Engine.Gpu::Expr.local 0) (ctor Engine.Gpu::Expr.lit units))) (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 6 (ctor Engine.Gpu::Expr.lit 8)) (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.lit 0)) (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.repeat 0 32 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6))))))) (ctor Engine.Gpu::Stmt.store 3 (ctor Engine.Gpu::Expr.local 0) (ctor Engine.Gpu::Expr.local 3))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: loop_runs,
+  parameters: [
+    b : (List (List Nat)),
+    k : Nat,
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    y4 : Nat,
+    y5 : Nat,
+    more : (List Nat),
+    inv : Nat,
+    g : Nat,
+    fuel : Nat
+  ],
+  statement: ((Engine.GpuRun::exec (fuel + 34) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := b, locals := (cons k (cons q (cons r (cons (Engine.Gpu::word 0) (cons y4 (cons y5 (cons (Engine.Gpu::word 8) more))))))), invocation := inv, group := g}) (ctor Engine.Gpu::Stmt.repeat 0 32 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))))) = (record Engine.Gpu::Machine {buffers := b, locals := (cons k (cons q (cons r (cons (accUp b q r R 32) (cons 31 (cons (kidx b q r R 31) (cons (Engine.Gpu::word 8) more))))))), invocation := inv, group := g})),
+  proof: simplify{definitions: [accUp, exec_done, iter_step]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: kernel_prefix,
+  parameters: [
+    A : (List Nat),
+    W : (List Nat),
+    Z : (List Nat),
+    O : (List Nat),
+    rest : (List (List Nat)),
+    x0 : Nat,
+    x1 : Nat,
+    x2 : Nat,
+    x3 : Nat,
+    x4 : Nat,
+    x5 : Nat,
+    x6 : Nat,
+    more : (List Nat),
+    k : Nat,
+    g : Nat,
+    units : Nat,
+    R : Nat,
+    fuel : Nat
+  ],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::exec (fuel + 40) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := (cons A (cons W (cons Z (cons O rest)))), locals := (cons x0 (cons x1 (cons x2 (cons x3 (cons x4 (cons x5 (cons x6 more))))))), invocation := k, group := g}) (Engine.Gpu::q4GroupSums units R 0 false)) buffers) 3) = (Engine.Gpu::nthBuffer (Engine.Gpu::setBuffer (project (Engine.GpuRun::exec (fuel + 34) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := (cons A (cons W (cons Z (cons O rest)))), locals := (cons k (cons (Engine.Gpu::u32div k (Engine.Gpu::word units)) (cons (Engine.Gpu::u32rem k (Engine.Gpu::word units)) (cons (Engine.Gpu::word 0) (cons x4 (cons x5 (cons (Engine.Gpu::word 8) more))))))), invocation := k, group := g}) (ctor Engine.Gpu::Stmt.repeat 0 32 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))))) buffers) 3 (Engine.Gpu::nth (project (Engine.GpuRun::exec (fuel + 34) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := (cons A (cons W (cons Z (cons O rest)))), locals := (cons k (cons (Engine.Gpu::u32div k (Engine.Gpu::word units)) (cons (Engine.Gpu::u32rem k (Engine.Gpu::word units)) (cons (Engine.Gpu::word 0) (cons x4 (cons x5 (cons (Engine.Gpu::word 8) more))))))), invocation := k, group := g}) (ctor Engine.Gpu::Stmt.repeat 0 32 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))))) locals) 0) (Engine.Gpu::nth (project (Engine.GpuRun::exec (fuel + 34) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := (cons A (cons W (cons Z (cons O rest)))), locals := (cons k (cons (Engine.Gpu::u32div k (Engine.Gpu::word units)) (cons (Engine.Gpu::u32rem k (Engine.Gpu::word units)) (cons (Engine.Gpu::word 0) (cons x4 (cons x5 (cons (Engine.Gpu::word 8) more))))))), invocation := k, group := g}) (ctor Engine.Gpu::Stmt.repeat 0 32 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))))) locals) 3)) 3)),
+  proof: simplify{
+    definitions: [
+      exec_assign,
+      exec_seq,
+      exec_store,
+      kernel_tree,
+      Engine.Gpu::eval,
+      Engine.Gpu::nth,
+      Engine.Gpu::setNth,
+      Engine.Gpu::withLocal,
+      Engine.Gpu::withStore
+    ]
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: store_reads_back,
+  parameters: [
+    A : (List Nat),
+    W : (List Nat),
+    Z : (List Nat),
+    O : (List Nat),
+    rest : (List (List Nat)),
+    k : Nat,
+    v : Nat
+  ],
+  statement: ((Engine.Gpu::nthBuffer (Engine.Gpu::setBuffer (cons A (cons W (cons Z (cons O rest)))) 3 k v) 3) = (Engine.Gpu::setNth O k v)),
+  proof: simplify{definitions: [Engine.Gpu::nthBuffer, Engine.Gpu::setBuffer]},
+  axioms: [propext]
+}
+
+theorem{
+  name: read_zero,
+  parameters: [a0 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 tl) 0) = a0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: read_three,
+  parameters: [a0 : Nat, a1 : Nat, a2 : Nat, a3 : Nat, tl : (List Nat)],
+  statement: ((Engine.Gpu::nth (cons a0 (cons a1 (cons a2 (cons a3 tl)))) 3) = a3),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: kernel_runs,
+  parameters: [
+    A : (List Nat),
+    W : (List Nat),
+    Z : (List Nat),
+    O : (List Nat),
+    rest : (List (List Nat)),
+    x0 : Nat,
+    x1 : Nat,
+    x2 : Nat,
+    x3 : Nat,
+    x4 : Nat,
+    x5 : Nat,
+    x6 : Nat,
+    more : (List Nat),
+    k : Nat,
+    g : Nat,
+    units : Nat,
+    R : Nat,
+    fuel : Nat
+  ],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::exec (fuel + 40) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := (cons A (cons W (cons Z (cons O rest)))), locals := (cons x0 (cons x1 (cons x2 (cons x3 (cons x4 (cons x5 (cons x6 more))))))), invocation := k, group := g}) (Engine.Gpu::q4GroupSums units R 0 false)) buffers) 3) = (Engine.Gpu::setNth O k (accUp (cons A (cons W (cons Z (cons O rest)))) (Engine.Gpu::u32div k (Engine.Gpu::word units)) (Engine.Gpu::u32rem k (Engine.Gpu::word units)) R 32))),
+  proof: simplify{definitions: [kernel_prefix, loop_runs, read_three, read_zero, store_reads_back]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
