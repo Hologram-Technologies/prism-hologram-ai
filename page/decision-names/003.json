@@ -1,0 +1,32 @@
+{
+  "decision": 3,
+  "name": "The memory plan",
+  "asks": "Is this stage plan the right one?",
+  "fields": {
+    "1": {
+      "name": "Memory budget, bytes",
+      "value": 4294967296
+    },
+    "9": {
+      "name": "Context, bytes",
+      "value": 536870912
+    },
+    "17": {
+      "name": "Bytes for one layer",
+      "value": 107374182
+    },
+    "25": {
+      "name": "Layers",
+      "value": 30
+    },
+    "33": {
+      "name": "Layers in a stage",
+      "value": 30
+    },
+    "41": {
+      "name": "Stages",
+      "value": 1
+    }
+  },
+  "purpose": "whether a stage plan is right"
+}

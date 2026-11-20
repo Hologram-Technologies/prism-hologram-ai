@@ -1,0 +1,17 @@
+{
+  "decision": 36,
+  "claims": [
+    {
+      "request": "240101",
+      "answer": "integer"
+    },
+    {
+      "request": "240100",
+      "answer": "refused: not integer"
+    },
+    {
+      "request": "2401",
+      "answer": "invalid request"
+    }
+  ]
+}

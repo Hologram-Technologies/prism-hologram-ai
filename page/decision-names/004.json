@@ -1,0 +1,16 @@
+{
+  "decision": 4,
+  "name": "The quantisation tier",
+  "asks": "Which tier fits this model in this much memory?",
+  "fields": {
+    "1": {
+      "name": "Parameters",
+      "value": 7000000000
+    },
+    "9": {
+      "name": "Memory budget, bytes",
+      "value": 4294967296
+    }
+  },
+  "purpose": "the quantisation tier"
+}

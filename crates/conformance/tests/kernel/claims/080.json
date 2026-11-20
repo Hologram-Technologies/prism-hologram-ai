@@ -1,0 +1,17 @@
+{
+  "decision": 80,
+  "claims": [
+    {
+      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "answer": "sealed"
+    },
+    {
+      "request": "504fccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bfb6",
+      "answer": "not the sealed engine"
+    },
+    {
+      "request": "504eccff671fa8a90e245f572f1d2894772599130d5781debd85f593a7a706bf",
+      "answer": "invalid request"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "decision": 19,
+  "name": "A model's family",
+  "asks": "Is this a model family and shape the engine runs?",
+  "fields": {
+    "1": {
+      "name": "Type, as the bytes of its name",
+      "value": 8176115172474093568
+    },
+    "9": {
+      "name": "Activation, as the bytes of its name",
+      "value": 8316297436683304960
+    },
+    "17": {
+      "name": "Heads",
+      "value": 12
+    },
+    "19": {
+      "name": "Key-value heads",
+      "value": 2
+    },
+    "21": {
+      "name": "Head size",
+      "value": 128
+    },
+    "23": {
+      "name": "Layers",
+      "value": 28
+    },
+    "25": {
+      "name": "Width",
+      "value": 1536
+    },
+    "29": {
+      "name": "Vocabulary",
+      "value": 151936
+    }
+  },
+  "purpose": "whether a model's family and shape are"
+}
