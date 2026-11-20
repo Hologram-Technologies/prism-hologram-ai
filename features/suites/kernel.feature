@@ -478,6 +478,15 @@ Feature: kernel
     And pos_sum_32 and neg_sum_32 bound each side by 2^24
     And times_exact proves the stage's native times equals Engine.Word::mulB over four bits for every multiplier up to 8
 
+  @KN-58 @build
+  Scenario: The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative
+    Given the stage in app/src/Engine/Stage/HalfScale.lex.tex and its proofs in app/src/Proofs/StageHalfScale.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageHalfScale in the gate
+    Then product_bound holds for every group sum word and every half: the product is below 2^35 unless the sum's magnitude is above 2^24
+    And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
+    And size_bound bounds the product shifted by its offset by 2^64 under the same condition
+    And scaled_zero_is_not_negative holds for every input
+
   @KN-80 @build
   Scenario: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
     Given the seal model in app/src/Kernel/Seal.lex.tex, whose eight words are the engine address `just engine` checks, and its proofs in app/src/Proofs/Seal.lex.tex

@@ -17,10 +17,12 @@ pub const RUST: [&str; 4] = [
 
 /// The page's side of the integer path: it hands the module bytes and text
 /// and reads back the token and the logits' binary32 bits, or an encoder's
-/// embedding and label scores (row 9).
-pub const SCRIPT: [&str; 2] = [
+/// embedding and label scores (row 9), in the worker that runs them off the
+/// page's thread.
+pub const SCRIPT: [&str; 3] = [
     "site/app/engine/integer.mjs",
     "site/app/engine/integer-encoder.mjs",
+    "site/app/engine/integer-worker.mjs",
 ];
 
 /// Floats still on the way to the integer path, each reported on every run as

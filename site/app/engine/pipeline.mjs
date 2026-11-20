@@ -15,8 +15,8 @@
 // on the model's own ids, and the template's head is reused only on decision
 // 27. The page is one caller of this module; nothing here reads the page.
 
-import { createIntegerEngine } from "./integer.mjs";
-import { createIntegerEncoder } from "./integer-encoder.mjs";
+import { startIntegerEngine } from "./integer.mjs";
+import { startIntegerEncoder } from "./integer-encoder.mjs";
 import { createEngine } from "./gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
@@ -179,7 +179,7 @@ export async function pipeline(task, model, options = {}) {
       const limit = gpu ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
       on = await ask("device", "device to run on", join(new Uint8Array([22, gpu ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
       onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : createIntegerEngine({ module, ...raw, capacity: CAPACITY });
+      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : startIntegerEngine({ module, ...raw, capacity: CAPACITY });
     },
   });
   // A failed load forgets every file it read or kept here, since one of them
@@ -209,7 +209,7 @@ export async function pipeline(task, model, options = {}) {
 async function encoderPipeline({ task, model, dtype, record, module, ask, checks, loaded, size }) {
   const largest = Math.max(...Object.values(loaded.table.places).map((place) => place[2]));
   const device = await ask("device", "device to run on", join(new Uint8Array([22, 0]), be(0, 8), be(largest, 8), be(size, 8), be(CPU_CEILING, 8)), (a) => a === "cpu");
-  const encoder = createIntegerEncoder({ module, ...loaded });
+  const encoder = await startIntegerEncoder({ module, ...loaded });
   checks.add("engine", "the encoder runs on the module's integer engine", "pass", `${encoder.dims.n_layers} layers of width ${encoder.dims.d}, every stage on integers (EN-62${task === "text-classification" ? ", EN-63" : ""})`);
   const run = task === "feature-extraction" ? (text) => encoder.embed(text) : (text) => encoder.classify(text);
   return Object.assign(async (text) => run(text), { task, model, dtype, device, engine: encoder, module, record });
@@ -264,7 +264,7 @@ export function turner(session) {
     // none runs to the turn's budget.
     const said = session.stops ? null : m.call("tokeniser_stops_at");
     const stops = session.stops ?? new Set(said.length === 4 ? [new DataView(said.buffer, said.byteOffset, 4).getUint32(0, true)] : []);
-    engine.reset();
+    await engine.reset();
     const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(max_new_tokens, 8)), (a) => /^\d+$/.test(a)));
     const t0 = performance.now();
     let firstAt = t0;
@@ -281,7 +281,7 @@ export function turner(session) {
       const verdict = await ask("reuse", "computed prefix to reuse", join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4)), (a) => a === "reuse" || a === "recompute");
       reuse = { length: held.length, asked: hexOf(asked), held: hexOf(held.label), verdict };
       if (verdict === "reuse") {
-        engine.restoreState(held.state);
+        await engine.restoreState(held.state);
         from = held.length;
       }
     }
@@ -292,7 +292,7 @@ export function turner(session) {
     });
     const end = performance.now();
     if (!held && head > 0 && head < prompt.length) {
-      held = { length: head, label: label(prompt.slice(0, head)), state: engine.saveState(head) };
+      held = { length: head, label: label(prompt.slice(0, head)), state: await engine.saveState(head) };
     }
     return {
       prompt: text,

@@ -271,6 +271,14 @@ Feature: gpu
     And a string answers [{ generated_text: prompt + completion }]
     And an fp32 dtype, an unknown device and do_sample are each refused by decision 70 by name, the dtype before any record or file is read
 
+  @GP-41 @build
+  Scenario: The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's
+    Given GP-19's Qwen3-shaped ONNX export and GP-35's BERT export, served to one page that counts every call its own thread makes into a module's forward pass or encoder
+    When `just page-journey` calls pipeline on the CPU device, asks one turn while a heartbeat runs on the page's thread, and embeds GP-35's sentences
+    Then the page's own thread made no decode or encode call, and the heartbeat was never unanswered for 500 ms
+    And onToken was called once per token, and the sixteen tokens are the reference's
+    And every embedding's bits are GP-35's
+
   @GP-50 @build
   Scenario: Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled
     Given the assembled page, and the same page serving engine.wasm with one bit of one byte flipped
