@@ -7,6 +7,7 @@ import { moduleOf } from "./loader.mjs";
 import { createIntegerEngine } from "./integer.mjs";
 import { createIntegerEncoder } from "./integer-encoder.mjs";
 import { helperCount, useHelpers } from "./integer-helpers.mjs";
+import { useGpu } from "./integer-gpu.mjs";
 
 let engine = null;
 
@@ -19,11 +20,13 @@ self.onmessage = async ({ data }) => {
       const held = new Map(data.tensors);
       const given = { module, table: data.table, read: (name) => held.get(name), config: data.config };
       engine = data.engine === "encoder" ? createIntegerEncoder(given) : createIntegerEngine({ ...given, rope: data.rope, capacity: data.capacity });
-      // The decoder's products on helpers when this page can share memory
-      // (GP-52); the same bits either way.
-      const helpers = data.engine === "encoder" ? 0 : helperCount(data.helpers);
+      // The decoder's products on WebGPU when the page chose that device
+      // (GP-56), else on helpers when this page can share memory (GP-52);
+      // the same bits every way.
+      const gpu = data.engine === "encoder" || !data.gpu ? null : await useGpu(module, data.gpu, engine.sizes);
+      const helpers = data.engine === "encoder" || gpu ? 0 : helperCount(data.helpers);
       if (helpers > 0) await useHelpers(module, helpers, engine.sizes);
-      const value = data.engine === "encoder" ? { dims: engine.dims, labels: engine.labels } : { sizes: engine.sizes, helpers };
+      const value = data.engine === "encoder" ? { dims: engine.dims, labels: engine.labels } : { sizes: engine.sizes, helpers, gpu: gpu && { products: gpu.gpu, cpu: gpu.cpu, adapter: gpu.adapter } };
       self.postMessage({ id, kind: "done", ok: true, value });
       return;
     }

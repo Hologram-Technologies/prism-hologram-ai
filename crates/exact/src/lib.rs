@@ -903,7 +903,11 @@ impl Dense<'_> {
     }
 
     /// Weight `at`, exactly.
-    fn at(self, at: usize) -> Result<Dyadic, ExactError> {
+    ///
+    /// # Errors
+    ///
+    /// [`ExactError::ScaleNotFinite`] for an infinity or a NaN.
+    pub fn at(self, at: usize) -> Result<Dyadic, ExactError> {
         let read = match self {
             Self::F32(bytes) => {
                 let b = at * 4;

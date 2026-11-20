@@ -874,3 +874,9 @@ Feature: engine
     Given the fixture model
     When a step's products are answered one row short
     Then the step is refused as DecodeError::Elsewhere
+
+  @EN-96 @build
+  Scenario: The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Qwen3-shaped fixture written as a q4 export, binary32 scales, embedding and norms
+    When hologram-ai-cpu-decode reads its graph and runs the prompt and sixteen greedy steps, twice
+    Then the tokens are the float reference's, every logit within 2^-7, and the two runs' bits agree
