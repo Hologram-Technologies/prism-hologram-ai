@@ -218,7 +218,7 @@ const ENCODER_RULES = {
 };
 
 // The encoder's dims and each engine tensor as the export's tensor names, for
-// site/app/engine/encoder.mjs. DistilBERT's config has no LayerNorm epsilon;
+// the module's integer encoder. DistilBERT's config has no LayerNorm epsilon;
 // transformers fixes it at 1e-12 in DistilBERT's code, the value BERT's config
 // gives.
 export function encoderRoles({ nodes, tensors }, config) {

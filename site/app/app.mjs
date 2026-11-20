@@ -1,29 +1,24 @@
-// The engine page: verify the kernel, load Bonsai through the checks, answer a
-// prompt by greedy decoding. Everything shown is also on window.__qengine, so a
+// The engine page: verify the kernel, load an ONNX export through the checks,
+// answer a prompt by greedy decoding on the integer engine. Everything shown is also on window.__qengine, so a
 // test reads the verdicts and timings rather than the screen.
 
-import { createEngine } from "./engine/gpu.mjs";
-import { asker, checklist, hubRecord, loadContainer, openModule } from "./engine/loader.mjs";
-import { CAPACITY, be, join, pipeline, turner } from "./engine/pipeline.mjs";
+import { asker, checklist } from "./engine/loader.mjs";
+import { pipeline } from "./engine/pipeline.mjs";
 
-// The model to run: Bonsai unless the address names another, so a link can say
-// "run this model" (?repo=owner/name&path=file&index=hub index base), or an
-// ONNX export on the hub, read from its own files with no repack
-// (?onnx=owner/name&precision=q4f16).
+// The model to run: Qwen3-0.6B's ONNX export, read from its own files with no
+// repack, unless the address names another (?onnx=owner/name&precision=q4f16,
+// and &index= for another hub index). Milestone 2 runs ONNX exports only; the
+// repacked Bonsai container returns in milestone 3, on the integer engine.
 const asked = new URLSearchParams(location.search);
 const MODEL = {
-  repo: asked.get("repo") ?? "HOLOGRAMTECH/q-ternary-bonsai-1.7b",
-  path: asked.get("path") ?? "q-ternary-bonsai-1.7b.v1.holo",
+  onnx: asked.get("onnx") ?? "onnx-community/Qwen3-0.6B-ONNX",
   indexBase: asked.get("index") ?? "https://hologram-technologies.github.io/hub/data/index",
-  fallback: asked.get("repo") ? null : "https://huggingface.co/HOLOGRAMTECH/q-ternary-bonsai-1.7b/resolve/c6d6a12384ecc52ae7e006bef263bfedf5e7496c/",
-  onnx: asked.get("onnx"),
   precision: asked.get("precision"),
 };
 
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
-if (asked.get("repo")) $("model-name").textContent = `${MODEL.repo}, file ${MODEL.path}, from the index at ${MODEL.indexBase}.`;
-if (MODEL.onnx) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
+if (asked.get("onnx")) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
 const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
 window.__qengine = state;
 
@@ -114,52 +109,7 @@ async function load() {
       ? await adapter.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: limit, maxBufferSize: adapter.limits.maxBufferSize } })
       : null;
 
-    if (MODEL.onnx) {
-      await loadOnnxModel({ kernel, ask, device, started });
-      return;
-    }
-
-    status("Reading the model's record…");
-    const record = await hubRecord({ indexBase: MODEL.indexBase, repo: MODEL.repo, checks });
-    const file = record.files.find((f) => f.path === MODEL.path);
-    if (!file || !file.sha256) throw new Error("the record names no SHA-256 for the model file");
-    const base = record.origin?.resolve ?? MODEL.fallback;
-    if (!base) throw new Error("the record names no origin and no fallback is configured");
-    checks.add("record", "file named by the record", "pass", `${file.size} bytes, sha256 ${file.sha256}, from ${base}`);
-    // The page states Bonsai's size itself; for a model named in the address the size is the record's, said before the download starts.
-    if (asked.get("repo")) $("model-name").textContent += ` About ${Math.round(file.size / 1e6)} MB, downloaded once per visit.`;
-
-    const module = await openModule("./engine/engine.wasm", ask);
-    status("Checking the container…");
-    const { engine } = await loadContainer({
-      url: base + MODEL.path,
-      size: file.size,
-      sha256: file.sha256,
-      module,
-      ask,
-      checks,
-      preflight: async (dims, entries) => {
-        // The largest buffer the engine binds, per format: a ternary block is two
-        // planes of N*K/8 bytes and N*K/32 bytes of scales, so one plane is 4/9 of
-        // it; a q4 block is N*K/2 bytes of codes and N*K/8 of scales, so the codes
-        // are 4/5; anything else is bound whole.
-        const share = { q1: 4 / 9, q4: 4 / 5 };
-        const largest = Math.max(...entries.map((e) => e.length * (share[e.fmt] ?? 1)));
-        await ask("backend", "backend for this device", join(new Uint8Array([12, device ? 1 : 0]), be(limit, 8), be(Math.ceil(largest), 8)), "webgpu");
-        status("Downloading and checking every block…");
-        $("progress").hidden = false;
-      },
-      onProgress: (done, total) => { $("progress").value = done / total; },
-      build: async (dims, tensors) => {
-        status("Uploading to the GPU…");
-        return createEngine({ device, dims, tensors, capacity: CAPACITY });
-      },
-    });
-    session = { generate: turner({ engine, module, ask }) };
-    state.phase = "ready";
-    state.loadSeconds = (performance.now() - started) / 1000;
-    status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${(engine.gpuBytes / 1048576).toFixed(0)} MB on the GPU`);
-    $("send").disabled = false;
+    await loadOnnxModel({ kernel, ask, device, started });
   } catch (error) {
     state.phase = "failed";
     state.error = String(error.message ?? error);
