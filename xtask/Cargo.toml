@@ -16,7 +16,7 @@ serde_json = "1.0.151"
 # EN-90: engine-seal derives the engine's address with the authority's own
 # BLAKE3, the one the engine's crates use.
 blake3 = { workspace = true }
-sha2 = "0.10.9"
+sha2 = "0.11.1"
 
 [lints]
 workspace = true
