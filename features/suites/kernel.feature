@@ -511,6 +511,15 @@ Feature: kernel
     And weight_is_exp2 holds for every distance, and total_at_least bounds a non-empty row's sum of weights by 2^30 from below
     And softmax_row_0 to softmax_row_7 evaluate the stage on nine rows, and kernel_kn_81 replays each row through crates/exact's softmax_exp2 and finds the same words
 
+  @KN-59 @build
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+    Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageRowSum in the gate
+    Then row_is_signed_total holds for every input: a row's twelve words have the value rowTotal
+    And run_row and run_starts_at_row_zero show run emits exactly those twelve words for each row in turn
+    And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
+    And add_exact, complement_twelve and subtract_exact hold for every register and term
+
   @KN-73 @build
   Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
     Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex
