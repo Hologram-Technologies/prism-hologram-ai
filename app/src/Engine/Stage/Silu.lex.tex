@@ -1,0 +1,75 @@
+\begin{lexlean}{Engine.Stage.Silu}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Exp2}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: valueAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: ((prim remainder (Engine.Stage.Greedy::nth words (prim multiply 2 i : Nat)) 4294967296 0 : Nat) + (prim multiply 4294967296 (prim remainder (Engine.Stage.Greedy::nth words ((prim multiply 2 i : Nat) + 1)) 4294967296 0 : Nat) : Nat))
+}
+
+definition{
+  name: negative,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 9223372036854775807 v)
+}
+
+definition{
+  name: size,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (negative v) (prim subtract 18446744073709551616 v : Nat) v)
+}
+
+definition{
+  name: distance,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (Engine.Stage.Softmax::divideEven (prim multiply a 6196328019 : Nat) 1099511627776)
+}
+
+definition{
+  name: weight,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (Engine.Stage.Exp2::exp2Neg (distance a))
+}
+
+definition{
+  name: magnitude,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Softmax::divideEven (prim multiply (size v) (Engine.Stage.Greedy::pick (negative v) (weight (size v)) 1073741824) : Nat) (1073741824 + (weight (size v))))
+}
+
+definition{
+  name: silu,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (negative v) (prim remainder (prim subtract 18446744073709551616 (magnitude v) : Nat) 18446744073709551616 0 : Nat) (magnitude v))
+}
+
+definition{
+  name: runFrom,
+  parameters: [words : (List Nat), i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (prim remainder (silu (valueAt words i)) 4294967296 0 : Nat) (cons (prim quotient (silu (valueAt words i)) 4294967296 0 : Nat) (runFrom words (i + 1) rest)))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: run,
+  parameters: [words : (List Nat), count : Nat],
+  result: (List Nat),
+  body: (runFrom words 0 count)
+}
+\end{semanticmodule}
+\end{lexlean}
