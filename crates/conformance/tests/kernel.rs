@@ -4788,7 +4788,7 @@ fn kernel_kn_70() {
     assert_routed(70, "Kernel.Call::callAnswer");
 }
 
-/// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+/// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request
 #[test]
 fn kernel_kn_49() {
     assert_proofs_are_gated();
@@ -4796,55 +4796,73 @@ fn kernel_kn_49() {
     assert_pinned(
         &proofs,
         "exp2_code_prints_tree",
-        "((Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1)))",
+        "((Engine.Code::renderKernelC 3 7 (record Engine.Code::Pieces {p0 := (Engine.Code::exp2NegCode0), p1 := (Engine.Code::exp2NegCode1), p2 := (Engine.Code::exp2NegCode2), p3 := (Engine.Code::exp2NegCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k128",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k256",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k1024",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k1536",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k2048",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k3072",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k8192",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k8960",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_quantise_code_prints_tree",
+        "((Engine.Code::renderKernelC 3 21 (record Engine.Code::Pieces {p0 := (Engine.Code::q4QuantiseCode0), p1 := (Engine.Code::q4QuantiseCode1), p2 := (Engine.Code::q4QuantiseCode2), p3 := (Engine.Code::q4QuantiseCode3), p4 := (Engine.Code::q4QuantiseCode4), p5 := (Engine.Code::q4QuantiseCode5), p6 := (Engine.Code::q4QuantiseCode6), p7 := (Engine.Code::q4QuantiseCode7), p8 := (Engine.Code::q4QuantiseCode8), p9 := (Engine.Code::q4QuantiseCode9), p10 := (Engine.Code::q4QuantiseCode10), p11 := (Engine.Code::q4QuantiseCode11), p12 := (Engine.Code::q4QuantiseCode12), p13 := (Engine.Code::q4QuantiseCode13), p14 := (Engine.Code::q4QuantiseCode14), p15 := (Engine.Code::q4QuantiseCode15), p16 := (Engine.Code::q4QuantiseCode16), p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 21 (Engine.Gpu::q4Quantise)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_finish_code_prints_tree",
+        "((Engine.Code::renderKernelC 5 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4FinishCode0), p1 := (Engine.Code::q4FinishCode1), p2 := (Engine.Code::q4FinishCode2), p3 := (Engine.Code::q4FinishCode3), p4 := (Engine.Code::q4FinishCode4), p5 := (Engine.Code::q4FinishCode5), p6 := (Engine.Code::q4FinishCode6), p7 := (Engine.Code::q4FinishCode7), p8 := (Engine.Code::q4FinishCode8), p9 := (Engine.Code::q4FinishCode9), p10 := (Engine.Code::q4FinishCode10), p11 := (Engine.Code::q4FinishCode11), p12 := (Engine.Code::q4FinishCode12), p13 := (Engine.Code::q4FinishCode13), p14 := (Engine.Code::q4FinishCode14), p15 := (Engine.Code::q4FinishCode15), p16 := (Engine.Code::q4FinishCode16), p17 := (Engine.Code::q4FinishCode17), p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 5 40 (Engine.Gpu::q4Finish)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_accumulate_code_prints_tree",
+        "((Engine.Code::renderKernelC 6 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4AccumulateCode0), p1 := (Engine.Code::q4AccumulateCode1), p2 := (Engine.Code::q4AccumulateCode2), p3 := (Engine.Code::q4AccumulateCode3), p4 := (Engine.Code::q4AccumulateCode4), p5 := (Engine.Code::q4AccumulateCode5), p6 := (Engine.Code::q4AccumulateCode6), p7 := (Engine.Code::q4AccumulateCode7), p8 := (Engine.Code::q4AccumulateCode8), p9 := (Engine.Code::q4AccumulateCode9), p10 := (Engine.Code::q4AccumulateCode10), p11 := (Engine.Code::q4AccumulateCode11), p12 := (Engine.Code::q4AccumulateCode12), p13 := (Engine.Code::q4AccumulateCode13), p14 := (Engine.Code::q4AccumulateCode14), p15 := (Engine.Code::q4AccumulateCode15), p16 := (Engine.Code::q4AccumulateCode16), p17 := (Engine.Code::q4AccumulateCode17), p18 := (Engine.Code::q4AccumulateCode18), p19 := (Engine.Code::q4AccumulateCode19), p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 40 (Engine.Gpu::q4Accumulate)))",
         "Quot.sound, propext",
     );
     let render = model("app/src/Kernel/Render.lex.tex");
@@ -4856,8 +4874,11 @@ fn kernel_kn_49() {
     );
     let found = declaration(&render, "renderText");
     assert!(
-        found.contains("(Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode)")
-            && found.contains("(Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x)"),
+        found.contains("(Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x})")
+            && found.contains("(Engine.Code::renderKernelC 3 7 (record Engine.Code::Pieces {p0 := (Engine.Code::exp2NegCode0), p1 := (Engine.Code::exp2NegCode1), p2 := (Engine.Code::exp2NegCode2), p3 := (Engine.Code::exp2NegCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 3 21 (record Engine.Code::Pieces {p0 := (Engine.Code::q4QuantiseCode0), p1 := (Engine.Code::q4QuantiseCode1), p2 := (Engine.Code::q4QuantiseCode2), p3 := (Engine.Code::q4QuantiseCode3), p4 := (Engine.Code::q4QuantiseCode4), p5 := (Engine.Code::q4QuantiseCode5), p6 := (Engine.Code::q4QuantiseCode6), p7 := (Engine.Code::q4QuantiseCode7), p8 := (Engine.Code::q4QuantiseCode8), p9 := (Engine.Code::q4QuantiseCode9), p10 := (Engine.Code::q4QuantiseCode10), p11 := (Engine.Code::q4QuantiseCode11), p12 := (Engine.Code::q4QuantiseCode12), p13 := (Engine.Code::q4QuantiseCode13), p14 := (Engine.Code::q4QuantiseCode14), p15 := (Engine.Code::q4QuantiseCode15), p16 := (Engine.Code::q4QuantiseCode16), p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 6 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4AccumulateCode0), p1 := (Engine.Code::q4AccumulateCode1), p2 := (Engine.Code::q4AccumulateCode2), p3 := (Engine.Code::q4AccumulateCode3), p4 := (Engine.Code::q4AccumulateCode4), p5 := (Engine.Code::q4AccumulateCode5), p6 := (Engine.Code::q4AccumulateCode6), p7 := (Engine.Code::q4AccumulateCode7), p8 := (Engine.Code::q4AccumulateCode8), p9 := (Engine.Code::q4AccumulateCode9), p10 := (Engine.Code::q4AccumulateCode10), p11 := (Engine.Code::q4AccumulateCode11), p12 := (Engine.Code::q4AccumulateCode12), p13 := (Engine.Code::q4AccumulateCode13), p14 := (Engine.Code::q4AccumulateCode14), p15 := (Engine.Code::q4AccumulateCode15), p16 := (Engine.Code::q4AccumulateCode16), p17 := (Engine.Code::q4AccumulateCode17), p18 := (Engine.Code::q4AccumulateCode18), p19 := (Engine.Code::q4AccumulateCode19), p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 5 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4FinishCode0), p1 := (Engine.Code::q4FinishCode1), p2 := (Engine.Code::q4FinishCode2), p3 := (Engine.Code::q4FinishCode3), p4 := (Engine.Code::q4FinishCode4), p5 := (Engine.Code::q4FinishCode5), p6 := (Engine.Code::q4FinishCode6), p7 := (Engine.Code::q4FinishCode7), p8 := (Engine.Code::q4FinishCode8), p9 := (Engine.Code::q4FinishCode9), p10 := (Engine.Code::q4FinishCode10), p11 := (Engine.Code::q4FinishCode11), p12 := (Engine.Code::q4FinishCode12), p13 := (Engine.Code::q4FinishCode13), p14 := (Engine.Code::q4FinishCode14), p15 := (Engine.Code::q4FinishCode15), p16 := (Engine.Code::q4FinishCode16), p17 := (Engine.Code::q4FinishCode17), p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)"),
         "decision 48 must print the codes the proofs check:
 {found}"
     );
@@ -4877,7 +4898,15 @@ fn kernel_kn_49() {
             (q4(0, 0, 5, 128), "invalid request"),
             (q4(0, 0, 4, 128)[..16].to_vec(), "invalid request"),
             (
-                vec![48, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                vec![48, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "invalid request",
+            ),
+            (
+                vec![48, 3, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "invalid request",
+            ),
+            (
+                vec![48, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0],
                 "invalid request",
             ),
         ],
@@ -5526,6 +5555,77 @@ fn kernel_kn_59() {
         assert!(
             declaration(&stage, name).contains(body),
             "{name} changed"
+        );
+    }
+}
+
+/// `KN-73`: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
+#[test]
+fn kernel_kn_73() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/GpuQ4Chain.lex.tex");
+    assert_pinned(
+        &proofs,
+        "q4_quantise_codes_match_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 1) = (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))))",
+        "",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_quantise_power_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 2) = (cons 7 (nil Nat)))",
+        "",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_row_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 205727 (cons 4294677669 (nil Nat))) (cons (cons 4097018798 (nil Nat)) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 1 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Accumulate)) buffers), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 3200310393 (cons 1276409465 (nil Nat))))",
+        "",
+    );
+    let gpu = model("app/src/Engine/Gpu.lex.tex");
+    for name in ["q4Quantise", "q4Accumulate", "q4Finish"] {
+        let found = declaration(&gpu, name);
+        assert!(
+            found.contains("parameters: []") && found.contains("result: Stmt"),
+            "{name} must be one kernel tree for every width:\n{found}"
+        );
+    }
+    let quarter =
+        |kind: u8, piece: u8| vec![48, kind, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let texts: Vec<String> = [3u8, 4, 5]
+        .iter()
+        .map(|&kind| {
+            let claims = std::fs::read_to_string(
+                root().join("crates/conformance/tests/kernel/claims/048.json"),
+            )
+            .expect("the claims the crates make of the kernel");
+            let claims: serde_json::Value =
+                serde_json::from_str(&claims).expect("048.json is JSON");
+            let mut text = String::new();
+            for piece in 0u8.. {
+                let request: String = quarter(kind, piece)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                let answer = claims["claims"]
+                    .as_array()
+                    .expect("a list of claims")
+                    .iter()
+                    .find(|one| one["request"].as_str() == Some(request.as_str()))
+                    .and_then(|one| one["answer"].as_str())
+                    .unwrap_or_else(|| panic!("no claim for decision 48's {request}"));
+                if answer.is_empty() {
+                    break;
+                }
+                text.push_str(answer);
+            }
+            text
+        })
+        .collect();
+    for text in &texts {
+        assert!(
+            !text.is_empty() && !text.contains("f32") && !text.contains("f16"),
+            "a q4 product kernel must be integers only:\n{text}"
         );
     }
 }

@@ -419,6 +419,12 @@ suite = "gpu"
 statement = "The chat templates of Qwen2.5-1.5B's, Qwen3-0.6B's and Llama 3.2 1B's exports render, from the model's own tokenizer_config.json, exactly as Python's jinja2 renders them configured as transformers configures it, including a template's own error, and a template using a tag, filter, test or method outside what the engine follows is refused by name"
 
 [[id]]
+id = "GP-29"
+level = "build"
+suite = "gpu"
+statement = "The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows"
+
+[[id]]
 id = "GP-21"
 level = "build"
 suite = "gpu"
@@ -668,7 +674,7 @@ statement = "The row register is defined in LexLean, not Rust: Engine.Stage.RowS
 id = "KN-49"
 level = "build"
 suite = "kernel"
-statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request"
+statement = "Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request"
 
 [[id]]
 id = "KN-60"
@@ -687,6 +693,12 @@ id = "KN-71"
 level = "build"
 suite = "kernel"
 statement = "Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request"
+
+[[id]]
+id = "KN-73"
+level = "build"
+suite = "kernel"
+statement = "The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows"
 
 [[id]]
 id = "EN-29"
@@ -982,3 +994,15 @@ id = "GP-50"
 level = "build"
 suite = "gpu"
 statement = "Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled"
+
+[[id]]
+id = "EN-91"
+level = "build"
+suite = "engine"
+statement = "hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it"
+
+[[id]]
+id = "GP-51"
+level = "build"
+suite = "gpu"
+statement = "The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before"
