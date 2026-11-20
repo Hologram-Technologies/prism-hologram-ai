@@ -1,0 +1,63 @@
+\begin{lexlean}{Engine.Stage.RowFinish}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Binary32}
+\importmodule{Engine.Stage.Greedy}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: registerFrom,
+  parameters: [words : (List Nat), base : Nat, i : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((prim remainder (Engine.Stage.Greedy::nth words (base + i)) 4294967296 0 : Nat) + (prim multiply 4294967296 (registerFrom words base (i + 1) rest) : Nat))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: register,
+  parameters: [words : (List Nat), row : Nat],
+  result: Nat,
+  body: (registerFrom words (prim multiply 12 row : Nat) 0 12)
+}
+
+definition{
+  name: negative,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 19701003098197239606139520050071806902539869635232723333974146702122860885748605305707133127442457820403313995153407 v)
+}
+
+definition{
+  name: magnitude,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (negative v) (prim subtract 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 v : Nat) v)
+}
+
+definition{
+  name: finish,
+  parameters: [words : (List Nat), row : Nat],
+  result: Nat,
+  body: (Engine.Stage.Binary32::round (negative (register words row)) (magnitude (register words row)) 192 400)
+}
+
+definition{
+  name: finishFrom,
+  parameters: [words : (List Nat), row : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (finish words row) (finishFrom words (row + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: run,
+  parameters: [words : (List Nat), rows : Nat],
+  result: (List Nat),
+  body: (finishFrom words 0 rows)
+}
+\end{semanticmodule}
+\end{lexlean}

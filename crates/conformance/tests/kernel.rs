@@ -5816,3 +5816,54 @@ fn kernel_kn_62() {
     }
     assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
 }
+
+/// `KN-63`: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_63() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRowFinish.lex.tex");
+    for name in ["row_finish_is_word", "row_finish_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: row_finish_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("row_finish_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "row_finish_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.RowFinish::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("row_finish_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let rest = rest.trim_start().strip_prefix("1) = ").expect("one row");
+        let expected = cons_list(rest).0;
+        assert_eq!(words.len(), 12, "row_finish_row_{rows}: twelve words");
+        // The register's magnitude, two's complement over 384 bits.
+        let negative = words[11] >> 31 == 1;
+        let mut magnitude: Vec<u64> = words.clone();
+        if negative {
+            let mut carry = 1u64;
+            for word in &mut magnitude {
+                let flipped = (!*word & 0xffff_ffff) + carry;
+                *word = flipped & 0xffff_ffff;
+                carry = flipped >> 32;
+            }
+        }
+        let mut row = hologram_ai_exact::Row::ZERO;
+        for (i, &word) in magnitude.iter().enumerate() {
+            row.add_scaled(u128::from(word), 32 * i as i32 - 192, negative);
+        }
+        let rust = vec![u64::from(hologram_ai_exact::round_to_binary32(&row))];
+        assert_eq!(
+            rust, expected,
+            "row_finish_row_{rows}: crates/exact rounds the register {words:?} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 8, "eight rows are evaluated, found {rows}");
+}
