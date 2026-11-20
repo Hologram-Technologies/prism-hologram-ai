@@ -1,0 +1,154 @@
+\begin{lexlean}{Engine.Stage.RowSum}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\importmodule{Engine.Word}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: word,
+  parameters: [x : Nat],
+  result: Nat,
+  body: (prim remainder x 4294967296 0 : Nat)
+}
+
+definition{
+  name: entryAt,
+  parameters: [entries : (List Nat), g : Nat, j : Nat],
+  result: Nat,
+  body: (word (Engine.Stage.Greedy::nth entries ((prim multiply 4 g : Nat) + j)))
+}
+
+definition{
+  name: position,
+  parameters: [entries : (List Nat), powers : (List Nat), units : Nat, g : Nat],
+  result: Nat,
+  body: (word (((entryAt entries g 3) + 168) + (prim subtract 4294967296 (word (Engine.Stage.Greedy::nth powers (prim remainder g units 0 : Nat))) : Nat)))
+}
+
+definition{
+  name: digitLow,
+  parameters: [lo : Nat, b : Nat],
+  result: Nat,
+  body: (word (Engine.Stage.HalfScale::shiftSteps lo b 31))
+}
+
+definition{
+  name: digitMiddle,
+  parameters: [lo : Nat, hi : Nat, b : Nat],
+  result: Nat,
+  body: (word ((prim quotient (Engine.Stage.HalfScale::shiftSteps lo b 31) 4294967296 0 : Nat) + (Engine.Stage.HalfScale::shiftSteps hi b 31)))
+}
+
+definition{
+  name: digitHigh,
+  parameters: [hi : Nat, b : Nat],
+  result: Nat,
+  body: (word (prim quotient (Engine.Stage.HalfScale::shiftSteps hi b 31) 4294967296 0 : Nat))
+}
+
+definition{
+  name: equal,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim subtract 1 ((Engine.Stage.Greedy::below a b) + (Engine.Stage.Greedy::below b a)) : Nat)
+}
+
+definition{
+  name: termWord,
+  parameters: [lo : Nat, hi : Nat, pos : Nat, i : Nat],
+  result: Nat,
+  body: (word (Engine.Stage.Greedy::pick (equal i (prim quotient pos 32 0 : Nat)) (digitLow lo (prim remainder pos 32 0 : Nat)) (Engine.Stage.Greedy::pick (equal i ((prim quotient pos 32 0 : Nat) + 1)) (digitMiddle lo hi (prim remainder pos 32 0 : Nat)) (Engine.Stage.Greedy::pick (equal i ((prim quotient pos 32 0 : Nat) + 2)) (digitHigh hi (prim remainder pos 32 0 : Nat)) 0))))
+}
+
+definition{
+  name: signedWord,
+  parameters: [entries : (List Nat), powers : (List Nat), units : Nat, g : Nat, i : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (entryAt entries g 0) (prim subtract 4294967295 (termWord (entryAt entries g 1) (entryAt entries g 2) (position entries powers units g) i) : Nat) (termWord (entryAt entries g 1) (entryAt entries g 2) (position entries powers units g) i))
+}
+
+definition{
+  name: column,
+  parameters: [
+    entries : (List Nat),
+    powers : (List Nat),
+    units : Nat,
+    g : Nat,
+    i : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((signedWord entries powers units g i) + (column entries powers units (g + 1) i rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: negatives,
+  parameters: [entries : (List Nat), g : Nat, remaining : Nat],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (entryAt entries g 0) 1 0) + (negatives entries (g + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: startTotal,
+  parameters: [entries : (List Nat), powers : (List Nat), units : Nat, row : Nat],
+  result: Nat,
+  body: ((column entries powers units (prim multiply row units : Nat) 0 units) + (negatives entries (prim multiply row units : Nat) units))
+}
+
+definition{name: nextRow, parameters: [row : Nat, i : Nat], result: Nat, body: (row + (equal i 11))}
+
+definition{
+  name: nextWord,
+  parameters: [i : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (equal i 11) 0 (i + 1))
+}
+
+definition{
+  name: nextTotal,
+  parameters: [
+    entries : (List Nat),
+    powers : (List Nat),
+    units : Nat,
+    row : Nat,
+    i : Nat,
+    total : Nat
+  ],
+  result: Nat,
+  body: ((column entries powers units (prim multiply (nextRow row i) units : Nat) (nextWord i) units) + (Engine.Stage.Greedy::pick (equal i 11) (negatives entries (prim multiply (nextRow row i) units : Nat) units) (prim quotient total 4294967296 0 : Nat)))
+}
+
+definition{
+  name: runWords,
+  parameters: [
+    entries : (List Nat),
+    powers : (List Nat),
+    units : Nat,
+    row : Nat,
+    i : Nat,
+    total : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (word total) (runWords entries powers units (nextRow row i) (nextWord i) (nextTotal entries powers units row i total) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: run,
+  parameters: [entries : (List Nat), powers : (List Nat), units : Nat, rows : Nat],
+  result: (List Nat),
+  body: (runWords entries powers units 0 0 (startTotal entries powers units 0) (prim multiply 12 rows : Nat))
+}
+\end{semanticmodule}
+\end{lexlean}

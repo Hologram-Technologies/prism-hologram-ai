@@ -51,7 +51,7 @@ export async function printedKernels(dispatch) {
   };
   const sums = {};
   for (const width of PRINTED) sums[width] = await printed(1, width / 32, width);
-  return { quantise: await printed(3, 0, 0), sums, accumulate: await printed(4, 0, 0), finish: await printed(5, 0, 0) };
+  return { quantise: await printed(3, 0, 0), sums, accumulate: await printed(4, 0, 0), finish: await printed(5, 0, 0), dense: await printed(6, 0, 0) };
 }
 
 // The slices decode_slices wrote, by product number: for each, its number,
@@ -69,6 +69,10 @@ function slicesOf(bytes) {
     if (kind === 1) {
       const [rows, columns, block, scaleKind, packed, codes, scales] = [at(1), at(2), at(3), at(4), at(5), at(6), at(7)];
       Object.assign(one, { rows, columns, block, scaleKind, packed, codes: slice.subarray(36, 36 + codes), scales: slice.subarray(36 + codes, 36 + codes + scales) });
+    } else if (kind === 2) {
+      // The head: its rows of half weights, row after row.
+      const [rows, columns, length] = [at(1), at(2), at(3)];
+      Object.assign(one, { rows, columns, weights: slice.subarray(16, 16 + length) });
     }
     out.push(one);
     i += 12 + length;
@@ -77,8 +81,12 @@ function slicesOf(bytes) {
 }
 
 // Whether the printed kernels take a slice: a q4 matrix of blocks of 32, half
-// scales, no zero points, of a printed width, whole.
-export const onGpu = (s) => s.kind === 1 && s.block === 32 && s.scaleKind === 2 && s.packed === 0 && s.start === 0 && PRINTED.includes(s.columns);
+// scales, no zero points, of a printed width, whole; or the dense head, whole,
+// whose row the dense kernel walks up to DENSE_WIDTH inputs (Engine.Gpu's
+// denseAccumulate).
+export const DENSE_WIDTH = 2048;
+export const onGpu = (s) => (s.kind === 1 && s.block === 32 && s.scaleKind === 2 && s.packed === 0 && s.start === 0 && PRINTED.includes(s.columns))
+  || (s.kind === 2 && s.start === 0 && s.columns % 32 === 0 && s.columns <= DENSE_WIDTH);
 
 // Bytes as little-endian words, the last padded with zeros.
 const words = (bytes) => {
@@ -99,7 +107,11 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
 
   // The products the printed kernels do not take, held by an instance of the
   // engine's module.
-  const rest = all.filter((s) => !onGpu(s));
+  // A slice whose weights one binding cannot hold stays on the module too.
+  const bound = device.limits.maxStorageBufferBindingSize;
+  const fits = (s) => (s.kind === 1 ? s.codes.length : s.weights.length) <= bound;
+  const gpuSide = all.filter((s) => onGpu(s) && fits(s));
+  const rest = all.filter((s) => !gpuSide.includes(s));
   let cpu = null;
   if (rest.length) {
     cpu = moduleOf(compiled);
@@ -150,22 +162,31 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
     return inputs.get(width);
   };
   const products = new Map();
-  for (const s of all.filter(onGpu)) {
+  for (const s of gpuSide) {
     const units = s.columns / 32;
     const shared = await inputOf(s.columns);
-    const codes = buffer(words(s.codes)), scales = buffer(words(s.scales));
-    const sums = empty(s.rows * units), registers = empty(s.rows * 12), rows = empty(s.rows);
+    const registers = empty(s.rows * 12), rows = empty(s.rows);
     const read = device.createBuffer({ size: 4 * s.rows, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    const zero = empty(1);
-    products.set(s.number, {
-      rows: s.rows, columns: s.columns, shared, registers, out: rows, read,
-      steps: [
+    const finish = await step(kernels.finish, s.rows, [empty(1), empty(1), empty(1), registers, rows]);
+    let steps;
+    if (s.kind === 1) {
+      const codes = buffer(words(s.codes)), scales = buffer(words(s.scales)), sums = empty(s.rows * units);
+      steps = [
         shared.quantise,
-        await step(kernels.sums[s.columns], s.rows * units, [shared.codes, codes, zero, sums]),
+        await step(kernels.sums[s.columns], s.rows * units, [shared.codes, codes, empty(1), sums]),
         await step(kernels.accumulate, s.rows, [sums, scales, shared.powers, registers, rows, buffer(new Uint32Array([units]))]),
-        await step(kernels.finish, s.rows, [empty(1), empty(1), empty(1), registers, rows]),
-      ],
-    });
+        finish,
+      ];
+    } else {
+      // Each input's code times its half weight, placed in the row's register
+      // at its group's power: the dense kernel reads the codes themselves.
+      steps = [
+        shared.quantise,
+        await step(kernels.dense, s.rows, [shared.codes, buffer(words(s.weights)), shared.powers, registers, rows, buffer(new Uint32Array([s.columns]))]),
+        finish,
+      ];
+    }
+    products.set(s.number, { rows: s.rows, columns: s.columns, shared, registers, out: rows, read, steps });
   }
 
   // One product: `number`, its input `length` bytes at CONTROL; its rows go at rowsAt.

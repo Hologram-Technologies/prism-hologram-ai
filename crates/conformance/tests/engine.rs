@@ -12233,3 +12233,81 @@ fn engine_fl_80() {
         Some(decode::DecodeError::Elsewhere)
     );
 }
+
+/// `EN-97`: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused
+#[test]
+fn engine_en_97() {
+    use hologram_ai_cpu_decode::{advance, step, Component, Session};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let hidden = model.dims.hidden;
+    let layers = model.dims.layers;
+    let (tokens, logits) = en_49_run(&model, &fixture.prompt);
+    let ids: Vec<u32> = fixture.prompt.iter().chain(&tokens).copied().collect();
+    // Every component of every layer at one position past the prompt, each
+    // read on a replay of the run's ids to that position.
+    let at = fixture.prompt.len() + 3;
+    let read = |layer: usize, component: Component| -> Option<Vec<u32>> {
+        let mut session = Session::new(&model);
+        for &id in &ids[..at] {
+            advance(&model, &mut session, id).expect("a step");
+        }
+        session.probe(layer, component);
+        step(&model, &mut session, ids[at]).expect("the probed step");
+        session.probed()
+    };
+    let mut residuals = Vec::new();
+    for layer in 0..layers {
+        for component in [
+            Component::Residual,
+            Component::Attention,
+            Component::FeedForward,
+        ] {
+            let bits = read(layer, component).expect("the probe read its layer");
+            assert_eq!(
+                bits.len(),
+                hidden,
+                "layer {layer} {component:?}: one value per width"
+            );
+            assert_eq!(
+                read(layer, component),
+                Some(bits.clone()),
+                "layer {layer} {component:?}: a second replay read other bits"
+            );
+            if component == Component::Residual {
+                residuals.push(bits);
+            }
+        }
+    }
+    // The residual moves at every layer: no probe read a stale copy.
+    assert!(
+        residuals.windows(2).all(|w| w[0] != w[1]),
+        "two layers' residuals are the same bits"
+    );
+    // Past the last layer, nothing is read.
+    assert_eq!(read(layers, Component::Residual), None);
+    // The run with a probe set is the run without one, bit for bit.
+    let mut session = Session::new(&model);
+    let mut probed_logits = Vec::new();
+    for (i, &id) in ids.iter().enumerate().take(at + 1) {
+        if i == at {
+            session.probe(0, Component::Attention);
+        }
+        let out = step(&model, &mut session, id).expect("a step");
+        if i >= fixture.prompt.len() - 1 {
+            probed_logits.push(out);
+        }
+    }
+    assert!(session.probed().is_some(), "the probe set read nothing");
+    for (k, row) in probed_logits.iter().enumerate() {
+        assert_eq!(row, &logits[k], "step {k}: a probe changed the logits");
+    }
+    assert_eq!(
+        Component::numbered(3),
+        None,
+        "a fourth component is refused"
+    );
+    assert_eq!(Component::COUNT, 3);
+}

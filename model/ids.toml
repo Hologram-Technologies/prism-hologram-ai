@@ -287,24 +287,6 @@ suite = "engine"
 statement = "The ONNX importer hashes each whole file by BLAKE3 as its bytes arrive and asks the kernel to admit it against the BLAKE3 the record gives, so a file whose bytes are not the record's BLAKE3 is refused"
 
 [[id]]
-id = "GP-01"
-level = "build"
-suite = "gpu"
-statement = "The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance"
-
-[[id]]
-id = "GP-02"
-level = "build"
-suite = "gpu"
-statement = "The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size"
-
-[[id]]
-id = "GP-04"
-level = "build"
-suite = "gpu"
-statement = "Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time"
-
-[[id]]
 id = "EN-27"
 level = "build"
 suite = "engine"
@@ -314,7 +296,7 @@ statement = "A GGUF file's tensor table is read as the file writes it: every ten
 id = "GP-03"
 level = "build"
 suite = "gpu"
-statement = "The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with"
+statement = "The engine page loads an ONNX export through the verified kernel, Qwen3-0.6B's unless the address names another, runs it on the integer engine and answers as the reference does, and stops where the deploy, the hub or the engine is not what it should be; its journey runs in the gate after the app and the engine, and before every deploy"
 
 [[id]]
 id = "EN-28"
@@ -329,40 +311,10 @@ suite = "gpu"
 statement = "The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists"
 
 [[id]]
-id = "GP-05"
-level = "build"
-suite = "gpu"
-statement = "The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time"
-
-[[id]]
 id = "GP-07"
 level = "build"
 suite = "gpu"
 statement = "A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page"
-
-[[id]]
-id = "GP-08"
-level = "build"
-suite = "gpu"
-statement = "A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance"
-
-[[id]]
-id = "GP-09"
-level = "build"
-suite = "gpu"
-statement = "A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding"
-
-[[id]]
-id = "GP-10"
-level = "build"
-suite = "gpu"
-statement = "A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance"
-
-[[id]]
-id = "GP-11"
-level = "build"
-suite = "gpu"
-statement = "The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance"
 
 [[id]]
 id = "GP-12"
@@ -371,40 +323,10 @@ suite = "gpu"
 statement = "Every weight of onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B is given its engine role by the node that reads it, with shapes checked against the config, what cannot be placed is refused by name, and a model placed this way gives the CPU reference's greedy tokens"
 
 [[id]]
-id = "GP-13"
-level = "build"
-suite = "gpu"
-statement = "A BERT encoder shaped as all-MiniLM-L6-v2's q4f16 ONNX export, with q4f16 weights, f16 biases, LayerNorms and embedding tables and token types, gives on WebGPU the CPU reference's hidden states and its mean-pooled unit-length sentence embedding within tolerance"
-
-[[id]]
-id = "GP-14"
-level = "build"
-suite = "gpu"
-statement = "A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label"
-
-[[id]]
-id = "GP-15"
-level = "build"
-suite = "gpu"
-statement = "Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed"
-
-[[id]]
-id = "GP-16"
-level = "build"
-suite = "gpu"
-statement = "A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt"
-
-[[id]]
 id = "GP-17"
 level = "build"
 suite = "gpu"
 statement = "Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels"
-
-[[id]]
-id = "GP-18"
-level = "build"
-suite = "gpu"
-statement = "With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix"
 
 [[id]]
 id = "GP-19"
@@ -663,6 +585,12 @@ id = "KN-58"
 level = "build"
 suite = "kernel"
 statement = "The product of a group sum and its IEEE half scale is defined in LexLean, not Rust: Engine.Stage.HalfScale::run writes, per group, a sign word, the product of the sum's magnitude and the half's significand as two little-endian limbs, and the offset max(exponent, 1) - 1 at which that product stands in units of 2^-24, multiplying by Engine.Word::mulB; Lean proves, for every input, that the product is below 2^35 and its high limb below 8 whenever the sum's magnitude is at most 2^24, that the offset is at most 30, that the product shifted by its offset is below 2^64, and that a zero product is never negative"
+
+[[id]]
+id = "KN-59"
+level = "build"
+suite = "kernel"
+statement = "The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it"
 
 [[id]]
 id = "KN-49"
@@ -1014,6 +942,12 @@ suite = "gpu"
 statement = "Code written for transformers.js's encoders runs on the engine unchanged: pipeline(\"feature-extraction\") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline(\"text-classification\") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs"
 
 [[id]]
+id = "GP-57"
+level = "build"
+suite = "gpu"
+statement = "The engine page loads an ONNX export whose graph file holds no tensor, every one in a data file beside it, as Llama 3.2 1B's q4f16 export keeps them: the tensor manifest takes each tensor's BLAKE3 address from the hub's UOR index row under the file it lies in, refuses a listed tensor without one, and refuses only a model none of whose files lists any tensor; the importer reads the data file and the page answers with the reference's tokens"
+
+[[id]]
 id = "EN-91"
 level = "build"
 suite = "engine"
@@ -1047,10 +981,40 @@ statement = "SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads 
 id = "GP-56"
 level = "build"
 suite = "gpu"
-statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
+statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and the dense output head with the dense kernel (KN-95) when its half weights fit one binding, any other product on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
 
 [[id]]
 id = "EN-96"
 level = "build"
 suite = "engine"
 statement = "The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"
+
+[[id]]
+id = "KN-95"
+level = "build"
+suite = "kernel"
+statement = "The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows"
+
+[[id]]
+id = "GP-58"
+level = "build"
+suite = "gpu"
+statement = "Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte"
+
+[[id]]
+id = "GP-59"
+level = "build"
+suite = "gpu"
+statement = "A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict"
+
+[[id]]
+id = "EN-97"
+level = "build"
+suite = "engine"
+statement = "A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused"
+
+[[id]]
+id = "GP-60"
+level = "build"
+suite = "gpu"
+statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
