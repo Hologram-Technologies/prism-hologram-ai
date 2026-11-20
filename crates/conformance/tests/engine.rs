@@ -12496,6 +12496,7 @@ fn engine_en_112() {
             .count();
         let mut handed: Vec<String> = Vec::new();
         let (mut opened, mut held, mut ran, mut refused) = (false, 0usize, 0usize, false);
+        let mut mapped = false;
         // The scaling as the page passes it once the loader confirmed it.
         let scaling = match en_49_config(&fixture).scaling {
             exact::RopeScaling::Llama3 {
@@ -12523,6 +12524,47 @@ fn engine_en_112() {
             wasm::release(at);
             let so_far = en_112_said("onnx_so_far", wasm::onnx_so_far());
             let so_far = String::from_utf8(so_far).expect("text");
+            // Once the nodes are read, the module's own layer map is the one
+            // this test reads from the nodes: the page holds a layer by it.
+            if !mapped && !so_far.is_empty() {
+                let said = String::from_utf8(en_112_said("onnx_layers", wasm::onnx_layers()))
+                    .expect("text");
+                let mut lines = said.lines();
+                assert_eq!(
+                    lines.next(),
+                    Some(format!("layers\t{layers}").as_str()),
+                    "{family}: the layer count"
+                );
+                let gather = nodes
+                    .iter()
+                    .find(|n| n.name == "/model/embed_tokens/Gather")
+                    .and_then(|n| n.inputs.first())
+                    .expect("a token gather");
+                assert_eq!(
+                    lines.next(),
+                    Some(format!("embedding\t{gather}").as_str()),
+                    "{family}: the embedding"
+                );
+                let named: Vec<(String, usize)> = lines
+                    .map(|line| {
+                        let (name, l) = line.split_once('\t').expect("a name and a layer");
+                        (name.to_string(), l.parse().expect("a layer"))
+                    })
+                    .collect();
+                for l in 0..layers {
+                    let mut said: Vec<&String> = named
+                        .iter()
+                        .filter(|(n, at)| *at == l && initializers.contains_key(n))
+                        .map(|(n, _)| n)
+                        .collect();
+                    said.sort();
+                    said.dedup();
+                    let mut read = reads(l);
+                    read.sort();
+                    assert_eq!(said, read, "{family}: layer {l}'s weights");
+                }
+                mapped = true;
+            }
             for line in so_far.lines() {
                 let fields: Vec<&str> = line.split('\t').collect();
                 let name = fields[0];

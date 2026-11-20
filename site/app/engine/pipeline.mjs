@@ -158,13 +158,20 @@ export async function pipeline(task, model, options = {}) {
   const session = { module, ask, engine: null, stops: null, chat: null, kernels: null, pending: null };
   const generate = turner(session);
   const streaming = !encoding && typeof options.early === "function";
-  // A layer is one the decoder reads a query projection of; the final norm
-  // of a fused export is named under the layer after the last.
-  const layerOf = (name) => Number(/(?:^|\.)layers\.(\d+)\./.exec(name)?.[1] ?? -1);
   const listed = [...(manifest.get(path)?.tensors ?? [])];
-  const layers = new Set(listed.filter((t) => /\.q_proj\./.test(t.name)).map((t) => layerOf(t.name))).size;
-  const needs = Array.from({ length: layers }, (_, l) => listed.filter((t) => layerOf(t.name) === l).map((t) => t.name));
-  const embedding = listed.find((t) => /embed_tokens/.test(t.name))?.name;
+  // Which weights each layer reads, and the embedding, as the module's
+  // nodes say once they are read (EN-112): weight names do not say it.
+  let layers = 0;
+  let needs = null;
+  let embedding = null;
+  const mapLayers = () => {
+    const weights = new Set(listed.map((t) => t.name));
+    const lines = new TextDecoder().decode(module.call("onnx_layers")).split("\n").filter(Boolean).map((line) => line.split("\t"));
+    layers = Number(lines[0][1]);
+    embedding = lines[1][1] || null;
+    needs = Array.from({ length: layers }, () => new Set());
+    for (const [name, l] of lines.slice(2)) if (weights.has(name) && Number(l) < layers) needs[Number(l)].add(name);
+  };
   const got = new Set();
   const handed = new Set();
   let fresh = [];
@@ -196,11 +203,20 @@ export async function pipeline(task, model, options = {}) {
   };
   const onArrived = async (tensors, bytesAt) => {
     if (!rope || earlyFailure) return;
+    if (!needs) {
+      mapLayers();
+      // A graph the decoder cannot read by layer streams nothing, and keeps
+      // no copy of its weights here: it loads as before.
+      if (!layers || !embedding) {
+        rope = null;
+        return;
+      }
+    }
     for (const t of tensors) {
       got.add(t.name);
       fresh.push([t.name, t.type, bytesAt(t.offset, t.length)]);
     }
-    while (held < layers && needs[held].every((n) => got.has(n))) held++;
+    while (held < layers && [...needs[held]].every((n) => got.has(n))) held++;
     try {
       if (!session.engine) {
         if (held < 1 || !got.has(embedding)) return;

@@ -3276,3 +3276,5 @@ Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,10
 | a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
 | none | passed |
 
+
+The page's module also answers `onnx_layers`: the number of layers with a query projection, the value the token gather reads, and the layer of each value a node of `/model/layers.N/` reads. A page holds a layer by it, because weight names do not say it: GP-19's fixture names some of a layer's weights `model.layers.N.` and others `lN.`. `engine_en_112` checks that, for every layer of the three fixtures, its answer is the set of weights the test reads from the nodes itself. With it the module is 2,062,388 bytes, and decision 80 seals it at `blake3:3d7a79fa356473b7a0b248754d0166c85391cc64e31be946bffd5843faf69348` (EN-90).
