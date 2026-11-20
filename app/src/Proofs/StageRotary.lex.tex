@@ -1,0 +1,39 @@
+\begin{lexlean}{Proofs.StageRotary}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Rotary}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: rotary_entries_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Rotary::sineEntry 0) (cons (Engine.Stage.Rotary::sineEntry 1) (cons (Engine.Stage.Rotary::sineEntry 2) (cons (Engine.Stage.Rotary::sineEntry 100) (cons (Engine.Stage.Rotary::sineEntry 2731) (cons (Engine.Stage.Rotary::sineEntry 8192) (cons (Engine.Stage.Rotary::sineEntry 12345) (cons (Engine.Stage.Rotary::sineEntry 16383) (cons (Engine.Stage.Rotary::sineEntry 16384) (nil Nat)))))))))) = (cons 0 (cons 102944 (cons 205887 (cons 10294213 (cons 277937979 (cons 759250125 (cons 994238777 (cons 1073741819 (cons 1073741824 (nil Nat))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotary_sines_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Rotary::sineTurn 0) (cons (Engine.Stage.Rotary::sineTurn 1) (cons (Engine.Stage.Rotary::sineTurn 32767) (cons (Engine.Stage.Rotary::sineTurn 32768) (cons (Engine.Stage.Rotary::sineTurn 98304) (cons (Engine.Stage.Rotary::sineTurn 1073741824) (cons (Engine.Stage.Rotary::sineTurn 2147495993) (cons (Engine.Stage.Rotary::sineTurn 3221225472) (cons (Engine.Stage.Rotary::sineTurn 4294967295) (cons (Engine.Stage.Rotary::sineTurn 2863311530) (nil Nat))))))))))) = (cons 0 (cons 0 (cons 0 (cons 0 (cons 205887 (cons 1073741824 (cons 0 (cons 3221225472 (cons 0 (cons 3365062443 (nil Nat)))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotary_cosines_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Rotary::cosineTurn 0) (cons (Engine.Stage.Rotary::cosineTurn 1) (cons (Engine.Stage.Rotary::cosineTurn 32767) (cons (Engine.Stage.Rotary::cosineTurn 32768) (cons (Engine.Stage.Rotary::cosineTurn 98304) (cons (Engine.Stage.Rotary::cosineTurn 1073741824) (cons (Engine.Stage.Rotary::cosineTurn 2147495993) (cons (Engine.Stage.Rotary::cosineTurn 3221225472) (cons (Engine.Stage.Rotary::cosineTurn 4294967295) (cons (Engine.Stage.Rotary::cosineTurn 2863311530) (nil Nat))))))))))) = (cons 1073741824 (cons 1073741824 (cons 1073741824 (cons 1073741824 (cons 1073741804 (cons 0 (cons 3221225472 (cons 0 (cons 1073741824 (cons 3758126102 (nil Nat)))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotary_angles_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.Rotary::ropeAngle 0 0) (cons (Engine.Stage.Rotary::ropeAngle 1 4294967296) (cons (Engine.Stage.Rotary::ropeAngle 7 123456789012) (cons (Engine.Stage.Rotary::ropeAngle 4294967295 18446744073709551615) (cons (Engine.Stage.Rotary::ropeAngle 100 2147483648) (cons (Engine.Stage.Rotary::ropeAngle 3 6148914691236517205) (nil Nat))))))) = (cons 0 (cons 1 (cons 201 (cons 4294967295 (cons 50 (cons 0 (nil Nat)))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}
