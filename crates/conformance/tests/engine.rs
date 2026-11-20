@@ -6178,9 +6178,11 @@ fn engine_en_31() {
         );
         assert_eq!((model.tensors[3].file, model.tensors[3].offset), (1, 256));
         assert_eq!(model.operators, ["MatMulNBits", "Mul"]);
+        // MatMulNBits stores 4-bit weights in either style, so a graph whose
+        // only com.microsoft operator it is stays decomposed (Qwen2.5's export).
         assert!(
-            model.fused,
-            "a graph naming a com.microsoft operator is fused"
+            !model.fused,
+            "a graph whose only com.microsoft operator is MatMulNBits is decomposed"
         );
         match &first {
             None => first = Some((model, kernel.asked)),
@@ -6196,7 +6198,7 @@ fn engine_en_31() {
     let (model, asked) = first.expect("an import");
 
     // What was asked, and in what order: each inline span as the graph passes
-    // it, after the previous; the graph whole; each operator in the fused
+    // it, after the previous; the graph whole; each operator in the decomposed
     // style; the data file's spans before any of its bytes; that file whole;
     // and each 4-bit part against its shape.
     let graph_file = chunk::File {
@@ -6226,8 +6228,8 @@ fn engine_en_31() {
             graph.len() as u64,
         )
         .to_vec(),
-        opname::request(opname::Style::Fused, &name("MatMulNBits")).to_vec(),
-        opname::request(opname::Style::Fused, &name("Mul")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("MatMulNBits")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("Mul")).to_vec(),
         chunk::request(data_file, 0, 256, 0).to_vec(),
         chunk::request(data_file, 256, 64, 256).to_vec(),
         admission::request(
@@ -6262,6 +6264,28 @@ fn engine_en_31() {
     assert_eq!(
         kernel.asked.last().expect("asked"),
         &opname::request(opname::Style::Decomposed, &name("Add")).to_vec()
+    );
+
+    // Any other com.microsoft operator makes the graph fused.
+    let fused = onnx_file(
+        &[opset("", 21), opset("com.microsoft", 1)],
+        Some(&proto_field_bytes(
+            1,
+            &node(b"GroupQueryAttention", "com.microsoft"),
+        )),
+    );
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &fused));
+    reading.take(&fused, &mut kernel).expect("it reads");
+    let model = import::whole(
+        reading.finish(&mut kernel).expect("it finishes"),
+        &mut kernel,
+    )
+    .expect("it imports");
+    assert!(model.fused);
+    assert_eq!(
+        kernel.asked.last().expect("asked"),
+        &opname::request(opname::Style::Fused, &name("GroupQueryAttention")).to_vec()
     );
 }
 
@@ -6959,7 +6983,8 @@ fn engine_en_33() {
             table["operators"],
             serde_json::json!(["MatMulNBits", "Mul"])
         );
-        assert_eq!(table["fused"], serde_json::json!(true));
+        // MatMulNBits alone stores weights; it does not make a graph fused.
+        assert_eq!(table["fused"], serde_json::json!(false));
     }
 }
 
@@ -10131,6 +10156,12 @@ fn engine_en_51() {
     en_49_check("llama");
 }
 
+/// `EN-96`: The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+#[test]
+fn engine_en_96() {
+    en_49_check("qwen3-q4");
+}
+
 /// GP-19's fixture imported through the page's module and opened there for
 /// the forward pass: the module's answer to `decode_open`.
 fn en_52_open(fixture: &En49) -> String {
@@ -12201,4 +12232,82 @@ fn engine_fl_80() {
         decode::Held::read(&[1, 0, 0]).err(),
         Some(decode::DecodeError::Elsewhere)
     );
+}
+
+/// `EN-97`: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused
+#[test]
+fn engine_en_97() {
+    use hologram_ai_cpu_decode::{advance, step, Component, Session};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let hidden = model.dims.hidden;
+    let layers = model.dims.layers;
+    let (tokens, logits) = en_49_run(&model, &fixture.prompt);
+    let ids: Vec<u32> = fixture.prompt.iter().chain(&tokens).copied().collect();
+    // Every component of every layer at one position past the prompt, each
+    // read on a replay of the run's ids to that position.
+    let at = fixture.prompt.len() + 3;
+    let read = |layer: usize, component: Component| -> Option<Vec<u32>> {
+        let mut session = Session::new(&model);
+        for &id in &ids[..at] {
+            advance(&model, &mut session, id).expect("a step");
+        }
+        session.probe(layer, component);
+        step(&model, &mut session, ids[at]).expect("the probed step");
+        session.probed()
+    };
+    let mut residuals = Vec::new();
+    for layer in 0..layers {
+        for component in [
+            Component::Residual,
+            Component::Attention,
+            Component::FeedForward,
+        ] {
+            let bits = read(layer, component).expect("the probe read its layer");
+            assert_eq!(
+                bits.len(),
+                hidden,
+                "layer {layer} {component:?}: one value per width"
+            );
+            assert_eq!(
+                read(layer, component),
+                Some(bits.clone()),
+                "layer {layer} {component:?}: a second replay read other bits"
+            );
+            if component == Component::Residual {
+                residuals.push(bits);
+            }
+        }
+    }
+    // The residual moves at every layer: no probe read a stale copy.
+    assert!(
+        residuals.windows(2).all(|w| w[0] != w[1]),
+        "two layers' residuals are the same bits"
+    );
+    // Past the last layer, nothing is read.
+    assert_eq!(read(layers, Component::Residual), None);
+    // The run with a probe set is the run without one, bit for bit.
+    let mut session = Session::new(&model);
+    let mut probed_logits = Vec::new();
+    for (i, &id) in ids.iter().enumerate().take(at + 1) {
+        if i == at {
+            session.probe(0, Component::Attention);
+        }
+        let out = step(&model, &mut session, id).expect("a step");
+        if i >= fixture.prompt.len() - 1 {
+            probed_logits.push(out);
+        }
+    }
+    assert!(session.probed().is_some(), "the probe set read nothing");
+    for (k, row) in probed_logits.iter().enumerate() {
+        assert_eq!(row, &logits[k], "step {k}: a probe changed the logits");
+    }
+    assert_eq!(
+        Component::numbered(3),
+        None,
+        "a fourth component is refused"
+    );
+    assert_eq!(Component::COUNT, 3);
 }

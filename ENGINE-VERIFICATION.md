@@ -1629,7 +1629,9 @@ Nothing is decided here; the kernel is asked:
   taken;
 - **decision 5**, each whole file against its record's SHA-256 and length;
 - **decision 18**, each operator the graph names, in the fused style when any
-  node is in the `com.microsoft` domain and the decomposed style otherwise;
+  node other than `MatMulNBits` is in the `com.microsoft` domain and the
+  decomposed style otherwise: `MatMulNBits` stores 4-bit weights in either
+  style, and Qwen2.5's decomposed export names it;
 - **decision 20**, each MatMulNBits weight's codes and scales against the
   node's `N`, `K` and `block_size`.
 
@@ -1673,6 +1675,15 @@ Five, planted one at a time and then restored. Every one was rejected.
 
 Two of the plants were first written against lines `cargo fmt` had reflowed;
 they applied to nothing, and were planted again against the formatted text.
+
+On 2026-11-20 the style rule stopped counting `MatMulNBits`: Qwen2.5-1.5B's
+q4f16 export (onnx-community/Qwen2.5-1.5B-Instruct at `d54957e`) writes
+normalisation, rotation and attention out in standard operators, all 27 on
+the decomposed list, but stores its weights as `MatMulNBits`, so it was asked
+in the fused style and refused at its sixth operator, `Pow`. The old rule,
+planted back, fails EN-31 with `a graph whose only com.microsoft operator is
+MatMulNBits is decomposed`; restored, it passes. EN-31 also holds a graph
+naming `GroupQueryAttention` to the fused style.
 
 ### Run over a real export
 
@@ -3168,3 +3179,55 @@ to `blake3:5f6895f3…a2` (EN-90).
 | --- | --- |
 | The head's slice begins at `start * width / 2` bytes instead of `start * width` (the offset counted in halves) | rejected: `Head: the slices joined are not the whole product` |
 | none | passed, with FL-80 (a product one row short is refused as `DecodeError::Elsewhere`), EN-91 and EN-49 |
+
+## EN-96, a q4 export on the integer engine
+
+onnx-community writes two precisions of each model. The q4f16 export stores
+its MatMulNBits scales, embedding, head and norm weights as halves; the q4
+export stores them as binary32. The integer forward pass read only halves, so
+a q4 export was refused at its embedding (`Unrecognised(Embedding)`), and the
+page reached it only through the float GPU engine. Every weight vector is now
+read as `exact::Dense`, halves or binary32, each value exactly
+(`Dense::at`), and the head's slices carry which they hold (kind 2 halves,
+kind 3 binary32), so a q4 export runs on the integer engine with the same
+rounding rules as a q4f16 one. The engine changed, so its seal moved to
+`blake3:b5fd8212…a7bb26` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| A Qwen3-shaped q4 export runs to the float reference's sixteen tokens, every logit within 2^-7, the same bits twice | `engine_en_96`, on `forward-fixture.mjs qwen3-q4` | tested |
+| The page's q4 visits load and answer on the integer engine | `just page-journey`, GP-31's `store q4` and `store short` | tested on CI |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_96`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
+| none | passed |
+
+## EN-97, probes read the run's own values
+
+The session takes a probe for its next step, a layer and a component, and the
+step keeps what it computed there: the residual after the layer, attention's
+output projection or the feed-forward's down projection. `decode_probe` sets
+it and `decode_probed` reads it once. Nothing else changes, so a probed run is
+the run. The engine is resealed at `blake3:a8d3c758…3a3638` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every component of every layer, two positions past GP-19's prompt, reads the residual stream's width, and a second replay reads the same bits | `engine_en_97` | tested |
+| Each layer's residual differs from the one before it; a layer past the model's reads nothing | the same | tested |
+| A run with a probe set gives every logit the run without one gives | the same | tested |
+| A fourth component is refused | the same | tested |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_97`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
+| none | passed |
+

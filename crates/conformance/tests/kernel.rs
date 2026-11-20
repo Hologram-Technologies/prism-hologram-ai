@@ -4898,7 +4898,7 @@ fn kernel_kn_49() {
             (q4(0, 0, 5, 128), "invalid request"),
             (q4(0, 0, 4, 128)[..16].to_vec(), "invalid request"),
             (
-                vec![48, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                vec![48, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "invalid request",
             ),
             (
@@ -5720,6 +5720,124 @@ fn kernel_kn_73() {
     }
 }
 
+/// `KN-82`: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+#[test]
+fn kernel_kn_82() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Encode.lex.tex");
+    let proofs = model("app/src/Proofs/Encode.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "encode_embedding_runs",
+            "((pooling = 1) -> ((normalize = 1) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 0)))",
+            "propext",
+        ),
+        (
+            "encode_embedding_pooling_refused",
+            "(((pooling =? 1) = false) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 1))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_embedding_normalize_refused",
+            "(((normalize =? 1) = false) -> ((Kernel.Encode::encodeCode 1 1 normalize) = 2))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_runs",
+            "((pooling = 0) -> ((normalize = 0) -> ((Kernel.Encode::encodeCode 2 pooling normalize) = 0)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_options_refused",
+            "((1 <= (pooling + normalize)) -> (1 <= (Kernel.Encode::encodeCode 2 pooling normalize)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_task_refused",
+            "((3 <= task) -> ((Kernel.Encode::encodeCode task pooling normalize) = 3))",
+            "Quot.sound, propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "encodeCode",
+            "body: (if (task =? 1) then (if (pooling =? 1) then (if (normalize =? 1) then 0 else 2) else 1) else (if (task =? 2) then (if (pooling =? 0) then (if (normalize =? 0) then 0 else 2) else 1) else 3))",
+        ),
+        ("encodeAnswer", "((Foundation.Bytes::byteLength value) =? 4)"),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:
+{found}");
+    }
+    assert_routed(82, "Kernel.Encode::encodeAnswer");
+}
+
+/// `KN-95`: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+#[test]
+fn kernel_kn_95() {
+    assert_proofs_are_gated();
+    assert_pinned(
+        &model("app/src/Proofs/GpuQ4Chain.lex.tex"),
+        "dense_row_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 1430144537 (cons 102202 (cons 3526847775 (cons 10704 (cons 1404628537 (cons 2830412270 (cons 1362921683 (cons 1180659896 (cons 3235834506 (cons 1228905597 (cons 3923659967 (cons 4104302296 (cons 3259627804 (cons 3599647722 (cons 2591308769 (cons 3617227430 (cons 1665251947 (cons 695883207 (cons 763283582 (cons 2229213358 (cons 846430211 (cons 3954447145 (cons 2187673206 (cons 598088509 (cons 2608081371 (cons 234716159 (cons 323262589 (cons 2808617743 (cons 702919287 (cons 2981642025 (cons 2392372116 (cons 2361431086 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 32 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::denseAccumulate)) buffers), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 1250986792 (cons 3330998693 (nil Nat))))",
+        "",
+    );
+    assert_pinned(
+        &model("app/src/Proofs/GpuCode.lex.tex"),
+        "dense_accumulate_code_prints_tree",
+        "((Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0), p1 := (Engine.Code::denseAccumulateCode1), p2 := (Engine.Code::denseAccumulateCode2), p3 := (Engine.Code::denseAccumulateCode3), p4 := (Engine.Code::denseAccumulateCode4), p5 := (Engine.Code::denseAccumulateCode5), p6 := (Engine.Code::denseAccumulateCode6), p7 := (Engine.Code::denseAccumulateCode7), p8 := (Engine.Code::denseAccumulateCode8), p9 := (Engine.Code::denseAccumulateCode9), p10 := (Engine.Code::denseAccumulateCode10), p11 := (Engine.Code::denseAccumulateCode11), p12 := (Engine.Code::denseAccumulateCode12), p13 := (Engine.Code::denseAccumulateCode13), p14 := (Engine.Code::denseAccumulateCode14), p15 := (Engine.Code::denseAccumulateCode15), p16 := (Engine.Code::denseAccumulateCode16), p17 := (Engine.Code::denseAccumulateCode17), p18 := (Engine.Code::denseAccumulateCode18), p19 := (Engine.Code::denseAccumulateCode19), p20 := (Engine.Code::denseAccumulateCode20), p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 43 (Engine.Gpu::denseAccumulate)))",
+        "Quot.sound, propext",
+    );
+    let gpu = model("app/src/Engine/Gpu.lex.tex");
+    let found = declaration(&gpu, "denseAccumulate");
+    assert!(
+        found.contains("parameters: []") && found.contains("result: Stmt"),
+        "denseAccumulate must be one kernel tree for every width:\n{found}"
+    );
+    let render = model("app/src/Kernel/Render.lex.tex");
+    let render = declaration(&render, "renderText");
+    assert!(
+        render.contains("(Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0)"),
+        "decision 48 must print the dense kernel's checked code as kernel 6:\n{render}"
+    );
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims/048.json"))
+            .expect("the claims the crates make of the kernel"),
+    )
+    .expect("048.json is JSON");
+    let mut text = String::new();
+    for piece in 0u8.. {
+        let request: String = [48u8, 6, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let answer = claims["claims"]
+            .as_array()
+            .expect("a list of claims")
+            .iter()
+            .find(|one| one["request"].as_str() == Some(request.as_str()))
+            .and_then(|one| one["answer"].as_str())
+            .unwrap_or_else(|| panic!("no claim for decision 48's {request}"));
+        if answer.is_empty() {
+            break;
+        }
+        text.push_str(answer);
+    }
+    assert!(
+        !text.is_empty() && !text.contains("f32") && !text.contains("f16"),
+        "the dense kernel must be integers only:\n{text}"
+    );
+    assert_claimed(
+        48,
+        &[(
+            vec![48, 6, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "invalid request",
+        )],
+    );
+}
+
 /// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
 #[test]
 fn kernel_kn_62() {
@@ -5866,58 +5984,4 @@ fn kernel_kn_63() {
         rows += 1;
     }
     assert!(rows >= 8, "eight rows are evaluated, found {rows}");
-}
-
-/// `KN-82`: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
-#[test]
-fn kernel_kn_82() {
-    assert_proofs_are_gated();
-    let kernel = model("app/src/Kernel/Encode.lex.tex");
-    let proofs = model("app/src/Proofs/Encode.lex.tex");
-    for (name, statement, axioms) in [
-        (
-            "encode_embedding_runs",
-            "((pooling = 1) -> ((normalize = 1) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 0)))",
-            "propext",
-        ),
-        (
-            "encode_embedding_pooling_refused",
-            "(((pooling =? 1) = false) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 1))",
-            "Quot.sound, propext",
-        ),
-        (
-            "encode_embedding_normalize_refused",
-            "(((normalize =? 1) = false) -> ((Kernel.Encode::encodeCode 1 1 normalize) = 2))",
-            "Quot.sound, propext",
-        ),
-        (
-            "encode_classification_runs",
-            "((pooling = 0) -> ((normalize = 0) -> ((Kernel.Encode::encodeCode 2 pooling normalize) = 0)))",
-            "Quot.sound, propext",
-        ),
-        (
-            "encode_classification_options_refused",
-            "((1 <= (pooling + normalize)) -> (1 <= (Kernel.Encode::encodeCode 2 pooling normalize)))",
-            "Quot.sound, propext",
-        ),
-        (
-            "encode_task_refused",
-            "((3 <= task) -> ((Kernel.Encode::encodeCode task pooling normalize) = 3))",
-            "Quot.sound, propext",
-        ),
-    ] {
-        assert_pinned(&proofs, name, statement, axioms);
-    }
-    for (name, body) in [
-        (
-            "encodeCode",
-            "body: (if (task =? 1) then (if (pooling =? 1) then (if (normalize =? 1) then 0 else 2) else 1) else (if (task =? 2) then (if (pooling =? 0) then (if (normalize =? 0) then 0 else 2) else 1) else 3))",
-        ),
-        ("encodeAnswer", "((Foundation.Bytes::byteLength value) =? 4)"),
-    ] {
-        let found = declaration(&kernel, name);
-        assert!(found.contains(body), "{name} changed:
-{found}");
-    }
-    assert_routed(82, "Kernel.Encode::encodeAnswer");
 }
