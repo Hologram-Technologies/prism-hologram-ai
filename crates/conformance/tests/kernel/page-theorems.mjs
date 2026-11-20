@@ -29,7 +29,11 @@ for (const file of readdirSync(proofs).filter((f) => f.endsWith(".lex.tex")).sor
   }
 }
 const spec = readFileSync(join(site, "spec.html"), "utf8");
-const shown = [...spec.matchAll(/<div class="thm-name"><span>([^<]*)<\/span>/g)].map((m) => m[1]);
+// A theorem lexlean fmt keeps on one line is shown by the frame's page.mjs
+// with the rest of its fields after the name ("both_true, parameters: ..."):
+// that is the frame's reader, not this repository's, so what is checked here
+// is that the theorem's own name leads its entry.
+const shown = [...spec.matchAll(/<div class="thm-name"><span>([^<]*)<\/span>/g)].map((m) => /^[A-Za-z0-9_']+/.exec(m[1])?.[0] ?? "");
 const missing = proved.filter((name) => !shown.includes(name));
 if (proved.length < 49 || missing.length > 0 || shown.length < proved.length) {
   console.error(
