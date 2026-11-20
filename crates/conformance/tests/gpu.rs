@@ -1748,7 +1748,7 @@ fn gpu_gp_32() {
         ("site/app/engine/pipeline.mjs", "const verdict = await ask(\"reuse\", \"computed prefix to reuse\", join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))"),
         ("site/app/engine/pipeline.mjs", "engine.restoreState(held.state);"),
         ("site/app/engine/pipeline.mjs", "computed: prompt.length - from,"),
-        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before, isolate: !noGpu });"),
         ("crates/conformance/tests/gpu/journey.mjs", "reusing the head changed the tokens"),
         ("crates/conformance/tests/gpu/journey.mjs", "a turn reported no time to first token"),
     ] {

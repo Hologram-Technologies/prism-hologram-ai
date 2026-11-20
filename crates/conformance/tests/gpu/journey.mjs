@@ -74,11 +74,17 @@ async function secondTurn(page) {
 // GP-30 to GP-32: one visit to the engine page in `context`, loading `repo`
 // from `variant`'s hub, then a turn per text; answers the page's state, its
 // turns, the kept entries and the byte ranges the server sent meanwhile.
-async function onnxVisit(context, { variant, repo = onnx.repo, precision = null, texts = ["hi"], before = async () => {} }) {
+async function onnxVisit(context, { variant, repo = onnx.repo, precision = null, texts = ["hi"], before = async () => {}, isolate = false }) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e.message)));
   await before(page);
+  // GP-56: WebGPU runs only on a cross-origin-isolated page, which the engine
+  // page's worker makes of a visit once it is active.
+  if (isolate) {
+    await page.goto(`${origin}/app/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+  }
   const from = sent.length;
   const url = `${origin}/app/?onnx=${repo}&index=/onnx/${variant}/index${precision ? `&precision=${precision}` : ""}`;
   const opened = await page.goto(url).then(() => true, (e) => (errors.push(`goto: ${e.message}`), false));
@@ -797,7 +803,7 @@ try {
   for (const [name, noGpu] of [["webgpu", false], ["cpu", true]]) {
     const context = await browser.newContext();
     const before = async (page) => { if (noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined })); };
-    results.reuse[name] = await onnxVisit(context, { variant: "again", texts: ["hi", "hi"], before });
+    results.reuse[name] = await onnxVisit(context, { variant: "again", texts: ["hi", "hi"], before, isolate: !noGpu });
     await context.close();
   }
 

@@ -10131,6 +10131,12 @@ fn engine_en_51() {
     en_49_check("llama");
 }
 
+/// `EN-96`: The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+#[test]
+fn engine_en_96() {
+    en_49_check("qwen3-q4");
+}
+
 /// GP-19's fixture imported through the page's module and opened there for
 /// the forward pass: the module's answer to `decode_open`.
 fn en_52_open(fixture: &En49) -> String {
