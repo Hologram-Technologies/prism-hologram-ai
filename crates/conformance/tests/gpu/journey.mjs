@@ -547,20 +547,56 @@ try {
     const run = await page.evaluate(async ({ repo }) => {
       const { pipeline } = await import("./engine/pipeline.mjs");
       const { checklist } = await import("./engine/loader.mjs");
+      const loaded = {};
       const turn = async (device) => {
         const checks = checklist();
         try {
           const generate = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device });
+          loaded[device] = generate;
           const out = await generate("hi", { max_new_tokens: 16 });
-          return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, gpu: generate.engine.gpu ?? null, checks: checks.items, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+          return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, gpu: generate.engine.gpu ?? null, checks: checks.items, receipt: out.receipt, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
         } catch (e) {
           return { phase: "failed", error: String(e.message ?? e), checks: checks.items, output: null };
         }
       };
-      return { isolated: globalThis.crossOriginIsolated, webgpu: await turn("webgpu"), auto: await turn("auto"), cpu: await turn("cpu") };
+      const runs = { webgpu: await turn("webgpu"), auto: await turn("auto"), cpu: await turn("cpu") };
+      // GP-58 and GP-59: WebGPU's receipt run again on the CPU, and the CPU's
+      // on WebGPU; then a receipt whose output was changed, and one for
+      // another model.
+      const checked = {};
+      try {
+        const g = runs.webgpu.receipt, c = runs.cpu.receipt;
+        checked.gpuOnCpu = await loaded.cpu.check(g);
+        checked.cpuOnGpu = await loaded.webgpu.check(c);
+        const flip = (hex) => (hex[0] === "0" ? "1" : "0") + hex.slice(1);
+        checked.changed = await loaded.cpu.check({ ...g, output: { ...g.output, label: flip(g.output.label) } });
+        checked.other = await loaded.cpu.check({ ...g, model: { ...g.model, label: flip(g.model.label) } });
+      } catch (e) {
+        checked.error = String(e.message ?? e);
+      }
+      return { isolated: globalThis.crossOriginIsolated, ...runs, checked };
     }, { repo: onnx.repo });
     results.onnx.gpu = { ...run, errors };
     await context.close();
+  }
+
+  // GP-59: a link carrying the CPU's receipt, opened in a fresh page: the page
+  // loads the model, runs the receipt again and shows the kernel's verdict.
+  {
+    const receipt = results.onnx.gpu.cpu?.receipt;
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    let linked = { phase: "skipped" };
+    if (receipt) {
+      const text = Buffer.from(JSON.stringify(receipt)).toString("base64url");
+      await page.goto(`${origin}/app/?onnx=${onnx.repo}&index=/onnx/good/index#receipt=${text}`);
+      await page.click("#load");
+      await page.waitForFunction(() => window.__qengine?.check || window.__qengine?.phase === "failed", null, { timeout: 180000 }).catch(() => {});
+      linked = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, check: window.__qengine.check, verdict: document.getElementById("verdict").textContent }));
+    }
+    results.onnx.linked = { ...linked, errors };
+    await page.close();
   }
 
   // GP-21: four visits in one profile. The first downloads and keeps the
@@ -1088,6 +1124,32 @@ for (const kind of ["bert", "distil"]) {
     if (got.length < 16 || got.some((t, i) => t !== want[i])) fail(`gpu ${name}: the tokens ${got} are not the reference's ${want}`);
   }
   if (run.webgpu.output && run.cpu.output && run.webgpu.output.tokens.join() !== run.cpu.output.tokens.join()) fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`);
+  // GP-58: one model, one input, one output, byte for byte, on both devices,
+  // each named by its BLAKE3; and the class the kernel gave is "everywhere".
+  const g = run.webgpu.receipt, c = run.cpu.receipt;
+  if (!g || !c) fail("receipts: a run gave no receipt");
+  else {
+    for (const [what, a, b] of [["model", g.model.label, c.model.label], ["input", g.input.label, c.input.label], ["output", g.output.label, c.output.label]]) {
+      if (!/^[0-9a-f]{64}$/.test(a ?? "") || a !== b) fail(`receipts: the ${what} label on WebGPU ${a} is not the CPU's ${b}`);
+    }
+    if (g.class !== "everywhere" || c.class !== "everywhere") fail(`receipts: the class is ${g.class} and ${c.class}, not everywhere`);
+    if (g.device !== "webgpu" || c.device !== "cpu") fail(`receipts: devices ${g.device} and ${c.device}`);
+    if (g.output.tokens !== run.webgpu.output.tokens.length) fail("receipts: the output's token count is not the run's");
+    const ids = Buffer.alloc(4 * run.webgpu.output.tokens.length);
+    run.webgpu.output.tokens.forEach((id, i) => ids.writeUInt32LE(id, 4 * i));
+    if (g.output.label !== blake3Hex(ids)) fail(`receipts: the output label ${g.output.label} is not the BLAKE3 of the tokens' bytes`);
+  }
+  // GP-59: each device confirms the other's answer through decision 31, and
+  // the kernel says mismatch and not comparable where it should.
+  const k = run.checked ?? {};
+  if (k.error) fail(`check: ${k.error}`);
+  if (k.gpuOnCpu?.verdict !== "confirmed") fail(`check: WebGPU's receipt run on the CPU was ${k.gpuOnCpu?.verdict}`);
+  if (k.cpuOnGpu?.verdict !== "confirmed") fail(`check: the CPU's receipt run on WebGPU was ${k.cpuOnGpu?.verdict}`);
+  if (k.changed?.verdict !== "mismatch") fail(`check: a receipt with a changed output was ${k.changed?.verdict}, not mismatch`);
+  if (k.other?.verdict !== "not comparable" || k.other?.ready !== false) fail(`check: a receipt for another model was ${k.other?.verdict}, not "not comparable"`);
+  const linked = results.onnx.linked;
+  if (linked.check?.verdict !== "confirmed" || !/^Confirmed: /.test(linked.verdict ?? "")) fail(`link: a page opened with a receipt did not confirm it (${linked.phase}: ${linked.error ?? linked.check?.verdict}; ${linked.verdict})`);
+  if (linked.errors?.length) fail(`link: page errors: ${linked.errors.join(" | ")}`);
   if (run.errors.length) fail(`gpu: page errors: ${run.errors.join(" | ")}`);
 }
 

@@ -446,7 +446,7 @@ fn gpu_gp_19() {
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
         "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels })",
-        "const stops = session.stops ??",
+        "if (session.stops) return session.stops;",
     ] {
         assert!(
             module.contains(wanted),
@@ -723,7 +723,7 @@ fn gpu_gp_25() {
         "export async function pipeline(task, model, options = {}) {",
         "const code = TASKS[task] ?? 255;",
         "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
-        "const generate = turner({ engine, module, ask, stops, chat });",
+        "const generate = turner({ engine, module, ask, stops, chat, identity, promised, device: on, adapter: engine.gpu?.adapter ?? null });",
         "export function turner(session) {",
     ] {
         assert!(
@@ -733,7 +733,7 @@ fn gpu_gp_25() {
     }
     let page = read("site/app/app.mjs");
     for wanted in [
-        "import { pipeline } from \"./engine/pipeline.mjs\";",
+        "import { pipeline, receiptFrom, receiptText } from \"./engine/pipeline.mjs\";",
         "session = { generate };",
         "const out = await session.generate(text, {",
     ] {
@@ -1703,11 +1703,78 @@ fn gpu_gp_56() {
     pinned(
         "crates/conformance/tests/gpu/journey.mjs",
         &[
-            "return { isolated: globalThis.crossOriginIsolated, webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
+            "const runs = { webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
             "for (const [name, device] of [[\"webgpu\", \"webgpu\"], [\"auto\", \"webgpu\"], [\"cpu\", \"cpu\"]]) {",
             "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected all ${7 * layers + 1}, the head among them`)",
             "fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`)",
             "const device = gpu && run.isolated ? \"webgpu\" : \"cpu\";",
         ],
     );
+}
+
+/// `GP-58`: Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte
+#[test]
+fn gpu_gp_58() {
+    // The journey runs the turns on both devices and compares the receipts;
+    // this reads that the receipt is built from BLAKE3 labels and the class
+    // the kernel gave, and that the journey checks them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "new Uint8Array([30, 1, 1, 0]), (a) => a === \"everywhere\");",
+        "const named = new Set([...paths, \"config.json\", \"generation_config.json\"]);",
+        "input: { ids: Array.from(ids), budget, label: blake3Of(m, idBytes(ids, [budget])) },",
+        "output: { tokens: tokens.length, label: blake3Of(m, idBytes(tokens)) },",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "fail(`receipts: the ${what} label on WebGPU ${a} is not the CPU's ${b}`);",
+        "fail(`receipts: the output label ${g.output.label} is not the BLAKE3 of the tokens' bytes`);",
+        "fail(`receipts: the class is ${g.class} and ${c.class}, not everywhere`);",
+    ] {
+        assert!(journey.contains(wanted), "the journey no longer checks: {wanted}");
+    }
+}
+
+/// `GP-59`: A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict
+#[test]
+fn gpu_gp_59() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    for wanted in [
+        "const ready = receipt?.model?.label === session.identity.label ? 1 : 0;",
+        "const tokens = await engine.run(receipt.input.ids, receipt.input.budget, { stops });",
+        "join(new Uint8Array([31]), unhexLabel(receipt.output.label), unhexLabel(replayed.label), new Uint8Array([ready, classCode, sameAdapter]))",
+    ] {
+        assert!(
+            pipeline.contains(wanted),
+            "pipeline.mjs no longer has `{wanted}`"
+        );
+    }
+    assert!(
+        read("site/app/app.mjs").contains("if (linked) await checkReceipt(linked)"),
+        "app.mjs no longer checks a linked receipt"
+    );
+    let journey = read("crates/conformance/tests/gpu/journey.mjs");
+    for wanted in [
+        "fail(`check: WebGPU's receipt run on the CPU was ${k.gpuOnCpu?.verdict}`);",
+        "fail(`check: the CPU's receipt run on WebGPU was ${k.cpuOnGpu?.verdict}`);",
+        "fail(`check: a receipt with a changed output was ${k.changed?.verdict}, not mismatch`);",
+        "not \"not comparable\"`);",
+        "fail(`link: a page opened with a receipt did not confirm it",
+    ] {
+        assert!(
+            journey.contains(wanted),
+            "the journey no longer checks: {wanted}"
+        );
+    }
 }

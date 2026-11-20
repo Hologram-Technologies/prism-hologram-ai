@@ -306,3 +306,47 @@ Planted on 2026-11-20:
 | `pipeline.mjs` importing `createEngine` from `./gpu.mjs` again | rejected: `pipeline.mjs still reaches the float engine` |
 | `onGpu` taking a matrix with binary32 scales | rejected: `site/app/engine/integer-gpu.mjs no longer has` the rule |
 | none | passed |
+
+## GP-58 and GP-59, receipts named by BLAKE3 and checked on any device
+
+Why: Hologram AI's inference is integers only, so the same model, input and
+budget give the same bytes on every CPU and GPU. That is worth something only
+if anyone can check it. A receipt names everything a run depends on by its
+BLAKE3, and Check runs it again and lets the kernel compare.
+
+How:
+- **The model's label** is the BLAKE3 of one line per file whose bytes decide
+  the answers, sorted by path: the graph and its data files (every weight),
+  `config.json` (shapes and rotary parameters) and `generation_config.json`
+  (the stop ids). Each line is the path and the BLAKE3 the hub's record names
+  for that file, which the load checked. The tokenizer and the chat template
+  only turn text into ids, and a receipt carries the ids, so they are left out.
+- **The input's label** is the BLAKE3 of its token ids and the budget, as
+  four little-endian bytes each.
+- **The output's label** is the BLAKE3 of the ids it produced, the same way.
+- **The class** is decision 30's answer for this engine: products exact, every
+  other stage exact, no float summed in any order, so `everywhere`.
+
+A receipt is plain JSON and fits in a link (`#receipt=`). Check resets the
+engine and runs the receipt's own ids, then puts the claimed and replayed
+output labels to decision 31, with whether this tab's model has the receipt's
+model label (decision 28's admission already holds the bytes to the record).
+`confirmed` means this device produced the same bytes.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| On the CPU and on WebGPU one model, input and output give the same three labels, and the output label is the BLAKE3 of the tokens' bytes | `just page-journey`, GP-56's run: both devices on one isolated page | tested on CI (SwiftShader) |
+| Each device confirms the other's receipt; a changed output is a mismatch; another model is not comparable | the same run, through decision 31 | tested on CI |
+| A link carrying a receipt opens, loads, checks and shows Confirmed | `just page-journey`, the linked visit | tested on CI |
+| The same holds on a real model and a real GPU | not yet run: the measurement session records it with row 15 | open |
+| Probes into a layer (decision 32) | not built: the engine has no export that returns one layer's output at one position yet | open |
+
+### The gates
+
+`cargo test -p repo-conformance --test gpu gpu_gp_58 gpu_gp_59`, planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| the output label taken over the tokens and the budget | rejected by `gpu_gp_58`: ``pipeline.mjs no longer has `output: { tokens: tokens.length, label: blake3Of(m, idBytes(tokens)) },` `` |
+| a receipt for any model counted as ready | rejected by `gpu_gp_59`: ``pipeline.mjs no longer has `const ready = receipt?.model?.label === session.identity.label ? 1 : 0;` `` |
+| none | passed |
