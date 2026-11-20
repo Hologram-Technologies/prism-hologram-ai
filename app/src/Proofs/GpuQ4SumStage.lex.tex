@@ -2121,5 +2121,122 @@ theorem{
   },
   axioms: [Quot.sound, propext]
 }
+
+definition{
+  name: signWords,
+  parameters: [codes : (List Nat)],
+  result: (List Nat),
+  body: (match codes
+    | List.nil => (nil Nat)
+    | List.cons c rest => (cons (signWord c) (signWords rest))),
+  recursive_argument: codes
+}
+
+theorem{
+  name: sign_word_zero,
+  parameters: [],
+  statement: ((signWord 0) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: nth_sign_words,
+  parameters: [codes : (List Nat), i : Nat],
+  statement: ((Engine.Gpu::nth (signWords codes) i) = (signWord (Engine.Stage.Greedy::nth codes i))),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [signWords, sign_word_zero, Engine.Gpu::nth, Engine.Stage.Greedy::nth]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: cases{
+          branches: [
+            {
+              proof: simplify{definitions: [signWords, Engine.Gpu::nth, Engine.Stage.Greedy::nth]},
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: simplify{
+                definitions: [ih, signWords, Engine.Gpu::nth, Engine.Stage.Greedy::nth]
+              },
+              binders: [ir],
+              constructor: succ
+            }
+          ],
+          scrutinee: i
+        },
+        binders: [hd, tl, ih],
+        constructor: cons
+      }
+    ],
+    generalizing: [i],
+    scrutinee: codes
+  },
+  axioms: [propext]
+}
+
+definition{
+  name: kidx,
+  parameters: [b : (List (List Nat)), q : Nat, r : Nat, R : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Gpu::eval (record Engine.Gpu::Machine {buffers := b, locals := (cons 0 (cons q (cons r (cons 0 (cons s (cons 0 (cons (Engine.Gpu::word 8) (nil Nat)))))))), invocation := 0, group := 0}) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))))
+}
+
+definition{
+  name: kstep,
+  parameters: [b : (List (List Nat)), q : Nat, r : Nat, R : Nat, acc : Nat, s : Nat],
+  result: Nat,
+  body: (Engine.Gpu::eval (record Engine.Gpu::Machine {buffers := b, locals := (cons 0 (cons q (cons r (cons acc (cons s (cons (kidx b q r R s) (cons (Engine.Gpu::word 8) (nil Nat)))))))), invocation := 0, group := 0}) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))
+}
+
+definition{
+  name: accUp,
+  parameters: [b : (List (List Nat)), q : Nat, r : Nat, R : Nat, c : Nat],
+  result: Nat,
+  body: (match c
+    | Nat.zero => (Engine.Gpu::word 0)
+    | Nat.succ p => (kstep b q r R (accUp b q r R p) p)),
+  recursive_argument: c
+}
+
+theorem{
+  name: iter_step,
+  parameters: [
+    b : (List (List Nat)),
+    k : Nat,
+    q : Nat,
+    r : Nat,
+    R : Nat,
+    acc : Nat,
+    y4 : Nat,
+    y5 : Nat,
+    more : (List Nat),
+    inv : Nat,
+    g : Nat,
+    n : Nat,
+    s : Nat,
+    c : Nat
+  ],
+  statement: ((Engine.GpuRun::exec (n + 3) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := b, locals := (cons k (cons q (cons r (cons acc (cons y4 (cons y5 (cons (Engine.Gpu::word 8) more))))))), invocation := inv, group := g}) (ctor Engine.Gpu::Stmt.repeat s (c + 1) 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6)))))))) = (Engine.GpuRun::exec (n + 2) (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) (record Engine.Gpu::Machine {buffers := b, locals := (cons k (cons q (cons r (cons (kstep b q r R acc s) (cons s (cons (kidx b q r R s) (cons (Engine.Gpu::word 8) more))))))), invocation := inv, group := g}) (ctor Engine.Gpu::Stmt.repeat (s + 1) c 4 (ctor Engine.Gpu::Stmt.seq (ctor Engine.Gpu::Stmt.assign 5 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 1) (ctor Engine.Gpu::Expr.lit R)) (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4)))) (ctor Engine.Gpu::Stmt.assign 3 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.local 3) (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.load 0 (ctor Engine.Gpu::Expr.add (ctor Engine.Gpu::Expr.mul (ctor Engine.Gpu::Expr.local 2) (ctor Engine.Gpu::Expr.lit 32)) (ctor Engine.Gpu::Expr.local 4))) (ctor Engine.Gpu::Expr.sub (Engine.Gpu::nibbleExpr 1 (ctor Engine.Gpu::Expr.local 5)) (ctor Engine.Gpu::Expr.local 6))))))))),
+  proof: simplify{
+    definitions: [
+      kidx,
+      kstep,
+      Engine.Gpu::eval,
+      Engine.Gpu::nibbleExpr,
+      Engine.Gpu::nth,
+      Engine.Gpu::setNth,
+      Engine.Gpu::withLocal,
+      Engine.GpuRun::exec
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
