@@ -226,3 +226,17 @@ Feature: gpu
     Then the reloaded page is cross-origin isolated, and WebGPU and the kernel's choice run the integer engine on WebGPU with every product there, the head on the dense kernel
     And all three turns' sixteen tokens are the reference's, and WebGPU's are the CPU's
     And a first visit, not isolated, runs on the CPU
+
+  @GP-58 @build
+  Scenario: Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte
+    Given GP-19's Qwen3-shaped ONNX export on a cross-origin-isolated page
+    When `just page-journey` runs the same turn on WebGPU and on the CPU
+    Then each answer carries a receipt with the class everywhere
+    And the model, input and output labels are the same on both devices, and the output label is the BLAKE3 of the tokens' bytes
+
+  @GP-59 @build
+  Scenario: A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict
+    Given the two receipts of GP-58
+    When `just page-journey` checks each on the other device, checks one with its output label changed and one for another model, and opens the page with a link carrying a receipt
+    Then the kernel answers confirmed, confirmed, mismatch and not comparable
+    And the linked page shows Confirmed

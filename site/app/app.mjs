@@ -3,7 +3,7 @@
 // test reads the verdicts and timings rather than the screen.
 
 import { asker, checklist } from "./engine/loader.mjs";
-import { pipeline } from "./engine/pipeline.mjs";
+import { pipeline, receiptFrom, receiptText } from "./engine/pipeline.mjs";
 
 // The model to run: Qwen3-0.6B's ONNX export, read from its own files with no
 // repack, unless the address names another (?onnx=owner/name&precision=q4f16,
@@ -19,7 +19,13 @@ const MODEL = {
 const $ = (id) => document.getElementById(id);
 // A link naming another model says which one the page will load.
 if (asked.get("onnx")) $("model-name").textContent = `${MODEL.onnx}, its ${MODEL.precision ?? "chosen"} ONNX export read from its own files, from the index at ${MODEL.indexBase}.`;
-const state = { phase: "idle", checks: [], output: null, stats: null, error: null };
+const state = { phase: "idle", checks: [], output: null, stats: null, error: null, receipt: null, check: null };
+// A link may carry a receipt (#receipt=…): once the model is loaded, the page
+// runs it again here and shows the kernel's verdict (GP-59).
+const linked = (() => {
+  const text = new URLSearchParams(location.hash.slice(1)).get("receipt");
+  try { return text ? receiptFrom(text) : null; } catch { return null; }
+})();
 window.__qengine = state;
 
 // This page's own worker (sw.js beside it) keeps the page's files, the kernel
@@ -143,6 +149,20 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   state.loadSeconds = (performance.now() - started) / 1000;
   status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${generate.engine.gpu.products} products on the GPU, in integers` : "on the CPU"}`);
   $("send").disabled = false;
+  if (linked) await checkReceipt(linked).catch((e) => { $("verdict").textContent = `Stopped: ${e.message}`; });
+}
+
+// GP-59: run a receipt again in this tab and put its output label to the
+// kernel; "confirmed" means this device produced the same bytes.
+async function checkReceipt(receipt) {
+  $("verdict").textContent = "Running the answer again here…";
+  const said = await session.generate.check(receipt);
+  state.check = said;
+  $("verdict").textContent = said.verdict === "confirmed"
+    ? `Confirmed: this ${session.generate.device === "webgpu" ? "GPU" : "CPU"} produced the same ${receipt.output.tokens} tokens, output BLAKE3 ${said.replayed.slice(0, 16)}…`
+    : said.verdict === "mismatch"
+      ? `Mismatch: the answer claimed output ${said.claimed.slice(0, 16)}…, this device produced ${said.replayed.slice(0, 16)}…`
+      : `Not comparable: ${said.ready ? "the run promised less than every device agreeing" : "this receipt is for another model"} (model ${receipt.model.label.slice(0, 16)}…)`;
 }
 
 
@@ -168,13 +188,26 @@ async function answer() {
   state.output = { prompt: out.prompt, promptIds: out.promptIds, promptTokens: out.promptTokens, tokens: out.tokens, text: out.text, reuse: out.reuse, computed: out.computed };
   state.stats = { timeToFirstToken: out.timeToFirstToken, tokensPerSecond: out.tokensPerSecond, generated: out.tokens.length };
   const reused = out.promptTokens - out.computed;
-  $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
+  $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
+  // GP-58: the answer's receipt, and a link that carries it.
+  if (out.receipt) {
+    state.receipt = out.receipt;
+    const link = `${location.origin}${location.pathname}${location.search}#receipt=${receiptText(out.receipt)}`;
+    $("receipt").innerHTML = "";
+    $("receipt").append(`Receipt: model ${out.receipt.model.label.slice(0, 12)}…, output ${out.receipt.output.label.slice(0, 12)}…, the same ${out.receipt.class}. `);
+    const a = document.createElement("a");
+    a.href = link;
+    a.textContent = "Link to check it";
+    $("receipt").append(a);
+    $("check").hidden = false;
+  }
 }
 
 $("load").addEventListener("click", load);
 // The button is disabled in the page until this module is listening, so a click is never lost.
 $("load").disabled = false;
 $("ask").addEventListener("submit", send);
+$("check").addEventListener("click", () => state.receipt && checkReceipt(state.receipt).catch((e) => { $("verdict").textContent = `Stopped: ${e.message}`; }));
 // Enter sends, Shift+Enter starts a new line; Enter that ends an IME composition does neither.
 $("prompt").addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
