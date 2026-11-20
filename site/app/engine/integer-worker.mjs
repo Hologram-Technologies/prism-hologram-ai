@@ -6,6 +6,7 @@
 import { moduleOf } from "./loader.mjs";
 import { createIntegerEngine } from "./integer.mjs";
 import { createIntegerEncoder } from "./integer-encoder.mjs";
+import { helperCount, useHelpers } from "./integer-helpers.mjs";
 
 let engine = null;
 
@@ -18,7 +19,11 @@ self.onmessage = async ({ data }) => {
       const held = new Map(data.tensors);
       const given = { module, table: data.table, read: (name) => held.get(name), config: data.config };
       engine = data.engine === "encoder" ? createIntegerEncoder(given) : createIntegerEngine({ ...given, rope: data.rope, capacity: data.capacity });
-      const value = data.engine === "encoder" ? { dims: engine.dims, labels: engine.labels } : { sizes: engine.sizes };
+      // The decoder's products on helpers when this page can share memory
+      // (GP-52); the same bits either way.
+      const helpers = data.engine === "encoder" ? 0 : helperCount(data.helpers);
+      if (helpers > 0) await useHelpers(module, helpers, engine.sizes);
+      const value = data.engine === "encoder" ? { dims: engine.dims, labels: engine.labels } : { sizes: engine.sizes, helpers };
       self.postMessage({ id, kind: "done", ok: true, value });
       return;
     }

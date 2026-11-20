@@ -87,6 +87,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `EN-64` | `build` | The page's module runs an encoder through hologram-ai-cpu-encode: given each weight by the role the page placed it in and the config's text, whose head and layer counts are whole numbers and whose LayerNorm epsilon is read from its decimal text in units of 2^-32, it answers a sentence's embedding, or a classifier's label scores and the first largest label chosen by comparing their bits as integers, bit for bit as hologram-ai-cpu-encode answers the same ids; and the ids and bits the page's journey must show (encoder-expected.json) are those |
 | `EN-90` | `build` | engine.wasm is byte-identical on every build: the pinned toolchain and target, codegen-units 1, path prefixes remapped, SOURCE_DATE_EPOCH fixed and every host flag cleared, so two builds in different directories with different cargo homes give the same bytes, and the build fails unless their BLAKE3 is the address the model seals |
 | `EN-91` | `build` | hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it |
+| `EN-92` | `build` | hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits |
 
 ## gpu
 
@@ -129,6 +130,7 @@ not forbid `unwrap`, `expect` and `panic!` (R5).
 | `GP-41` | `build` | The integer engines run off the page's thread: the pipeline hands a worker a copy of the page's module and every weight the import placed, the worker computes every decode and encode step, the page's own thread calls none of them and answers throughout a turn, each token reaches the page as its own message, the tokens are the reference's and the embedding's bits GP-35's |
 | `GP-50` | `build` | Before the page instantiates engine.wasm it computes the bytes BLAKE3 and asks decision 80: the sealed engine loads, and an engine with one byte flipped is refused by name, not the sealed engine, before it is compiled |
 | `GP-51` | `build` | The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before |
+| `GP-52` | `build` | On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens |
 
 ## kernel
 
@@ -270,6 +272,7 @@ not that the test provokes the failure.
 | `FL-72` | `cpu-encode` | `EncodeError::NormRefused` | A row of the encoder is past LayerNorm's bounds or its root is 0, or a pooled sentence has length 0 |
 | `FL-73` | `cpu-encode` | `EncodeError::TokenOutOfRange` | A sentence is empty, holds a token id past the vocabulary, or has more tokens than the position table |
 | `FL-74` | `wasm` | `CallError::Encode` | An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure |
+| `FL-80` | `cpu-decode` | `DecodeError::Elsewhere` | A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it |
 
 ## Cited authorities
 
