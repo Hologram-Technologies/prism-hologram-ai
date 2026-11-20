@@ -14,22 +14,26 @@
 //! definitions that index into it. One whose format chooses its shape is
 //! several forms in one, each the fields of the branch that format takes.
 //!
-//! What a field is *called*, and what a sensible value for it is, is not in
-//! the model and cannot be: `site/decision-names.json` holds that, by tag and
-//! offset, and this joins the two.
+//! What a field is *called*, what a sensible value for it is, and the phrase
+//! the page's description gives the decision, are not in the model and cannot
+//! be: `page/decision-names/NNN.json` holds that for decision NNN, one file per
+//! decision, and this joins the two. One file each, because one shared file
+//! made every pull request that added a decision conflict with every other.
 //!
-//! The result goes two places, both generated: `site/decisions.json`, which
-//! the gate reads, and a block inside `site/card.html`, which the page reads
-//! without fetching anything. The page's first paint has to be complete —
-//! the frame inlines the card into the HTML and measures what happens after —
-//! so the chooser's options and the first decision's fields are written there
-//! too.
+//! The result goes two places, both generated and neither committed:
+//! `site/decisions.json`, which the gate reads, and `site/card.html`, which is
+//! `page/card.template.html` with its marked block written and which the page
+//! reads without fetching anything. The page's first paint has to be complete
+//! — the frame inlines the card into the HTML and measures what happens after
+//! — so the chooser's options and the first decision's fields are written there
+//! too. The table also carries the page's description: app.json's purpose,
+//! then every routed decision's phrase with its tag.
 
 use std::path::Path;
 
 use crate::Fail;
 
-/// Between these, in `site/card.html`, is written rather than kept.
+/// Between these, in `page/card.template.html`, is written into `site/card.html`.
 const OPEN: &str = "<!-- written by `cargo xtask page --write`; do not edit -->";
 const CLOSE: &str = "<!-- end -->";
 
@@ -94,13 +98,57 @@ struct Decision {
     groups: Vec<Group>,
 }
 
-/// Write the table, or check what is written is what the kernel says.
+/// Where each decision's names are, one file per decision.
+const NAMES: &str = "page/decision-names";
+
+/// Every decision's names, as `{"decisions": {"NNN": {...}}}`. A file is
+/// `NNN.json` for decision NNN and names that decision; anything else is
+/// refused, so a file cannot describe one decision while filed as another.
+fn names(root: &Path) -> Result<serde_json::Value, Fail> {
+    let mut decisions = serde_json::Map::new();
+    let mut files: Vec<String> = std::fs::read_dir(root.join(NAMES))
+        .map_err(|e| format!("{NAMES}: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".json"))
+        .collect();
+    files.sort();
+    for file in files {
+        let tag: u8 = file
+            .strip_suffix(".json")
+            .filter(|stem| stem.len() == 3)
+            .and_then(|stem| stem.parse().ok())
+            .ok_or_else(|| format!("{NAMES}/{file}: a names file is NNN.json, NNN its decision"))?;
+        let mut value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(NAMES).join(&file))?)
+                .map_err(|e| format!("{NAMES}/{file}: {e}"))?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| format!("{NAMES}/{file}: not an object"))?;
+        if object.remove("decision").and_then(|d| d.as_u64()) != Some(u64::from(tag)) {
+            return Err(format!("{NAMES}/{file} does not name decision {tag}").into());
+        }
+        decisions.insert(tag.to_string(), value);
+    }
+    Ok(serde_json::json!({ "decisions": decisions }))
+}
+
+/// Write the table and the card, or only check the kernel and the names agree.
+///
+/// Both outputs are generated, never committed, so there is nothing to compare
+/// them with: what is checked is that every routed decision is named, every
+/// field it reads is described and every decision has its phrase. `validate`
+/// writes them, because the suites that follow it read them.
 pub fn page(root: &Path, write: bool) -> Result<(), Fail> {
     let decisions = read_kernel(root)?;
-    let names: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        root.join("site/decision-names.json"),
-    )?)
-    .map_err(|e| format!("site/decision-names.json: {e}"))?;
+    let names = names(root)?;
+    let app: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("site/app.json"))?)
+            .map_err(|e| format!("site/app.json: {e}"))?;
+    let lead = app["purpose"]
+        .as_str()
+        .filter(|lead| !lead.is_empty())
+        .ok_or("site/app.json has no purpose")?;
 
     // The most bytes the kernel will take. A request longer than this is
     // refused by the guest before any decision is reached, so the page has to
@@ -110,33 +158,20 @@ pub fn page(root: &Path, write: bool) -> Result<(), Fail> {
     let largest = after(&entry, "requestMaximum := (")
         .and_then(number)
         .ok_or("app/src/Kernel.lex.tex: no requestMaximum to read")?;
-    let table = table(&decisions, &names, largest)?;
+    let table = table(&decisions, &names, largest, lead)?;
     let json = format!(
         "{}\n",
         serde_json::to_string_pretty(&table).map_err(|e| e.to_string())?
     );
     let card = card(root, &table, &json)?;
 
-    let json_path = root.join("site/decisions.json");
-    let card_path = root.join("site/card.html");
     if write {
-        std::fs::write(&json_path, &json)?;
-        std::fs::write(&card_path, &card)?;
+        std::fs::write(root.join("site/decisions.json"), &json)?;
+        std::fs::write(root.join("site/card.html"), &card)?;
         println!("page: wrote site/decisions.json and site/card.html from the kernel");
         return Ok(());
     }
-    for (path, want) in [(json_path, json), (card_path, card)] {
-        let have = std::fs::read_to_string(&path)?;
-        if have != want {
-            return Err(format!(
-                "R1: {} is stale: it disagrees with the kernel's own modules. \
-                 Run `cargo xtask page --write`.",
-                path.display()
-            )
-            .into());
-        }
-    }
-    println!("page: site/decisions.json and site/card.html are the kernel's");
+    println!("page: every decision the kernel routes is named, described and given its phrase");
     Ok(())
 }
 
@@ -468,18 +503,27 @@ fn table(
     decisions: &[Decision],
     names: &serde_json::Value,
     largest: usize,
+    lead: &str,
 ) -> Result<serde_json::Value, Fail> {
     let mut out = Vec::new();
+    let mut phrases = Vec::new();
     for decision in decisions {
         let tag = decision.tag;
         let named = &names["decisions"][tag.to_string()];
         if named.is_null() {
             return Err(format!(
-                "site/decision-names.json: decision {tag} is routed by the kernel and has no \
+                "{NAMES}/{tag:03}.json: decision {tag} is routed by the kernel and has no \
                  name here"
             )
             .into());
         }
+        let phrase = named["purpose"]
+            .as_str()
+            .filter(|phrase| !phrase.trim().is_empty())
+            .ok_or_else(|| {
+                format!("{NAMES}/{tag:03}.json: decision {tag} has no purpose phrase for the page")
+            })?;
+        phrases.push((tag, phrase.trim().to_string()));
         let mut fields = Vec::new();
         for field in &decision.fields {
             fields.push(described(tag, field, named, &[])?);
@@ -533,7 +577,7 @@ fn table(
                 let named = &named["list"][&group.reader];
                 if named.is_null() {
                     return Err(format!(
-                        "site/decision-names.json: decision {tag} repeats what \
+                        "{NAMES}/{tag:03}.json: decision {tag} repeats what \
                          `{}` reads, and that has no name here",
                         group.reader
                     )
@@ -558,11 +602,26 @@ fn table(
         }
         out.push(serde_json::Value::Object(entry));
     }
+    phrases.sort();
+    let listed: Vec<String> = phrases
+        .iter()
+        .map(|(tag, phrase)| format!("{phrase} ({tag})"))
+        .collect();
+    let listed = match listed.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    let purpose = format!(
+        "{lead} {} decisions: {listed}. Anything else answers invalid request.",
+        phrases.len()
+    );
     Ok(serde_json::json!({
         "comment": "Written by `cargo xtask page --write` from the kernel's own modules \
-                    and site/decision-names.json. The offsets, widths, lengths, groups, \
-                    tags and the largest request are the kernel's; the names are the \
-                    companion file's.",
+                    and page/decision-names/. The offsets, widths, lengths, groups, \
+                    tags and the largest request are the kernel's; the names and \
+                    phrases are the companion files'.",
+        "purpose": purpose,
         "request": largest,
         "decisions": out,
     }))
@@ -595,7 +654,7 @@ fn described(
     }
     if !found {
         return Err(format!(
-            "site/decision-names.json: decision {tag}'s field at byte {} has no name here",
+            "{NAMES}/{tag:03}.json: decision {tag}'s field at byte {} has no name here",
             field.at
         )
         .into());
@@ -603,15 +662,15 @@ fn described(
     Ok(serde_json::Value::Object(entry))
 }
 
-/// `site/card.html`, with its written part written.
+/// `site/card.html`: the template, with its written part written.
 fn card(root: &Path, table: &serde_json::Value, json: &str) -> Result<String, Fail> {
-    let existing = std::fs::read_to_string(root.join("site/card.html"))?;
+    let existing = std::fs::read_to_string(root.join("page/card.template.html"))?;
     let (before, rest) = existing
         .split_once(OPEN)
-        .ok_or("site/card.html: the written part is not marked")?;
+        .ok_or("page/card.template.html: the written part is not marked")?;
     let (_, after) = rest
         .split_once(CLOSE)
-        .ok_or("site/card.html: the written part is not closed")?;
+        .ok_or("page/card.template.html: the written part is not closed")?;
 
     let decisions = table["decisions"].as_array().cloned().unwrap_or_default();
     let first = decisions.first().cloned().unwrap_or_default();

@@ -52,7 +52,13 @@ deny:
 # gives that graph's Lean build a fixed 600 seconds and the arithmetic and
 # induction proofs exceed it there (`PP5007`). `lexlean verify` has the Lean
 # kernel and leanchecker check every proof module, each with its exact axiom
-# policy; `failglob` makes an empty match an error, not a vacuous pass. `prismpm verify` builds the holo, replaying its
+# policy. `xtask proofs` runs it on only the proof modules whose inputs changed:
+# each module's earlier verification is kept in `.prism-proof/lean`, keyed by the
+# BLAKE3 of its source, its import closure, the lock and the tools, and reused
+# only after its attestation re-derives and binds this module's inputs now; a
+# failed check verifies in full (xtask/src/proofs.rs). No proof module is an error.
+# It reuses on a pull request or a merge queue run only; a main push, a tag and a
+# local run verify every proof module, as `audit-bootstrap` requires. `prismpm verify` builds the holo, replaying its
 # acceptance vectors in the compiled guest, then has the Lean kernel and
 # leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
@@ -65,16 +71,23 @@ deny:
 # in full. It saved about seven and a half minutes a run and cost more than
 # that the day a later recipe wanted the holo that was never built: every pull
 # request touching no proof failed, pointing at a missing file rather than at
-# the shortcut. `bootstrap.yml` still sets `PRISM_PROOF_EVENT` and still caches
-# `.prism-proof`; nothing reads the first any more, and the second is kept as
-# evidence of what was proved rather than as a way to skip proving it.
+# the shortcut. The holo is built and verified on every run. `bootstrap.yml`
+# sets `PRISM_PROOF_EVENT` and caches `.prism-proof`: the recipe reads the first
+# only to let `xtask proofs` reuse unchanged proof modules on a pull request or
+# a merge queue run, and the second keeps each module's checked verification.
 app:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s failglob
     (cd app && lexlean fmt --all --check && lexlean lock --check)
     (cd experience && lexlean fmt --check && lexlean lock --check && lexlean check)
-    (cd app && lexlean verify src/Proofs/*.lex.tex)
+    reuse=
+    case "${PRISM_PROOF_EVENT:-}" in
+      pull_request|merge_group)
+        reuse=1
+        ;;
+    esac
+    PRISM_PROOF_REUSE=$reuse cargo run -q --locked -p xtask -- proofs
     prismpm --project app verify | tee .prism-proof.log
     mkdir -p .prism-proof
     sed -n 's/^verified attestation: \([0-9a-f]\{64\}\)$/\1/p' .prism-proof.log > .prism-proof/attestation
@@ -82,7 +95,10 @@ app:
     test -s .prism-proof/attestation
     holos=( app/.prism/build/*/*.holo )
     [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
-    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims.json
+    node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims
+    # The page's decision table and card, which are generated, not committed: pages.yml
+    # assembles the page from what this recipe leaves in site/.
+    cargo run -q --locked -p xtask -- page --write
 
 # The engine the page loads: this repository's crates as one WebAssembly
 # module, built for the browser and put where the page asks for it. Release,
@@ -193,6 +209,7 @@ page-journey assembled="":
     fi
     [[ -f $site/app.holo ]] || { echo "$site has no holo: run just app" >&2; exit 64; }
     [[ -f $site/app/engine/engine.wasm ]] || { echo "$site has no engine: run just engine" >&2; exit 64; }
+    node crates/conformance/tests/kernel/page-theorems.mjs "$site"
     node crates/conformance/tests/gpu/journey.mjs "$site"
 
 # Only the meta-gate, while iterating on a scenario. `test` already runs it.

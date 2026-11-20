@@ -1,0 +1,17 @@
+{
+  "decision": 17,
+  "claims": [
+    {
+      "request": "1100000000000f",
+      "answer": "7"
+    },
+    {
+      "request": "11020000000003",
+      "answer": "invalid code"
+    },
+    {
+      "request": "11000000000f",
+      "answer": "invalid request"
+    }
+  ]
+}

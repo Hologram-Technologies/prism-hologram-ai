@@ -1,0 +1,32 @@
+{
+  "decision": 14,
+  "name": "The greedy pick",
+  "asks": "Is the token claimed the first of the highest scores?",
+  "fields": {
+    "1": {
+      "name": "The index claimed",
+      "value": 0
+    },
+    "2": {
+      "name": "The score claimed",
+      "value": 100
+    },
+    "6": {
+      "name": "How many scores follow",
+      "value": 4
+    }
+  },
+  "list": {
+    "scoreAt": {
+      "name": "Scores",
+      "value": 1,
+      "values": [
+        100,
+        90,
+        80,
+        70
+      ]
+    }
+  },
+  "purpose": "whether a token is the first of the highest scores"
+}

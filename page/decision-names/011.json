@@ -1,0 +1,24 @@
+{
+  "decision": 11,
+  "name": "Binding a shape",
+  "asks": "What size is this dimension bound to?",
+  "fields": {
+    "1": {
+      "name": "Lower bound",
+      "value": 1
+    },
+    "9": {
+      "name": "Upper bound",
+      "value": 2048
+    },
+    "17": {
+      "name": "Requested",
+      "value": 100
+    },
+    "25": {
+      "name": "Rounded up to, or 0 for exact",
+      "value": 64
+    }
+  },
+  "purpose": "the size a dimension is bound to"
+}
