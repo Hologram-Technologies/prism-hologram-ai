@@ -5487,9 +5487,10 @@ fn kernel_kn_73() {
     let texts: Vec<String> = [3u8, 4, 5]
         .iter()
         .map(|&kind| {
-            let claims =
-                std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims/048.json"))
-                    .expect("the claims the crates make of the kernel");
+            let claims = std::fs::read_to_string(
+                root().join("crates/conformance/tests/kernel/claims/048.json"),
+            )
+            .expect("the claims the crates make of the kernel");
             let claims: serde_json::Value =
                 serde_json::from_str(&claims).expect("048.json is JSON");
             let mut text = String::new();
