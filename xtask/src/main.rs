@@ -13,6 +13,7 @@ use repo_model::{codegen, Model};
 mod audit;
 mod bootstrap;
 mod page;
+mod proofs;
 mod scaffold;
 
 /// The most the page's engine may be, uncompressed.
@@ -117,6 +118,7 @@ fn main() -> ExitCode {
         "audit-bootstrap" => bootstrap::audit(&root),
         "audit-dependency-updates" => bootstrap::audit_dependency_updates(&root),
         "validate" => validate(&root),
+        "proofs" => proofs::verify(&root),
         "engine-size" => {
             let named = std::env::args().nth(2).unwrap_or_default();
             engine_size(&root.join(named))
@@ -145,6 +147,7 @@ fn main() -> ExitCode {
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
+                 proofs            lexlean verify app/src/Proofs, reusing unchanged modules by content address\n\
                  engine-size <path>  the page's engine is within the size a page may ask for\n\
                  engine-seal <path>  EN-90: the page's engine is the address the model seals\n\
                  new-capability <ID> <level> <suite> <statement>\n\
