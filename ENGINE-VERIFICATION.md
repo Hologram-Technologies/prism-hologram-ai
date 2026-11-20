@@ -3170,27 +3170,26 @@ rewrites `rustc -vV`'s `host:` line to `aarch64-unknown-linux-gnu` gives
 leaves the host out, and a wrapper on arm64 would misbuild the build scripts
 cargo runs on the host.
 
-So `engine-build` on any host but x86_64 runs itself in the linux/amd64
-variant of the SDK image `prismpm.lock` pins (the gate checks the image lists
-both platforms), named by that manifest's own digest from the image's index, since
-Docker will not pull a second platform under the index digest a host already
-holds (`cannot overwrite digest`, the first arm64 run, 44815391796), under
-QEMU amd64 emulation, which GitHub's arm64 runner lacks (`exec format error`, the
-second, 44821949449) and `engine-build` registers first with
-`tonistiigi/binfmt@sha256:1b804311…39e6` (qemu-v9.2.2-52, the image
-`docker/setup-qemu-action` uses), privileged because it writes the host
-kernel's `binfmt_misc`, chosen by Ilya over checking only that two arm64 builds
-agree; and under the host's emulation, with the workspace mounted at the
-same path, the gate's home setup and a target directory of its own
-(`target/engine-amd64`). Every host then checks the one engine that is
-published, which `pages.yml` builds on amd64. Decided by Ilya on 2026-11-20
-over the alternative of checking only that two arm64 builds agree.
+So `engine-build` on any host but x86_64 gives cargo a rustc that answers
+`-vV` naming `x86_64-unknown-linux-gnu` and passes every other call to the
+real one. Build scripts and proc-macros are still compiled and run natively;
+only the host's name in cargo's hashes, the `HOST` it gives build scripts and
+its host cfgs change. The seal check after the build vouches for the result: a
+module that is not the sealed one fails, so a pass on arm64 is the published
+engine built there. Decided by Ilya on 2026-11-20.
+
+Tried first and refused: building in the SDK image's linux/amd64 variant under
+emulation. The index digest could not be pulled as a second platform
+(`cannot overwrite digest`, run 44815391796); with the amd64 manifest named by
+its own digest, GitHub's arm64 runner had no amd64 emulator (`exec format
+error`, run 44821949449); with QEMU registered, the amd64 `rustc -vV` died of
+SIGSEGV (run 44828663585), and the job had already spent 39 of its 45 minutes.
 
 | Planted | Result |
 | --- | --- |
 | none of this, the engine built natively on arm64 (main before this change) | rejected on CI, run 44799617959: `engine.wasm is blake3:5d2ee896…, but app/src/Kernel/Seal.lex.tex seals blake3:b5fd8212…` |
 | the same build on x86 with rustc naming an aarch64 host | the same module, `blake3:5d2ee896…`: the host string alone makes the difference |
-| the amd64 path removed from `engine-build` | rejected by `engine_en_90`: ``engine-build does not `if [[ $(uname -m) != x86_64 ]]; then` `` |
+| the host rename removed from `engine-build` | rejected by `engine_en_90`: ``engine-build does not `if [[ $(uname -m) != x86_64 ]]; then` `` |
 | none, WSL on x86 | `engine_en_90` passed; `just engine-build` gave the sealed `blake3:b5fd8212…` |
 
 ## EN-95, a classifier's probabilities

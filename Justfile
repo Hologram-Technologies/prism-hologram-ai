@@ -143,47 +143,34 @@ engine:
 # stable cargo mixes `rustc -vV`, which names the host, into every crate's
 # metadata hash, which reaches the symbol names rustc orders items by, so an
 # arm64 host builds the same tree to other bytes (x86 told by a wrapper that
-# its host was aarch64 gave arm64's engine exactly). On any other host the
-# build runs in the linux/amd64 variant of the SDK image prismpm.lock pins,
-# under the host's emulation, with the workspace at the same path and a target
-# directory of its own, so every host checks the one engine that is published.
+# its host was aarch64 gave arm64's engine exactly). So on any other host
+# cargo is given a rustc that answers `-vV` naming x86_64-unknown-linux-gnu
+# and passes every other call to the real one: build scripts and proc-macros
+# are still compiled and run natively, and only the host's name in cargo's
+# hashes, the HOST it gives build scripts and its host cfgs change. The seal
+# check after the build vouches for it: a module that is not the sealed one
+# fails. Building under amd64 emulation was tried first: GitHub's arm64 runner
+# has no emulator, and with one registered the amd64 rustc died of SIGSEGV
+# under QEMU (runs 44821949449, 44828663585). Chosen by Ilya on 2026-11-20.
 engine-build out:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ $(uname -m) != x86_64 ]]; then
-      image=$(sed -n 's/.*"sdk_image":"\([^"]*\)".*/\1/p' prismpm.lock)
-      [[ -n $image ]] || { echo "engine-build: prismpm.lock names no SDK image to build the amd64 engine in" >&2; exit 64; }
-      case "{{out}}" in /*) out="{{out}}" ;; *) out="$PWD/{{out}}" ;; esac
-      [[ $out == "$PWD"/* ]] || { echo "engine-build: on $(uname -m) the engine is built in an amd64 container, which sees only this workspace; {{out}} is outside it" >&2; exit 64; }
-      # The lock names the image's index, which this host already holds as its
-      # own platform; Docker will not pull another platform under that digest
-      # ("cannot overwrite digest"), so the amd64 manifest is named by its own.
-      amd64=$(docker buildx imagetools inspect "$image" --raw | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const m = JSON.parse(s).manifests?.find((x) => x.platform?.os === "linux" && x.platform?.architecture === "amd64"); if (!m) process.exit(1); console.log(m.digest); })') \
-        || { echo "engine-build: $image lists no linux/amd64 manifest" >&2; exit 64; }
-      image="${image%@*}@$amd64"
-      # GitHub's arm64 runner runs no amd64 binary of itself ("exec format
-      # error", run 44821949449): QEMU's amd64 emulator is registered with the
-      # host's kernel first, by the image docker/setup-qemu-action uses, pinned
-      # by digest (tonistiigi/binfmt qemu-v9.2.2-52). It must run privileged to
-      # write the kernel's binfmt_misc; registering again changes nothing.
-      # Chosen by Ilya on 2026-11-20.
-      docker run --rm --privileged tonistiigi/binfmt@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install amd64 >/dev/null \
-        || { echo "engine-build: could not register amd64 emulation on this $(uname -m) host" >&2; exit 64; }
-      echo "engine-build: $(uname -m) host, building the engine in $image as linux/amd64"
-      exec docker run --rm --platform linux/amd64 \
-        --user "$(id -u):$(id -g)" \
-        --tmpfs /tmp:rw,exec,nosuid,size=2g \
-        --volume "$PWD:$PWD" --workdir "$PWD" \
-        --env HOME=/tmp/prismpm-home --env PRISMPM_EPHEMERAL_HOME=1 \
-        --env CARGO_TARGET_DIR="$PWD/target/engine-amd64" \
-        "$image" just engine-build "$out"
-    fi
     unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER CARGO_BUILD_RUSTC_WRAPPER CARGO_INCREMENTAL RUSTDOCFLAGS
     for name in $(compgen -e | grep '^CARGO_PROFILE_' || true); do unset "$name"; done
     meta=$(cargo metadata --format-version 1 --locked)
     registry=$(grep -o '"manifest_path":"[^"]*/registry/src/[^/"]*/' <<<"$meta" | sed -n '1{s/^"manifest_path":"//; s#/$##; p}')
     target=$(grep -o '"target_directory":"[^"]*"' <<<"$meta" | sed 's/^"target_directory":"//; s/"$//')
     [[ -n $registry && -n $target ]] || { echo "engine-build: cargo metadata names no registry source or target directory" >&2; exit 64; }
+    if [[ $(uname -m) != x86_64 ]]; then
+      export ENGINE_REAL_RUSTC=$(rustup which rustc 2>/dev/null || command -v rustc)
+      mkdir -p "$target/engine-host"
+      printf '%s\n' '#!/usr/bin/env bash' \
+        'if [[ " $* " == *" -vV "* ]]; then "$ENGINE_REAL_RUSTC" "$@" | sed "s/^host: .*/host: x86_64-unknown-linux-gnu/"; exit "${PIPESTATUS[0]}"; fi' \
+        'exec "$ENGINE_REAL_RUSTC" "$@"' >"$target/engine-host/rustc"
+      chmod +x "$target/engine-host/rustc"
+      export RUSTC="$target/engine-host/rustc"
+      echo "engine-build: $(uname -m) host, cargo told the host is x86_64-unknown-linux-gnu ($ENGINE_REAL_RUSTC)"
+    fi
     # rustc applies the last prefix that matches, so the registry comes last:
     # a cargo home inside the workspace still maps to /registry.
     export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/workspace"$'\x1f'"--remap-path-prefix=$registry=/registry"
