@@ -47,12 +47,8 @@ fn declaration<'a>(model: &'a str, name: &str) -> &'a str {
 /// command does not look.
 fn assert_proofs_are_gated() {
     let justfile = model("Justfile");
-    let app = justfile.split("
-app:
-").nth(1).expect("an app recipe");
-    let app = app.split("
-
-").next().unwrap_or(app);
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
     assert!(
         app.contains("shopt -s failglob")
             && app.contains("cargo run -q --locked -p xtask -- proofs"),
@@ -5265,13 +5261,13 @@ fn kernel_kn_80() {
     );
     // The page's form for decision 80 starts at the sealed address, so it
     // answers sealed as shown; it follows the seal as the claims do.
-    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
-        .expect("decision-names.json is JSON");
+    let names: serde_json::Value = serde_json::from_str(&model("page/decision-names/080.json"))
+        .expect("page/decision-names/080.json is JSON");
     for (i, word) in sealed.iter().enumerate() {
         assert_eq!(
-            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            names["fields"][(1 + 4 * i).to_string()]["value"],
             serde_json::json!(word),
-            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            "page/decision-names/080.json's field {} is not sealedWord {i}",
             1 + 4 * i
         );
     }

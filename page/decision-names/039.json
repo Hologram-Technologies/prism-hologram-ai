@@ -1,0 +1,54 @@
+{
+  "decision": 39,
+  "name": "Declared narrowing",
+  "asks": "May this step narrow a value, with this width and bound?",
+  "fields": {
+    "1": {
+      "name": "Step",
+      "choice": [
+        [
+          "exp",
+          0
+        ],
+        [
+          "reciprocal square root",
+          1
+        ],
+        [
+          "sine and cosine",
+          2
+        ],
+        [
+          "SiLU",
+          3
+        ],
+        [
+          "GELU",
+          4
+        ],
+        [
+          "requantise",
+          5
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Input bits",
+      "value": 8
+    },
+    "3": {
+      "name": "Output bits",
+      "value": 16
+    },
+    "4": {
+      "name": "Declared bound, in output units",
+      "value": 1
+    },
+    "8": {
+      "name": "Certified error, in output units",
+      "value": 1
+    }
+  },
+  "purpose": "whether a step may narrow a value with its declared width and bound"
+}

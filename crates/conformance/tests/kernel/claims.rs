@@ -49,7 +49,10 @@ pub fn document(root: &Path) -> serde_json::Value {
         let byte = format!("{tag:02x}");
         for claim in claims {
             let request = claim["request"].as_str().expect("a request");
-            assert!(claim["answer"].is_string(), "{DIR}/{name}: {request} has no answer");
+            assert!(
+                claim["answer"].is_string(),
+                "{DIR}/{name}: {request} has no answer"
+            );
             assert!(
                 request.starts_with(&byte),
                 "{DIR}/{name}: {request} is not a decision-{tag} request"

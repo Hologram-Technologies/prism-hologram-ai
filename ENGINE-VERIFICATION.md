@@ -546,7 +546,7 @@ kernel's own modules — the tag each decision is routed by, the length its
 answer accepts, and the offset and width of every field it reads — and writes
 them into `site/decisions.json` and into `site/card.html`: the chooser's
 options, the first decision's fields, and the table itself as inline JSON. The
-page is whole before its script runs and fetches nothing. `site/decision-names.json`
+page is whole before its script runs and fetches nothing. `page/decision-names/NNN.json`
 holds what the model cannot: what a field is called and what the form starts
 with.
 
@@ -600,7 +600,7 @@ the next group, or to the end of the request, both of which the length its
 answer accepts gives: a constant and a multiple of the count. For a speculative
 commit that comes out as `k` drafted tokens from byte three and `k + 1`
 verified ones after them, which is what `7 + 8k` leaves room for. Nothing about
-the groups is written down a second time; `site/decision-names.json` gives each
+the groups is written down a second time; `page/decision-names/NNN.json` gives each
 one a name and a starting value, and nothing else.
 
 A request whose own format chooses its shape is drawn as one form per format,
@@ -1178,7 +1178,7 @@ the first planting. The thirteenth was missed, and is recorded below.
 ### The one that was missed
 
 The defect "the page offers a format decision 13 does not know" was first
-planted in `site/decision-names.json`, where the names are written, and EN-25
+planted in `page/decision-names/NNN.json`, where the names are written, and EN-25
 passed. The gate reads `site/decisions.json`, which is generated from that
 file, and the generated file had not been rewritten, so the planting never
 reached the gate it was aimed at. `cargo xtask page` would have caught it, as a

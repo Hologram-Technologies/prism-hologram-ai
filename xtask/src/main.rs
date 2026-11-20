@@ -89,7 +89,7 @@ fn engine_seal(root: &Path, path: &Path) -> Result<(), Fail> {
             "{} is blake3:{found}, but {SEAL} seals blake3:{sealed}. \
              If the change to the engine's inputs is meant, seal it in the same change: \
              sealedWord's words become {}, and the claims in crates/conformance/tests/kernel/claims/080.json and \
-             fields in site/decision-names.json follow (EN-90).",
+             fields in page/decision-names/080.json follow (EN-90).",
             path.display(),
             new.join(" ")
         )
@@ -213,7 +213,9 @@ fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
 /// The whole normative acceptance gate, in one place.
 fn validate(root: &Path) -> Result<(), Fail> {
     check_model(root, false)?;
-    page::page(root, false)?;
+    // The page's table and card are generated, not committed, and the suites
+    // after this read them, so validate writes them.
+    page::page(root, true)?;
     audit::audit_limits(root)?;
     audit::audit_deferral(root)?;
     audit::audit_float(root)?;

@@ -87,6 +87,9 @@ app:
     holos=( app/.prism/build/*/*.holo )
     [[ ${#holos[@]} -eq 1 ]] || { echo "expected one holo, found ${#holos[@]}" >&2; exit 64; }
     node crates/conformance/tests/kernel/replay.mjs "${holos[0]}" crates/conformance/tests/kernel/claims
+    # The page's decision table and card, which are generated, not committed: pages.yml
+    # assembles the page from what this recipe leaves in site/.
+    cargo run -q --locked -p xtask -- page --write
 
 # The engine the page loads: this repository's crates as one WebAssembly
 # module, built for the browser and put where the page asks for it. Release,
@@ -197,6 +200,7 @@ page-journey assembled="":
     fi
     [[ -f $site/app.holo ]] || { echo "$site has no holo: run just app" >&2; exit 64; }
     [[ -f $site/app/engine/engine.wasm ]] || { echo "$site has no engine: run just engine" >&2; exit 64; }
+    node crates/conformance/tests/kernel/page-theorems.mjs "$site"
     node crates/conformance/tests/gpu/journey.mjs "$site"
 
 # Only the meta-gate, while iterating on a scenario. `test` already runs it.
