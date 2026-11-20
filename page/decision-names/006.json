@@ -1,0 +1,24 @@
+{
+  "decision": 6,
+  "name": "A tensor's range",
+  "asks": "Do this tensor's bytes lie where it says?",
+  "fields": {
+    "1": {
+      "name": "File length",
+      "value": 4224
+    },
+    "9": {
+      "name": "Previous tensor ended at",
+      "value": 128
+    },
+    "17": {
+      "name": "This tensor starts at",
+      "value": 128
+    },
+    "25": {
+      "name": "This tensor is long",
+      "value": 4096
+    }
+  },
+  "purpose": "whether a tensor's byte range is valid"
+}

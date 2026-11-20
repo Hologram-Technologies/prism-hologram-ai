@@ -1,0 +1,24 @@
+{
+  "decision": 42,
+  "name": "Round check",
+  "asks": "Is this claimed binary32 the nearest to the exact value?",
+  "fields": {
+    "1": {
+      "name": "Sign, 1 for negative",
+      "value": 0
+    },
+    "2": {
+      "name": "Magnitude",
+      "value": 1
+    },
+    "10": {
+      "name": "Exponent plus 32768",
+      "value": 32768
+    },
+    "12": {
+      "name": "Claimed binary32 bits",
+      "value": 1065353216
+    }
+  },
+  "purpose": "whether a claimed binary32 is the nearest to an exact value"
+}

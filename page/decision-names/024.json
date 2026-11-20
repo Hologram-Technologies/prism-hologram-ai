@@ -1,0 +1,56 @@
+{
+  "decision": 24,
+  "name": "A model's file",
+  "asks": "What is this part of the model called in its repository?",
+  "fields": {
+    "1": {
+      "name": "Task",
+      "choice": [
+        [
+          "text generation",
+          0
+        ],
+        [
+          "feature extraction",
+          1
+        ],
+        [
+          "text classification",
+          2
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Precision",
+      "choice": [
+        [
+          "q4f16",
+          0
+        ],
+        [
+          "q4",
+          1
+        ],
+        [
+          "fp16",
+          2
+        ],
+        [
+          "fp32",
+          3
+        ]
+      ],
+      "value": 0
+    },
+    "3": {
+      "name": "Data files declared",
+      "value": 1
+    },
+    "4": {
+      "name": "Part, 0 for the graph",
+      "value": 1
+    }
+  },
+  "purpose": "what each of a model's files is called"
+}

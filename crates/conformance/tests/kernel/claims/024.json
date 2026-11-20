@@ -1,0 +1,45 @@
+{
+  "decision": 24,
+  "claims": [
+    {
+      "request": "1801000000",
+      "answer": "onnx/model_q4f16.onnx"
+    },
+    {
+      "request": "1802010000",
+      "answer": "onnx/model_q4.onnx"
+    },
+    {
+      "request": "1801000001",
+      "answer": "undeclared file"
+    },
+    {
+      "request": "1803000000",
+      "answer": "unsupported task"
+    },
+    {
+      "request": "1800010101",
+      "answer": "onnx/model_q4.onnx_data"
+    },
+    {
+      "request": "1800010102",
+      "answer": "undeclared file"
+    },
+    {
+      "request": "1800016501",
+      "answer": "too many files"
+    },
+    {
+      "request": "1800ff0101",
+      "answer": "unsupported precision"
+    },
+    {
+      "request": "18ff010101",
+      "answer": "unsupported task"
+    },
+    {
+      "request": "18000101",
+      "answer": "invalid request"
+    }
+  ]
+}

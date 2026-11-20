@@ -1,0 +1,77 @@
+{
+  "decision": 70,
+  "claims": [
+    {
+      "request": "46000000000101",
+      "answer": "auto"
+    },
+    {
+      "request": "46000101000101",
+      "answer": "webgpu"
+    },
+    {
+      "request": "46000202000101",
+      "answer": "webgpu"
+    },
+    {
+      "request": "46000301000101",
+      "answer": "cpu"
+    },
+    {
+      "request": "46000400000001",
+      "answer": "cpu"
+    },
+    {
+      "request": "46010000000101",
+      "answer": "auto"
+    },
+    {
+      "request": "46020302000101",
+      "answer": "cpu"
+    },
+    {
+      "request": "46ff0101000101",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "4600ff01000101",
+      "answer": "refused: unsupported device"
+    },
+    {
+      "request": "46000501000101",
+      "answer": "refused: unsupported device"
+    },
+    {
+      "request": "460001ff000101",
+      "answer": "refused: unsupported dtype"
+    },
+    {
+      "request": "46000103000101",
+      "answer": "refused: unsupported dtype"
+    },
+    {
+      "request": "46000101010101",
+      "answer": "refused: sampling"
+    },
+    {
+      "request": "46000101000201",
+      "answer": "refused: beam search"
+    },
+    {
+      "request": "46000101000401",
+      "answer": "refused: beam search"
+    },
+    {
+      "request": "46000101000100",
+      "answer": "refused: repetition penalty"
+    },
+    {
+      "request": "46ffffff010400",
+      "answer": "refused: unsupported task"
+    },
+    {
+      "request": "4600000001",
+      "answer": "invalid request"
+    }
+  ]
+}

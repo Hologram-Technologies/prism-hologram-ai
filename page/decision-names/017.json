@@ -1,0 +1,66 @@
+{
+  "decision": 17,
+  "name": "A quantisation code",
+  "asks": "What value does this code stand for?",
+  "fields": {
+    "1": {
+      "name": "Format",
+      "choice": [
+        [
+          "q4",
+          0
+        ],
+        [
+          "q3f",
+          1
+        ],
+        [
+          "t2",
+          2
+        ],
+        [
+          "t2r",
+          3
+        ],
+        [
+          "ternary",
+          4
+        ]
+      ],
+      "value": 4
+    },
+    "2": {
+      "name": "Place",
+      "value": 0
+    },
+    "3": {
+      "name": "Codes",
+      "value": 0
+    },
+    "4": {
+      "name": "Nonzero bits",
+      "value": 1
+    },
+    "7": {
+      "name": "Codes, second word",
+      "value": 0
+    },
+    "11": {
+      "name": "Codes, third word",
+      "value": 0
+    }
+  },
+  "shapes": {
+    "1": {
+      "3": {
+        "name": "Codes, first word"
+      }
+    },
+    "4": {
+      "3": {
+        "name": "Sign bits"
+      }
+    }
+  },
+  "purpose": "what a quantisation code stands for"
+}

@@ -1,0 +1,17 @@
+{
+  "decision": 35,
+  "claims": [
+    {
+      "request": "23626c616b65333a",
+      "answer": "blake3"
+    },
+    {
+      "request": "237368613235363a",
+      "answer": "not blake3"
+    },
+    {
+      "request": "23626c616b6533",
+      "answer": "invalid request"
+    }
+  ]
+}
