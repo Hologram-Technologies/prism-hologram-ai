@@ -2,7 +2,7 @@
 // open claims (R2: measured and reported, never asserted). A claim with the
 // same id is replaced, so a rerun on the same machine updates its row.
 //
-//   node ledger.mjs equality <reference.json> <float.json>
+//   node ledger.mjs equality <reference.json> <float.json> [--note <how the run departs from the deploy>]
 //   node ledger.mjs speed <machine id> <hologram.json> <transformers.json> [--bound <target>=<step> ...]
 //
 // <machine id> names the device in the claim's id: Z13 for the laptop the
@@ -45,7 +45,7 @@ async function write(claim) {
   console.log(`${at >= 0 ? "replaced" : "added"} ${claim.id}`);
 }
 
-async function equality(referencePath, floatPath) {
+async function equality(referencePath, floatPath, note) {
   const r = JSON.parse(await readFile(referencePath, "utf8"));
   const f = JSON.parse(await readFile(floatPath, "utf8"));
   const graph = r.modelFiles.find((p) => p.endsWith(".onnx"));
@@ -60,7 +60,7 @@ async function equality(referencePath, floatPath) {
   await write({
     id: `OPEN-GREEDY-256-${keyOf(r.model)}-INTEGER`,
     sample_size: r.runs.length * r.tokens,
-    statement: `Rows 2 and 3 of milestone 2, the CPU half: the page's integer CPU engine on ${r.model}@${revision} (${graph.split("/").pop()}), loaded through pipeline() with device cpu from the deployed page's own files (engine.wasm sha256 ${short(r.site.engineWasmSha256)}, holo ${short(r.site.holoSha256)}, pipeline.mjs ${short(r.site.pipelineSha256)}), ${r.runner}, one thread: 256 greedy tokens of each of three fixed prompts (crates/conformance/bench/equality-run.mjs), run past the end of turn, every id recorded in crates/conformance/bench/references/${r.key}.json as the reference the WebGPU integer engine is held to. Against the float model, the same file in ${f.float}: ${each.join("; ")}. ${perToken.join(", ")} s per token. The WebGPU half is not measured: the deployed WebGPU engine is the float one until row 15, and equality-browser.mjs refuses to compare it. Measured ${new Date().toISOString().slice(0, 10)}.`,
+    statement: `Rows 2 and 3 of milestone 2, the CPU half: the page's integer CPU engine on ${r.model}@${revision} (${graph.split("/").pop()}), loaded through pipeline() with device cpu from the deployed page's own files (engine.wasm sha256 ${short(r.site.engineWasmSha256)}, holo ${short(r.site.holoSha256)}, pipeline.mjs ${short(r.site.pipelineSha256)}${r.site.loaderSha256 ? `, loader.mjs ${short(r.site.loaderSha256)}` : ""}${note ? `; ${note}` : ""}), ${r.runner}, one thread: 256 greedy tokens of each of three fixed prompts (crates/conformance/bench/equality-run.mjs), run past the end of turn, every id recorded in crates/conformance/bench/references/${r.key}.json as the reference the WebGPU integer engine is held to. Against the float model, the same file in ${f.float}: ${each.join("; ")}. ${perToken.join(", ")} s per token. The WebGPU half is not measured: the deployed WebGPU engine is the float one until row 15, and equality-browser.mjs refuses to compare it. Measured ${new Date().toISOString().slice(0, 10)}.`,
   });
 }
 
@@ -120,7 +120,7 @@ async function speed(machineId, hologramPath, transformersPath, bounds) {
 }
 
 const [mode, ...rest] = process.argv.slice(2);
-if (mode === "equality") await equality(rest[0], rest[1]);
+if (mode === "equality") await equality(rest[0], rest[1], rest[2] === "--note" ? rest[3] : null);
 else if (mode === "speed") {
   const bounds = {};
   rest.forEach((a, i) => { if (a === "--bound") { const [k, ...v] = rest[i + 1].split("="); bounds[k] = v.join("="); } });
