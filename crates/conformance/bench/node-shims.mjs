@@ -56,9 +56,12 @@ export function installShims({ cacheDir, href = "https://gethologram.ai/app/" })
 }
 
 // A module Web Worker on worker_threads: the worker's `self.onmessage` and
-// `self.postMessage` are wired to the thread's port.
+// `self.postMessage` are wired to the thread's port, and it can start workers
+// of its own, as the integer engine's worker starts its helpers (GP-52).
 const BOOT = `
 import { parentPort, workerData } from "node:worker_threads";
+const { NodeWebWorker } = await import(workerData.shims);
+globalThis.Worker = NodeWebWorker;
 globalThis.location = { href: workerData.href };
 globalThis.self = globalThis;
 globalThis.postMessage = (message, transfer) => parentPort.postMessage(message, transfer);
@@ -66,9 +69,9 @@ parentPort.on("message", (data) => globalThis.onmessage?.({ data }));
 await import(workerData.url);
 `;
 
-class NodeWebWorker {
+export class NodeWebWorker {
   constructor(url) {
-    this.thread = new ThreadWorker(new URL(`data:text/javascript,${encodeURIComponent(BOOT)}`), { workerData: { url: String(url), href: globalThis.location.href } });
+    this.thread = new ThreadWorker(new URL(`data:text/javascript,${encodeURIComponent(BOOT)}`), { workerData: { url: String(url), href: globalThis.location.href, shims: import.meta.url } });
     this.thread.on("message", (data) => this.onmessage?.({ data }));
     this.thread.on("error", (error) => this.onerror?.({ message: error.message }));
   }

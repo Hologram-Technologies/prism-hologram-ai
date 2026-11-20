@@ -4,6 +4,7 @@
 //   node speed.mjs --lib hologram|transformers --model <repo> --machine "<name>" --out <file>
 //                  [--devices webgpu:short+long,wasm:short] [--dtype q4f16]
 //                  [--page <url>] [--cdp <endpoint>] [--channel chrome|chromium] [--headed]
+//                  [--protocol prefix-run.mjs]   (row 7, prefix reuse: this engine only)
 //
 // Both libraries run on the same published page, so they share its origin,
 // network path and browser; the page's CSP is bypassed for the run so
@@ -52,7 +53,8 @@ if (!["hologram", "transformers"].includes(lib) || !model || !machine || !out) {
   throw new Error("usage: --lib hologram|transformers --model <repo> --machine <name> --out <file> [--devices webgpu:short+long,wasm:short]");
 }
 const here = dirname(fileURLToPath(import.meta.url));
-const protocol = await readFile(join(here, "speed-run.mjs"), "utf8");
+const protocolFile = option("--protocol", "speed-run.mjs");
+const protocol = await readFile(join(here, protocolFile), "utf8");
 const { chromium } = await import(process.env.PRISM_PLAYWRIGHT ?? "playwright");
 
 let context;
@@ -108,6 +110,9 @@ try {
   });
   const runs = [];
   for (const [i, { device, legs }] of devices.entries()) {
+    // A prefix sample needs an engine that has held no head, and a second
+    // engine in one page can run out of the module's memory: a fresh page each.
+    if (i > 0 && protocolFile !== "speed-run.mjs") await page.reload({ waitUntil: "load" });
     const result = await page.evaluate(async ({ protocol, lib, model, device, dtype, legs, transformers }) => {
       const url = URL.createObjectURL(new Blob([protocol], { type: "text/javascript" }));
       const { measure } = await import(url);
@@ -124,7 +129,7 @@ try {
     if (result.error) code = 1;
     console.log(JSON.stringify({ lib, model, device, load: result.load, error: result.error ?? null, loadSeconds: result.loadSeconds, cold: result.cold?.firstToken, warm: result.short?.firstToken, tokensPerSecond: result.short?.tokensPerSecond, longFirst: result.long?.firstToken, longTokensPerSecond: result.long?.tokensPerSecond }));
   }
-  const guest = lib === "hologram"
+  const guest = lib === "hologram" && protocolFile === "speed-run.mjs"
     ? await page.evaluate(async (protocol) => (await import(URL.createObjectURL(new Blob([protocol], { type: "text/javascript" })))).guestOverhead(new URL("..", location.href).href), protocol)
     : null;
   if (guest) console.log(JSON.stringify({ guest }));
