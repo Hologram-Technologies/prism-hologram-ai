@@ -5559,6 +5559,96 @@ fn kernel_kn_59() {
     }
 }
 
+/// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
+#[test]
+fn kernel_kn_81() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Softmax.lex.tex");
+    let proofs = model("app/src/Proofs/StageSoftmax.lex.tex");
+    assert_pinned(
+        &proofs,
+        "no_key_above_top",
+        "((excessOf words (Engine.Stage.Softmax::topOf words count) count) = 0)",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "weight_is_exp2",
+        "((Engine.Stage.Softmax::weightOf d) = (Engine.Stage.Exp2::exp2Neg d))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "total_at_least",
+        "(1073741824 <= ((Engine.Stage.Softmax::totalOf words (Engine.Stage.Softmax::topOf words count) count) + (prim multiply 1073741824 (prim subtract 1 count : Nat) : Nat)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.Softmax}")
+            && !proofs.contains("\n  name: run,"),
+        "the proofs must read the stage, not restate it"
+    );
+    assert!(
+        declaration(&stage, "weightAt").contains("Engine.Stage.Exp2::exp2Neg")
+            || declaration(&stage, "weightOf").contains("Engine.Stage.Exp2::exp2Neg"),
+        "the weights must be KN-56's exp2Neg"
+    );
+    // Each row Lean evaluated is replayed through the Rust: the stage and
+    // crates/exact agree on it, or this fails.
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: softmax_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("softmax_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "softmax_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Softmax::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("softmax_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let (count, rest) = rest.trim_start().split_once(')').expect("a count");
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let count: usize = count.parse().expect("a count");
+        assert_eq!(
+            words.len(),
+            2 * count,
+            "softmax_row_{rows}: two words per score"
+        );
+        let scores: Vec<i64> = words
+            .chunks(2)
+            .map(|pair| (pair[0] | (pair[1] << 32)) as i64)
+            .collect();
+        let rust: Vec<u64> = hologram_ai_exact::softmax_exp2(&scores)
+            .into_iter()
+            .map(u64::from)
+            .collect();
+        assert_eq!(
+            rust, expected,
+            "softmax_row_{rows}: crates/exact disagrees with the stage on {scores:?}"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 9, "nine rows are evaluated, found {rows}");
+}
+
+/// The numbers of a LexLean list `(cons a (cons b (nil Nat)))` at the start of
+/// `text`, and the text after it.
+fn cons_list(text: &str) -> (Vec<u64>, &str) {
+    let mut rest = text;
+    let mut values = Vec::new();
+    while let Some(after) = rest.strip_prefix("(cons ") {
+        let (value, tail) = after.split_once(' ').expect("a list element");
+        values.push(value.parse().expect("a number"));
+        rest = tail;
+    }
+    let mut rest = rest.strip_prefix("(nil Nat)").expect("the end of a list");
+    for _ in &values {
+        rest = rest.strip_prefix(')').expect("a closed list");
+    }
+    (values, rest)
+}
+
 /// `KN-73`: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
 #[test]
 fn kernel_kn_73() {
