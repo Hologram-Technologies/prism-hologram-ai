@@ -894,3 +894,12 @@ Feature: engine
     Given the fixture model read with only its first layer held
     When it is stepped, prefilled past that layer, finished early, prefilled from an empty prompt, or prefilled on a cache another prefill has grown
     Then each is refused as DecodeError::NotHeld and the session is left as it was
+
+  @EN-111 @build
+  Scenario: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+    Given EN-31's model of one 4-bit projection, its codes and scales inside the graph file
+    When its graph file is fed in pieces of 1, 7, 64 and 4096 bytes and whole, the import asked after each piece for the tensors that have arrived
+    Then each tensor is given once, in file order, after its last byte and no later than the piece that holds it
+    And the kernel was asked about the operators and the tensor's 4-bit shape before it was given
+    And the tensors given are the finished import's, each named by the BLAKE3 of its bytes
+    And a kernel that refuses an operator stops the import before any tensor is given

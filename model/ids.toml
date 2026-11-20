@@ -1060,3 +1060,9 @@ id = "EN-110"
 level = "build"
 suite = "engine"
 statement = "hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit"
+
+[[id]]
+id = "EN-111"
+level = "build"
+suite = "engine"
+statement = "The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size"

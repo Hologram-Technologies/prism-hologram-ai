@@ -3221,3 +3221,18 @@ Planted on 2026-11-20:
 | --- | --- |
 | Every prompt row rotated at the prefill's first position (`start + i * 0`) | rejected: `qwen3: the prefill left another cache than step` |
 | none | passed, with FL-110, EN-91 and EN-49 |
+
+## EN-111, tensors given as they arrive
+
+So that the engine can place a layer before the file ends, the ONNX importer's `Graph::admit_so_far` gives each tensor inside the graph file once its last byte has passed, with the BLAKE3 its bytes hash to. Before a tensor is given, every operator named so far is put to the kernel (decision 18), and so is the tensor's 4-bit shape (decision 20); its span was put when it was found (decision 23). `Graph::finish` still asks every one of these again, and about the whole file (decision 5). So the end of the import decides exactly as before.
+
+`engine_en_111` feeds EN-31's model in pieces of 1, 7, 64 and 4,096 bytes and whole. It checks four things. Each tensor is given once, in file order, after its last byte and no later than the piece that holds it. The kernel was asked about the operators and the tensor's shape before it was given. The tensors given are the finished import's, with the same addresses. A kernel that refuses an operator stops the import before any tensor is given.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_111`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `admit_so_far` marks each operator asked without asking the kernel | rejected: `pieces of 1: no operator asked before w_Q4` |
+| none | passed, with EN-31 and the other EN-3x import tests |

@@ -12332,3 +12332,116 @@ fn engine_fl_110() {
         "a layer ran on a cache another prefill had grown"
     );
 }
+
+/// `EN-111`: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+#[test]
+fn engine_en_111() {
+    use hologram_ai_kernel_client::opname;
+    let (graph, beside, _) = import_model();
+    for piece in [1usize, 7, 64, 4096, graph.len()] {
+        let mut kernel = accepting();
+        let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+        let mut given = Vec::new();
+        let mut taken = 0u64;
+        for chunk in graph.chunks(piece) {
+            reading
+                .take(chunk, &mut kernel)
+                .expect("the chunk is taken");
+            taken += chunk.len() as u64;
+            let before = kernel.asked.len();
+            for tensor in reading
+                .admit_so_far(&mut kernel)
+                .expect("the tensors so far admit")
+            {
+                // Whole, and no sooner than its last byte.
+                assert!(
+                    tensor.offset + tensor.length <= taken,
+                    "pieces of {piece}: {} given early",
+                    tensor.name
+                );
+                assert!(
+                    tensor.offset + tensor.length > taken - chunk.len() as u64,
+                    "pieces of {piece}: {} given late",
+                    tensor.name
+                );
+                // Its operators and 4-bit shape were asked before it was given.
+                let asked = &kernel.asked[..];
+                assert!(
+                    asked.iter().any(|q| q[0] == 18),
+                    "pieces of {piece}: no operator asked before {}",
+                    tensor.name
+                );
+                if tensor.name.starts_with("w_") {
+                    assert!(
+                        asked[before..].iter().any(|q| q[0] == 20)
+                            || asked.iter().any(|q| q[0] == 20),
+                        "pieces of {piece}: {}'s shape was not asked",
+                        tensor.name
+                    );
+                }
+                given.push(tensor);
+            }
+        }
+        let imported = reading.finish(&mut kernel).expect("the graph finishes");
+        let mut read = Vec::new();
+        for name in imported.data_files() {
+            let mut file = imported
+                .data(import_record(&name, 1, &beside), &mut kernel)
+                .expect("the data file starts");
+            file.take(&beside);
+            read.push(file.finish(&mut kernel).expect("the data file ends"));
+        }
+        let model = imported
+            .finish(read, &mut kernel)
+            .expect("the import finishes");
+        let inside: Vec<_> = model
+            .tensors
+            .iter()
+            .filter(|t| t.file == 0)
+            .cloned()
+            .collect();
+        assert_eq!(
+            given, inside,
+            "pieces of {piece}: the tensors given so far are not the finished import's"
+        );
+        for tensor in &given {
+            let (from, to) = (
+                tensor.offset as usize,
+                (tensor.offset + tensor.length) as usize,
+            );
+            assert_eq!(
+                tensor.address,
+                blake3_of(&graph[from..to]),
+                "pieces of {piece}: {}'s address",
+                tensor.name
+            );
+        }
+    }
+    // An operator the kernel refuses stops the import before any tensor is given.
+    let mut kernel = accepting();
+    let refuse = kernel_says("Opnames", "unsupported operator");
+    let mut refusing = Scripted {
+        answer: Box::new(move |request| {
+            if request[0] == 18 {
+                refuse.clone()
+            } else {
+                (kernel.answer)(request)
+            }
+        }),
+        asked: Vec::new(),
+    };
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+    reading
+        .take(&graph, &mut refusing)
+        .expect("the graph is taken");
+    assert!(
+        matches!(
+            reading.admit_so_far(&mut refusing),
+            Err(import::ImportError::OperatorRefused(
+                _,
+                opname::Verdict::Unsupported
+            ))
+        ),
+        "a refused operator let a tensor through"
+    );
+}
