@@ -1732,6 +1732,41 @@ theorem: 0.3.0 cannot state it against `prim multiply`.
 | `scaled_zero_is_not_negative` deleted | rejected: `scaled_zero_is_not_negative is not declared` |
 | none | passed |
 
+## KN-59, the row register
+
+`Engine.Stage.RowSum::run` is row 13's third matmul stage. It reads KN-58's
+four words per group (sign, the product's two limbs, offset) and one signed
+activation power per group, and writes twelve words per row: a 384-bit two's
+complement register whose bit 0 weighs 2^-192, the register GPU kernel
+`q4Accumulate` keeps. Each group's product stands at bit
+`(offset + 168 - e) mod 2^32`, the kernel's own 32-bit position; a negative
+group contributes the complement of its twelve words plus one. The generated
+code cannot hold a list between steps, so the stage adds by columns: word i is
+the sum of every group's word i plus the carry out of word i - 1, with one
+scalar carried. Modulo 2^384 that is the kernel's group-by-group sum, so the
+twelve words are equal; a Python mirror of both agrees on 400 random cases,
+including negative and extreme powers. It exports through prod-export and
+prod-codegen with no external calls, opaque nodes or unsupported types.
+
+Lean proves, for every input: `column_bound`, that a column over n groups is
+at most n(2^32 - 1), and `negatives_bound`, that the negative count is at most
+n, so a running total stays below 2^64, the generated code's word, for fewer
+than 2^31 groups; `output_is_word`; and the laws of the kernel's step on the
+same term words: `add_exact`, that adding a term into a register of words
+gives the register plus the term, and `complement_twelve` with
+`subtract_exact`, that adding its complement with carry one gives the register
+plus 2^384 minus the term. That the column form's twelve words equal the
+signed sum of the terms modulo 2^384 is tested, not proved: 0.3.0 has no
+lemma swapping a sum over groups with a sum over words.
+
+### The pinned test: `kernel_kn_59`
+
+| Planted defect | Result |
+| --- | --- |
+| `position` subtracting the power unsigned, without the 32-bit wrap | rejected: `position changed` |
+| `column_bound` deleted | rejected: `column_bound is not declared` |
+| none | passed |
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
