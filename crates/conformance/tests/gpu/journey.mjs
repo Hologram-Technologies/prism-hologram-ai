@@ -547,13 +547,41 @@ try {
         const embed = await pipeline("feature-extraction", encoderRepo, { index: "/encoder/bert/index", checks: checklist() });
         const outputs = [];
         for (const text of texts) outputs.push(hex((await embed(text)).bits));
-        return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, checks: checks.items, calls: window.__pageCalls, longest, beats, streamed, outputs, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+        return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, isolated: globalThis.crossOriginIsolated, helpers: generate.engine.helpers, checks: checks.items, calls: window.__pageCalls, longest, beats, streamed, outputs, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
       } catch (e) {
         return { phase: "failed", error: String(e.message ?? e), checks: checks.items, calls: window.__pageCalls, output: null };
       }
     }, { repo: onnx.repo, encoderRepo: encoders.bert.repo, texts: ENCODER_TEXTS.bert });
     results.onnx.worker = { ...run, errors };
     await page.close();
+  }
+
+  // GP-52: the integer engine's products on helpers. A first visit is not
+  // cross-origin isolated (the engine page's worker answers nothing yet); the
+  // same page reloaded under its worker is, and its engine runs two helpers.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    await page.goto(`${origin}/app/`);
+    const first = await page.evaluate(() => globalThis.crossOriginIsolated);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    const run = await page.evaluate(async ({ repo }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const checks = checklist();
+      try {
+        const generate = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device: "cpu", helpers: 2 });
+        const out = await generate("hi", { max_new_tokens: 16 });
+        return { phase: "ready", isolated: globalThis.crossOriginIsolated, helpers: generate.engine.helpers, checks: checks.items, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+      } catch (e) {
+        return { phase: "failed", error: String(e.message ?? e), isolated: globalThis.crossOriginIsolated, checks: checks.items, output: null };
+      }
+    }, { repo: onnx.repo });
+    results.onnx.isolated = { ...run, first, errors };
+    await context.close();
   }
 
   // GP-21: four visits in one profile. The first downloads and keeps the
@@ -1060,6 +1088,22 @@ for (const kind of ["bert", "distil"]) {
     if (!(run.beats > 0 && run.longest < 500)) fail(`worker: the page's thread went ${run.longest.toFixed(0)} ms unanswered in the turn (${run.beats} beats)`);
   }
   if (run.errors.length) fail(`worker: page errors: ${run.errors.join(" | ")}`);
+}
+
+// GP-52: helpers on an isolated return visit, none on a first visit, the
+// reference's tokens either way.
+{
+  const first = results.onnx.worker, again = results.onnx.isolated;
+  if (first.phase === "ready" && (first.isolated !== false || first.helpers !== 0)) fail(`isolation: a first visit was isolated (${first.isolated}) or ran ${first.helpers} helpers`);
+  if (again.first !== false) fail(`isolation: the page was isolated before its worker answered (${again.first})`);
+  if (again.phase !== "ready") fail(`isolation: the return visit did not reach ready (${again.phase}: ${again.error})`);
+  else {
+    if (again.isolated !== true) fail("isolation: the return visit under the engine page's worker was not cross-origin isolated");
+    if (again.helpers !== 2) fail(`isolation: the return visit ran ${again.helpers} helpers, not 2`);
+    const got = again.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== again.expected[i])) fail(`isolation: the tokens with helpers ${got} are not the reference's ${again.expected}`);
+  }
+  if (again.errors.length) fail(`isolation: page errors: ${again.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.

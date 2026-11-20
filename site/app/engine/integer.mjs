@@ -52,9 +52,9 @@ export const placed = (table, read) => Object.keys(table.places).map((name) => [
 // The forward pass in the worker, with the interface createIntegerEngine
 // answers; each call is awaited, and `run` hands `onToken` each token as the
 // worker makes it.
-export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity }) {
+export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity, helpers }) {
   const tensors = placed(table, read);
-  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity }, tensors.map(([, bytes]) => bytes.buffer));
+  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity, helpers }, tensors.map(([, bytes]) => bytes.buffer));
   let position = 0;
   const call = async (method, args, hooks) => {
     const said = await ask({ kind: "call", method, args }, [], hooks);
@@ -72,6 +72,9 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
     device: "cpu",
     integer: true,
     sizes: opened.sizes,
+    // How many helpers answer its products (GP-52); 0 computes them all in
+    // the worker.
+    helpers: opened.helpers,
   };
 }
 

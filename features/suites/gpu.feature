@@ -306,3 +306,10 @@ Feature: gpu
     When `just page-journey` runs a turn on the CPU device, in the worker, and a second turn on a restored prefix
     Then integer.mjs's run calls decode_advance for every prompt id but the last and decode_step for the last and each generated token
     And the sixteen tokens are the reference's, and the second turn's are the first's
+
+  @GP-52 @build
+  Scenario: On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens
+    Given GP-19's Qwen3-shaped ONNX export and the engine page's service worker
+    When `just page-journey` loads the page, reloads it under its worker, and runs a turn on the CPU device
+    Then the reloaded page is cross-origin isolated and its engine ran with helpers, and the first page was not and ran without
+    And both turns' sixteen tokens are the reference's

@@ -3171,3 +3171,11 @@ the label it gives are unchanged.
 The engine's sealed address moves with this change, from `blake3:4eccff67…`
 to `blake3:5f6895f3…a2` (EN-90).
 
+## EN-92, a product's row slices are its bits
+
+`engine_en_92` runs GP-19's Qwen3, Qwen2 and Llama fixtures with every product answered by its rows cut two, three and seven ways. Each slice is written to bytes and read back before it computes, and every joined answer is compared with the whole product. The run's tokens and every logit must equal `step`'s, bit for bit.
+
+| Planted defect | Result |
+| --- | --- |
+| The head's slice begins at `start * width / 2` bytes instead of `start * width` (the offset counted in halves) | rejected: `Head: the slices joined are not the whole product` |
+| none | passed, with FL-80 (a product one row short is refused as `DecodeError::Elsewhere`), EN-91 and EN-49 |
