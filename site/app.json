@@ -99,6 +99,11 @@
   },
   "pinned": [
     {
+      "name": "kernel_kn_73",
+      "what": "The three q4 product kernels' fixture theorems with their statements and axioms, that each kernel is one tree for every width, and that the guest's printed text of each, read from the claims, names no f32 or f16. A string-matching test, not a theorem.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
       "name": "kernel_kn_71",
       "what": "The step theorems' statements and axioms (step_cut, step_reads_its_chunk, picked_key_is_max and two fixtures), that decision 71 checks its length and state, folds exactly its chunk and refuses a step past the capacity, that it is routed to this answer, and four of its claims. A string-matching test, not a theorem.",
       "where": "crates/conformance/tests/kernel.rs"
@@ -120,7 +125,7 @@
     },
     {
       "name": "kernel_kn_49",
-      "what": "The nine printed-text theorems' statements and axioms, that decision 48 prints only the widths and codes they check, that it is routed to this answer, and six of its claims. A string-matching test, not a theorem.",
+      "what": "The twelve printed-text theorems' statements and axioms, that decision 48 prints only the widths and codes they check, that it is routed to this answer, and eight of its claims. A string-matching test, not a theorem.",
       "where": "crates/conformance/tests/kernel.rs"
     },
     {

@@ -2027,6 +2027,105 @@ fn gpu_gp_50() {
     }
 }
 
+/// `GP-29`: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
+#[test]
+fn gpu_gp_29() {
+    use hologram_ai_exact::{
+        q4_product_with, q4_unit_sums, quantise_with, Grouping, Q4Matrix, Q4Scales, Q4Zeros,
+        Scheme, Width,
+    };
+    // A fixed xorshift, so every run asks the same cases.
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut below = |n: u64| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state % n
+    };
+    let scheme = Scheme {
+        width: Width::Sixteen,
+        grouping: Grouping::Groups,
+    };
+    let columns = 128;
+    let mut cases = Vec::new();
+    let mut expected = Vec::new();
+    // (activation exponent fields, scale exponent fields): ordinary, huge (infinity), tiny
+    // (subnormal and zero rows) and anything.
+    for (lo, hi, slo, shi) in [
+        (100, 150, 0, 30),
+        (200, 254, 27, 30),
+        (0, 2, 0, 1),
+        (1, 254, 0, 30),
+    ] {
+        let input: Vec<u32> = (0..columns)
+            .map(|_| {
+                let sign = (below(2) as u32) << 31;
+                let field = (lo + below(hi - lo + 1)) as u32;
+                if below(16) == 0 {
+                    0
+                } else {
+                    sign | (field << 23) | (below(1 << 23) as u32)
+                }
+            })
+            .collect();
+        let rows = 6;
+        let codes: Vec<u8> = (0..rows * columns / 2).map(|_| below(256) as u8).collect();
+        let scales: Vec<u8> = (0..rows * columns / 32)
+            .flat_map(|_| {
+                let half = ((below(2) as u16) << 15)
+                    | (((slo + below(shi - slo + 1)) as u16) << 10)
+                    | (below(1 << 10) as u16);
+                half.to_le_bytes()
+            })
+            .collect();
+        let matrix = Q4Matrix {
+            codes: &codes,
+            scales: Q4Scales::F16(&scales),
+            zeros: Q4Zeros::Eight,
+            rows,
+            columns,
+            block: 32,
+        };
+        let acts = quantise_with(&input, scheme).expect("finite activations");
+        let words = |xs: Vec<i64>| {
+            xs.into_iter()
+                .map(|x| x.rem_euclid(1 << 32) as u64)
+                .collect::<Vec<u64>>()
+        };
+        expected.push(serde_json::json!({
+            "codes": words(acts.codes().iter().map(|&c| i64::from(c)).collect()),
+            "powers": words(acts.exponents().iter().map(|&e| i64::from(e)).collect()),
+            "sums": words(q4_unit_sums(&acts, &matrix).expect("sums")),
+            "rows": q4_product_with(&input, &matrix, scheme).expect("product"),
+        }));
+        cases.push(serde_json::json!({ "rows": rows, "columns": columns, "input": input, "codes": codes, "scales": scales }));
+    }
+    let path = std::env::temp_dir().join(format!("gp29-{}.json", std::process::id()));
+    std::fs::write(&path, serde_json::Value::Array(cases).to_string()).expect("the cases written");
+    let result = node(
+        "crates/conformance/tests/gpu/q4-run.mjs",
+        &[path.to_str().expect("a UTF-8 path")],
+    );
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        result.get("error").is_none(),
+        "the kernels did not run: {}",
+        result["error"]
+    );
+    let errors = result["errors"].as_array().expect("the error list");
+    assert!(errors.is_empty(), "WebGPU reported errors: {errors:?}");
+    let got = result["results"].as_array().expect("one result per case");
+    assert_eq!(got.len(), expected.len(), "one result per case");
+    for (i, (g, e)) in got.iter().zip(&expected).enumerate() {
+        for stage in ["codes", "powers", "sums", "rows"] {
+            assert_eq!(
+                g[stage], e[stage],
+                "case {i}: the GPU's {stage} are not hologram_ai_exact's"
+            );
+        }
+    }
+}
+
 /// `GP-51`: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
 #[test]
 fn gpu_gp_51() {

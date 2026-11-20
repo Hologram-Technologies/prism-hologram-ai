@@ -1,0 +1,33 @@
+\begin{lexlean}{Proofs.GpuQ4Chain}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Gpu}
+\importmodule{Engine.GpuRun}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: q4_quantise_codes_match_exact,
+  parameters: [],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 1) = (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat)))))))))))))))))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: q4_quantise_power_matches_exact,
+  parameters: [],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 2) = (cons 7 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: q4_row_matches_exact,
+  parameters: [],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 205727 (cons 4294677669 (nil Nat))) (cons (cons 4097018798 (nil Nat)) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 1 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Accumulate)) buffers), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 3200310393 (cons 1276409465 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}
