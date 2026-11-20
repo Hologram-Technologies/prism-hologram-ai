@@ -1,0 +1,1532 @@
+\begin{lexlean}{Proofs.GpuQ4SumStage}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Gpu}
+\importmodule{Engine.GpuRun}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Q4Sum}
+\importmodule{Engine.Word}
+\importmodule{Proofs.StageQ4Sum}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: core_0,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((0 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967288 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 8) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 8)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_1,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((1 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967289 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 7) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 7)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_2,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((2 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967290 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 6) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 6)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_3,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((3 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967291 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 5) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 5)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_4,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((4 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967292 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 4) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 4)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_5,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((5 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967293 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 3) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 3)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_6,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((6 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967294 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 2) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 2)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_7,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((7 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 0 1)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4294967295 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 1) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 1)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_8,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((8 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 0 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 0) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 0)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_9,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((9 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 1 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 1) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 1)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_10,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((10 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 2 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 2) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 2)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_11,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((11 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 3 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 3) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 3)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_12,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((12 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 4 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 4) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 4)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_13,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((13 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 5 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 5) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 5)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_14,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((14 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 6 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 6) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 6)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: core_15,
+  parameters: [f : Nat, a : Nat, t : Nat],
+  statement: ((15 < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f 1 0)) -> ((a <= 65536) -> ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) 7 : Nat)) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a 7) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a 7)))))))),
+  proof: induction{
+    branches: [
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: induction{
+          branches: [
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [],
+              constructor: zero
+            },
+            {
+              proof: linear_arithmetic{
+                definitions: [
+                  Engine.Gpu::word,
+                  Engine.Stage.Greedy::pick,
+                  Engine.Stage.Q4Sum::times
+                ]
+              },
+              binders: [tr, th],
+              constructor: succ
+            }
+          ],
+          generalizing: [],
+          scrutinee: t
+        },
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: kfac,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (Engine.Gpu::word (prim subtract (n + 4294967296) (Engine.Gpu::word 8) : Nat))
+}
+
+definition{
+  name: kprod,
+  parameters: [f : Nat, a : Nat, n : Nat],
+  result: Nat,
+  body: (Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) (kfac n) : Nat))
+}
+
+theorem{
+  name: core_any,
+  parameters: [n : Nat, f : Nat, a : Nat, t : Nat],
+  statement: ((n < 16) -> ((f <= 1) -> ((t = (Engine.Stage.Greedy::pick f (prim subtract 1 (Engine.Stage.Q4Sum::weightNeg n) : Nat) (Engine.Stage.Q4Sum::weightNeg n))) -> ((a <= 65536) -> ((Engine.Gpu::word ((kprod f a n) + (Engine.Stage.Greedy::pick t (Engine.Stage.Q4Sum::times a (Engine.Stage.Q4Sum::weightMag n)) 0))) = (Engine.Gpu::word (Engine.Stage.Greedy::pick t 0 (Engine.Stage.Q4Sum::times a (Engine.Stage.Q4Sum::weightMag n))))))))),
+  proof: cases{
+    branches: [
+      {proof: apply{arguments: [f, a, t], theorem: core_0}, binders: [], constructor: zero},
+      {
+        proof: cases{
+          branches: [
+            {proof: apply{arguments: [f, a, t], theorem: core_1}, binders: [], constructor: zero},
+            {
+              proof: cases{
+                branches: [
+                  {
+                    proof: apply{arguments: [f, a, t], theorem: core_2},
+                    binders: [],
+                    constructor: zero
+                  },
+                  {
+                    proof: cases{
+                      branches: [
+                        {
+                          proof: apply{arguments: [f, a, t], theorem: core_3},
+                          binders: [],
+                          constructor: zero
+                        },
+                        {
+                          proof: cases{
+                            branches: [
+                              {
+                                proof: apply{arguments: [f, a, t], theorem: core_4},
+                                binders: [],
+                                constructor: zero
+                              },
+                              {
+                                proof: cases{
+                                  branches: [
+                                    {
+                                      proof: apply{arguments: [f, a, t], theorem: core_5},
+                                      binders: [],
+                                      constructor: zero
+                                    },
+                                    {
+                                      proof: cases{
+                                        branches: [
+                                          {
+                                            proof: apply{arguments: [f, a, t], theorem: core_6},
+                                            binders: [],
+                                            constructor: zero
+                                          },
+                                          {
+                                            proof: cases{
+                                              branches: [
+                                                {
+                                                  proof: apply{
+                                                    arguments: [f, a, t],
+                                                    theorem: core_7
+                                                  },
+                                                  binders: [],
+                                                  constructor: zero
+                                                },
+                                                {
+                                                  proof: cases{
+                                                    branches: [
+                                                      {
+                                                        proof: apply{
+                                                          arguments: [f, a, t],
+                                                          theorem: core_8
+                                                        },
+                                                        binders: [],
+                                                        constructor: zero
+                                                      },
+                                                      {
+                                                        proof: cases{
+                                                          branches: [
+                                                            {
+                                                              proof: apply{
+                                                                arguments: [f, a, t],
+                                                                theorem: core_9
+                                                              },
+                                                              binders: [],
+                                                              constructor: zero
+                                                            },
+                                                            {
+                                                              proof: cases{
+                                                                branches: [
+                                                                  {
+                                                                    proof: apply{
+                                                                      arguments: [f, a, t],
+                                                                      theorem: core_10
+                                                                    },
+                                                                    binders: [],
+                                                                    constructor: zero
+                                                                  },
+                                                                  {
+                                                                    proof: cases{
+                                                                      branches: [
+                                                                        {
+                                                                          proof: apply{
+                                                                            arguments: [f, a, t],
+                                                                            theorem: core_11
+                                                                          },
+                                                                          binders: [],
+                                                                          constructor: zero
+                                                                        },
+                                                                        {
+                                                                          proof: cases{
+                                                                            branches: [
+                                                                              {
+                                                                                proof: apply{
+                                                                                  arguments: [
+                                                                                    f,
+                                                                                    a,
+                                                                                    t
+                                                                                  ],
+                                                                                  theorem: core_12
+                                                                                },
+                                                                                binders: [],
+                                                                                constructor: zero
+                                                                              },
+                                                                              {
+                                                                                proof: cases{
+                                                                                  branches: [
+                                                                                    {
+                                                                                      proof: apply{
+                                                                                        arguments: [
+                                                                                          f,
+                                                                                          a,
+                                                                                          t
+                                                                                        ],
+                                                                                        theorem: core_13
+                                                                                      },
+                                                                                      binders: [],
+                                                                                      constructor: zero
+                                                                                    },
+                                                                                    {
+                                                                                      proof: cases{
+                                                                                        branches: [
+                                                                                          {
+                                                                                            proof: apply{
+                                                                                              arguments: [
+                                                                                                f,
+                                                                                                a,
+                                                                                                t
+                                                                                              ],
+                                                                                              theorem: core_14
+                                                                                            },
+                                                                                            binders: [],
+                                                                                            constructor: zero
+                                                                                          },
+                                                                                          {
+                                                                                            proof: cases{
+                                                                                              branches: [
+                                                                                                {
+                                                                                                  proof: apply{
+                                                                                                    arguments: [
+                                                                                                      f,
+                                                                                                      a,
+                                                                                                      t
+                                                                                                    ],
+                                                                                                    theorem: core_15
+                                                                                                  },
+                                                                                                  binders: [],
+                                                                                                  constructor: zero
+                                                                                                },
+                                                                                                {
+                                                                                                  proof: linear_arithmetic{},
+                                                                                                  binders: [
+                                                                                                    n16
+                                                                                                  ],
+                                                                                                  constructor: succ
+                                                                                                }
+                                                                                              ],
+                                                                                              scrutinee: n15
+                                                                                            },
+                                                                                            binders: [
+                                                                                              n15
+                                                                                            ],
+                                                                                            constructor: succ
+                                                                                          }
+                                                                                        ],
+                                                                                        scrutinee: n14
+                                                                                      },
+                                                                                      binders: [
+                                                                                        n14
+                                                                                      ],
+                                                                                      constructor: succ
+                                                                                    }
+                                                                                  ],
+                                                                                  scrutinee: n13
+                                                                                },
+                                                                                binders: [n13],
+                                                                                constructor: succ
+                                                                              }
+                                                                            ],
+                                                                            scrutinee: n12
+                                                                          },
+                                                                          binders: [n12],
+                                                                          constructor: succ
+                                                                        }
+                                                                      ],
+                                                                      scrutinee: n11
+                                                                    },
+                                                                    binders: [n11],
+                                                                    constructor: succ
+                                                                  }
+                                                                ],
+                                                                scrutinee: n10
+                                                              },
+                                                              binders: [n10],
+                                                              constructor: succ
+                                                            }
+                                                          ],
+                                                          scrutinee: n9
+                                                        },
+                                                        binders: [n9],
+                                                        constructor: succ
+                                                      }
+                                                    ],
+                                                    scrutinee: n8
+                                                  },
+                                                  binders: [n8],
+                                                  constructor: succ
+                                                }
+                                              ],
+                                              scrutinee: n7
+                                            },
+                                            binders: [n7],
+                                            constructor: succ
+                                          }
+                                        ],
+                                        scrutinee: n6
+                                      },
+                                      binders: [n6],
+                                      constructor: succ
+                                    }
+                                  ],
+                                  scrutinee: n5
+                                },
+                                binders: [n5],
+                                constructor: succ
+                              }
+                            ],
+                            scrutinee: n4
+                          },
+                          binders: [n4],
+                          constructor: succ
+                        }
+                      ],
+                      scrutinee: n3
+                    },
+                    binders: [n3],
+                    constructor: succ
+                  }
+                ],
+                scrutinee: n2
+              },
+              binders: [n2],
+              constructor: succ
+            }
+          ],
+          scrutinee: n1
+        },
+        binders: [n1],
+        constructor: succ
+      }
+    ],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}
