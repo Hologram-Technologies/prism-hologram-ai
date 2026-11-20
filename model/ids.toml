@@ -1030,3 +1030,9 @@ id = "GP-52"
 level = "build"
 suite = "gpu"
 statement = "On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens"
+
+[[id]]
+id = "GP-56"
+level = "build"
+suite = "gpu"
+statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"

@@ -363,7 +363,7 @@ try {
       output = await page.evaluate(() => window.__qengine.output);
       output.second = await secondTurn(page);
     }
-    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, integer: window.__qengine.integer ?? false, checks: window.__qengine.checks }));
+    const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, integer: window.__qengine.integer ?? false, gpu: window.__qengine.gpu ?? null, isolated: globalThis.crossOriginIsolated === true, checks: window.__qengine.checks }));
     results.onnx[name] = { ...state, output, errors };
     await page.close();
   }
@@ -584,6 +584,38 @@ try {
     await context.close();
   }
 
+  // GP-56: the integer engine's products on WebGPU. A first visit is not
+  // cross-origin isolated, so WebGPU is not usable and the kernel's device is
+  // the CPU; the same page reloaded under its worker is, and its q4 products
+  // run on the kernels the guest prints, the head on the module beside them.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e.message)));
+    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    await page.goto(`${origin}/app/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    const run = await page.evaluate(async ({ repo }) => {
+      const { pipeline } = await import("./engine/pipeline.mjs");
+      const { checklist } = await import("./engine/loader.mjs");
+      const turn = async (device) => {
+        const checks = checklist();
+        try {
+          const generate = await pipeline("text-generation", repo, { index: "/onnx/good/index", checks, device });
+          const out = await generate("hi", { max_new_tokens: 16 });
+          return { phase: "ready", device: generate.device, integer: generate.engine.integer === true, gpu: generate.engine.gpu ?? null, checks: checks.items, output: { promptIds: out.promptIds, tokens: out.tokens, text: out.text } };
+        } catch (e) {
+          return { phase: "failed", error: String(e.message ?? e), checks: checks.items, output: null };
+        }
+      };
+      return { isolated: globalThis.crossOriginIsolated, webgpu: await turn("webgpu"), auto: await turn("auto"), cpu: await turn("cpu") };
+    }, { repo: onnx.repo });
+    results.onnx.gpu = { ...run, errors };
+    await context.close();
+  }
+
   // GP-21: four visits in one profile. The first downloads and keeps the
   // files; the second, with the origin serving none, reads them all from the
   // browser; the third meets a kept graph with one byte flipped, which the
@@ -607,7 +639,7 @@ try {
         output = await page.evaluate(() => window.__qengine.output);
         output.second = await secondTurn(page);
       }
-      const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks }));
+      const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, gpu: window.__qengine.gpu ?? null, isolated: globalThis.crossOriginIsolated === true, checks: window.__qengine.checks }));
       const held = await page.evaluate(async () => {
         const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
         const out = [];
@@ -924,8 +956,11 @@ if (again.loads !== 1) fail(`again: the page loaded ${again.loads} times, expect
 if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`again: expected "Stopped: stale page" and no Load button, saw ${again.status} (disabled: ${again.disabled})`);
 
 // GP-19: the ONNX export.
-for (const [name, device] of [["good", "webgpu"], ["cpu", "cpu"], ["kept first", "webgpu"], ["kept offline", "webgpu"], ["kept again", "webgpu"], ["kept short", "webgpu"]]) {
+// WebGPU is usable only on a cross-origin-isolated page (GP-56), so a visit
+// that is not runs on the CPU and one that is runs on WebGPU.
+for (const [name, gpu] of [["good", true], ["cpu", false], ["kept first", true], ["kept offline", true], ["kept again", true], ["kept short", true]]) {
   const run = results.onnx[name];
+  const device = gpu && run.isolated ? "webgpu" : "cpu";
   if (run.phase !== "ready") fail(`onnx ${name}: the page did not reach ready (${run.phase}: ${run.error})`);
   if (run.checks.some((c) => c.verdict === "fail")) fail(`onnx ${name}: a check failed: ${stoppedAt(run)?.subject}`);
   if (run.device !== device) fail(`onnx ${name}: ran on ${run.device}, expected ${device}`);
@@ -1104,6 +1139,32 @@ for (const kind of ["bert", "distil"]) {
     if (got.length < 16 || got.some((t, i) => t !== again.expected[i])) fail(`isolation: the tokens with helpers ${got} are not the reference's ${again.expected}`);
   }
   if (again.errors.length) fail(`isolation: page errors: ${again.errors.join(" | ")}`);
+}
+
+// GP-56: on an isolated page the integer engine's q4 products run on WebGPU,
+// asked for by name and chosen by the kernel when left to it, and every token
+// is the reference's and the CPU's.
+{
+  const run = results.onnx.gpu;
+  if (run.isolated !== true) fail("gpu: the return visit under the engine page's worker was not cross-origin isolated");
+  const layers = onnx.model.dims.n_layers;
+  for (const [name, device] of [["webgpu", "webgpu"], ["auto", "webgpu"], ["cpu", "cpu"]]) {
+    const one = run[name];
+    if (one.phase !== "ready") { fail(`gpu ${name}: the page did not reach ready (${one.phase}: ${one.error})`); continue; }
+    if (one.device !== device || one.integer !== true) fail(`gpu ${name}: ran on ${one.device} (integer ${one.integer}), expected the integer engine on ${device}`);
+    const said = /^kernel answered "(.*)"$/.exec(one.checks.find((c) => c.step === "device" && c.verdict === "pass")?.detail ?? "")?.[1];
+    if (said !== device) fail(`gpu ${name}: the device was not the kernel's ${device}: ${said}`);
+    if (device === "webgpu" && (one.gpu?.products !== 7 * layers || one.gpu?.cpu !== 1)) fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected ${7 * layers} and the head`);
+    const reference = referenceModel(onnx.model);
+    let last;
+    for (const id of one.output.promptIds) last = reference.step(id);
+    const want = [];
+    while (want.length < 16) { want.push(last.token); last = reference.step(last.token); }
+    const got = one.output.tokens.slice(0, 16);
+    if (got.length < 16 || got.some((t, i) => t !== want[i])) fail(`gpu ${name}: the tokens ${got} are not the reference's ${want}`);
+  }
+  if (run.webgpu.output && run.cpu.output && run.webgpu.output.tokens.join() !== run.cpu.output.tokens.join()) fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`);
+  if (run.errors.length) fail(`gpu: page errors: ${run.errors.join(" | ")}`);
 }
 
 // GP-21: the files kept in the browser, read back checked as a download is.
