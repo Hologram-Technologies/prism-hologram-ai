@@ -17,7 +17,7 @@
 
 import { startIntegerEngine } from "./integer.mjs";
 import { startIntegerEncoder } from "./integer-encoder.mjs";
-import { createEngine } from "./gpu.mjs";
+import { PRINTED, printedKernels } from "./integer-gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
 import { fetched, loadOnnx } from "./onnx-load.mjs";
@@ -32,9 +32,10 @@ export const TASKS = { "text-generation": 0, "feature-extraction": 1, "text-clas
 const ENCODER_TASKS = new Set(["feature-extraction", "text-classification"]);
 // What the kernel's choice of precision and device is weighed against. No
 // browser reports how much memory a GPU has, so its budget is a stated 4 GiB;
-// the CPU engine, single-threaded on a static host, takes models up to 1 GiB.
+// the CPU engine, single-threaded on a static host, takes models up to 2 GiB,
+// so milestone 2's three text models all run on it (Ilya, 2026-11-20).
 export const GPU_BUDGET = 4 * 2 ** 30;
-export const CPU_CEILING = 2 ** 30;
+export const CPU_CEILING = 2 * 2 ** 30;
 export const CAPACITY = 2048;
 const INDEX = "https://hologram-technologies.github.io/hub/data/index";
 
@@ -169,17 +170,22 @@ export async function pipeline(task, model, options = {}) {
     },
     onProgress: (file, done) => { if (file === 0) onProgress(done / graph.size); },
     build: async (dims, tensors, raw) => {
-      // The device is the kernel's decision 22, on the largest buffer the GPU
-      // engine would bind: a dense embedding or head is tiled by rows, so one
-      // row; a 4-bit weight binds its codes and its scales apart.
-      const bound = (t) => (t.fmt === "f32" || t.fmt === "f16") && t.K ? t.K * (t.fmt === "f32" ? 4 : 2)
-        : t.parts ? Math.max(...t.parts.map((b) => b.byteLength))
-        : t.fmt?.startsWith("q4") ? (t.N * t.K) / 2 : t.bytes.byteLength;
+      // The device is the kernel's decision 22, on the largest buffer WebGPU
+      // would bind: a 4-bit weight binds its codes and its scales apart, and
+      // the module holds the dense ones. WebGPU is usable only where its
+      // products can be handed back while the module waits, which takes
+      // shared memory, and where the guest prints the group-sum kernel for
+      // every width a product reads (GP-56).
+      const bound = (t) => t.parts ? Math.max(...t.parts.map((b) => b.byteLength))
+        : t.fmt?.startsWith("q4") ? (t.N * t.K) / 2 : 0;
       const largest = Math.max(...[...tensors.values()].map(bound));
-      const limit = gpu ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
-      on = await ask("device", "device to run on", join(new Uint8Array([22, gpu ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
+      const usable = gpu && globalThis.crossOriginIsolated === true && [dims.d, dims.n_heads * dims.hd, dims.ff].every((w) => PRINTED.includes(w));
+      if (want === "webgpu" && !usable) throw new Error(`device webgpu: ${globalThis.crossOriginIsolated !== true ? "this page is not cross-origin isolated, so the integer engine cannot wait on the GPU" : `the guest prints no group-sum kernel for every width of this model (${dims.d}, ${dims.n_heads * dims.hd}, ${dims.ff})`}`);
+      const limit = usable ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
+      on = await ask("device", "device to run on", join(new Uint8Array([22, usable ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
       onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-      return on === "webgpu" ? createEngine({ device: gpu, dims, tensors, capacity: CAPACITY }) : startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers });
+      const kernels = on === "webgpu" ? await printedKernels((request) => kernel.dispatch(request)) : null;
+      return startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels });
     },
   });
   // A failed load forgets every file it read or kept here, since one of them

@@ -28,7 +28,7 @@ the diagnostic and the restored result.
 | An ONNX tensor checked against a published address | not possible yet: the hub's tensor index (`data/uor`) addresses three GGUF models and reads no ONNX canonical form, so an ONNX tensor's BLAKE3 is computed in the browser and the bytes are vouched for by the whole file's SHA-256, which is Hugging Face's own (Git LFS), not witnessed by the hub. Pulling single tensors from any source waits on published ONNX tensor addresses | not established |
 | `GP-20`: the three exports' chat templates render as transformers renders them, and a template outside the engine's subset is refused by name | `gpu_gp_20`: `site/app/engine/jinja.mjs` over the three templates at the hub's revisions and a fourth written for whitespace (tags with no dash, a plus, a trailing newline), twenty conversations each, against what Python's jinja2 3.1.6 rendered in transformers' sandboxed environment (recorded in `crates/conformance/tests/gpu/templates`): all 80 byte for byte, Llama's own error where jinja2 raised it; six constructs refused by name. The page frames an ONNX export's turn with the model's own template (checked by `gpu_gp_20` reading the page and in the journey's `template` check); the journey's fixture template frames "hi" exactly as the fixed frame did, so the journey alone would not tell the two apart | tested against jinja2 |
 | `GP-22`: the engine page asks the kernel which precision to read (21), what each file is called (24) and which device runs it (22), and reads, names and runs exactly what it answers | `just page-journey`: on every ONNX load the page asks decision 24 for the q4f16 and q4 graphs' names, offers the kernel each precision whose graph the record lists, with its bytes (graph and data files), and reads the file of the precision the kernel chooses; after import it asks decision 22 with the adapter's binding limit, the largest buffer the GPU engine would bind (one row of a tiled dense table, or the larger of a 4-bit weight's codes and scales) and the model's bytes, and runs on the device answered. The fixture's record offers q4f16 only: each load is answered `onnx/model_q4f16.onnx`, `q4f16`, and `webgpu`, or `cpu` with `navigator.gpu` taken away; a load asking `?precision=q4` stops at the precision, the kernel answering `none fits`, with no file read. `gpu_gp_22` reads that wiring. Run on 2026-11-17 on Windows with Chromium on the SwiftShader adapter, against a site assembled locally with the deployed kernel holo. Planted: the page taking the first offered precision, naming the graph itself, or running wherever an adapter is, each fails the journey | tested |
-| What the kernel's choices are weighed against | no browser reports a GPU's memory, so the precision budget on WebGPU is a stated 4 GiB; the CPU engine's ceiling is a stated 1 GiB of model files, which admits Qwen3-0.6B's q4f16 export (570 MB) and refuses Qwen2.5-1.5B's (1.22 GB). Both are choices, not measurements; the CPU ceiling is the plan's open question 3 | stated, not measured |
+| What the kernel's choices are weighed against | no browser reports a GPU's memory, so the precision budget on WebGPU is a stated 4 GiB; the CPU engine's ceiling is a stated 2 GiB of model files, which admits the q4f16 exports of Qwen3-0.6B (570 MB), Llama 3.2 1B (1.09 GB) and Qwen2.5-1.5B (1.22 GB), so rows 2 and 3 of milestone 2 run on the CPU; raised from 1 GiB by Ilya on 2026-11-20 (the plan's open question 3). Both are choices, not measurements | stated, not measured |
 | `GP-21`: an ONNX export's files are kept in the browser, each named by its BLAKE3, and read back on a later visit with the BLAKE3 derived again and the bytes checked as a download's are | `just page-journey`: four visits in one browser profile to GP-19's fixture. The first downloads and keeps all five files, each named by its BLAKE3 as the module computes it (`config.json` named `blake3:1275de1a…21fa3`, the same as an independent BLAKE3 of the file); the second, with the origin serving the record and no file, reads all five from the browser, derives each BLAKE3 again, imports the graph through the kernel and answers with the reference's tokens; the third, with the kept graph's bytes replaced by a graph with one byte flipped, stops at the graph as not its BLAKE3 and leaves no file kept; the fourth downloads all five again and answers. The module's hash (`hash_start`, `hash_take`, `hash_finish`) is tested against `blake3::hash` with two files interleaved, and ran at 973 MB/s in Node on 2026-11-17 where the page's JavaScript BLAKE3 ran at 21. `gpu_gp_21` reads that wiring. Run on 2026-11-17 on Windows with Chromium on the SwiftShader adapter, against a site assembled locally with the deployed kernel holo. Planted: `forget()` removing nothing fails the third visit's check; a held file never read back fails the second's; a kept file's BLAKE3 not derived again leaves the third visit refused by the kernel instead (`FileRefused`), which the journey rejects | tested |
 | What is kept, and when it is dropped | only files the record names a SHA-256 for (Git LFS files: the graph, its data files, `tokenizer.json`), each under its BLAKE3 with a pointer from that SHA-256; the small files Git stores itself are fetched each time. Neither the name nor the pointer is trusted: the BLAKE3 is derived again on reading and the bytes go through the record and kernel checks a download does. Which files to drop when space is short (the kernel's decision 26) is not asked, and the browser may clear its private file system under storage pressure | not checked |
 | `GP-13`: a BERT encoder shaped as all-MiniLM-L6-v2's q4f16 export gives the reference's hidden states and its mean-pooled unit-length embedding | `gpu_gp_13`: a two-layer encoder in the export's formats, read on 2026-11-16 from Xenova/all-MiniLM-L6-v2 at 751bff3 (MatMulNBits q4f16 weights with f16 biases, LayerNorm with weight and bias, Erf GELU, word, position and token-type tables in f16), run by `site/app/engine/encoder.mjs` over sentences of 6 and 60 tokens beside a reference written from the papers. SwiftShader: states within 1.0e-6, embedding within 1.7e-8; AMD RDNA-3 the same order | tested |
@@ -287,3 +287,59 @@ asked for. On the true engine it requires the `engine` check to pass with
 | none | passed |
 
 `just page-journey` (in the acceptance gate and `pages.yml`): passed in acceptance run 44702842589, the engine with one bit flipped stopped at the `engine` check with "not the sealed engine", nothing of its size compiled and the container not read. The run before it (44642776590) failed here because the flip was routed on the page and the page's service worker fetched the engine itself; the route is now the context's.
+
+## GP-56, the integer engine's products on WebGPU
+
+Row 15 runs the integer engine on WebGPU from the same definitions it runs on
+the CPU. A token's time is its products (86 per cent in #106's profile), and
+EN-92 already lets a product be answered outside the module that runs the
+model with every bit unchanged. So on WebGPU the module still runs the model
+and every stage between the products, and its q4 products are answered by the
+four kernels the guest prints (decision 48): the quantiser, the group sums for
+the product's width, the accumulator and the rounding. Every value is a `u32`
+word, no kernel names `f32` or `f16` (KN-73), and GP-29 shows the four give
+`hologram_ai_exact`'s rows on WebGPU, so the tokens are the CPU's.
+
+How the page does it (`site/app/engine/integer-gpu.mjs`): the module asks for
+a product through its `kernel.product` import, which must answer before it
+returns, and WebGPU answers only on an event loop. The model's worker writes
+the input into a SharedArrayBuffer, posts the product's number to a WebGPU
+worker and waits on `Atomics.wait`; the WebGPU worker dispatches the four
+kernels, reads the rows back, writes them where the model's worker reads them
+and wakes it. The weights reach that worker once, as `decode_slices` writes
+them. A product the printed kernels do not take is answered on an instance of
+the same `engine.wasm` holding only it: today the output head, which is dense
+f16, and any matrix with binary32 scales or zero points.
+
+WebGPU is usable, and offered to decision 22 as a GPU, only where both hold:
+the page is cross-origin isolated (shared memory; the engine page's service
+worker makes a return visit so, GP-52) and the guest prints the group-sum
+kernel for every width the model's products read (`Kernel.Render`'s
+`printedWidth`: 128, 256, 1024, 1536, 2048, 3072, 8192, 8960, which covers
+Qwen3-0.6B, Qwen2.5-1.5B, Llama 3.2 1B and GP-19's fixture). Elsewhere the
+kernel is told there is no usable GPU, so it chooses the CPU or refuses a model
+above the CPU ceiling; a page that asks for `device: "webgpu"` there is
+refused with the reason. The float WebGPU engine no longer runs an ONNX export;
+`gpu.mjs` and the `wgsl*.mjs` kernels still run the repacked container
+(`app.mjs`'s Bonsai path) and the conformance tests that use them as a
+yardstick, until those move too.
+
+`audit-float` (EN-58) now reads `integer-gpu.mjs` with the other integer-path
+scripts, and finds no float.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| The page's q4 products run on the guest's printed kernels and the tokens are the reference's and the CPU's, by name and by the kernel's choice, on an isolated page | `just page-journey`, GP-56's run: 14 products on WebGPU, the head on the module, 16 tokens each | tested on CI (SwiftShader) |
+| A first visit, not isolated, runs on the CPU, as the kernel's device | `just page-journey`, GP-19's runs, the device expected from whether the page was isolated | tested on CI |
+| The pieces between are in place and no ONNX export reaches the float engine | `gpu_gp_56` | tested |
+| Every kernel equals its stage for every input | not yet, as for GP-29: the stages are being defined in LexLean (row 13) | not proved |
+
+### The gate: `cargo test -p repo-conformance --test gpu gpu_gp_56`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `pipeline.mjs` importing `createEngine` from `./gpu.mjs` again | rejected: `pipeline.mjs still reaches the float engine` |
+| `onGpu` taking a matrix with binary32 scales | rejected: `site/app/engine/integer-gpu.mjs no longer has` the rule |
+| none | passed |
