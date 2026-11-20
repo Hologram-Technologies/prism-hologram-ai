@@ -5196,6 +5196,82 @@ fn kernel_kn_58() {
     );
 }
 
+/// `KN-80`: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+#[test]
+fn kernel_kn_80() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Seal.lex.tex");
+    let proofs = model("app/src/Proofs/Seal.lex.tex");
+    let words = (0..8)
+        .map(|i| format!("(Kernel.Seal::sealedWord {i})"))
+        .collect::<Vec<_>>();
+    assert_pinned(
+        &proofs,
+        "seal_decides",
+        &format!(
+            r"(((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = true) <-> ((w0 = {}) /\ ((w1 = {}) /\ ((w2 = {}) /\ ((w3 = {}) /\ ((w4 = {}) /\ ((w5 = {}) /\ ((w6 = {}) /\ (w7 = {})))))))))",
+            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
+        ),
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "seal_refuses_another_first_word",
+        "(((w0 =? (Kernel.Seal::sealedWord 0)) = false) -> ((Kernel.Seal::engineSealed w0 w1 w2 w3 w4 w5 w6 w7) = false))",
+        "Quot.sound, propext",
+    );
+    let found = declaration(&kernel, "engineSealed");
+    assert!(
+        found.contains("body: ((((((((w0 =? (sealedWord 0)) && (w1 =? (sealedWord 1))) && (w2 =? (sealedWord 2))) && (w3 =? (sealedWord 3))) && (w4 =? (sealedWord 4))) && (w5 =? (sealedWord 5))) && (w6 =? (sealedWord 6))) && (w7 =? (sealedWord 7)))"),
+        "engineSealed changed:\n{found}"
+    );
+    let found = declaration(&kernel, "sealAnswer");
+    assert!(
+        found.contains("body: (if ((Foundation.Bytes::byteLength value) =? 33) then (if (engineSealed (Kernel.Wire::fieldAt value 1 4) (Kernel.Wire::fieldAt value 5 4) (Kernel.Wire::fieldAt value 9 4) (Kernel.Wire::fieldAt value 13 4) (Kernel.Wire::fieldAt value 17 4) (Kernel.Wire::fieldAt value 21 4) (Kernel.Wire::fieldAt value 25 4) (Kernel.Wire::fieldAt value 29 4)) then (prim utf8_encode \"sealed\" : Bytes) else (prim utf8_encode \"not the sealed engine\" : Bytes)) else (prim utf8_encode \"invalid request\" : Bytes))"),
+        "sealAnswer changed:\n{found}"
+    );
+    // The sealed address is sealedWord's eight words, each `then` literal and
+    // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
+    // claims the guest replays are derived from it here, so the seal has one
+    // source: a moved seal fails until claims.json follows.
+    let chain = declaration(&kernel, "sealedWord");
+    let tokens: Vec<&str> = chain
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let sealed: Vec<u32> = tokens
+        .windows(2)
+        .filter(|pair| pair[0] == "then" || pair[0] == "else")
+        .filter_map(|pair| pair[1].parse().ok())
+        .collect();
+    assert_eq!(sealed.len(), 8, "sealedWord names eight words:\n{chain}");
+    let address: Vec<u8> = sealed.iter().flat_map(|w| w.to_be_bytes()).collect();
+    let request = |bytes: &[u8]| [&[80u8][..], bytes].concat();
+    let mut flipped = address.clone();
+    flipped[0] ^= 0x01;
+    assert_claimed(
+        80,
+        &[
+            (request(&address), "sealed"),
+            (request(&flipped), "not the sealed engine"),
+            (request(&address[..31]), "invalid request"),
+        ],
+    );
+    // The page's form for decision 80 starts at the sealed address, so it
+    // answers sealed as shown; it follows the seal as the claims do.
+    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
+        .expect("decision-names.json is JSON");
+    for (i, word) in sealed.iter().enumerate() {
+        assert_eq!(
+            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            serde_json::json!(word),
+            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            1 + 4 * i
+        );
+    }
+    assert_routed(80, "Kernel.Seal::sealAnswer");
+}
+
 /// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
 #[test]
 fn kernel_kn_59() {

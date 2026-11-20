@@ -39,8 +39,17 @@ export function keptFetch(name = "hologram-hub") {
 
 // The wasm module's calls, with bytes in and out through its linear memory.
 // Every call answers 0 for yes; a no leaves the failure's name as the result.
-export async function openModule(url) {
-  return moduleOf(await WebAssembly.compile(await (await fetch(url)).arrayBuffer()));
+//
+// Decision 80 first (GP-50): the bytes fetched are compiled only if their
+// BLAKE3 is the engine address the kernel seals, so a module the build did not
+// make, a stale cache's or one altered on the way, is refused by name before
+// any of it runs. `ask` is the page's asker; there is no way in without it.
+// The integer worker is handed the module compiled here, never bytes of its own.
+export async function openModule(url, ask) {
+  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const { blake3 } = await import("../../vendor/prism-code/src/blake3.mjs");
+  await ask("engine", "engine.wasm is the engine the kernel seals (decision 80)", join(new Uint8Array([80]), blake3(bytes)), "sealed");
+  return moduleOf(await WebAssembly.compile(bytes));
 }
 
 // The module's calls on a fresh instance of `compiled`. Given `memory`, the

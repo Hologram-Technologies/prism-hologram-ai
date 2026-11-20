@@ -487,6 +487,14 @@ Feature: kernel
     And size_bound bounds the product shifted by its offset by 2^64 under the same condition
     And scaled_zero_is_not_negative holds for every input
 
+  @KN-80 @build
+  Scenario: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+    Given the seal model in app/src/Kernel/Seal.lex.tex, whose eight words are the engine address `just engine` checks, and its proofs in app/src/Proofs/Seal.lex.tex
+    When the Lean kernel checks seal_decides and seal_refuses_another_first_word during lexlean verify in the gate
+    Then an address is sealed exactly when each of its eight big-endian 4-byte words is the model's word at that place
+    And the answer to decision 80 is sealed for the sealed address, not the sealed engine for any other, and invalid request for any length but 33
+    And the compiled guest answers sealed for the sealed address, not the sealed engine for it with one bit of its first byte flipped, and invalid request for a short request, as the claims it replays list
+
   @KN-59 @build
   Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
     Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
