@@ -2198,7 +2198,8 @@ fn gpu_gp_51() {
     }
     let wasm = read("crates/wasm/src/lib.rs");
     assert!(
-        wasm.contains("decode::advance(model, &mut session, token)"),
+        wasm.contains("decode::advance_with(model, &mut session, token, p)")
+            && wasm.contains("run(&mut decode::Whole)"),
         "the module's decode_advance is not hologram-ai-cpu-decode's advance"
     );
 }
@@ -2299,8 +2300,12 @@ fn gpu_gp_52() {
     pinned(
         "crates/wasm/src/lib.rs",
         &[
-            "decode::step_with(model, &mut session, token, &mut decode::Asked(helped))",
-            "decode::advance_with(model, &mut session, token, &mut decode::Asked(helped))",
+            // Every product of a step, an advance and a prefill goes to the
+            // helpers whenever there are any, through products_for (EN-110).
+            "products_for(helpers, |p| {",
+            "decode::step_with(model, &mut session, token, p)",
+            "decode::advance_with(model, &mut session, token, p)",
+            "if helpers > 0 {\n        run(&mut decode::Asked(helped))",
             "let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();",
         ],
     );
