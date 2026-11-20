@@ -3236,3 +3236,18 @@ Planted on 2026-11-20:
 | --- | --- |
 | `admit_so_far` marks each operator asked without asking the kernel | rejected: `pieces of 1: no operator asked before w_Q4` |
 | none | passed, with EN-31 and the other EN-3x import tests |
+
+## EN-112, the page's module runs layers as the file arrives
+
+The page's module gains `onnx_so_far`, which gives the tensors EN-111 admits and keeps the nodes read so far for the forward pass. It also gains `decode_held`, which reads the model as far as its layers have arrived, and `decode_prefill`, `decode_prefill_layer` and `decode_prefill_finish`, which drive EN-110 a layer at a time. `onnx_start` now clears the last model's forward pass, and `onnx_finish` keeps the weights handed in while the file arrived.
+
+`engine_en_112` takes GP-19's Qwen3, Qwen2 and Llama fixtures through the module in pieces of 4 KiB. It asks `onnx_so_far` after each piece and hands every tensor to `decode_tensor` as it is given. A layer is held once every weight its nodes read has been handed in, and the prompt is prefilled a layer at a time as layers are held. Every layer runs before the file ends. The next layer, asked before its weights, is refused as `Decode(NotHeld)` and the run carries on. The prefill's token and logits, and sixteen steps after it, are the native run's, bit for bit.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_112`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `onnx_finish` clears the forward pass as it did before (`*d = Decode { nodes, ..Decode::default() }`) | rejected: `decode_prefill_finish: NothingRead` |
+| none | passed, with EN-52, EN-53 and FL-59 |

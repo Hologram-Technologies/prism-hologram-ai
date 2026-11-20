@@ -744,6 +744,8 @@ pub extern "C" fn onnx_start(at: u32, len: u32, length: u64, declared: u32) -> u
                 ..OnnxImport::default()
             };
         });
+        // A new model: nothing of the last one's forward pass is kept.
+        DECODE.with_borrow_mut(|d| *d = Decode::default());
         Ok(Vec::new())
     })
 }
@@ -761,6 +763,44 @@ pub extern "C" fn onnx_take(at: u32, len: u32) -> u32 {
                 .map_err(CallError::Import)
         })?;
         Ok(Vec::new())
+    })
+}
+
+/// The tensors of the graph file that have arrived whole since the last
+/// call, after the kernel's questions on them (EN-111), as JSON the page
+/// reads: `nodes`, how many nodes have been read, and `tensors`, each its
+/// name, element type, shape, offset, length and the address its bytes hash
+/// to. The nodes read so far are what the forward pass reads a model by
+/// before the import finishes (EN-112).
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_so_far() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow_mut(|onnx| {
+            let graph = onnx.graph.as_mut().ok_or(CallError::NothingRead)?;
+            let given = graph
+                .admit_so_far(&mut PageKernel)
+                .map_err(CallError::Import)?;
+            let nodes = graph.nodes().to_vec();
+            let count = nodes.len();
+            DECODE.with_borrow_mut(|d| d.nodes = nodes);
+            let tensors: Vec<serde_json::Value> = given
+                .iter()
+                .map(|t| {
+                    let hex: String = t.address.0.iter().map(|b| format!("{b:02x}")).collect();
+                    serde_json::json!([
+                        t.name,
+                        element(t.data_type),
+                        t.dims,
+                        t.offset,
+                        t.length,
+                        format!("blake3:{hex}")
+                    ])
+                })
+                .collect();
+            serde_json::to_vec(&serde_json::json!({ "nodes": count, "tensors": tensors }))
+                .map_err(|_| CallError::NotText)
+        })
     })
 }
 
@@ -863,12 +903,9 @@ pub extern "C" fn onnx_finish() -> u32 {
         ONNX.with_borrow_mut(|onnx| {
             let imported = onnx.imported.take().ok_or(CallError::NothingRead)?;
             let nodes = imported.nodes().to_vec();
-            DECODE.with_borrow_mut(|d| {
-                *d = Decode {
-                    nodes: nodes.clone(),
-                    ..Decode::default()
-                }
-            });
+            // The weights handed in while the file arrived (EN-112) are
+            // kept: onnx_start has already cleared the last model's.
+            DECODE.with_borrow_mut(|d| d.nodes = nodes.clone());
             let read = std::mem::take(&mut onnx.read);
             let model = imported
                 .finish(read, &mut PageKernel)
@@ -948,6 +985,11 @@ struct Decode {
     saved: BTreeMap<u32, Session>,
     /// How many helpers answer each product (GP-52); none computes it here.
     helpers: u32,
+    /// How many layers' weights the page has handed in so far (EN-112);
+    /// `None` reads the model whole, as before.
+    held: Option<usize>,
+    /// A prompt on its way through the model a layer at a time (EN-110).
+    prefill: Option<decode::Prefill>,
 }
 
 thread_local! {
@@ -973,7 +1015,9 @@ fn with_model<T>(
             )
         })
         .collect();
-    let model = decode::read(&decode.nodes, &initializers, config).map_err(CallError::Decode)?;
+    let held = decode.held.unwrap_or(usize::MAX);
+    let model = decode::read_first(&decode.nodes, &initializers, config, held)
+        .map_err(CallError::Decode)?;
     run(&model)
 }
 
@@ -1187,6 +1231,131 @@ pub extern "C" fn decode_advance(token: u32) -> u32 {
             });
             d.session = Some(session);
             advanced.map(|()| Vec::new())
+        })
+    })
+}
+
+/// The page has handed in every weight of the first `layers` layers (EN-112):
+/// the model is read that far from now on, and a prefill can take those
+/// layers. `u32::MAX` reads it whole, as before a streamed load.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_held(layers: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            d.held = (layers != u32::MAX).then_some(layers as usize);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// Start a prefill of the prompt at `at`, token ids as four little-endian
+/// bytes each, after what the open run has seen (EN-110, EN-112). Only the
+/// embedding need be held.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        if given.len() % 4 != 0 {
+            return Err(CallError::WrongSize);
+        }
+        let prompt: Vec<u32> = given
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let session = d.session.as_ref().ok_or(CallError::NothingRead)?;
+            let prefill = with_model(d, config, |model| {
+                decode::prefill_start(model, session, &prompt).map_err(CallError::Decode)
+            })?;
+            d.prefill = Some(prefill);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The prefill's next layer, whose weights must be held; answers how many
+/// layers it has been through, four little-endian bytes.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill_layer() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let Some(mut prefill) = d.prefill.take() else {
+                d.session = Some(session);
+                return Err(CallError::NothingRead);
+            };
+            let helpers = d.helpers;
+            let ran = with_model(d, config, |model| {
+                if helpers > 0 {
+                    decode::prefill_layer_with(
+                        model,
+                        &mut session,
+                        &mut prefill,
+                        &mut decode::Asked(helped),
+                    )
+                } else {
+                    decode::prefill_layer(model, &mut session, &mut prefill)
+                }
+                .map_err(CallError::Decode)
+            });
+            let done = u32::try_from(prefill.layers()).map_err(|_| CallError::WrongSize);
+            d.session = Some(session);
+            d.prefill = Some(prefill);
+            ran?;
+            Ok(done?.to_le_bytes().to_vec())
+        })
+    })
+}
+
+/// Every layer done: the prefill's last prompt id through the final norm and
+/// the head, answered as `decode_step` answers, and the run moved past the
+/// prompt.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill_finish() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let Some(prefill) = d.prefill.take() else {
+                d.session = Some(session);
+                return Err(CallError::NothingRead);
+            };
+            let helpers = d.helpers;
+            let kept = prefill.clone();
+            let finished = with_model(d, config, |model| {
+                if helpers > 0 {
+                    decode::prefill_finish_with(
+                        model,
+                        &mut session,
+                        prefill,
+                        &mut decode::Asked(helped),
+                    )
+                } else {
+                    decode::prefill_finish(model, &mut session, prefill)
+                }
+                .map_err(CallError::Decode)
+            });
+            d.session = Some(session);
+            let logits = match finished {
+                Ok(logits) => logits,
+                Err(e) => {
+                    d.prefill = Some(kept);
+                    return Err(e);
+                }
+            };
+            let greedy = decode::greedy(&logits).ok_or(CallError::NothingRead)?;
+            let mut out = Vec::with_capacity(4 + 4 * logits.len());
+            out.extend_from_slice(&greedy.to_le_bytes());
+            for bits in logits {
+                out.extend_from_slice(&bits.to_le_bytes());
+            }
+            Ok(out)
         })
     })
 }
