@@ -5,6 +5,9 @@
 //! restates them: they are read from `app/src/Kernel.lex.tex`, so an example
 //! added to or changed in the model is tested the next time this runs.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -118,28 +121,6 @@ fn container_header(entries: &[(&str, &str, u64, u64, u64, u64)]) -> serde_json:
 /// The name one of the module's own failures reaches the page by.
 fn named(why: wasm::CallError) -> Vec<u8> {
     format!("{why:?}").into_bytes()
-}
-
-/// The text after `needle` in `text`, if it is there.
-fn after_in<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
-    text.find(needle).map(|at| &text[at + needle.len()..])
-}
-
-/// The first word of `text`, which is how a name is written.
-fn first_word(text: &str) -> String {
-    text.chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect()
-}
-
-/// A statement as the page draws it: the same words, the symbols drawn.
-fn drawn(statement: &str) -> String {
-    let joined = statement.split_whitespace().collect::<Vec<_>>().join(" ");
-    joined
-        .replace("<->", "\u{2194}")
-        .replace("->", "\u{2192}")
-        .replace("/\\", "\u{2227}")
-        .replace("\\/", "\u{2228}")
 }
 
 /// The bytes, written as hexadecimal digits.
@@ -2077,10 +2058,11 @@ fn engine_en_13() {
 // kernel's own examples have it, every byte of a request accounted for, and
 // every value the examples use offered to whoever is filling the form.
 
-/// The table the page reads, from `site/decisions.json`.
+/// The table the page reads, from `site/decisions.json`, which `cargo xtask
+/// page --write` (and `xtask validate`, which `just vv` runs first) writes.
 fn page_table() -> serde_json::Value {
     let text = std::fs::read_to_string(root().join("site/decisions.json"))
-        .expect("the page's decision table");
+        .expect("site/decisions.json is generated: run `cargo xtask page --write`");
     serde_json::from_str(&text).expect("the table is JSON")
 }
 
@@ -2485,12 +2467,21 @@ fn engine_en_14() {
         String::from_utf8_lossy(&ran.stdout)
     );
 
-    // The page says what the kernel does: its description names every decision
-    // the kernel routes.
+    // The page says what the kernel does: the description written beside its
+    // table names every decision the kernel routes, each by the phrase its own
+    // file in page/decision-names/ gives it, after app.json's purpose.
     let described = std::fs::read_to_string(root().join("site/app.json"))
         .expect("what the page says about the app");
     let described: serde_json::Value = serde_json::from_str(&described).expect("app.json is JSON");
-    let purpose = described["purpose"].as_str().unwrap_or_default();
+    let lead = described["purpose"].as_str().unwrap_or_default();
+    let purpose = page_table()["purpose"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        !lead.is_empty() && purpose.starts_with(lead),
+        "the page's description does not open with app.json's purpose"
+    );
     for tag in &routed {
         assert!(
             purpose.contains(&format!("({tag})")),
@@ -2498,67 +2489,39 @@ fn engine_en_14() {
         );
     }
 
-    // The page names every theorem the proofs carry, in the proofs' own words.
-    // A theorem added to a module and not named here would be a proof the page
-    // never mentions; one named here and not proved would be a claim with
-    // nothing behind it.
-    let mut proved: BTreeMap<String, String> = BTreeMap::new();
-    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
-        let path = entry.expect("a proof module").path();
-        let text = std::fs::read_to_string(&path).expect("the module reads");
-        for block in text.split("theorem{").skip(1) {
-            let block = block.split("\n}").next().unwrap_or(block);
-            let Some(name) = after_in(block, "name: ").map(first_word) else {
-                continue;
-            };
-            let Some(statement) = after_in(block, "statement: ") else {
-                continue;
-            };
-            let statement = statement
-                .split("\n  proof:")
-                .next()
-                .unwrap_or(statement)
-                .split("\n  axioms:")
-                .next()
-                .unwrap_or(statement)
-                // A theorem lexlean fmt keeps on one line ends its statement here.
-                .split(", proof: ")
-                .next()
-                .unwrap_or(statement)
-                .split(", axioms: ")
-                .next()
-                .unwrap_or(statement);
-            proved.insert(name, drawn(statement.trim().trim_end_matches(',')));
-        }
-    }
+    // The page names every theorem the proofs carry. The page reads them from
+    // the LexLean source itself, so what is checked is the page it builds: the
+    // `page-journey` recipe runs `kernel/page-theorems.mjs` on the assembled
+    // page, after `bootstrap/page.mjs` and before the journey, and it fails
+    // unless every `theorem{}` in app/src/Proofs is named in its proof section.
+    // A second list in site/app.json, which every decision edited, is gone.
     assert!(
-        proved.len() >= 49,
-        "only {} theorems were read",
-        proved.len()
+        described.get("theorems").is_none(),
+        "site/app.json lists theorems again: the page reads them from app/src"
     );
-    let listed: BTreeMap<String, String> = described["theorems"]
-        .as_array()
-        .expect("the theorems the page names")
-        .iter()
-        .map(|one| {
-            (
-                one["name"].as_str().unwrap_or_default().to_string(),
-                one["statement"].as_str().unwrap_or_default().to_string(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        listed.keys().collect::<Vec<_>>(),
-        proved.keys().collect::<Vec<_>>(),
-        "the page and the proofs disagree about which theorems there are"
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let journey = justfile
+        .split("\npage-journey assembled=\"\":\n")
+        .nth(1)
+        .expect("a page-journey recipe");
+    let journey = journey.split("\n\n").next().unwrap_or(journey);
+    let theorems = journey
+        .find("node crates/conformance/tests/kernel/page-theorems.mjs \"$site\"")
+        .expect("page-journey checks the page names every theorem");
+    let drive = journey
+        .find("node crates/conformance/tests/gpu/journey.mjs")
+        .expect("page-journey drives the page");
+    assert!(
+        theorems < drive,
+        "the theorems are checked before the journey"
     );
-    for (name, statement) in &proved {
-        assert_eq!(
-            listed.get(name).map(String::as_str),
-            Some(statement.as_str()),
-            "the page states {name} differently from the module that proves it"
-        );
+    let mut proved = 0;
+    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
+        let text = std::fs::read_to_string(entry.expect("a proof module").path())
+            .expect("the module reads");
+        proved += text.matches("theorem{").count();
     }
+    assert!(proved >= 49, "only {proved} theorems were read");
 
     // Every answer the kernel gives to an example is one the page knows how to
     // colour, or the refusal it names.
@@ -8764,12 +8727,10 @@ fn engine_en_35() {
     assert_kernel_replays_claims();
 }
 
-/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// The claims `crates/conformance/tests/kernel/claims/` lists, as (the
 /// request in hex, the answer the guest must give).
 fn kernel_claims() -> Vec<(String, String)> {
-    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-        .expect("the claims the crates make of the kernel");
-    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    let value = claims_dir::document(&root());
     value["claims"]
         .as_array()
         .expect("a list of claims")
@@ -8796,7 +8757,7 @@ fn assert_kernel_replays_claims() {
     let replay = app
         .find(
             "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
-             crates/conformance/tests/kernel/claims.json",
+             crates/conformance/tests/kernel/claims",
         )
         .expect("the app recipe replays the claims through the holo's guest");
     assert!(

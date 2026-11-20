@@ -1,0 +1,17 @@
+{
+  "decision": 20,
+  "claims": [
+    {
+      "request": "140000000002000000400020",
+      "answer": "64"
+    },
+    {
+      "request": "140000000002000000400030",
+      "answer": "bad shape"
+    },
+    {
+      "request": "1400000000020000004000",
+      "answer": "invalid request"
+    }
+  ]
+}

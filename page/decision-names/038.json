@@ -1,0 +1,34 @@
+{
+  "decision": 38,
+  "name": "Stored bits as integers",
+  "asks": "What integers do these stored bits hold?",
+  "fields": {
+    "1": {
+      "name": "Format",
+      "choice": [
+        [
+          "q4 byte",
+          0
+        ],
+        [
+          "IEEE half",
+          1
+        ],
+        [
+          "bfloat16",
+          2
+        ],
+        [
+          "binary32",
+          3
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "Stored bits",
+      "value": 15360
+    }
+  },
+  "purpose": "what integers a stored q4 byte, half, bfloat16 or binary32 holds"
+}

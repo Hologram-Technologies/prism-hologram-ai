@@ -1,0 +1,39 @@
+{
+  "decision": 16,
+  "name": "A speculative commit",
+  "asks": "May this many of the drafted tokens be committed?",
+  "fields": {
+    "1": {
+      "name": "Drafts, k",
+      "value": 4
+    },
+    "2": {
+      "name": "Commit how many",
+      "value": 3
+    }
+  },
+  "list": {
+    "draftAt": {
+      "name": "Drafted",
+      "value": 7,
+      "values": [
+        11,
+        22,
+        33,
+        44
+      ]
+    },
+    "verifiedAt": {
+      "name": "Verified",
+      "value": 7,
+      "values": [
+        11,
+        22,
+        99,
+        44,
+        55
+      ]
+    }
+  },
+  "purpose": "whether a speculative commit is the right size"
+}

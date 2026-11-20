@@ -560,7 +560,7 @@ Feature: engine
     Given q4 blocks as the engine stores them, at both ends of the sum's range, with every weight zero, and drawn at random, each with an activation of magnitude 127
     When hologram-ai-exact quantises each block's activations and takes its group sum, and the kernel client writes decision 34's request for that sum and for that sum plus one
     Then the request read as Kernel.Block reads it gives the crate's sum and the claim written
-    And claims.json lists the crate's sum as exact and the sum plus one as differs
+    And the decision's claims file lists the crate's sum as exact and the sum plus one as differs
     And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed
 
   @EN-36 @build
@@ -568,7 +568,7 @@ Feature: engine
     Given group sums at both ends of a block's range and zero, and halves that are one, the largest, the smallest subnormal, the smallest normal, negative and negative zero
     When hologram-ai-exact multiplies each sum by its half as an exact count of 2^-24, and the kernel client writes decision 37's request for that product and for that product plus one
     Then the request read as Kernel.Scale reads it gives the crate's product and the claim written
-    And claims.json lists the crate's product as exact and the product plus one as differs, and the app recipe's replay of the guest answers each as listed
+    And the decision's claims file lists the crate's product as exact and the product plus one as differs, and the app recipe's replay of the guest answers each as listed
     And a half that is an infinity or a NaN has no product in the crate
 
   @FL-54 @build
@@ -616,7 +616,7 @@ Feature: engine
     Given values that are exact, ties broken both ways, the largest finite value and the carry past it, overflow, subnormals, underflow to a signed zero, full 64-bit magnitudes, zero, and draws
     When hologram-ai-exact places each in a row register and rounds it with round_to_binary32, and the kernel client writes decision 42's request for those bits and for those bits with the last flipped
     Then the request read as Kernel.Round reads it gives the crate's bits
-    And claims.json lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
+    And the decision's claims file lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
 
   @EN-43 @build
   Scenario: The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936

@@ -1,0 +1,24 @@
+{
+  "decision": 29,
+  "name": "Exact accumulator",
+  "asks": "Can this sum of products be held exactly?",
+  "fields": {
+    "1": {
+      "name": "Activation bits",
+      "value": 8
+    },
+    "2": {
+      "name": "Weight bits",
+      "value": 4
+    },
+    "3": {
+      "name": "Group bits",
+      "value": 5
+    },
+    "4": {
+      "name": "Accumulator bits",
+      "value": 32
+    }
+  },
+  "purpose": "whether a sum of products is held exactly"
+}

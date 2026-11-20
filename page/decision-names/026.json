@@ -1,0 +1,38 @@
+{
+  "decision": 26,
+  "name": "Eviction",
+  "asks": "Should this cached block be dropped to make room?",
+  "fields": {
+    "1": {
+      "name": "The block is pinned",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Candidates left, with this one",
+      "value": 3
+    },
+    "6": {
+      "name": "Needed, bytes",
+      "value": 100
+    },
+    "14": {
+      "name": "Free, bytes",
+      "value": 40
+    },
+    "22": {
+      "name": "Freed so far, bytes",
+      "value": 0
+    }
+  },
+  "purpose": "whether a cached block is dropped"
+}

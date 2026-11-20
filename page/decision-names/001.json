@@ -1,0 +1,92 @@
+{
+  "decision": 1,
+  "name": "The journey",
+  "asks": "May this step be taken, and where does it lead?",
+  "fields": {
+    "1": {
+      "name": "Now",
+      "choice": [
+        [
+          "idle",
+          0
+        ],
+        [
+          "preflight",
+          1
+        ],
+        [
+          "download",
+          2
+        ],
+        [
+          "compile",
+          3
+        ],
+        [
+          "materialize",
+          4
+        ],
+        [
+          "ready",
+          5
+        ],
+        [
+          "generating",
+          6
+        ],
+        [
+          "failed",
+          7
+        ]
+      ],
+      "value": 4
+    },
+    "2": {
+      "name": "What happened",
+      "choice": [
+        [
+          "start",
+          1
+        ],
+        [
+          "preflight passed",
+          2
+        ],
+        [
+          "download done",
+          3
+        ],
+        [
+          "compile done",
+          4
+        ],
+        [
+          "labels verified",
+          5
+        ],
+        [
+          "send",
+          6
+        ],
+        [
+          "turn done",
+          7
+        ],
+        [
+          "cancel turn",
+          8
+        ],
+        [
+          "fail",
+          9
+        ],
+        [
+          "reset",
+          10
+        ]
+      ],
+      "value": 5
+    }
+  },
+  "purpose": "the next step of the journey"
+}
