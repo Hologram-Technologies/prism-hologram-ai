@@ -129,9 +129,33 @@ first `KN` ID; a section covering several IDs (`KN-18` to `KN-28`) is filed
 under the first. A new decision adds its own file and edits nothing here, so
 two pull requests that add decisions never touch the same lines.
 
-The table below is closed: it records the decisions filed before the split. A
+The table above is closed: it records the decisions filed before the split. A
 new decision's claims, evidence and kinds go in a table of the same columns at
 the head of its own file.
+
+### Adding a decision
+
+Every pull request that added a decision used to edit the same five places, so
+each merge sent every other open one back for another full acceptance run. Now a
+decision adds its own files and edits one line that is its own:
+
+| What | Where | Checked by |
+| --- | --- | --- |
+| Its record | `kernel-verification/KN-NN.md` | read by people |
+| The claims its crate makes | `crates/conformance/tests/kernel/claims/NNN.json` (decision NNN) | the Rust suites (`kernel/claims.rs`) and `replay.mjs` refuse a claim whose first byte is not its file's decision, a file naming another decision, and an empty file; `replay.mjs` runs every claim in the compiled guest |
+| Its names on the page, and its phrase in the page's description | `page/decision-names/NNN.json` | `xtask page` refuses a routed decision with no file, no name, an undescribed field or no phrase; `EN-14` checks the generated description names every routed tag |
+| Its route | the body of `slotN` in `app/src/Kernel.lex.tex`, decisions 81 to 112, and its `\importmodule` line in sorted order | `assert_slot_table` in the kernel suite: the route falls back to `slots`, `slots` reaches each slot by a fixed `<=?` tree that names no tag, a slot either refuses with no axioms or answers exactly its own tag, and the imports are sorted. While every slot is empty, `slots` rests on no axioms (`axioms: []`, as Lean observed); the first filled slot raises it to its answer's axioms, `[Quot.sound, propext]` for every answer so far, an identical one-line edit that two pull requests merge cleanly |
+| Its theorems | `app/src/Proofs/*.lex.tex` | `xtask proofs` verifies the module and its dependants; `page-journey` checks the assembled page names every theorem |
+
+Generated, never committed: `site/decisions.json` and `site/card.html` (from
+`page/card.template.html`), written by `cargo xtask page --write`, which
+`xtask validate` and the `app` recipe run. The theorem list app.json used to
+carry is gone: the page reads the theorems from `app/src`.
+
+Still shared, and outside this split: `model/ids.toml` (and `CONFORMANCE.md`
+generated from it), `features/suites/kernel.feature`,
+`crates/conformance/tests/kernel.rs` and the examples in `application`. A
+decision appends to each, so two pull requests can still meet there.
 
 ## Where the proofs live, and why
 

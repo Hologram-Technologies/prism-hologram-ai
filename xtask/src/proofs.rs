@@ -24,8 +24,11 @@
 //!
 //! What: `.prism-proof/lean/keys/<key>` holds an attestation ID, and
 //! `.prism-proof/lean/attestations/<id>/` holds that attestation and its build
-//! manifest. bootstrap.yml caches `.prism-proof`. A tagged commit proves in
-//! full, and so does any run with `PRISM_PROOF_FULL` set.
+//! manifest. bootstrap.yml caches `.prism-proof`.
+//!
+//! When: only with `PRISM_PROOF_REUSE=1`, which the `app` recipe sets on a pull
+//! request or a merge queue run and on nothing else, as `audit-bootstrap`
+//! requires. A main push, a tag and a local run verify every module.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -334,15 +337,10 @@ fn read_kept(store: &Path, key: &str) -> Option<(String, Vec<u8>, Vec<u8>)> {
     Some((id, attestation, manifest))
 }
 
-fn full_proof_required(root: &Path) -> bool {
-    if std::env::var_os("PRISM_PROOF_FULL").is_some() {
-        return true;
-    }
-    // A tag is a release: it proves in full. If git cannot say, prove in full.
-    match run(root, "git", &["tag", "--points-at", "HEAD"]) {
-        Ok(out) => !out.status.success() || !out.stdout.iter().all(u8::is_ascii_whitespace),
-        Err(_) => true,
-    }
+/// Reuse only when the `app` recipe says this run may: a pull request or a
+/// merge queue run. Anything else, unset included, verifies in full.
+fn reuse_allowed() -> bool {
+    std::env::var("PRISM_PROOF_REUSE").is_ok_and(|value| value == "1")
 }
 
 /// `just app`'s proof step.
@@ -361,7 +359,7 @@ pub fn verify(root: &Path) -> Result<(), Fail> {
         return Err(format!("app/{PROOFS} holds no proof module").into());
     }
     let tools = tools(root, &app)?;
-    let full = full_proof_required(root);
+    let full = !reuse_allowed();
 
     let mut keyed = Vec::new();
     let mut misses = Vec::new();
@@ -369,7 +367,10 @@ pub fn verify(root: &Path) -> Result<(), Fail> {
         let manifest = manifest_of(&app, module)?;
         let key = key(&tools, module, &manifest);
         let verdict = if full {
-            Err("this run proves in full".to_owned())
+            Err(
+                "this run verifies in full (only a pull request or a merge queue run reuses)"
+                    .to_owned(),
+            )
         } else {
             match read_kept(&store, &key) {
                 None => Err("no earlier verification of these inputs".to_owned()),

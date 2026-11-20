@@ -135,16 +135,77 @@ fn assert_pinned(proofs: &str, theorem: &str, statement: &str, axioms: &str) {
     );
 }
 
+/// The decisions after 80 have slots, one definition each, so a pull request
+/// that adds one edits only its own slot's body and its import.
+const SLOTS: std::ops::RangeInclusive<u8> = 81..=112;
+const INVALID: &str = "(prim utf8_encode \"invalid request\" : Bytes)";
+
+/// The slot table's `<=?` tree over `from..=to`, as `slots` must write it.
+fn slot_tree(from: u8, to: u8) -> String {
+    if from == to {
+        return format!("(slot{from} tag value)");
+    }
+    let mid = from + (to - from) / 2;
+    format!(
+        "(if (tag <=? {mid}) then {} else {})",
+        slot_tree(from, mid),
+        slot_tree(mid + 1, to)
+    )
+}
+
+/// The dispatch is a fixed table: the route's last fallback is `slots`, which
+/// reaches each slot by a `<=?` tree and names no tag of its own, and each slot
+/// is empty (the refusal, no axioms) or answers exactly its own tag. The entry
+/// module's imports are sorted, so two new imports land apart.
+fn assert_slot_table(kernel: &str) {
+    let route = declaration(kernel, "route");
+    assert!(
+        route.contains(" else (slots tag value))"),
+        "the route's last fallback must be the slot table:\n{route}"
+    );
+    let slots = declaration(kernel, "slots");
+    assert!(
+        slots.contains(&format!(
+            "body: {},",
+            slot_tree(*SLOTS.start(), *SLOTS.end())
+        )),
+        "the slot table must reach each slot by its <=? tree:\n{slots}"
+    );
+    for tag in SLOTS {
+        let slot = declaration(kernel, &format!("slot{tag}"));
+        let empty = slot.contains(&format!("body: {INVALID},")) && slot.contains("axioms: []");
+        let filled = slot.contains(&format!("body: (if (tag =? {tag}) then (Kernel."))
+            && slot.contains(&format!(" value) else {INVALID}),"))
+            && slot.matches("(tag =? ").count() == 1;
+        assert!(
+            empty ^ filled,
+            "slot{tag} must refuse, or answer exactly decision {tag}:\n{slot}"
+        );
+    }
+    let imports: Vec<&str> = kernel
+        .lines()
+        .filter(|line| line.starts_with("\\importmodule{"))
+        .collect();
+    let mut sorted = imports.clone();
+    sorted.sort_unstable();
+    assert_eq!(imports, sorted, "the entry module's imports are sorted");
+}
+
 /// Decision `tag` is answered by `answer`, and nothing else answers for it.
 fn assert_routed(tag: u8, answer: &str) {
     let kernel = model("app/src/Kernel.lex.tex");
-    let route = declaration(&kernel, "route");
+    assert_slot_table(&kernel);
+    let route = if SLOTS.contains(&tag) {
+        declaration(&kernel, &format!("slot{tag}"))
+    } else {
+        declaration(&kernel, "route")
+    };
     assert!(
         route.contains(&format!("(if (tag =? {tag}) then ({answer} value)")),
         "decision {tag} must be routed to {answer}:\n{route}"
     );
     assert_eq!(
-        route.matches(&format!("(tag =? {tag})")).count(),
+        kernel.matches(&format!("(tag =? {tag})")).count(),
         1,
         "decision {tag} is routed once"
     );
