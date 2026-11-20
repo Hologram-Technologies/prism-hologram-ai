@@ -1,0 +1,52 @@
+\begin{lexlean}{Engine.Step}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stream}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+structure{
+  name: Pick,
+  type_parameters: [],
+  parameters: [],
+  fields: [{name: seen, type: Nat}, {name: best, type: Nat}, {name: bits, type: Nat}]
+}
+
+definition{
+  name: advance,
+  parameters: [kept : Pick, logit : Nat],
+  result: Pick,
+  body: (match (project kept seen)
+    | Nat.zero => (record Pick {seen := 1, best := 0, bits := logit})
+    | Nat.succ rest => (record Pick {seen := ((project kept seen) + 1), best := (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Greedy::key (project kept bits)) (Engine.Stage.Greedy::key logit)) (project kept seen) (project kept best)), bits := (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (Engine.Stage.Greedy::key (project kept bits)) (Engine.Stage.Greedy::key logit)) logit (project kept bits))}))
+}
+
+definition{
+  name: feedPick,
+  parameters: [kept : Pick, logits : (List Nat)],
+  result: Pick,
+  body: (match logits
+    | List.nil => kept
+    | List.cons head tail => (feedPick (advance kept head) tail)),
+  recursive_argument: logits
+}
+
+definition{
+  name: maxKeyFrom,
+  parameters: [start : Nat, logits : (List Nat)],
+  result: Nat,
+  body: (match logits
+    | List.nil => start
+    | List.cons head tail => (maxKeyFrom (Engine.Stage.Greedy::maxOf start (Engine.Stage.Greedy::key head)) tail)),
+  recursive_argument: logits
+}
+
+definition{
+  name: freshPick,
+  parameters: [],
+  result: Pick,
+  body: (record Pick {seen := 0, best := 0, bits := 0})
+}
+\end{semanticmodule}
+\end{lexlean}

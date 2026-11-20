@@ -99,6 +99,11 @@
   },
   "pinned": [
     {
+      "name": "kernel_kn_71",
+      "what": "The step theorems' statements and axioms (step_cut, step_reads_its_chunk, picked_key_is_max and two fixtures), that decision 71 checks its length and state, folds exactly its chunk and refuses a step past the capacity, that it is routed to this answer, and four of its claims. A string-matching test, not a theorem.",
+      "where": "crates/conformance/tests/kernel.rs"
+    },
+    {
       "name": "kernel_kn_80",
       "what": "The seal theorems' statements and axioms, the answer's length and offsets, that the guest's decision-80 claims and the page's decision-80 fields are sealedWord's eight words, and that decision 80 is routed to Kernel.Seal::sealAnswer. A string-matching test, not a theorem.",
       "where": "crates/conformance/tests/kernel.rs"
