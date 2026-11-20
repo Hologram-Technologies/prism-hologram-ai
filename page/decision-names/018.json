@@ -1,0 +1,42 @@
+{
+  "decision": 18,
+  "name": "An operator's name",
+  "asks": "Does the engine run this ONNX operator in this export style?",
+  "fields": {
+    "1": {
+      "name": "Export style",
+      "choice": [
+        [
+          "decomposed",
+          0
+        ],
+        [
+          "fused",
+          1
+        ],
+        [
+          "encoder",
+          2
+        ]
+      ],
+      "value": 0
+    },
+    "2": {
+      "name": "Name, bytes 1 to 8",
+      "value": 4712001061299159040
+    },
+    "10": {
+      "name": "Name, bytes 9 to 16",
+      "value": 0
+    },
+    "18": {
+      "name": "Name, bytes 17 to 24",
+      "value": 0
+    },
+    "26": {
+      "name": "Name, bytes 25 to 32",
+      "value": 0
+    }
+  },
+  "purpose": "whether an ONNX operator's name is one the engine runs"
+}

@@ -1,0 +1,66 @@
+{
+  "decision": 21,
+  "name": "The precision",
+  "asks": "Which offered precision fits the budget?",
+  "fields": {
+    "1": {
+      "name": "q4f16 is offered",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "q4 is offered",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "3": {
+      "name": "fp16 is offered",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "4": {
+      "name": "Budget, bytes",
+      "value": 2147483648
+    },
+    "12": {
+      "name": "q4f16 size, bytes",
+      "value": 1221878940
+    },
+    "20": {
+      "name": "q4 size, bytes",
+      "value": 1787566590
+    },
+    "28": {
+      "name": "fp16 size, bytes",
+      "value": 3100000000
+    }
+  },
+  "purpose": "which precision fits"
+}

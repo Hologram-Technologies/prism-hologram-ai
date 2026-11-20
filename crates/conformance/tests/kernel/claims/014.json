@@ -1,0 +1,17 @@
+{
+  "decision": 14,
+  "claims": [
+    {
+      "request": "0e0000000005020000000500000003",
+      "answer": "first maximum"
+    },
+    {
+      "request": "0e0100000005020000000500000005",
+      "answer": "not first maximum"
+    },
+    {
+      "request": "0e00000000050200000005000000",
+      "answer": "invalid request"
+    }
+  ]
+}

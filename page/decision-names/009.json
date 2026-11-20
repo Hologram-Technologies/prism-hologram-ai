@@ -1,0 +1,20 @@
+{
+  "decision": 9,
+  "name": "The generation bound",
+  "asks": "How many tokens may this turn generate?",
+  "fields": {
+    "1": {
+      "name": "Context, tokens",
+      "value": 2048
+    },
+    "9": {
+      "name": "Tokens used",
+      "value": 100
+    },
+    "17": {
+      "name": "Tokens asked for, or 0 for all",
+      "value": 0
+    }
+  },
+  "purpose": "a turn's token budget"
+}

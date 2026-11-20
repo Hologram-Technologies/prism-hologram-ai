@@ -1,0 +1,30 @@
+{
+  "decision": 12,
+  "name": "The backend",
+  "asks": "Which backend can run this model?",
+  "fields": {
+    "1": {
+      "name": "A GPU is there",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "Largest binding, bytes",
+      "value": 134217728
+    },
+    "10": {
+      "name": "Largest buffer, bytes",
+      "value": 268435456
+    }
+  },
+  "purpose": "which backend can run the model"
+}

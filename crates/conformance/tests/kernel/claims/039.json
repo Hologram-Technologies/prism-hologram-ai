@@ -1,0 +1,17 @@
+{
+  "decision": 39,
+  "claims": [
+    {
+      "request": "270108100000006400000032",
+      "answer": "accept"
+    },
+    {
+      "request": "2701081000000064000000c8",
+      "answer": "refuse"
+    },
+    {
+      "request": "2701081000000064000032",
+      "answer": "invalid request"
+    }
+  ]
+}
