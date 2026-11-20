@@ -1,0 +1,64 @@
+{
+  "decision": 31,
+  "name": "Receipt",
+  "asks": "Does replaying this answer confirm it?",
+  "fields": {
+    "1": {
+      "name": "Output claimed",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "33": {
+      "name": "Output replayed",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "65": {
+      "name": "Model ready by decision 28",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "66": {
+      "name": "Reproducibility of the run",
+      "choice": [
+        [
+          "none",
+          0
+        ],
+        [
+          "same hardware",
+          1
+        ],
+        [
+          "everywhere",
+          2
+        ]
+      ],
+      "value": 2
+    },
+    "67": {
+      "name": "Same adapter",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    }
+  },
+  "purpose": "whether replaying an answer confirms its receipt"
+}

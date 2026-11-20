@@ -1,0 +1,24 @@
+{
+  "decision": 10,
+  "name": "Operator preflight",
+  "asks": "May this ONNX graph be imported?",
+  "fields": {
+    "1": {
+      "name": "The opset the graph declares",
+      "value": 18
+    },
+    "9": {
+      "name": "Lowest opset implemented",
+      "value": 7
+    },
+    "17": {
+      "name": "Highest opset implemented",
+      "value": 21
+    },
+    "25": {
+      "name": "Operators not implemented",
+      "value": 0
+    }
+  },
+  "purpose": "whether an ONNX graph may be imported"
+}

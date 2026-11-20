@@ -1,0 +1,36 @@
+{
+  "decision": 15,
+  "name": "The penalty window",
+  "asks": "Is this token inside the window that is penalised?",
+  "fields": {
+    "1": {
+      "name": "Window, tokens",
+      "value": 64
+    },
+    "3": {
+      "name": "The token",
+      "value": 1234
+    },
+    "7": {
+      "name": "How many tokens of history follow",
+      "value": 8
+    }
+  },
+  "list": {
+    "tokenAt": {
+      "name": "History",
+      "value": 1,
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    }
+  },
+  "purpose": "whether a token lies in the penalty window"
+}

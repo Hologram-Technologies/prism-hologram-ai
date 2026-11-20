@@ -1,0 +1,72 @@
+{
+  "decision": 33,
+  "name": "Shared prefix",
+  "asks": "May a prefix computed elsewhere be reused for this prompt?",
+  "fields": {
+    "1": {
+      "name": "Label asked for",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "33": {
+      "name": "Label held",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "65": {
+      "name": "Positions held",
+      "value": 400
+    },
+    "69": {
+      "name": "Prompt length",
+      "value": 440
+    },
+    "73": {
+      "name": "Computed",
+      "choice": [
+        [
+          "on this device",
+          0
+        ],
+        [
+          "elsewhere",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "74": {
+      "name": "Reproducibility of the run",
+      "choice": [
+        [
+          "none",
+          0
+        ],
+        [
+          "same hardware",
+          1
+        ],
+        [
+          "everywhere",
+          2
+        ]
+      ],
+      "value": 2
+    },
+    "75": {
+      "name": "Same adapter",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    }
+  },
+  "purpose": "whether a prefix computed elsewhere may be reused"
+}
