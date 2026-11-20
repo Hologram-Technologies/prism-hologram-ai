@@ -488,9 +488,10 @@ Feature: kernel
     And scaled_zero_is_not_negative holds for every input
 
   @KN-59 @build
-  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each column sum over n groups is at most n(2^32 - 1), that the negative count is at most n, that each output is a word, and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus the term
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
     Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
     When lexlean verify checks Proofs.StageRowSum in the gate
-    Then column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
-    And output_is_word holds for every output
+    Then row_is_signed_total holds for every input: a row's twelve words have the value rowTotal
+    And run_row and run_starts_at_row_zero show run emits exactly those twelve words for each row in turn
+    And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
     And add_exact, complement_twelve and subtract_exact hold for every register and term

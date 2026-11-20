@@ -1743,21 +1743,30 @@ complement register whose bit 0 weighs 2^-192, the register GPU kernel
 group contributes the complement of its twelve words plus one. The generated
 code cannot hold a list between steps, so the stage adds by columns: word i is
 the sum of every group's word i plus the carry out of word i - 1, with one
-scalar carried. Modulo 2^384 that is the kernel's group-by-group sum, so the
-twelve words are equal; a Python mirror of both agrees on 400 random cases,
-including negative and extreme powers. It exports through prod-export and
-prod-codegen with no external calls, opaque nodes or unsupported types.
+scalar carried. It exports through prod-export and prod-codegen with no
+external calls, opaque nodes or unsupported types.
 
-Lean proves, for every input: `column_bound`, that a column over n groups is
-at most n(2^32 - 1), and `negatives_bound`, that the negative count is at most
-n, so a running total stays below 2^64, the generated code's word, for fewer
+`Engine.Stage.Accumulate` names the value both this stage and GPU kernel
+`q4Accumulate` reach, so their proofs meet in it. `termValue` is a term's
+twelve words weighted by 2^(32i); `signedTerm` is that value, or 2^384 minus
+it for a negative group; `rowTotal` is the row's sum of signed terms modulo
+2^384.
+
+Lean proves, for every input: `row_is_signed_total`, that a row's twelve
+output words have the value `rowTotal`; `run_row` and
+`run_starts_at_row_zero`, that `run` emits exactly those twelve words for each
+row in turn; on the way, `columns_are_signed_total`, which turns the column
+sums into the sum over groups, and `carries_close`, which closes the carry
+chain across the twelve words; `column_bound` and `negatives_bound`, that a
+column over n groups is at most n(2^32 - 1) and the negative count at most n,
+so a running total stays below 2^64, the generated code's word, for fewer
 than 2^31 groups; `output_is_word`; and the laws of the kernel's step on the
-same term words: `add_exact`, that adding a term into a register of words
-gives the register plus the term, and `complement_twelve` with
-`subtract_exact`, that adding its complement with carry one gives the register
-plus 2^384 minus the term. That the column form's twelve words equal the
-signed sum of the terms modulo 2^384 is tested, not proved: 0.3.0 has no
-lemma swapping a sum over groups with a sum over words.
+same term words: `add_exact`, and `complement_twelve` with `subtract_exact`,
+that adding a term, or its complement with carry one, into a register of
+words gives the register plus the term, or plus 2^384 minus it. A Python
+mirror of S2 then S3 also equals a mirror of the kernel's register on 400
+random cases, including negative and extreme powers. That a term's value is
+its product times 2^position is not yet a theorem.
 
 ### The pinned test: `kernel_kn_59`
 
@@ -1765,6 +1774,7 @@ lemma swapping a sum over groups with a sum over words.
 | --- | --- |
 | `position` subtracting the power unsigned, without the 32-bit wrap | rejected: `position changed` |
 | `column_bound` deleted | rejected: `column_bound is not declared` |
+| `row_is_signed_total` deleted | rejected: `row_is_signed_total is not declared` |
 | none | passed |
 
 ## The examples in the compiled guest
