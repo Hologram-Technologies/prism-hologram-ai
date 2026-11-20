@@ -661,6 +661,36 @@ fn exponent(score: u32, root: i128) -> Result<i64, DecodeError> {
 /// [`DecodeError::NormRefused`] for a row RMSNorm does not take, and
 /// [`DecodeError::Exact`] when a product refuses its input.
 pub fn step(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u32>, DecodeError> {
+    let h = through(model, session, token)?;
+    let logits = exact::dense_product_with(
+        &h,
+        Dense::F16(model.embedding),
+        DenseLayout::OutputMajor,
+        model.dims.hidden,
+        model.dims.vocab,
+        SCHEME,
+    )?;
+    session.position += 1;
+    Ok(logits)
+}
+
+/// One token through the model without its logits (EN-91): the session is
+/// left exactly as [`step`] leaves it, every key and value in the cache the
+/// same bits, and only the output head, a quarter of a token's work, is not
+/// computed. For every prompt id but the last, whose logits nothing reads.
+///
+/// # Errors
+///
+/// As [`step`], less the head's own product.
+pub fn advance(model: &Model<'_>, session: &mut Session, token: u32) -> Result<(), DecodeError> {
+    through(model, session, token)?;
+    session.position += 1;
+    Ok(())
+}
+
+/// Every layer and the final norm for one token, its keys and values added to
+/// the cache: the row the head reads.
+fn through(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u32>, DecodeError> {
     let Dims {
         hidden,
         heads,
@@ -767,17 +797,7 @@ pub fn step(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<
             .map(|(&a, &b)| add(a, b))
             .collect::<Result<Vec<u32>, DecodeError>>()?;
     }
-    let h = norm(&x, model.final_norm, model.epsilon)?;
-    let logits = exact::dense_product_with(
-        &h,
-        Dense::F16(model.embedding),
-        DenseLayout::OutputMajor,
-        hidden,
-        vocab,
-        SCHEME,
-    )?;
-    session.position += 1;
-    Ok(logits)
+    norm(&x, model.final_norm, model.epsilon)
 }
 
 /// The token id of the largest logit, the first on a tie, by the order of
