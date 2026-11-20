@@ -2,36 +2,12 @@ Feature: gpu
 
   The browser engine's WebGPU computation, checked against references that share no code with it.
 
-  @GP-01 @build
-  Scenario: The WebGPU forward pass of a ternary Qwen3 model gives the same greedy tokens as the CPU reference, with every logit within a stated tolerance
-    Given a two-layer ternary Qwen3 model with Bonsai's tensor names, generated from a fixed seed, and a six-token prompt
-    When the engine in site/app/engine runs it in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/reference.mjs
-    Then at each of sixteen steps the engine picks the reference's token
-    And every logit is within 0.002 of the reference's
-    And over a run of 140 positions, more than two of attention's 64-position chunks, the picks agree and every logit is within 0.005
-
-  @GP-02 @build
-  Scenario: The rotary frequencies are the YaRN formula, with the pairs that keep their frequency and the pairs that are scaled computed from the model base, original context and head size
-    Given Bonsai's rotary parameters: head size 128, base 1000000, factor 4, original context 8192
-    When the engine's yarn module computes the frequencies
-    Then the pairs below 17 keep their trained frequency, the pairs above 34 turn at a quarter of it, and the pairs between follow the linear ramp
-    And the rotated vectors are scaled by 1 + 0.1 ln 4
-
-  @GP-04 @build
-  Scenario: Running many positions in one submission, with each pick written on the GPU and read by the next position, gives the same tokens as running them one at a time
-    Given the same generated model and two prompts, one of six tokens and one of a hundred, longer than a submission's thirty-two slots and than one 64-position attention chunk
-    When one engine runs them one position per submission and another many positions per submission, each pick written to the ring on the GPU and read by the next position
-    Then both give the same twelve tokens for each prompt
-    And every position ran exactly once
-
   @GP-03 @build
-  Scenario: The engine page loads a weight container through the verified kernel and answers as the reference does, and stops where a container is tampered with
-    Given a weight container in Bonsai's layout built from the generated model, with its output head naming the embedding's bytes, and a hub record and index root that name it
-    When `just page-journey` drives the published page, with the holo and engine this workspace built, in headless Chromium, as `vv` does after `app` and `engine` and `pages.yml` does before it deploys
-    Then the page reaches ready with every check passed, confirms the output head is the embedding's bytes, and answers with the reference's first sixteen tokens
-    And a container with one flipped byte stops at that block's admission, before anything is uploaded
-    And a record naming a wrong whole-file SHA-256 stops at the root
-    And the prompt box starts empty, so typed text is the whole prompt, and Enter in it sends
+  Scenario: The engine page loads an ONNX export through the verified kernel, Qwen3-0.6B's unless the address names another, runs it on the integer engine and answers as the reference does, and stops where the deploy, the hub or the engine is not what it should be; its journey runs in the gate after the app and the engine, and before every deploy
+    Given the assembled page, with the holo and the engine this workspace built, and GP-19's Qwen3-shaped ONNX export behind a fixture hub
+    When `just page-journey` loads it, and loads it again with a stale deploy listing, a foreign index signature and a flipped engine
+    Then the export answers the reference's tokens, and each of the others stops at its own check
+    And vv runs the journey after app and engine, and pages.yml runs it before it deploys
 
   @GP-06 @build
   Scenario: The engine page stops with stale kernel before asking the kernel anything when the kernel it verified is not the one its deploy lists
@@ -40,14 +16,6 @@ Feature: gpu
     Then the page stops at "kernel is the one this deploy lists" with an error beginning "stale kernel", naming both, before it reads the record or asks the kernel any question
     And with the listing matching, the comparison passes and the load goes on
 
-  @GP-05 @build
-  Scenario: The WebGPU forward pass of a q4 Qwen2 model, with attention biases and no per-head norm, gives the same greedy tokens as the CPU reference with every logit within tolerance past one attention chunk, and a prompt run in blocks gives the same tokens as one position at a time
-    Given a two-layer q4 Qwen2 model generated from a fixed seed, with q, k and v biases, no per-head norm, plain rotary frequencies and an output head separate from the embedding
-    When the engine runs it in headless Chromium on WebGPU's software renderer, beside the reference that unpacks q4 by KN-17
-    Then at each of sixteen steps the engine picks the reference's token, and every logit is within 0.002 of the reference's
-    And over a run of 140 positions the picks agree and every logit is within 0.005
-    And prompts of six and a hundred tokens run in blocks give the same tokens as one position at a time
-
   @GP-07 @build
   Scenario: A page file held in the cache from an earlier deploy is removed and the page reloads once before the engine is imported, and a file still stale after that stops the page
     Given the assembled site, with the precache.json the deploy writes, and a cache named as the service worker names its own that holds one file of an earlier deploy and one of this deploy
@@ -55,38 +23,6 @@ Feature: gpu
     Then before importing the engine the page compares every cached file the listing names with the BLAKE3 listed, removes the one that differs, keeps the one that matches, and reloads once
     And after the reload it says files from an earlier deploy were replaced and imports the engine
     And when a reload has already been spent and a cached file still differs, it stops with "Stopped: stale page", disables Load and does not import the engine
-
-  @GP-08 @build
-  Scenario: A q4 Qwen2 model whose weights are given as ONNX MatMulNBits tensors, with f32 or f16 scales, runs on WebGPU from those bytes with no repack and gives the CPU reference's greedy tokens with every logit within tolerance
-    Given GP-05's generated q4 Qwen2 model, with each weight matrix written as MatMulNBits holds it at 4 bits, block size 32 and no zero points: B as [N][K / 32][16] bytes, low nibble first, and scales as [N][K / 32], once in f32 as a q4 export has them and once in f16 as a q4f16 export has them
-    When the engine in site/app/engine runs each from those two tensors as given, in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/reference.mjs
-    Then the f32 export's tensors are byte for byte the engine's q4 codes and scales
-    And for both exports, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
-    And a prompt run in blocks gives the same tokens as one position at a time
-
-  @GP-09 @build
-  Scenario: A q4 Qwen2 model whose embedding is a dense f32 or f16 matrix with the output head tied to it, as ONNX exports hold them, gives the CPU reference's greedy tokens with every logit within tolerance, with the head split into tiles when it is larger than one binding
-    Given GP-08's two models with the embedding written as onnx-community's exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B hold it, one dense [vocab][width] matrix, f32 in a q4 export and f16 in a q4f16 one, read by a Gather and, through a Transpose, by the head's MatMul, with no head tensor of its own
-    When the engine runs each with its binding limit set to 15,000 bytes, so the head is split into tiles of whole rows and the last tile is short
-    Then the f32 head is in twelve tiles and the f16 head in six
-    And for both, at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
-    And a prompt run in blocks gives the same tokens as one position at a time
-
-  @GP-10 @build
-  Scenario: A q4 Qwen2 model shaped as Qwen2.5's q4f16 ONNX export, with q4f16 weights, a dense f16 embedding and tied head, and norm weights and biases in f16, gives the CPU reference's greedy tokens with every logit within tolerance
-    Given GP-09's q4f16 model with its norm weights and its q, k and v biases written in f16, as onnx-community's q4f16 export of Qwen2.5-1.5B holds them
-    When the engine runs it from those bytes, widening each f16 vector exactly
-    Then the model's vectors reached the engine as f16 and it has its biases
-    And at each of sixteen steps the engine picks the reference's token, every logit is within 0.002 of the reference's, and over 140 positions every logit is within 0.005
-    And a prompt run in blocks gives the same tokens as one position at a time
-
-  @GP-11 @build
-  Scenario: The rotary frequencies of Llama 3's scaling are transformers' llama3 formula for Llama 3.2's parameters, and a Llama-shaped model with that scaling and no biases gives the CPU reference's greedy tokens with every logit within tolerance
-    Given Llama 3.2 1B's parameters: head size 64, base 500000, factor 32, low frequency factor 1, high frequency factor 4, original context 8192, which onnx-community's export bakes into its cos and sin caches although its config.json names no scaling
-    When the engine's rotary module computes the frequencies
-    Then pairs 0 to 14 keep their frequency, pairs 18 to 31 turn 32 times slower, and pairs 15 to 17 blend, every one within one part in a million of the formula, with no attention scale
-    And GP-10's model with no biases and Llama 3's scaling at factor 4 over an original context of 64, so its pairs fall in all three bands, gives the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions
-    And a prompt run in blocks gives the same tokens as one position at a time
 
   @GP-12 @build
   Scenario: Every weight of onnx-community's q4f16 exports of Qwen2.5-1.5B, Qwen3-0.6B and Llama 3.2 1B is given its engine role by the node that reads it, with shapes checked against the config, what cannot be placed is refused by name, and a model placed this way gives the CPU reference's greedy tokens
@@ -97,36 +33,6 @@ Feature: gpu
     And a missing weight, a duplicate, an operator no role takes, zero points, a block size of 64, a head count the shapes contradict, an unknown family, too few layers, a cache no parameters match and interleaved rotary are each refused, naming what is wrong
     And GP-10's and GP-11's models, written as a decomposed and a fused export, placed from their graphs alone and run from the tensors the map names, give the reference's tokens with every logit within 0.002, and within 0.005 over 140 positions
 
-  @GP-13 @build
-  Scenario: A BERT encoder shaped as all-MiniLM-L6-v2's q4f16 ONNX export, with q4f16 weights, f16 biases, LayerNorms and embedding tables and token types, gives on WebGPU the CPU reference's hidden states and its mean-pooled unit-length sentence embedding within tolerance
-    Given a two-layer encoder generated from a fixed seed in the formats Xenova's q4f16 export of all-MiniLM-L6-v2 holds: 4-bit weights as MatMulNBits' tensors with f16 scales, f16 biases and LayerNorm weights and biases, f16 word, position and token-type tables, LayerNorm epsilon 1e-12
-    When site/app/engine/encoder.mjs runs a sentence of 6 tokens and one of 60 in headless Chromium on WebGPU's software renderer, beside the double-precision reference in crates/conformance/tests/gpu/encoder-reference.mjs
-    Then every hidden state is within 1e-4 of the reference's
-    And the mean of the token states scaled to unit length is within 1e-4 of the reference's, cosine above 0.99999
-
-  @GP-14 @build
-  Scenario: A DistilBERT classifier shaped as distilbert-base-uncased-finetuned-sst-2-english's q4f16 ONNX export, with no token types and an f16 dense head through ReLU, gives on WebGPU the CPU reference's label scores within tolerance and the same label
-    Given a two-layer encoder generated from a fixed seed in the formats of Xenova's q4f16 export of distilbert-base-uncased-finetuned-sst-2-english: no token types, and a head of an f16 768-wide dense layer, ReLU and an f16 two-label dense layer, both with biases
-    When the encoder classifies a sentence of 6 tokens and one of 60, which the reference labels differently
-    Then each label score is within 1e-4 of the reference's and each probability within 1e-4
-    And the engine picks the reference's label for both
-
-  @GP-15 @build
-  Scenario: Tensors are kept in the browser once each by their BLAKE3 address: a second model stores only the tensors the first lacks, a return visit with the network off reads every tensor back admitted again and runs to the reference's tokens, and a stored tensor whose bytes changed is refused and removed
-    Given GP-10's model A, 40 blocks of tensor bytes, and a model B that is A with layer 1's feed-forward from another seed, five of its 40 blocks new
-    When a first visit stores A, then B, then A again, through site/app/engine/store.mjs in the browser's private file system, each block under the blake3: label of its bytes
-    Then A stores 40 blocks, B stores only its 5 new ones and holds the 35 it shares, 212,992 bytes not written again, and A again stores nothing
-    And a second visit to the same origin, with the network off, reads all 40 of A's blocks back, each admitted again before use, and the engine run from them picks the reference's token at each of sixteen steps with every logit within 0.002
-    And a stored block changed by one bit is not admitted, is removed and reads as missing, and a sha256: label is refused by its prefix
-
-  @GP-16 @build
-  Scenario: A prompt's computed prefix, kept on the GPU and restored into the same engine after its cache was overwritten or into a fresh engine of the same model, gives bit for bit the logits and tokens of computing the whole prompt
-    Given GP-10's and GP-11's models, a 40-token prefix longer than one submission, and an 8-token suffix
-    When one engine computes prefix and suffix and 8 greedy picks position by position, and another computes the prefix, keeps it with saveState, starts again from position 0 with 50 other tokens that overwrite every row the prefix held, restores the prefix and continues, and a third, fresh, is given the second's prefix and continues
-    Then every logit at the 16 positions after the prefix is the same bits in all three
-    And running the prefix in blocks, keeping it, resetting and running 50 other tokens, restoring and running the suffix picks the same 12 tokens as running prefix and suffix together
-    And keeping more positions than were computed, or restoring a prefix saved from another shape of model, is refused
-
   @GP-17 @build
   Scenario: Every weight of Xenova's q4f16 exports of all-MiniLM-L6-v2 and distilbert-base-uncased-finetuned-sst-2-english is given its encoder role by the node that reads it, with shapes, activation and labels checked against the config, what cannot be placed is refused by name, and an encoder placed this way gives the CPU reference's embedding and labels
     Given the graphs of the two exports at 751bff3 and 0b6928e, recorded in crates/conformance/tests/gpu/exports as their weight-reading nodes and tensor shapes with their config.json
@@ -134,14 +40,6 @@ Feature: gpu
     Then all-MiniLM-L6-v2 has 101 tensors placed, 36 of them q4f16, and DistilBERT 104 with its classifier head and its labels NEGATIVE and POSITIVE
     And an activation other than exact GELU, an unknown family, a missing bias, a head Gemm not transposed, a config with three labels, an operator no role takes and a feed-forward width the shapes contradict are each refused, naming what is wrong
     And GP-13's and GP-14's encoders, written as these exports name their nodes and placed from their graphs alone, give the reference's embedding within 1e-4 and its labels
-
-  @GP-18 @build
-  Scenario: With WebGPU off, the CPU engine runs q4 Qwen2, Qwen2.5's, Llama's and Qwen3's q4f16 export shapes from their own bytes and gives the CPU reference's greedy tokens with every logit within 1e-5, by steps, in a run and after restoring a prefix
-    Given GP-05's q4 model, GP-10's Qwen2.5-shaped and GP-11's Llama-shaped models, and the same with Qwen3's shape: no biases and a norm on each query and key head
-    When site/app/engine/cpu.mjs runs each in headless Chromium launched with its GPU disabled, where no WebGPU adapter is offered, beside the double-precision reference
-    Then at each of sixteen steps the engine picks the reference's token and every logit is within 1e-5, and over 140 positions every logit is within 1e-5
-    And a 40-token prompt run with run() picks the same 12 tokens as stepping it one position at a time
-    And a prefix kept, overwritten by 50 other tokens and restored continues with the tokens of running the whole prompt
 
   @GP-19 @build
   Scenario: The engine page reads an ONNX export named on the hub from its own files: each small file checked against the record, the graph imported through the module with the kernel admitting every span, operator, file and 4-bit weight, every weight placed by the node that reads it, and it answers as the reference does on WebGPU and on the CPU, and stops where a file is not the record's
@@ -294,6 +192,13 @@ Feature: gpu
     And an extractor called without pooling is refused by decision 82 before it runs
     And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
 
+  @GP-57 @build
+  Scenario: The engine page loads an ONNX export whose graph file holds no tensor, every one in a data file beside it, as Llama 3.2 1B's q4f16 export keeps them: the tensor manifest takes each tensor's BLAKE3 address from the hub's UOR index row under the file it lies in, refuses a listed tensor without one, and refuses only a model none of whose files lists any tensor; the importer reads the data file and the page answers with the reference's tokens
+    Given GP-19's Qwen3-shaped ONNX export written again with every tensor in onnx/model_q4f16.onnx_data, named by location, offset and length as onnxruntime's exports name them, its hub record listing both files, and the hub's UOR index row for the graph naming both files and each tensor under the data file
+    When `just page-journey` loads that export in a fresh browser profile
+    Then the tensor manifest passes with every tensor of the data file over the graph and its data file, the graph listing none
+    And the importer reads one data file, the data file is downloaded, and the page answers with the reference's tokens
+
   @GP-29 @build
   Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
     Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each
@@ -315,9 +220,30 @@ Feature: gpu
     And both turns' sixteen tokens are the reference's
 
   @GP-56 @build
-  Scenario: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
+  Scenario: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and the dense output head with the dense kernel (KN-95) when its half weights fit one binding, any other product on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
     Given GP-19's Qwen3-shaped ONNX export, 128 wide with a feed-forward of 256, and the engine page's service worker
     When `just page-journey` loads the page, reloads it under its worker, and runs a turn on WebGPU, on the device the kernel chooses, and on the CPU
-    Then the reloaded page is cross-origin isolated, and WebGPU and the kernel's choice run the integer engine on WebGPU with every q4 product there and the head on the module
+    Then the reloaded page is cross-origin isolated, and WebGPU and the kernel's choice run the integer engine on WebGPU with every product there, the head on the dense kernel
     And all three turns' sixteen tokens are the reference's, and WebGPU's are the CPU's
     And a first visit, not isolated, runs on the CPU
+
+  @GP-58 @build
+  Scenario: Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte
+    Given GP-19's Qwen3-shaped ONNX export on a cross-origin-isolated page
+    When `just page-journey` runs the same turn on WebGPU and on the CPU
+    Then each answer carries a receipt with the class everywhere
+    And the model, input and output labels are the same on both devices, and the output label is the BLAKE3 of the tokens' bytes
+
+  @GP-59 @build
+  Scenario: A receipt is checked by running it again in the tab, on that tab's device, from its own ids, and putting the claimed and replayed output labels to the kernel (decision 31): WebGPU's receipt run on the CPU and the CPU's run on WebGPU are confirmed, a receipt whose output label was changed is a mismatch, a receipt for another model is not comparable, and a page opened with a link carrying a receipt loads the model, checks it and shows the verdict
+    Given the two receipts of GP-58
+    When `just page-journey` checks each on the other device, checks one with its output label changed and one for another model, and opens the page with a link carrying a receipt
+    Then the kernel answers confirmed, confirmed, mismatch and not comparable
+    And the linked page shows Confirmed
+
+  @GP-60 @build
+  Scenario: A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range
+    Given GP-58's receipt from WebGPU
+    When `just page-journey` opens it at layer 1, two positions past the prompt, on the CPU and on WebGPU, its attention output there, and a layer past the model's
+    Then the kernel answers exact replay, and the residual read on both devices has one BLAKE3 and the residual stream's width
+    And attention's output is other bits, and the layer past the model is out of range
