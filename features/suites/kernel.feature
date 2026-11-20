@@ -486,3 +486,11 @@ Feature: kernel
     And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
     And size_bound bounds the product shifted by its offset by 2^64 under the same condition
     And scaled_zero_is_not_negative holds for every input
+
+  @KN-80 @build
+  Scenario: Decision 80 answers sealed exactly when a 32-byte BLAKE3 address, read as eight 4-byte words, is the engine address the model seals, not the sealed engine for any other address, one flipped byte among them, and invalid request for any length but 33
+    Given the seal model in app/src/Kernel/Seal.lex.tex, whose eight words are the engine address `just engine` checks, and its proofs in app/src/Proofs/Seal.lex.tex
+    When the Lean kernel checks seal_decides and seal_refuses_another_first_word during lexlean verify in the gate
+    Then an address is sealed exactly when each of its eight big-endian 4-byte words is the model's word at that place
+    And the answer to decision 80 is sealed for the sealed address, not the sealed engine for any other, and invalid request for any length but 33
+    And the compiled guest answers sealed for the sealed address, not the sealed engine for it with one bit of its first byte flipped, and invalid request for a short request, as the claims it replays list

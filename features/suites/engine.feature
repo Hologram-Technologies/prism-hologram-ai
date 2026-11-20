@@ -836,3 +836,12 @@ Feature: engine
     Given GP-13's encoder with its first layer's query projection left out
     When the page's module is asked to open it
     Then encode_open says no with Encode(Unrecognised(Attention)), the encoder's own failure, where the page reads answers
+
+  @EN-90 @build
+  Scenario: engine.wasm is byte-identical on every build: the pinned toolchain and target, codegen-units 1, path prefixes remapped, SOURCE_DATE_EPOCH fixed and every host flag cleared, so two builds in different directories with different cargo homes give the same bytes, and the build fails unless their BLAKE3 is the address the model seals
+    Given rust-toolchain.toml naming one exact toolchain with wasm32-unknown-unknown, and the release profile with codegen-units 1
+    When the engine recipe builds the page's module
+    Then it builds with every rustflags source but its own cleared, the cargo registry and the workspace remapped to fixed prefixes, and SOURCE_DATE_EPOCH fixed
+    And it fails, naming both addresses, unless the module's BLAKE3 is the address app/src/Kernel/Seal.lex.tex seals
+    And the engine-twice recipe builds it twice, from two copies of the tree with two cargo homes of different lengths and a host flag in the environment of the second, and fails on any byte that differs
+    And engine.yml runs engine-twice on every change to the engine's inputs, keyed by every one of them, and re-derives the address of a kept module before it is trusted

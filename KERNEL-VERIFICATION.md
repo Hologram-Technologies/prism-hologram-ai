@@ -1855,3 +1855,45 @@ is the crate's.
 | decision 46 not routed | rejected: `decision 46 must be routed to Kernel.Chat::chatAnswer` |
 | none | passed |
 
+
+## KN-80, the sealed engine
+
+Set by Ilya on 2026-11-19: the page's `engine.wasm` must be byte-identical on
+every build, sealed, and self-verifying. Decision 80 is the seal's verdict.
+The request is the tag and the engine's 32-byte BLAKE3; the kernel reads it as
+eight big-endian 4-byte words, the widths the wire format has, and answers
+`sealed` exactly when each is `sealedWord` at its place, `not the sealed
+engine` for any other address, and `invalid request` for any length but 33.
+
+`sealedWord` in `app/src/Kernel/Seal.lex.tex` is the one place the address is
+written. `xtask engine-seal` reads the same eight literals to fail a build
+whose module is not that address (EN-90), and `kernel_kn_80` derives the
+decision-80 claims from them, so a moved seal fails until `claims.json`
+follows. The theorems name `sealedWord`, not its numbers, so moving the seal
+changes no proof. Every change to `crates/`, `Cargo.lock` or
+`rust-toolchain.toml` moves it, in the same change.
+
+### The pinned test: `kernel_kn_80`
+
+Planted on 2026-11-19, `cargo test -p repo-conformance --test kernel kernel_kn_80`:
+
+| Planted | Result |
+| --- | --- |
+| decision 80 answering `refused` where it answers `not the sealed engine` | rejected: `sealAnswer changed` |
+| `sealedWord 0` moved by one (`1322057574`) with `claims.json` left as it was | rejected: `no claim answers decision 80's 504eccff66… with sealed` |
+| none | passed |
+
+### The proof gate: `seal_decides` and `seal_refuses_another_first_word`
+
+Checked on the hosted LexLean prover (`prism-app` profile, the gateway's
+Lean 4 toolchain) on 2026-11-19, with `Kernel.Seal`, `Kernel.Wire` and the
+two `Foundation.Bytes` definitions it reads:
+
+| Planted | Result |
+| --- | --- |
+| `engineSealed` with its eighth comparison replaced by `true`, CI's lexlean 0.3.0 in WSL | rejected: Lean, `HologramAi.Proofs.Seal`, omega could not prove the goal (`seal_decides`) |
+| none, with CI's lexlean 0.3.0 in WSL (`lexlean verify src/Proofs/Seal.lex.tex`) | `verified 4 modules`, attestation `a22cf1fbf28f84915e204e0fc4b0efce0d16782df4714b67b91921a370294ae0` |
+| none, hosted prover | verified, task-184 |
+
+Lean 4 v4.32.1 attested both theorems. The guest's replay of the three decision-80 claims and `lexlean verify` over
+every proof module run in the acceptance gate on CI.

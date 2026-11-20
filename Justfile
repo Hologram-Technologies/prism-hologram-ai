@@ -54,10 +54,9 @@ deny:
 # kernel and leanchecker check every proof module, each with its exact axiom
 # policy. `xtask proofs` runs it on only the proof modules whose inputs changed:
 # each module's earlier verification is kept in `.prism-proof/lean`, keyed by the
-# BLAKE3 of its source, its import closure, the lock and the tools, and reused only
-# after its attestation re-derives and binds this module's inputs now; a failed
-# check verifies in full (see xtask/src/proofs.rs). No proof module is an error.
-# `prismpm verify` builds the holo, replaying its
+# BLAKE3 of its source, its import closure, the lock and the tools, and reused
+# only after its attestation re-derives and binds this module's inputs now; a
+# failed check verifies in full (xtask/src/proofs.rs). No proof module is an error. `prismpm verify` builds the holo, replaying its
 # acceptance vectors in the compiled guest, then has the Lean kernel and
 # leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
@@ -97,19 +96,77 @@ app:
 # Not committed: `site/app/engine/engine.wasm` is built here and by pages.yml,
 # the way `site/app.holo` is, so what is published is what this workspace
 # builds rather than a file someone remembered to update.
+#
+# EN-90: the module is the same bytes on every machine, and those bytes are the
+# address the model seals (app/src/Kernel/Seal.lex.tex), which the page asks
+# decision 80 about before it compiles them. A change to crates/, Cargo.lock or
+# rust-toolchain.toml changes the address: `engine-seal` fails naming the new
+# one, and the seal moves in the same change as the code it seals.
 engine:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm
     mkdir -p site/app/engine
-    cp target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm site/app/engine/engine.wasm
+    just engine-build site/app/engine/engine.wasm
     cargo run -q --locked -p xtask -- engine-size site/app/engine/engine.wasm
+    cargo run -q --locked -p xtask -- engine-seal site/app/engine/engine.wasm
     # What a visitor actually fetches, which is the compressed size. Reported,
     # not gated: it depends on what the server does, and the ceiling is on the
     # bytes this repository produces.
     if command -v gzip >/dev/null; then
       printf 'engine: %s bytes gzipped\n' "$(gzip -9 -c site/app/engine/engine.wasm | wc -c)"
     fi
+
+# The page's module built so that nothing of the machine reaches its bytes.
+# Found on 2026-11-19: CI's and a WSL build of one commit differed only in the
+# cargo home's absolute path, which panic locations carry from every registry
+# crate (/tmp/prismpm-cargo-1001 against /home/<user>/.cargo). So the registry
+# and the workspace are remapped to fixed names; every other rustflags source
+# and every profile override the environment could carry is cleared, since
+# CARGO_ENCODED_RUSTFLAGS outranks the rest; and SOURCE_DATE_EPOCH is fixed so
+# a dependency that starts reading the clock cannot make two builds differ.
+# The toolchain and target are rust-toolchain.toml's; codegen-units is 1 in
+# the release profile.
+engine-build out:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER CARGO_BUILD_RUSTC_WRAPPER CARGO_INCREMENTAL RUSTDOCFLAGS
+    for name in $(compgen -e | grep '^CARGO_PROFILE_' || true); do unset "$name"; done
+    meta=$(cargo metadata --format-version 1 --locked)
+    registry=$(grep -o '"manifest_path":"[^"]*/registry/src/[^/"]*/' <<<"$meta" | sed -n '1{s/^"manifest_path":"//; s#/$##; p}')
+    target=$(grep -o '"target_directory":"[^"]*"' <<<"$meta" | sed 's/^"target_directory":"//; s/"$//')
+    [[ -n $registry && -n $target ]] || { echo "engine-build: cargo metadata names no registry source or target directory" >&2; exit 64; }
+    # rustc applies the last prefix that matches, so the registry comes last:
+    # a cargo home inside the workspace still maps to /registry.
+    export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/workspace"$'\x1f'"--remap-path-prefix=$registry=/registry"
+    export SOURCE_DATE_EPOCH=0
+    cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm
+    cp "$target/wasm32-unknown-unknown/release/hologram_ai_wasm.wasm" "{{out}}"
+
+# EN-90's gate: the module built twice, from two copies of the tree with two
+# fresh cargo homes of different lengths and two target directories, the second
+# with host flags in its environment that engine-build must clear; any byte
+# that differs fails, and then the address must be the sealed one. engine.yml
+# runs it on every change to the engine's inputs.
+engine-twice out="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    for side in a bb; do
+      mkdir -p "$work/$side/tree"
+      git ls-files -z -co --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$work/$side/tree"
+    done
+    (cd "$work/a/tree" && CARGO_HOME="$work/a/home" CARGO_TARGET_DIR="$work/a/target" just engine-build "$work/a.wasm")
+    (cd "$work/bb/tree" && CARGO_HOME="$work/bb/cargo-home-two" CARGO_TARGET_DIR="$work/bb/target" \
+      RUSTFLAGS="-C target-cpu=native" CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+      just engine-build "$work/b.wasm")
+    if ! cmp "$work/a.wasm" "$work/b.wasm"; then
+      echo "engine-twice: two builds of one tree differ ($(cmp -l "$work/a.wasm" "$work/b.wasm" | wc -l) bytes)" >&2
+      exit 1
+    fi
+    echo "engine-twice: two builds are the same $(wc -c <"$work/a.wasm") bytes"
+    cargo run -q --locked -p xtask -- engine-seal "$work/a.wasm"
+    if [[ -n "{{out}}" ]]; then cp "$work/a.wasm" "{{out}}"; fi
 
 # The page as it is published, driven end to end: the holo this workspace
 # built, the engine it built, the page assembled from them, and a real
