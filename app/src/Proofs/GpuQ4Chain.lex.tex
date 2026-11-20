@@ -29,5 +29,13 @@ theorem{
   proof: reflexivity{},
   axioms: []
 }
+
+theorem{
+  name: dense_row_matches_exact,
+  parameters: [],
+  statement: ((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 1430144537 (cons 102202 (cons 3526847775 (cons 10704 (cons 1404628537 (cons 2830412270 (cons 1362921683 (cons 1180659896 (cons 3235834506 (cons 1228905597 (cons 3923659967 (cons 4104302296 (cons 3259627804 (cons 3599647722 (cons 2591308769 (cons 3617227430 (cons 1665251947 (cons 695883207 (cons 763283582 (cons 2229213358 (cons 846430211 (cons 3954447145 (cons 2187673206 (cons 598088509 (cons 2608081371 (cons 234716159 (cons 323262589 (cons 2808617743 (cons 702919287 (cons 2981642025 (cons 2392372116 (cons 2361431086 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 32 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::denseAccumulate)) buffers), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 1250986792 (cons 3330998693 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
 \end{semanticmodule}
 \end{lexlean}

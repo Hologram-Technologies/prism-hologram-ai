@@ -1047,7 +1047,7 @@ statement = "On a cross-origin-isolated page the integer engine's worker hands e
 id = "GP-56"
 level = "build"
 suite = "gpu"
-statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
+statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and the dense output head with the dense kernel (KN-95) when its half weights fit one binding, any other product on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
 
 [[id]]
 id = "EN-96"
@@ -1072,3 +1072,9 @@ id = "EN-112"
 level = "build"
 suite = "engine"
 statement = "The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name"
+
+[[id]]
+id = "KN-95"
+level = "build"
+suite = "kernel"
+statement = "The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows"
