@@ -1528,5 +1528,109 @@ theorem{
   },
   axioms: [Quot.sound, propext]
 }
+
+definition{
+  name: signWord,
+  parameters: [c : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Q4Sum::actNeg c) (prim subtract 4294967296 (Engine.Stage.Q4Sum::actMag c) : Nat) (Engine.Stage.Q4Sum::actMag c))
+}
+
+theorem{
+  name: act_neg_le,
+  parameters: [c : Nat],
+  statement: ((Engine.Stage.Q4Sum::actNeg c) <= 1),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::below, Engine.Stage.Q4Sum::actNeg]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: weight_neg_le,
+  parameters: [n : Nat],
+  statement: ((Engine.Stage.Q4Sum::weightNeg n) <= 1),
+  proof: linear_arithmetic{
+    definitions: [Engine.Stage.Greedy::below, Engine.Stage.Q4Sum::weightNeg]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: mod16_lt,
+  parameters: [x : Nat],
+  statement: ((prim remainder x 16 0 : Nat) < 16),
+  proof: linear_arithmetic{},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: parity_given,
+  parameters: [f : Nat, w : Nat],
+  statement: ((f <= 1) -> ((w <= 1) -> ((prim remainder (f + w) 2 0 : Nat) = (Engine.Stage.Greedy::pick f (prim subtract 1 w : Nat) w)))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::pick]},
+        binders: [fr, fh],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: term_neg_eq,
+  parameters: [c : Nat, n : Nat],
+  statement: ((Engine.Stage.Q4Sum::termNeg c n) = (Engine.Stage.Greedy::pick (Engine.Stage.Q4Sum::actNeg c) (prim subtract 1 (Engine.Stage.Q4Sum::weightNeg n) : Nat) (Engine.Stage.Q4Sum::weightNeg n))),
+  proof: simplify{
+    definitions: [act_neg_le, parity_given, weight_neg_le, Engine.Stage.Q4Sum::termNeg]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: kfac_fold,
+  parameters: [n : Nat],
+  statement: ((Engine.Gpu::word (prim subtract (n + 4294967296) (Engine.Gpu::word 8) : Nat)) = (kfac n)),
+  proof: simplify{definitions: [kfac]},
+  axioms: [propext]
+}
+
+theorem{
+  name: kprod_fold,
+  parameters: [f : Nat, a : Nat, n : Nat],
+  statement: ((Engine.Gpu::word (prim multiply (Engine.Stage.Greedy::pick f (prim subtract 4294967296 a : Nat) a) (kfac n) : Nat)) = (kprod f a n)),
+  proof: simplify{definitions: [kprod]},
+  axioms: [propext]
+}
+
+theorem{
+  name: term_fact,
+  parameters: [c : Nat, x : Nat],
+  statement: ((Engine.Gpu::word ((Engine.Gpu::word (prim multiply (signWord c) (Engine.Gpu::word (prim subtract ((prim remainder x 16 0 : Nat) + 4294967296) (Engine.Gpu::word 8) : Nat)) : Nat)) + (Engine.Stage.Q4Sum::negPart c (prim remainder x 16 0 : Nat)))) = (Engine.Gpu::word (Engine.Stage.Q4Sum::posPart c (prim remainder x 16 0 : Nat)))),
+  proof: simplify{
+    definitions: [
+      act_neg_le,
+      core_any,
+      kfac_fold,
+      kprod_fold,
+      mod16_lt,
+      signWord,
+      term_neg_eq,
+      Engine.Stage.Q4Sum::negPart,
+      Engine.Stage.Q4Sum::posPart,
+      Engine.Stage.Q4Sum::termMag,
+      Proofs.StageQ4Sum::act_mag_bound
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
