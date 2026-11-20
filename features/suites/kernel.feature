@@ -486,3 +486,11 @@ Feature: kernel
     And product_high_below_eight and offset_bound bound the high limb by 8 and the offset by 30
     And size_bound bounds the product shifted by its offset by 2^64 under the same condition
     And scaled_zero_is_not_negative holds for every input
+
+  @KN-81 @build
+  Scenario: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on eight rows, which the kernel test replays against the Rust
+    Given the stage in app/src/Engine/Stage/Softmax.lex.tex and its proofs in app/src/Proofs/StageSoftmax.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageSoftmax in the gate
+    Then no_key_above_top holds for every row: the truncated excess of every score over the largest sums to 0
+    And weight_is_exp2 holds for every distance, and total_at_least bounds a non-empty row's sum of weights by 2^30 from below
+    And rust_row_0 to rust_row_7 evaluate the stage on eight rows, and kernel_kn_81 replays each row through crates/exact's softmax_exp2 and finds the same words

@@ -5195,3 +5195,9 @@ fn kernel_kn_58() {
         "the stage multiplies only by 2"
     );
 }
+
+/// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on eight rows, which the kernel test replays against the Rust
+#[test]
+fn kernel_kn_81() {
+    panic!("KN-81 is registered and not built: assert what its scenario states");
+}
