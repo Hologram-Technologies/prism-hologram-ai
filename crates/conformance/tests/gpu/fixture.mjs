@@ -170,11 +170,17 @@ export function buildOnnxFixture() {
   // everything else differs, as between a real export's two precisions.
   const model4 = tinyQwen2(16, "onnx", "f32", "dense", { qkNorm: true });
   const q4 = { model: model4, path: "onnx/model_q4.onnx", bytes: Buffer.from(onnxFile(model4, "qwen3").bytes) };
-  return { model, files, sha, b3, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40), q4 };
+  // GP-57: the same q4f16 model with every tensor in a data file beside the
+  // graph, as Llama 3.2 1B's export keeps them, so the graph file holds none.
+  const outside = onnxFile(model, "qwen3", "fused", { external: "model_q4f16.onnx_data" });
+  const external = new Map([...files, ["onnx/model_q4f16.onnx", Buffer.from(outside.bytes)], ["onnx/model_q4f16.onnx_data", Buffer.from(outside.data)]]);
+  return { model, files, sha, b3, prompt, expected: picked.slice(0, 16), eos, path: "onnx/model_q4f16.onnx", repo: "fixture/tiny-onnx", revision: "1".repeat(40), q4, external };
 }
 
-// Every initializer of an ONNX file with its bytes inline: its name, element
-// type, dims, and where its raw_data lies in the file. Read field by field
+// Every initializer of an ONNX file: its name, element type, dims, and where
+// its bytes lie: its raw_data in the graph file, or, for a tensor whose bytes
+// live in a data file, that file's location and the offset and length its
+// external_data entries give. Read field by field
 // from onnx.proto, as the hub's tools/onnx.mjs reads a real export, so the
 // fixture's UOR index is computed from the bytes and not from the writer.
 export function onnxInitializers(bytes) {
@@ -206,33 +212,48 @@ export function onnxInitializers(bytes) {
     const parts = fields(t.start, t.end);
     const raw = parts.find((p) => p.field === 9);
     const name = parts.find((p) => p.field === 8);
+    const str = (p) => Buffer.from(bytes.subarray(p.start, p.end)).toString();
+    const external = Object.fromEntries(parts.filter((p) => p.field === 13).map((p) => {
+      const kv = fields(p.start, p.end);
+      return [str(kv.find((x) => x.field === 1)), str(kv.find((x) => x.field === 2))];
+    }));
+    const outside = parts.find((p) => p.field === 14)?.value === 1;
     return {
-      name: Buffer.from(bytes.subarray(name.start, name.end)).toString(),
+      name: str(name),
       dtype: types[parts.find((p) => p.field === 2).value],
       shape: parts.filter((p) => p.field === 1).map((p) => p.value),
-      offset: raw.start,
-      length: raw.end - raw.start,
+      location: outside ? external.location : null,
+      offset: outside ? Number(external.offset) : raw.start,
+      length: outside ? Number(external.length) : raw.end - raw.start,
     };
   });
 }
 
 // The hub's UOR address index for ONNX exports, as tools/uor-index.mjs writes
-// it: one row per graph file, each initializer with its BLAKE3 address, filed
+// it: one row per graph file, naming the graph and its data files, each
+// initializer with its BLAKE3 address and the file its bytes lie in, filed
 // in the shard the hub's own rule names (web/uorkey.mjs: the leading bits of
 // the SHA-256 of the repository's name). `rows` are { repo, revision, path,
-// bytes, resolve }; `lie` gives one tensor another address.
+// bytes, resolve, data }, `data` a Map from each data file's path to its
+// bytes; `lie` gives one tensor another address.
 export function uorIndexFiles(rows, { shardBits = 4, lie = null } = {}) {
   const shards = new Map();
-  for (const { repo, revision, path, bytes, resolve } of rows) {
+  for (const { repo, revision, path, bytes, resolve, data = new Map() } of rows) {
     const bucket = parseInt(createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 4), 16) >>> (16 - shardBits);
     const shard = `shards/${bucket.toString(16).padStart(3, "0")}.json`;
-    const tensors = onnxInitializers(bytes).map((t) => ({
-      ...t,
-      file: path,
-      address: `blake3:${lie && lie.repo === repo && lie.name === t.name ? "0".repeat(64) : blake3Hex(bytes.subarray(t.offset, t.offset + t.length))}`,
-    }));
+    const folder = path.slice(0, path.lastIndexOf("/") + 1);
+    const tensors = onnxInitializers(bytes).map(({ location, ...t }) => {
+      const file = location ? folder + location : path;
+      const held = location ? data.get(file) : bytes;
+      return {
+        ...t,
+        file,
+        address: `blake3:${lie && lie.repo === repo && lie.name === t.name ? "0".repeat(64) : blake3Hex(held.subarray(t.offset, t.offset + t.length))}`,
+      };
+    });
+    const files = [[path, bytes], ...data].map(([p, b]) => ({ path: p, size: b.length, blake3: blake3Hex(b) }));
     if (!shards.has(shard)) shards.set(shard, []);
-    shards.get(shard).push({ repo, revision, path, size: bytes.length, realization: "onnx", resolve, files: [{ path, size: bytes.length, blake3: blake3Hex(bytes) }], tensors });
+    shards.get(shard).push({ repo, revision, path, size: files.reduce((n, x) => n + x.size, 0), realization: "onnx", resolve, files, tensors });
   }
   const bodies = new Map([...shards].map(([p, list]) => [p, Buffer.from(JSON.stringify(list))]));
   const root = Buffer.from(JSON.stringify({

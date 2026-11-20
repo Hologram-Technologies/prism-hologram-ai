@@ -503,6 +503,15 @@ Feature: kernel
     And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
     And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests
 
+  @KN-59 @build
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+    Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageRowSum in the gate
+    Then row_is_signed_total holds for every input: a row's twelve words have the value rowTotal
+    And run_row and run_starts_at_row_zero show run emits exactly those twelve words for each row in turn
+    And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
+    And add_exact, complement_twelve and subtract_exact hold for every register and term
+
   @KN-81 @build
   Scenario: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
     Given the stage in app/src/Engine/Stage/Softmax.lex.tex and its proofs in app/src/Proofs/StageSoftmax.lex.tex, which are about the stage itself
@@ -525,6 +534,13 @@ Feature: kernel
     When the Lean kernel runs them through Engine.GpuRun during lexlean verify in the gate
     Then the quantiser's codes and power are hologram_ai_exact's for the fixture's 32 activations
     And the accumulator then the rounding kernel give hologram_ai_exact's binary32 for the fixture's first two rows, one negative and one positive
+
+  @KN-95 @build
+  Scenario: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+    Given app/src/Engine/Gpu.lex.tex's denseAccumulate and the guest's byte code of it in app/src/Engine/Code.lex.tex
+    When Lean checks dense_accumulate_code_prints_tree and dense_row_matches_exact, and the app recipe replays decision 48's claims for kernel 6 through the compiled guest
+    Then the guest prints renderKernel's text of the tree, and the kernels' rows are hologram_ai_exact's
+    And the printed text names no f32 or f16
 
   @KN-86 @build
   Scenario: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle

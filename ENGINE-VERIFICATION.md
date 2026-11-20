@@ -3206,3 +3206,28 @@ Planted on 2026-11-20:
 | --- | --- |
 | `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
 | none | passed |
+
+## EN-97, probes read the run's own values
+
+The session takes a probe for its next step, a layer and a component, and the
+step keeps what it computed there: the residual after the layer, attention's
+output projection or the feed-forward's down projection. `decode_probe` sets
+it and `decode_probed` reads it once. Nothing else changes, so a probed run is
+the run. The engine is resealed at `blake3:a8d3c758…3a3638` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every component of every layer, two positions past GP-19's prompt, reads the residual stream's width, and a second replay reads the same bits | `engine_en_97` | tested |
+| Each layer's residual differs from the one before it; a layer past the model's reads nothing | the same | tested |
+| A run with a probe set gives every logit the run without one gives | the same | tested |
+| A fourth component is refused | the same | tested |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_97`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
+| none | passed |
+
