@@ -10,6 +10,8 @@ publish = false
 # `repo-conformance` supplies the source reader `audit-limits` shares with the
 # meta-gate, so the two gates read Rust the same way.
 [dependencies]
+# `blake3` keys each proof module's kept verification (`proofs`).
+blake3 = { workspace = true }
 repo-model = { workspace = true }
 repo-conformance = { workspace = true }
 serde_json = "1.0.151"

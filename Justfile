@@ -52,7 +52,12 @@ deny:
 # gives that graph's Lean build a fixed 600 seconds and the arithmetic and
 # induction proofs exceed it there (`PP5007`). `lexlean verify` has the Lean
 # kernel and leanchecker check every proof module, each with its exact axiom
-# policy; `failglob` makes an empty match an error, not a vacuous pass. `prismpm verify` builds the holo, replaying its
+# policy. `xtask proofs` runs it on only the proof modules whose inputs changed:
+# each module's earlier verification is kept in `.prism-proof/lean`, keyed by the
+# BLAKE3 of its source, its import closure, the lock and the tools, and reused only
+# after its attestation re-derives and binds this module's inputs now; a failed
+# check verifies in full (see xtask/src/proofs.rs). No proof module is an error.
+# `prismpm verify` builds the holo, replaying its
 # acceptance vectors in the compiled guest, then has the Lean kernel and
 # leanchecker check every theorem (the `KN` rows) and the generated code against the
 # model. It runs the build itself, so a separate `prismpm build` would repeat it.
@@ -74,7 +79,7 @@ app:
     shopt -s failglob
     (cd app && lexlean fmt --all --check && lexlean lock --check)
     (cd experience && lexlean fmt --check && lexlean lock --check && lexlean check)
-    (cd app && lexlean verify src/Proofs/*.lex.tex)
+    cargo run -q --locked -p xtask -- proofs
     prismpm --project app verify | tee .prism-proof.log
     mkdir -p .prism-proof
     sed -n 's/^verified attestation: \([0-9a-f]\{64\}\)$/\1/p' .prism-proof.log > .prism-proof/attestation
