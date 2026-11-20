@@ -44,6 +44,11 @@ pub enum DecodeError {
     /// helpers, came back with another number of rows than the matrix has, or
     /// a slice sent to one did not read back.
     Elsewhere,
+    /// `FL-110`: a layer, the final norm or the head was asked of a model
+    /// read before its weights arrived (EN-110), or a prefill was asked out of
+    /// order: a step on a model with a layer still missing, a layer the
+    /// prefill is not at, or an empty prompt.
+    NotHeld,
 }
 
 impl From<ExactError> for DecodeError {
@@ -149,7 +154,8 @@ pub struct Model<'a> {
     pub dims: Dims,
     embedding: Dense<'a>,
     layers: Vec<Layer<'a>>,
-    final_norm: Dense<'a>,
+    /// `None` while a layer is still missing (EN-110).
+    final_norm: Option<Dense<'a>>,
     frequencies: Vec<u64>,
     epsilon: u64,
     root: i128,
@@ -325,6 +331,25 @@ pub fn read<'a>(
     initializers: &BTreeMap<String, Initializer<'a>>,
     config: Config,
 ) -> Result<Model<'a>, DecodeError> {
+    read_first(nodes, initializers, config, usize::MAX)
+}
+
+/// The model as far as its weights have arrived (EN-110): the embedding,
+/// the sizes the graph states, and layers `0..held` (all of them when `held`
+/// is at least their number), the final norm only once every layer is held.
+/// What a prefill reads layer by layer while the rest of the file streams;
+/// [`step`] and [`advance`] refuse it with [`DecodeError::NotHeld`] until it
+/// is whole.
+///
+/// # Errors
+///
+/// As [`read`], for the embedding and the layers asked.
+pub fn read_first<'a>(
+    nodes: &[Node],
+    initializers: &BTreeMap<String, Initializer<'a>>,
+    config: Config,
+    held: usize,
+) -> Result<Model<'a>, DecodeError> {
     let gather = node(nodes, "/model/embed_tokens/Gather", Role::Embedding)?;
     let embedding =
         weight(gather, initializers, 0).ok_or(DecodeError::Unrecognised(Role::Embedding))?;
@@ -402,7 +427,7 @@ pub fn read<'a>(
     // or neither in every layer, as layer 0 has them.
     let normed = has("/model/layers.0/attn/q_norm/SimplifiedLayerNormalization");
     let biased = has(&format!("/model/layers.0/{}/q_proj/Add", style.attention));
-    for l in 0..layers {
+    for l in 0..layers.min(held) {
         let at = |rest: &str| format!("/model/layers.{l}/{rest}");
         let kv = kv_heads * head_dim;
         let head_norm = |p: &str, role: Role| -> Result<Option<Dense<'a>>, DecodeError> {
@@ -508,13 +533,17 @@ pub fn read<'a>(
             )?,
         });
     }
-    let final_norm = vector(
-        nodes,
-        initializers,
-        &style.final_norm(layers),
-        Role::FinalNorm,
-        hidden,
-    )?;
+    let final_norm = if held >= layers {
+        Some(vector(
+            nodes,
+            initializers,
+            &style.final_norm(layers),
+            Role::FinalNorm,
+            hidden,
+        )?)
+    } else {
+        None
+    };
     let head = u32::try_from(head_dim).map_err(|_| refused)?;
     let frequencies =
         exact::rope_frequencies(head, config.rope_theta, config.scaling).ok_or(refused)?;
@@ -791,7 +820,7 @@ pub fn step_with(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
     let h = through(model, session, token, products)?;
     let logits = answered(model, products, Product::Head, &h)?;
@@ -808,11 +837,144 @@ pub fn advance_with(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<(), DecodeError> {
     through(model, session, token, products)?;
     session.position += 1;
     Ok(())
+}
+
+/// A prompt on its way through the model a layer at a time (EN-110): every
+/// prompt row through layer `l` before any row enters layer `l + 1`, so a
+/// layer runs as soon as its weights arrive, while later layers are still on
+/// their way.
+///
+/// Why the same bits as [`step`]: row `i`'s work in layer `l` reads its own
+/// row and the keys and values of layer `l` at positions up to its own, and
+/// every one of those is in the cache, the same bits, whichever order the
+/// rows and layers are taken in. The session's position moves only when the
+/// prefill finishes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Prefill {
+    rows: Vec<Vec<u32>>,
+    start: u32,
+    layer: usize,
+}
+
+impl Prefill {
+    /// How many layers every prompt row has been through.
+    #[must_use]
+    pub fn layers(&self) -> usize {
+        self.layer
+    }
+}
+
+/// Start a prefill of `prompt` after what `session` has seen: each id's
+/// embedding row, which only the embedding has to have arrived for.
+///
+/// # Errors
+///
+/// [`DecodeError::NotHeld`] for an empty prompt, and
+/// [`DecodeError::TokenOutOfRange`] for an id past the vocabulary.
+pub fn prefill_start(
+    model: &Model<'_>,
+    session: &Session,
+    prompt: &[u32],
+) -> Result<Prefill, DecodeError> {
+    if prompt.is_empty() {
+        return Err(DecodeError::NotHeld);
+    }
+    Ok(Prefill {
+        rows: prompt
+            .iter()
+            .map(|&t| embed(model, t))
+            .collect::<Result<Vec<Vec<u32>>, DecodeError>>()?,
+        start: session.position,
+        layer: 0,
+    })
+}
+
+/// The next layer for every prompt row, its keys and values added to the
+/// cache, with every product answered by `products`.
+///
+/// # Errors
+///
+/// [`DecodeError::NotHeld`] when the model was read without that layer, or
+/// the cache holds another number of positions for it than the prefill
+/// started after; and as [`step_with`].
+pub fn prefill_layer_with(
+    model: &Model<'_>,
+    session: &mut Session,
+    prefill: &mut Prefill,
+    products: &mut dyn Products,
+) -> Result<(), DecodeError> {
+    let l = prefill.layer;
+    let width = model.dims.kv_heads * model.dims.head_dim;
+    let cached = session
+        .keys
+        .get(l)
+        .map(Vec::len)
+        .ok_or(DecodeError::NotHeld)?;
+    if l >= model.layers.len() || cached != width * prefill.start as usize {
+        return Err(DecodeError::NotHeld);
+    }
+    let start = prefill.start;
+    for (i, row) in prefill.rows.iter_mut().enumerate() {
+        let position = start + u32::try_from(i).map_err(|_| DecodeError::NotHeld)?;
+        *row = layer_through(model, session, l, row, position, products)?;
+    }
+    prefill.layer += 1;
+    Ok(())
+}
+
+/// [`prefill_layer_with`], every product computed on the model.
+///
+/// # Errors
+///
+/// As [`prefill_layer_with`].
+pub fn prefill_layer(
+    model: &Model<'_>,
+    session: &mut Session,
+    prefill: &mut Prefill,
+) -> Result<(), DecodeError> {
+    prefill_layer_with(model, session, prefill, &mut Whole)
+}
+
+/// Every layer done: the final norm and the head for the last prompt row, the
+/// logits [`step`] gives for it, and the session moved past the prompt.
+///
+/// # Errors
+///
+/// [`DecodeError::NotHeld`] before every layer has run or while the model
+/// lacks its final norm; and as [`step_with`].
+pub fn prefill_finish_with(
+    model: &Model<'_>,
+    session: &mut Session,
+    prefill: &Prefill,
+    products: &mut dyn Products,
+) -> Result<Vec<u32>, DecodeError> {
+    if prefill.layer != model.dims.layers || model.layers.len() != model.dims.layers {
+        return Err(DecodeError::NotHeld);
+    }
+    let last = prefill.rows.last().ok_or(DecodeError::NotHeld)?;
+    let h = finish(model, last)?;
+    let logits = answered(model, products, Product::Head, &h)?;
+    let taken = u32::try_from(prefill.rows.len()).map_err(|_| DecodeError::NotHeld)?;
+    session.position = prefill.start + taken;
+    Ok(logits)
+}
+
+/// [`prefill_finish_with`], the head computed on the model.
+///
+/// # Errors
+///
+/// As [`prefill_finish_with`].
+pub fn prefill_finish(
+    model: &Model<'_>,
+    session: &mut Session,
+    prefill: &Prefill,
+) -> Result<Vec<u32>, DecodeError> {
+    prefill_finish_with(model, session, prefill, &mut Whole)
 }
 
 /// One of the products a step takes: a layer's projection, or the head.
@@ -935,7 +1097,7 @@ impl<F: FnMut(u32, &[u8], &mut [u8]) -> bool> Products for Asked<F> {
 /// `which` answered by `products`, held to one bit pattern per row.
 fn answered(
     model: &Model<'_>,
-    products: &mut impl Products,
+    products: &mut dyn Products,
     which: Product,
     input: &[u32],
 ) -> Result<Vec<u32>, DecodeError> {
@@ -1136,12 +1298,22 @@ impl Held {
 }
 
 impl<'a> Model<'a> {
-    /// Every product a step takes, in order of [`Product::number`].
+    /// Every product a step takes, in order of [`Product::number`]: on a model
+    /// read before every layer arrived (EN-110), those of the layers it holds
+    /// and the head.
     #[must_use]
     pub fn products(&self) -> Vec<Product> {
         (0..=7 * self.dims.layers)
             .filter_map(|n| Product::numbered(n, self.dims.layers))
+            .filter(|&p| self.holds(p))
             .collect()
+    }
+
+    /// Whether the model holds `which`'s weights: the head always, a layer's
+    /// products once that layer is read.
+    #[must_use]
+    pub fn holds(&self, which: Product) -> bool {
+        which == Product::Head || self.matrix(which).is_some()
     }
 
     fn matrix(&self, which: Product) -> Option<&Q4Matrix<'a>> {
@@ -1217,111 +1389,143 @@ fn through(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
-    let Dims {
-        hidden,
-        heads,
-        kv_heads,
-        head_dim,
-        vocab,
-        ..
-    } = model.dims;
-    let id = usize::try_from(token).map_err(|_| DecodeError::TokenOutOfRange)?;
-    if id >= vocab {
-        return Err(DecodeError::TokenOutOfRange);
+    if model.layers.len() != model.dims.layers {
+        return Err(DecodeError::NotHeld);
     }
     let position = session.position;
-    let mut x = (0..hidden)
+    let mut x = embed(model, token)?;
+    for l in 0..model.layers.len() {
+        x = layer_through(model, session, l, &x, position, products)?;
+    }
+    finish(model, &x)
+}
+
+/// A token's embedding row, each half read exactly as binary32.
+fn embed(model: &Model<'_>, token: u32) -> Result<Vec<u32>, DecodeError> {
+    let hidden = model.dims.hidden;
+    let id = usize::try_from(token).map_err(|_| DecodeError::TokenOutOfRange)?;
+    if id >= model.dims.vocab {
+        return Err(DecodeError::TokenOutOfRange);
+    }
+    (0..hidden)
         .map(|k| {
             let e = half(model.embedding, id * hidden + k)?;
             Ok(exact::round_exact(e.mantissa, e.exponent))
         })
-        .collect::<Result<Vec<u32>, DecodeError>>()?;
+        .collect()
+}
+
+/// The final norm of the last layer's row: the row the head reads.
+fn finish(model: &Model<'_>, x: &[u32]) -> Result<Vec<u32>, DecodeError> {
+    norm(
+        x,
+        model.final_norm.ok_or(DecodeError::NotHeld)?,
+        model.epsilon,
+    )
+}
+
+/// Layer `l` for one row `x` at `position`, its key and value added to the
+/// cache: the row the next layer reads.
+fn layer_through(
+    model: &Model<'_>,
+    session: &mut Session,
+    l: usize,
+    x: &[u32],
+    position: u32,
+    products: &mut dyn Products,
+) -> Result<Vec<u32>, DecodeError> {
+    let Dims {
+        heads,
+        kv_heads,
+        head_dim,
+        ..
+    } = model.dims;
+    let layer = model.layers.get(l).ok_or(DecodeError::NotHeld)?;
     let group = heads / kv_heads;
-    for (l, layer) in model.layers.iter().enumerate() {
-        let mut times = |which: Product, input: &[u32]| answered(model, products, which, input);
-        let h = norm(&x, layer.input_norm, model.epsilon)?;
-        let mut q = times(Product::Query(l), &h)?;
-        let mut k = times(Product::Key(l), &h)?;
-        let mut v = times(Product::Value(l), &h)?;
-        if let Some(biases) = layer.biases {
-            // As the export adds them: to the product, rounded once more.
-            for (projected, bias) in [
-                (&mut q, biases[0]),
-                (&mut k, biases[1]),
-                (&mut v, biases[2]),
-            ] {
-                for (i, x) in projected.iter_mut().enumerate() {
-                    let b = half(bias, i)?;
-                    *x = add(*x, exact::round_exact(b.mantissa, b.exponent))?;
-                }
+    let mut x = x.to_vec();
+    let mut times = |which: Product, input: &[u32]| answered(model, products, which, input);
+    let h = norm(&x, layer.input_norm, model.epsilon)?;
+    let mut q = times(Product::Query(l), &h)?;
+    let mut k = times(Product::Key(l), &h)?;
+    let mut v = times(Product::Value(l), &h)?;
+    if let Some(biases) = layer.biases {
+        // As the export adds them: to the product, rounded once more.
+        for (projected, bias) in [
+            (&mut q, biases[0]),
+            (&mut k, biases[1]),
+            (&mut v, biases[2]),
+        ] {
+            for (i, x) in projected.iter_mut().enumerate() {
+                let b = half(bias, i)?;
+                *x = add(*x, exact::round_exact(b.mantissa, b.exponent))?;
             }
-        }
-        for (projected, head_norm) in [(&mut q, layer.query_norm), (&mut k, layer.key_norm)] {
-            for head in projected.chunks_mut(head_dim) {
-                if let Some(weights) = head_norm {
-                    let normed = norm(head, weights, model.epsilon)?;
-                    head.copy_from_slice(&normed);
-                }
-                rotate(head, position, &model.frequencies)?;
-            }
-        }
-        session.keys[l].extend_from_slice(&k);
-        session.values[l].extend_from_slice(&v);
-        let mut attended = Vec::with_capacity(heads * head_dim);
-        for (hq, query) in q.chunks(head_dim).enumerate() {
-            let (keys, values) = (&session.keys[l], &session.values[l]);
-            attended.extend(attend_head(
-                query,
-                keys,
-                values,
-                hq / group,
-                kv_heads,
-                model.root,
-            )?);
-        }
-        let o = times(Product::Output(l), &attended)?;
-        if session.probe == Some((l, Component::Attention)) {
-            session.probed = Some(o.clone());
-        }
-        x = x
-            .iter()
-            .zip(&o)
-            .map(|(&a, &b)| add(a, b))
-            .collect::<Result<Vec<u32>, DecodeError>>()?;
-        let h = norm(&x, layer.post_norm, model.epsilon)?;
-        let g = times(Product::Gate(l), &h)?;
-        let u = times(Product::Up(l), &h)?;
-        let gated = g
-            .iter()
-            .zip(&u)
-            .map(|(&g, &u)| {
-                let g = value(g)?;
-                let fixed = i64::try_from(shift_even(g.mantissa, g.exponent + 16))
-                    .map_err(|_| DecodeError::NormRefused)?;
-                let a = exact::silu(fixed);
-                let u = value(u)?;
-                Ok(exact::round_exact(
-                    i128::from(a) * u.mantissa,
-                    u.exponent - 16,
-                ))
-            })
-            .collect::<Result<Vec<u32>, DecodeError>>()?;
-        let d = times(Product::Down(l), &gated)?;
-        if session.probe == Some((l, Component::FeedForward)) {
-            session.probed = Some(d.clone());
-        }
-        x = x
-            .iter()
-            .zip(&d)
-            .map(|(&a, &b)| add(a, b))
-            .collect::<Result<Vec<u32>, DecodeError>>()?;
-        if session.probe == Some((l, Component::Residual)) {
-            session.probed = Some(x.clone());
         }
     }
-    norm(&x, model.final_norm, model.epsilon)
+    for (projected, head_norm) in [(&mut q, layer.query_norm), (&mut k, layer.key_norm)] {
+        for head in projected.chunks_mut(head_dim) {
+            if let Some(weights) = head_norm {
+                let normed = norm(head, weights, model.epsilon)?;
+                head.copy_from_slice(&normed);
+            }
+            rotate(head, position, &model.frequencies)?;
+        }
+    }
+    session.keys[l].extend_from_slice(&k);
+    session.values[l].extend_from_slice(&v);
+    let mut attended = Vec::with_capacity(heads * head_dim);
+    for (hq, query) in q.chunks(head_dim).enumerate() {
+        let (keys, values) = (&session.keys[l], &session.values[l]);
+        attended.extend(attend_head(
+            query,
+            keys,
+            values,
+            hq / group,
+            kv_heads,
+            model.root,
+        )?);
+    }
+    let o = times(Product::Output(l), &attended)?;
+    if session.probe == Some((l, Component::Attention)) {
+        session.probed = Some(o.clone());
+    }
+    x = x
+        .iter()
+        .zip(&o)
+        .map(|(&a, &b)| add(a, b))
+        .collect::<Result<Vec<u32>, DecodeError>>()?;
+    let h = norm(&x, layer.post_norm, model.epsilon)?;
+    let g = times(Product::Gate(l), &h)?;
+    let u = times(Product::Up(l), &h)?;
+    let gated = g
+        .iter()
+        .zip(&u)
+        .map(|(&g, &u)| {
+            let g = value(g)?;
+            let fixed = i64::try_from(shift_even(g.mantissa, g.exponent + 16))
+                .map_err(|_| DecodeError::NormRefused)?;
+            let a = exact::silu(fixed);
+            let u = value(u)?;
+            Ok(exact::round_exact(
+                i128::from(a) * u.mantissa,
+                u.exponent - 16,
+            ))
+        })
+        .collect::<Result<Vec<u32>, DecodeError>>()?;
+    let d = times(Product::Down(l), &gated)?;
+    if session.probe == Some((l, Component::FeedForward)) {
+        session.probed = Some(d.clone());
+    }
+    x = x
+        .iter()
+        .zip(&d)
+        .map(|(&a, &b)| add(a, b))
+        .collect::<Result<Vec<u32>, DecodeError>>()?;
+    if session.probe == Some((l, Component::Residual)) {
+        session.probed = Some(x.clone());
+    }
+    Ok(x)
 }
 
 /// The token id of the largest logit, the first on a tie, by the order of
