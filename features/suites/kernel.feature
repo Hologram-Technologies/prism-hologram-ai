@@ -511,6 +511,14 @@ Feature: kernel
     And weight_is_exp2 holds for every distance, and total_at_least bounds a non-empty row's sum of weights by 2^30 from below
     And softmax_row_0 to softmax_row_7 evaluate the stage on nine rows, and kernel_kn_81 replays each row through crates/exact's softmax_exp2 and finds the same words
 
+  @KN-82 @build
+  Scenario: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+    Given a request of the tag 82 carrying an encoder task, a pooling and whether to normalize, each in one byte, as transformers.js names them
+    When the kernel reads each code through Kernel.Encode
+    Then the answer is run for feature-extraction with mean pooling and normalizing, and for text-classification with neither
+    And any other pooling is refused as pooling, an unnormalized embedding as normalize, and another task as unsupported task
+    And the theorems of Proofs.Encode state it and are pinned with their axioms
+
   @KN-73 @build
   Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
     Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex

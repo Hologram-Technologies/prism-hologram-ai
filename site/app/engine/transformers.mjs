@@ -49,6 +49,62 @@ export class TextStreamer {
   end() { this.on_finalized_text("", true); }
 }
 
+// transformers.js's Tensor, as far as an encoder's answer needs it.
+export class Tensor {
+  constructor(type, data, dims) {
+    Object.assign(this, { type, data, dims, size: data.length });
+  }
+  tolist() {
+    const [rows, width] = this.dims.length === 2 ? this.dims : [1, this.size];
+    return Array.from({ length: rows }, (_, r) => Array.from(this.data.subarray(r * width, (r + 1) * width)));
+  }
+}
+
+// Decision 82's request: tag, task, pooling, normalize.
+const POOLING = { none: 0, mean: 1, cls: 2 };
+const encodeRequest = (task, { pooling, normalize } = {}) =>
+  new Uint8Array([82, task, pooling === undefined ? 0 : POOLING[pooling] ?? 255, normalize ? 1 : 0]);
+
+// feature-extraction: `extractor(texts, { pooling: "mean", normalize: true })`
+// answers a Tensor of dims [texts, width], each row the module's embedding.
+function extractor(run, ask) {
+  return async (input, options = {}) => {
+    await ask("call", "a transformers.js feature-extraction call (decision 82)", encodeRequest(1, options), "run");
+    const texts = Array.isArray(input) ? input : [input];
+    const rows = [];
+    for (const text of texts) rows.push((await run(text)).data);
+    const width = rows[0]?.length ?? 0;
+    const data = new Float32Array(texts.length * width);
+    rows.forEach((row, i) => data.set(row, i * width));
+    return new Tensor("float32", data, [texts.length, width]);
+  };
+}
+
+// text-classification: `classifier(text, { top_k })` answers [{ label, score }],
+// the score the module's integer softmax over the labels (EN-95), highest
+// first; an array of texts answers one list per text, or one entry each when
+// top_k is 1, as transformers.js does.
+function classifier(run, ask) {
+  const labels = run.engine?.labels ?? [];
+  return async (input, options = {}) => {
+    const { top_k = 1, ...rest } = options;
+    await ask("call", "a transformers.js text-classification call (decision 82)", encodeRequest(2, rest), "run");
+    const one = async (text) => {
+      const { bits } = await run(text);
+      const scores = run.module.callWith("encode_probabilities", new Uint8Array(bits.buffer, bits.byteOffset, bits.byteLength));
+      const probabilities = new Uint32Array(scores.buffer.slice(scores.byteOffset, scores.byteOffset + scores.byteLength));
+      const view = new Float32Array(probabilities.buffer);
+      // Non-negative binary32 values order as their bits do.
+      const order = Array.from(probabilities.keys()).sort((a, b) => probabilities[b] - probabilities[a] || a - b);
+      return order.slice(0, top_k ?? order.length).map((i) => ({ label: labels[i] ?? String(i), score: view[i] }));
+    };
+    if (!Array.isArray(input)) return one(input);
+    const each = [];
+    for (const text of input) each.push(await one(text));
+    return top_k === 1 ? each.map((list) => list[0]) : each;
+  };
+}
+
 export const env = Object.freeze({ backends: {}, allowRemoteModels: true, allowLocalModels: false });
 
 export async function pipeline(task = "text-generation", model, options = {}) {
@@ -67,6 +123,8 @@ export async function pipeline(task = "text-generation", model, options = {}) {
     onProgress: (fraction) => progress_callback?.({ status: "progress", name: model, file: "", progress: 100 * fraction }),
   });
   progress_callback?.({ status: "ready", task, model });
+  if (TASK[task] === 1) return Object.assign(extractor(run, ask), { task, model, dispose: async () => run.engine?.dispose?.() });
+  if (TASK[task] === 2) return Object.assign(classifier(run, ask), { task, model, dispose: async () => run.engine?.dispose?.() });
   const tokenizer = {
     decode: (ids) => run.decode(ids),
     apply_chat_template: (messages, { add_generation_prompt = true } = {}) => run.render(messages, add_generation_prompt),

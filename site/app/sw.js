@@ -51,6 +51,21 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Cross-origin isolation (GP-52): the engine shares memory between its
+// threads only on an isolated page, and GitHub Pages sends no headers to make
+// one, so this worker adds them to every file of this deploy it answers. A
+// first visit, before the worker answers, is not isolated and runs the engine
+// on one thread, the same tokens. "credentialless" rather than "require-corp":
+// a cross-origin file the page loads without CORS is then fetched without
+// cookies instead of refused; the hub's and the model host's are CORS anyway.
+const isolated = (response) => {
+  if (response.type === "opaque" || response.status === 0) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+};
+
 // The listed files, read once per worker.
 let own = null;
 self.addEventListener("fetch", (event) => {
@@ -69,10 +84,10 @@ self.addEventListener("fetch", (event) => {
     try {
       const fresh = await fetch(request);
       if (fresh.ok) await cache.put(key, fresh.clone());
-      return fresh;
+      return isolated(fresh);
     } catch (error) {
       const kept = await cache.match(key);
-      if (kept) return kept;
+      if (kept) return isolated(kept);
       throw error;
     }
   })());

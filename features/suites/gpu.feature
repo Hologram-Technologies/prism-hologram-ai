@@ -286,6 +286,14 @@ Feature: gpu
     Then the page records the engine check passing with the kernel's answer sealed, and loads the container
     And with the flipped engine it stops at the engine check with not the sealed engine, before the module is compiled and before any container byte is read
 
+  @GP-55 @build
+  Scenario: Code written for transformers.js's encoders runs on the engine unchanged: pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are the module's embeddings bit for bit, pipeline("text-classification") answers [{ label, score }] highest first with the module's label and its integer softmax probability, an array answers one per text, and an extractor called without pooling is refused by decision 82 before it runs
+    Given GP-35's BERT- and DistilBERT-shaped encoder fixtures and their hub records, served to one page
+    When `just page-journey` imports site/app/engine/transformers.mjs and calls it as transformers.js is called
+    Then pipeline("feature-extraction") with mean pooling and normalizing answers a float32 Tensor of dims [texts, width] whose rows are hologram-ai-cpu-encode's embeddings bit for bit
+    And an extractor called without pooling is refused by decision 82 before it runs
+    And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
+
   @GP-29 @build
   Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
     Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each
@@ -298,3 +306,10 @@ Feature: gpu
     When `just page-journey` runs a turn on the CPU device, in the worker, and a second turn on a restored prefix
     Then integer.mjs's run calls decode_advance for every prompt id but the last and decode_step for the last and each generated token
     And the sixteen tokens are the reference's, and the second turn's are the first's
+
+  @GP-52 @build
+  Scenario: On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens
+    Given GP-19's Qwen3-shaped ONNX export and the engine page's service worker
+    When `just page-journey` loads the page, reloads it under its worker, and runs a turn on the CPU device
+    Then the reloaded page is cross-origin isolated and its engine ran with helpers, and the first page was not and ran without
+    And both turns' sixteen tokens are the reference's

@@ -40,6 +40,10 @@ pub enum DecodeError {
     NormRefused,
     /// `FL-58`: a token id at or past the vocabulary.
     TokenOutOfRange,
+    /// `FL-80`: a product answered outside the model, by the engine's
+    /// helpers, came back with another number of rows than the matrix has, or
+    /// a slice sent to one did not read back.
+    Elsewhere,
 }
 
 impl From<ExactError> for DecodeError {
@@ -703,17 +707,7 @@ pub fn attend_head(
 /// [`DecodeError::NormRefused`] for a row RMSNorm does not take, and
 /// [`DecodeError::Exact`] when a product refuses its input.
 pub fn step(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u32>, DecodeError> {
-    let h = through(model, session, token)?;
-    let logits = exact::dense_product_with(
-        &h,
-        Dense::F16(model.embedding),
-        DenseLayout::OutputMajor,
-        model.dims.hidden,
-        model.dims.vocab,
-        SCHEME,
-    )?;
-    session.position += 1;
-    Ok(logits)
+    step_with(model, session, token, &mut Whole)
 }
 
 /// One token through the model without its logits (EN-91): the session is
@@ -725,14 +719,431 @@ pub fn step(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<
 ///
 /// As [`step`], less the head's own product.
 pub fn advance(model: &Model<'_>, session: &mut Session, token: u32) -> Result<(), DecodeError> {
-    through(model, session, token)?;
+    advance_with(model, session, token, &mut Whole)
+}
+
+/// [`step`], with every product answered by `products` (EN-92).
+///
+/// # Errors
+///
+/// As [`step`], and [`DecodeError::Elsewhere`] for an answer that is not
+/// one bit pattern per row.
+pub fn step_with(
+    model: &Model<'_>,
+    session: &mut Session,
+    token: u32,
+    products: &mut impl Products,
+) -> Result<Vec<u32>, DecodeError> {
+    let h = through(model, session, token, products)?;
+    let logits = answered(model, products, Product::Head, &h)?;
+    session.position += 1;
+    Ok(logits)
+}
+
+/// [`advance`], with every product answered by `products` (EN-92).
+///
+/// # Errors
+///
+/// As [`step_with`], less the head's own product.
+pub fn advance_with(
+    model: &Model<'_>,
+    session: &mut Session,
+    token: u32,
+    products: &mut impl Products,
+) -> Result<(), DecodeError> {
+    through(model, session, token, products)?;
     session.position += 1;
     Ok(())
 }
 
+/// One of the products a step takes: a layer's projection, or the head.
+///
+/// Why named: a product answered elsewhere (the engine's helpers, GP-52) is
+/// asked for by name and its rows by number, the weights already held there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Product {
+    /// A layer's query projection.
+    Query(usize),
+    /// A layer's key projection.
+    Key(usize),
+    /// A layer's value projection.
+    Value(usize),
+    /// A layer's output projection.
+    Output(usize),
+    /// A layer's gate projection.
+    Gate(usize),
+    /// A layer's up projection.
+    Up(usize),
+    /// A layer's down projection.
+    Down(usize),
+    /// The output head, the embedding read as rows of logits.
+    Head,
+}
+
+impl Product {
+    /// Its number: seven per layer, in the order above, then the head.
+    #[must_use]
+    pub fn number(self, layers: usize) -> usize {
+        match self {
+            Self::Query(l) => 7 * l,
+            Self::Key(l) => 7 * l + 1,
+            Self::Value(l) => 7 * l + 2,
+            Self::Output(l) => 7 * l + 3,
+            Self::Gate(l) => 7 * l + 4,
+            Self::Up(l) => 7 * l + 5,
+            Self::Down(l) => 7 * l + 6,
+            Self::Head => 7 * layers,
+        }
+    }
+
+    /// The product numbered `number` in a model of `layers` layers.
+    #[must_use]
+    pub fn numbered(number: usize, layers: usize) -> Option<Self> {
+        let l = number / 7;
+        match (l < layers, number % 7) {
+            (true, 0) => Some(Self::Query(l)),
+            (true, 1) => Some(Self::Key(l)),
+            (true, 2) => Some(Self::Value(l)),
+            (true, 3) => Some(Self::Output(l)),
+            (true, 4) => Some(Self::Gate(l)),
+            (true, 5) => Some(Self::Up(l)),
+            (true, 6) => Some(Self::Down(l)),
+            _ if number == 7 * layers => Some(Self::Head),
+            _ => None,
+        }
+    }
+}
+
+/// What answers a step's products. [`Whole`] computes each on the model; the
+/// engine's helpers each hold a slice of every matrix's rows (GP-52).
+pub trait Products {
+    /// `which` times `input`, one bit pattern per row of the matrix.
+    ///
+    /// # Errors
+    ///
+    /// The product's own refusal, or [`DecodeError::Elsewhere`].
+    fn product(
+        &mut self,
+        model: &Model<'_>,
+        which: Product,
+        input: &[u32],
+    ) -> Result<Vec<u32>, DecodeError>;
+}
+
+/// Every product computed whole, on the model, as [`step`] does.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Whole;
+
+impl Products for Whole {
+    fn product(
+        &mut self,
+        model: &Model<'_>,
+        which: Product,
+        input: &[u32],
+    ) -> Result<Vec<u32>, DecodeError> {
+        model.slice(which, 0..model.height(which)).product(input)
+    }
+}
+
+/// Products answered elsewhere (GP-52): `ask` is given a product's number,
+/// its input as little-endian bytes and room for its rows, and says whether
+/// they were written. The input's own refusal is given here first, as
+/// [`Whole`] would give it.
+pub struct Asked<F>(pub F);
+
+impl<F: FnMut(u32, &[u8], &mut [u8]) -> bool> Products for Asked<F> {
+    fn product(
+        &mut self,
+        model: &Model<'_>,
+        which: Product,
+        input: &[u32],
+    ) -> Result<Vec<u32>, DecodeError> {
+        exact::quantise_with(input, SCHEME)?;
+        let given: Vec<u8> = input.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let mut answer = vec![0u8; 4 * model.height(which)];
+        let number =
+            u32::try_from(which.number(model.dims.layers)).map_err(|_| DecodeError::Elsewhere)?;
+        if !(self.0)(number, &given, &mut answer) {
+            return Err(DecodeError::Elsewhere);
+        }
+        Ok(answer
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect())
+    }
+}
+
+/// `which` answered by `products`, held to one bit pattern per row.
+fn answered(
+    model: &Model<'_>,
+    products: &mut impl Products,
+    which: Product,
+    input: &[u32],
+) -> Result<Vec<u32>, DecodeError> {
+    let out = products.product(model, which, input)?;
+    if out.len() == model.height(which) {
+        Ok(out)
+    } else {
+        Err(DecodeError::Elsewhere)
+    }
+}
+
+/// Some of a matrix's output rows, as the model borrows them.
+///
+/// Why this is exact: each output row of a q4 or a dense product is that
+/// row's weights times the input, the input put on its integers the same way
+/// for every row; so rows computed apart are the same bits as rows computed
+/// together (EN-92).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slice<'a> {
+    /// Rows of a q4 matrix.
+    Q4(Q4Matrix<'a>),
+    /// Rows of the head: each `columns` halves, row after row.
+    Head {
+        /// The rows' bytes.
+        bytes: &'a [u8],
+        /// The input's length.
+        columns: usize,
+        /// How many rows.
+        rows: usize,
+    },
+}
+
+impl Slice<'_> {
+    /// These rows times `input`.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError::Exact`] when the product refuses its input.
+    pub fn product(&self, input: &[u32]) -> Result<Vec<u32>, DecodeError> {
+        Ok(match *self {
+            Self::Q4(matrix) => exact::q4_product_with(input, &matrix, SCHEME)?,
+            Self::Head {
+                bytes,
+                columns,
+                rows,
+            } => exact::dense_product_with(
+                input,
+                Dense::F16(bytes),
+                DenseLayout::OutputMajor,
+                columns,
+                rows,
+                SCHEME,
+            )?,
+        })
+    }
+
+    /// The slice as bytes another instance holds with [`Held::read`]: four
+    /// little-endian words of kind and shape, the lengths, then the bytes.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut word = |n: usize| out.extend_from_slice(&(n as u32).to_le_bytes());
+        match *self {
+            Self::Q4(m) => {
+                let (scale_kind, scales) = match m.scales {
+                    Q4Scales::F32(b) => (1, b),
+                    Q4Scales::F16(b) => (2, b),
+                };
+                let zeros: &[u8] = match m.zeros {
+                    Q4Zeros::Eight => &[],
+                    Q4Zeros::Packed(b) => b,
+                };
+                for n in [
+                    1,
+                    m.rows,
+                    m.columns,
+                    m.block,
+                    scale_kind,
+                    usize::from(matches!(m.zeros, Q4Zeros::Packed(_))),
+                    m.codes.len(),
+                    scales.len(),
+                    zeros.len(),
+                ] {
+                    word(n);
+                }
+                out.extend_from_slice(m.codes);
+                out.extend_from_slice(scales);
+                out.extend_from_slice(zeros);
+            }
+            Self::Head {
+                bytes,
+                columns,
+                rows,
+            } => {
+                for n in [2, rows, columns, bytes.len()] {
+                    word(n);
+                }
+                out.extend_from_slice(bytes);
+            }
+        }
+        out
+    }
+}
+
+/// A slice held apart from the model, as [`Slice::to_bytes`] wrote it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Held {
+    bytes: Vec<u8>,
+    shape: Vec<usize>,
+}
+
+impl Held {
+    /// The slice `bytes` hold.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError::Elsewhere`] when they are not one.
+    pub fn read(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let word = |i: usize| {
+            bytes
+                .get(4 * i..4 * i + 4)
+                .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]) as usize)
+                .ok_or(DecodeError::Elsewhere)
+        };
+        let words = match word(0)? {
+            1 => 9,
+            2 => 4,
+            _ => return Err(DecodeError::Elsewhere),
+        };
+        let shape = (0..words)
+            .map(word)
+            .collect::<Result<Vec<usize>, DecodeError>>()?;
+        let body: usize = if words == 9 {
+            shape[6] + shape[7] + shape[8]
+        } else {
+            shape[3]
+        };
+        if bytes.len() != 4 * words + body {
+            return Err(DecodeError::Elsewhere);
+        }
+        Ok(Self {
+            bytes: bytes[4 * words..].to_vec(),
+            shape,
+        })
+    }
+
+    /// The rows it holds.
+    #[must_use]
+    pub fn rows(&self) -> usize {
+        self.shape[1]
+    }
+
+    /// Its rows times `input`, as [`Slice::product`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Slice::product`].
+    pub fn product(&self, input: &[u32]) -> Result<Vec<u32>, DecodeError> {
+        let s = &self.shape;
+        let slice = if s[0] == 1 {
+            let (codes, rest) = self.bytes.split_at(s[6]);
+            let (scales, zeros) = rest.split_at(s[7]);
+            Slice::Q4(Q4Matrix {
+                codes,
+                scales: if s[4] == 1 {
+                    Q4Scales::F32(scales)
+                } else {
+                    Q4Scales::F16(scales)
+                },
+                zeros: if s[5] == 1 {
+                    Q4Zeros::Packed(zeros)
+                } else {
+                    Q4Zeros::Eight
+                },
+                rows: s[1],
+                columns: s[2],
+                block: s[3],
+            })
+        } else {
+            Slice::Head {
+                bytes: &self.bytes,
+                columns: s[2],
+                rows: s[1],
+            }
+        };
+        slice.product(input)
+    }
+}
+
+impl<'a> Model<'a> {
+    /// Every product a step takes, in order of [`Product::number`].
+    #[must_use]
+    pub fn products(&self) -> Vec<Product> {
+        (0..=7 * self.dims.layers)
+            .filter_map(|n| Product::numbered(n, self.dims.layers))
+            .collect()
+    }
+
+    fn matrix(&self, which: Product) -> Option<&Q4Matrix<'a>> {
+        match which {
+            Product::Query(l) => self.layers.get(l).map(|x| &x.query),
+            Product::Key(l) => self.layers.get(l).map(|x| &x.key),
+            Product::Value(l) => self.layers.get(l).map(|x| &x.value),
+            Product::Output(l) => self.layers.get(l).map(|x| &x.output),
+            Product::Gate(l) => self.layers.get(l).map(|x| &x.gate),
+            Product::Up(l) => self.layers.get(l).map(|x| &x.up),
+            Product::Down(l) => self.layers.get(l).map(|x| &x.down),
+            Product::Head => None,
+        }
+    }
+
+    /// The rows `which` answers.
+    #[must_use]
+    pub fn height(&self, which: Product) -> usize {
+        self.matrix(which).map_or(self.dims.vocab, |m| m.rows)
+    }
+
+    /// Rows `rows` of `which`, borrowed from the model. A range past the
+    /// matrix is cut to it.
+    #[must_use]
+    pub fn slice(&self, which: Product, rows: std::ops::Range<usize>) -> Slice<'a> {
+        let end = rows.end.min(self.height(which));
+        let start = rows.start.min(end);
+        match self.matrix(which) {
+            Some(m) => {
+                let blocks = m.columns.div_ceil(m.block);
+                let half_row = blocks * m.block / 2;
+                let scales = match m.scales {
+                    Q4Scales::F32(b) => Q4Scales::F32(&b[start * blocks * 4..end * blocks * 4]),
+                    Q4Scales::F16(b) => Q4Scales::F16(&b[start * blocks * 2..end * blocks * 2]),
+                };
+                let zeros = match m.zeros {
+                    Q4Zeros::Eight => Q4Zeros::Eight,
+                    Q4Zeros::Packed(b) => {
+                        let per = blocks.div_ceil(2);
+                        Q4Zeros::Packed(&b[start * per..end * per])
+                    }
+                };
+                Slice::Q4(Q4Matrix {
+                    codes: &m.codes[start * half_row..end * half_row],
+                    scales,
+                    zeros,
+                    rows: end - start,
+                    columns: m.columns,
+                    block: m.block,
+                })
+            }
+            None => {
+                let width = 2 * self.dims.hidden;
+                Slice::Head {
+                    bytes: &self.embedding[start * width..end * width],
+                    columns: self.dims.hidden,
+                    rows: end - start,
+                }
+            }
+        }
+    }
+}
+
 /// Every layer and the final norm for one token, its keys and values added to
 /// the cache: the row the head reads.
-fn through(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u32>, DecodeError> {
+fn through(
+    model: &Model<'_>,
+    session: &mut Session,
+    token: u32,
+    products: &mut impl Products,
+) -> Result<Vec<u32>, DecodeError> {
     let Dims {
         hidden,
         heads,
@@ -754,10 +1165,11 @@ fn through(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u
         .collect::<Result<Vec<u32>, DecodeError>>()?;
     let group = heads / kv_heads;
     for (l, layer) in model.layers.iter().enumerate() {
+        let mut times = |which: Product, input: &[u32]| answered(model, products, which, input);
         let h = norm(&x, layer.input_norm, model.epsilon)?;
-        let mut q = exact::q4_product_with(&h, &layer.query, SCHEME)?;
-        let mut k = exact::q4_product_with(&h, &layer.key, SCHEME)?;
-        let mut v = exact::q4_product_with(&h, &layer.value, SCHEME)?;
+        let mut q = times(Product::Query(l), &h)?;
+        let mut k = times(Product::Key(l), &h)?;
+        let mut v = times(Product::Value(l), &h)?;
         if let Some(biases) = layer.biases {
             // As the export adds them: to the product, rounded once more.
             for (projected, bias) in [
@@ -794,15 +1206,15 @@ fn through(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u
                 model.root,
             )?);
         }
-        let o = exact::q4_product_with(&attended, &layer.output, SCHEME)?;
+        let o = times(Product::Output(l), &attended)?;
         x = x
             .iter()
             .zip(&o)
             .map(|(&a, &b)| add(a, b))
             .collect::<Result<Vec<u32>, DecodeError>>()?;
         let h = norm(&x, layer.post_norm, model.epsilon)?;
-        let g = exact::q4_product_with(&h, &layer.gate, SCHEME)?;
-        let u = exact::q4_product_with(&h, &layer.up, SCHEME)?;
+        let g = times(Product::Gate(l), &h)?;
+        let u = times(Product::Up(l), &h)?;
         let gated = g
             .iter()
             .zip(&u)
@@ -818,7 +1230,7 @@ fn through(model: &Model<'_>, session: &mut Session, token: u32) -> Result<Vec<u
                 ))
             })
             .collect::<Result<Vec<u32>, DecodeError>>()?;
-        let d = exact::q4_product_with(&gated, &layer.down, SCHEME)?;
+        let d = times(Product::Down(l), &gated)?;
         x = x
             .iter()
             .zip(&d)
