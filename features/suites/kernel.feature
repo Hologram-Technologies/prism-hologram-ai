@@ -517,3 +517,11 @@ Feature: kernel
     When the Lean kernel runs them through Engine.GpuRun during lexlean verify in the gate
     Then the quantiser's codes and power are hologram_ai_exact's for the fixture's 32 activations
     And the accumulator then the rounding kernel give hologram_ai_exact's binary32 for the fixture's first two rows, one negative and one positive
+
+  @KN-62 @build
+  Scenario: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/Attention.lex.tex, its rounding in app/src/Engine/Stage/Binary32.lex.tex, and their proofs in app/src/Proofs/StageAttention.lex.tex and app/src/Proofs/StageBinary32.lex.tex
+    When lexlean verify checks Proofs.StageAttention and Proofs.StageBinary32 in the gate
+    Then attention_score_is_word and attention_out_is_word hold for every input, and attention_head_count gives head_dim words for every head
+    And binary32_round_is_word holds for every value the rounding takes
+    And attention_head_row_0 to attention_head_row_3 and binary32_row_0 to binary32_row_11 evaluate the stage, and kernel_kn_62 replays each through cpu-decode's attend_head and crates/exact's round_to_binary32 and finds the same words

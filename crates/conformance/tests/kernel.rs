@@ -5611,3 +5611,100 @@ fn kernel_kn_73() {
         );
     }
 }
+
+/// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_62() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageAttention.lex.tex");
+    let rounding = model("app/src/Proofs/StageBinary32.lex.tex");
+    for (module, name) in [
+        (&proofs, "attention_score_is_word"),
+        (&proofs, "attention_out_is_word"),
+        (&proofs, "attention_head_count"),
+        (&rounding, "binary32_round_is_word"),
+    ] {
+        assert!(
+            module.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut heads = 0;
+    while proofs.contains(&format!("\n  name: attention_head_row_{heads},\n")) {
+        let found = declaration(&proofs, &format!("attention_head_row_{heads}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "attention_head_row_{heads} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Attention::attend ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("attention_head_row_{heads} is not an evaluation of attend"));
+        let (query, rest) = cons_list(statement);
+        let (keys, rest) = cons_list(rest.trim_start());
+        let (values, rest) = cons_list(rest.trim_start());
+        let (numbers, rest) = rest.trim_start().split_once(')').expect("the head's sizes");
+        let n: Vec<usize> = numbers
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let [hq, group, kv_heads, head_dim, seen, root] = n[..] else {
+            panic!("attention_head_row_{heads}: six sizes")
+        };
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let words = |xs: &[u64]| xs.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+        let (query, keys, values) = (words(&query), words(&keys), words(&values));
+        let rust: Vec<u64> = hologram_ai_cpu_decode::attend_head(
+            &query[hq * head_dim..(hq + 1) * head_dim],
+            &keys[..seen * kv_heads * head_dim],
+            &values[..seen * kv_heads * head_dim],
+            hq / group,
+            kv_heads,
+            root as i128,
+        )
+        .expect("finite values")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        assert_eq!(
+            rust, expected,
+            "attention_head_row_{heads}: cpu-decode disagrees with the stage"
+        );
+        heads += 1;
+    }
+    assert!(heads >= 4, "four heads are evaluated, found {heads}");
+    let mut rows = 0;
+    while rounding.contains(&format!("\n  name: binary32_row_{rows},\n")) {
+        let found = declaration(&rounding, &format!("binary32_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "binary32_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Binary32::round ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("binary32_row_{rows} is not an evaluation of round"));
+        let (args, result) = statement.split_once(") = ").expect("an equation");
+        let args: Vec<u128> = args
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number below 2^128"))
+            .collect();
+        let (negative, n, k) = (args[0] == 1, args[1], args[2] as i32);
+        let expected: u32 = result
+            .split(')')
+            .next()
+            .unwrap_or(result)
+            .parse()
+            .expect("bits");
+        let mut row = hologram_ai_exact::Row::ZERO;
+        row.add_scaled(n & u128::from(u64::MAX), -k, negative);
+        row.add_scaled(n >> 64, 64 - k, negative);
+        assert_eq!(
+            hologram_ai_exact::round_to_binary32(&row),
+            expected,
+            "binary32_row_{rows}: crates/exact rounds (-1)^{negative} {n} 2^-{k} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
+}

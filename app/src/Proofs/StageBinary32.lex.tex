@@ -6,14 +6,6 @@
 \title{Natural numbers}
 \begin{semanticmodule}
 theorem{
-  name: binary32_rounds_reference,
-  parameters: [],
-  statement: ((cons (Engine.Stage.Binary32::round 0 1 0 700) (cons (Engine.Stage.Binary32::round 1 3 1 700) (cons (Engine.Stage.Binary32::round 0 1 149 700) (cons (Engine.Stage.Binary32::round 0 1 150 700) (cons (Engine.Stage.Binary32::round 0 3 150 700) (cons (Engine.Stage.Binary32::round 0 16777217 0 700) (cons (Engine.Stage.Binary32::round 0 16777219 0 700) (cons (Engine.Stage.Binary32::round 0 340282366920938463463374607431768211456 0 700) (cons (Engine.Stage.Binary32::round 0 340282356779733661637539395458142568448 0 700) (cons (Engine.Stage.Binary32::round 1 5 300 700) (cons (Engine.Stage.Binary32::round 0 0 7 700) (cons (Engine.Stage.Binary32::round 1 0 7 700) (nil Nat))))))))))))) = (cons 1065353216 (cons 3217031168 (cons 1 (cons 0 (cons 2 (cons 1266679808 (cons 1266679810 (cons 2139095040 (cons 2139095040 (cons 2147483648 (cons 0 (cons 0 (nil Nat)))))))))))))),
-  proof: reflexivity{},
-  axioms: []
-}
-
-theorem{
   name: binary32_min_at_most,
   parameters: [m : Nat, c : Nat],
   statement: ((Engine.Stage.Binary32::minOf m c) <= c),
@@ -106,6 +98,102 @@ theorem{
     ]
   },
   axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: binary32_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 1 0 700) = 1065353216),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 1 3 1 700) = 3217031168),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 1 149 700) = 1),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 1 150 700) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_4,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 3 150 700) = 2),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_5,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 16777217 0 700) = 1266679808),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_6,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 16777219 0 700) = 1266679810),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_7,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 340282366920938463463374607431768211455 0 700) = 2139095040),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_8,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 340282356779733661637539395458142568448 0 700) = 2139095040),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_9,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 1 5 300 700) = 2147483648),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_10,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 0 0 7 700) = 0),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: binary32_row_11,
+  parameters: [],
+  statement: ((Engine.Stage.Binary32::round 1 0 7 700) = 0),
+  proof: reflexivity{},
+  axioms: []
 }
 \end{semanticmodule}
 \end{lexlean}

@@ -159,14 +159,6 @@ theorem{
 }
 
 theorem{
-  name: attention_head_reference,
-  parameters: [],
-  statement: ((cons (Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (cons 1077936128 (cons 3204448256 (nil Nat))))) (cons 1065353216 (cons 3226468352 (cons 1073741824 (cons 3226468352 (nil Nat))))) 0 1 1 2 2 777472127993) (cons (Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (nil Nat))) (cons 3226468352 (cons 1065353216 (nil Nat))) 0 1 1 2 1 777472127993) (nil (List Nat)))) = (cons (cons 1069547520 (cons 3226468352 (nil Nat))) (cons (cons 3226468352 (cons 1065353216 (nil Nat))) (nil (List Nat))))),
-  proof: reflexivity{},
-  axioms: []
-}
-
-theorem{
   name: attention_score_is_word,
   parameters: [queries : (List Nat), keys : (List Nat), qBase : Nat, kBase : Nat, headDim : Nat],
   statement: ((Engine.Stage.Attention::scoreAt queries keys qBase kBase headDim) <= 4286578688),
@@ -252,6 +244,38 @@ theorem{
   statement: ((Engine.Stage.Greedy::size (Engine.Stage.Attention::attend queries keys values hq group kvHeads headDim seen root)) = headDim),
   proof: simplify{definitions: [attention_out_count, Engine.Stage.Attention::attend]},
   axioms: [propext]
+}
+
+theorem{
+  name: attention_head_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (cons 1077936128 (cons 3204448256 (nil Nat))))) (cons 1065353216 (cons 3226468352 (cons 1073741824 (cons 3226468352 (nil Nat))))) 0 1 1 2 2 777472127993) = (cons 1069547520 (cons 3226468352 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_head_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Attention::attend (cons 1065353216 (cons 1073741824 (nil Nat))) (cons 1077936128 (cons 3204448256 (nil Nat))) (cons 3226468352 (cons 1065353216 (nil Nat))) 0 1 1 2 1 777472127993) = (cons 3226468352 (cons 1065353216 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_head_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Attention::attend (cons 1065353216 (cons 1056964608 (nil Nat))) (cons 1065353216 (cons 0 (cons 0 (cons 1065353216 (cons 3221225472 (cons 1048576000 (nil Nat))))))) (cons 1056964608 (cons 3212836864 (cons 1077936128 (cons 1073741824 (cons 3208642560 (cons 1082130432 (nil Nat))))))) 0 1 1 2 3 777472127993) = (cons 1068451863 (cons 1057083889 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: attention_head_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Attention::attend (cons 1048576000 (cons 3217031168 (cons 1073741824 (cons 1040187392 (nil Nat))))) (cons 1091567616 (cons 1091567616 (cons 1065353216 (cons 3212836864 (cons 1091567616 (cons 1091567616 (cons 1056964608 (cons 1077936128 (nil Nat))))))))) (cons 1088421888 (cons 1088421888 (cons 1065353216 (cons 1073741824 (cons 1088421888 (cons 1088421888 (cons 3229614080 (cons 1056964608 (nil Nat))))))))) 1 1 2 2 2 777472127993) = (cons 3213350415 (cons 1068554594 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
 }
 \end{semanticmodule}
 \end{lexlean}
