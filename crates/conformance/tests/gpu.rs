@@ -1081,6 +1081,28 @@ fn gpu_gp_32() {
     }
 }
 
+/// `GP-57`: The engine page loads an ONNX export whose graph file holds no tensor, every one in a data file beside it, as Llama 3.2 1B's q4f16 export keeps them: the tensor manifest takes each tensor's BLAKE3 address from the hub's UOR index row under the file it lies in, refuses a listed tensor without one, and refuses only a model none of whose files lists any tensor; the importer reads the data file and the page answers with the reference's tokens
+#[test]
+fn gpu_gp_57() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The journey loads the fixture written with every tensor in a data file
+    // (`just page-journey`); this test reads that the page and the journey
+    // still do what it saw.
+    for (path, wanted) in [
+        ("site/app/engine/loader.mjs", "if (tensors.some((t) => !/^blake3:[0-9a-f]{64}$/.test(t.address))) refuse("),
+        ("site/app/engine/loader.mjs", "if (!count) refuse(`the hub's UOR index lists no tensor in ${paths.join(\" or \")}`);"),
+        ("crates/conformance/tests/gpu/onnx-write.mjs", "parts.push(entry(\"location\", external), entry(\"offset\", at), entry(\"length\", raw.length), number(14, 1));"),
+        ("crates/conformance/tests/gpu/fixture.mjs", "const outside = onnxFile(model, \"qwen3\", \"fused\", { external: \"model_q4f16.onnx_data\" });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "results.external = await onnxVisit(context, { variant: \"external\" });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "external: the fixture's graph holds a tensor of its own, so nothing is tested"),
+        ("crates/conformance/tests/gpu/journey.mjs", "external: nothing was read from the data file"),
+    ] {
+        assert!(read(path).contains(wanted), "{path} no longer has `{wanted}`");
+    }
+}
+
 /// `GP-35`: pipeline("feature-extraction", model) loads a BERT encoder exported as Xenova's all-MiniLM-L6-v2 q4f16 export is, from its hub record and its own files, imports it with every operator asked of decision 18's encoder style and its file named by decision 24, places its weights by the node that reads them, int64 position ids left out, and answers each sentence's WordPiece ids and unit-length embedding from the module's integer encoder, bit for bit hologram-ai-cpu-encode's, on the CPU device decision 22 chose
 #[test]
 fn gpu_gp_35() {

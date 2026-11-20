@@ -192,6 +192,13 @@ Feature: gpu
     And an extractor called without pooling is refused by decision 82 before it runs
     And pipeline("text-classification") answers [{ label, score }] with the module's label, both labels highest first summing to 1 with top_k null, and one entry per text for an array
 
+  @GP-57 @build
+  Scenario: The engine page loads an ONNX export whose graph file holds no tensor, every one in a data file beside it, as Llama 3.2 1B's q4f16 export keeps them: the tensor manifest takes each tensor's BLAKE3 address from the hub's UOR index row under the file it lies in, refuses a listed tensor without one, and refuses only a model none of whose files lists any tensor; the importer reads the data file and the page answers with the reference's tokens
+    Given GP-19's Qwen3-shaped ONNX export written again with every tensor in onnx/model_q4f16.onnx_data, named by location, offset and length as onnxruntime's exports name them, its hub record listing both files, and the hub's UOR index row for the graph naming both files and each tensor under the data file
+    When `just page-journey` loads that export in a fresh browser profile
+    Then the tensor manifest passes with every tensor of the data file over the graph and its data file, the graph listing none
+    And the importer reads one data file, the data file is downloaded, and the page answers with the reference's tokens
+
   @GP-29 @build
   Scenario: The q4 product's kernels as the guest prints them (decision 48) run on WebGPU in integers only and give hologram_ai_exact's quantised codes, powers of two, group sums and binary32 rows, bit for bit, over 24 rows of 128 columns with random binary32 activations and f16 scales, including subnormal, zero, negative and infinite rows
     Given four sets of six rows of 128 columns drawn by a fixed xorshift, the activations' exponents ordinary, huge, tiny or anything and the f16 scales' likewise, with hologram_ai_exact's quantised codes, powers, group sums and rows for each

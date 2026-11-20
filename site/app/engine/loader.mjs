@@ -227,10 +227,14 @@ export async function tensorManifest({ indexBase, record, paths, checks, fetch: 
     const named = row.files.find((f) => f.path === path);
     if (named.blake3 !== file?.blake3 || named.size !== file?.size) refuse(`the hub's UOR index row for ${path} names another file than the record does`);
     const tensors = row.tensors.filter((t) => t.file === path).map((t) => ({ name: t.name, offset: t.offset, length: t.length, address: t.address }));
-    if (!tensors.length || tensors.some((t) => !/^blake3:[0-9a-f]{64}$/.test(t.address))) refuse(`the hub's UOR index row for ${path} gives no BLAKE3 address to some tensor`);
+    if (tensors.some((t) => !/^blake3:[0-9a-f]{64}$/.test(t.address))) refuse(`the hub's UOR index row for ${path} gives no BLAKE3 address to some tensor`);
     manifest.set(path, { size: file.size, blake3: file.blake3, tensors });
   }
+  // A graph may hold no tensor of its own, every one in its data files, as
+  // Llama 3.2 1B's export keeps them (GP-57); a model none of whose files
+  // lists a tensor is refused.
   const count = [...manifest.values()].reduce((n, m) => n + m.tensors.length, 0);
+  if (!count) refuse(`the hub's UOR index lists no tensor in ${paths.join(" or ")}`);
   checks.add("manifest", "tensor addresses from the hub's UOR index", "pass", `${count} tensors in ${manifest.size} files, from ${shardPath}`);
   return manifest;
 }
