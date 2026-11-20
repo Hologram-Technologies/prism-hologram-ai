@@ -3142,3 +3142,21 @@ address, and anything else is a miss that builds twice in full.
 pins the recipe, the toolchain, the profile and the workflow, and runs
 `engine-seal` on a module that is not the engine: it must fail naming both
 addresses. Passed on 2026-11-19.
+
+## EN-95, a classifier's probabilities
+
+transformers.js scores a text-classification by the softmax of the label
+scores. `hologram_ai_cpu_encode::probabilities` gives it in integers: each
+score's base-two exponent from its binary32 bits with no scale, the certified
+exponent table and the exact sum (EN-43, EN-44), each probability in units of
+`2^-30` rounded once to binary32. The module answers it as
+`encode_probabilities`, a pure function of the scores, so `encode_classify` and
+the label it gives are unchanged.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Two equal scores answer exactly a half each; each probability is within `2^-12` of the double-precision softmax, ordered as the scores, summing to 1 within `2^-20`; a score that is not finite is refused; the module answers the crate's bits | `engine_en_95` | tested |
+
+The engine's sealed address moves with this change, from `blake3:4eccff67…`
+to `blake3:5f6895f3…a2` (EN-90).
+

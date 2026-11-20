@@ -1,0 +1,54 @@
+{
+  "decision": 82,
+  "name": "A transformers.js encoder call",
+  "asks": "Does this transformers.js encoder call ask for what the module's encoder gives?",
+  "fields": {
+    "1": {
+      "name": "Task",
+      "choice": [
+        [
+          "feature-extraction",
+          1
+        ],
+        [
+          "text-classification",
+          2
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "Pooling",
+      "choice": [
+        [
+          "none",
+          0
+        ],
+        [
+          "mean",
+          1
+        ],
+        [
+          "cls",
+          2
+        ]
+      ],
+      "value": 1
+    },
+    "3": {
+      "name": "normalize",
+      "choice": [
+        [
+          "false",
+          0
+        ],
+        [
+          "true",
+          1
+        ]
+      ],
+      "value": 1
+    }
+  },
+  "purpose": "whether a transformers.js encoder call asks for what the module's encoder gives"
+}
