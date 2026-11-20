@@ -10170,9 +10170,9 @@ fn en_52_open(fixture: &En49) -> String {
     String::from_utf8(said).expect("the sizes are JSON")
 }
 
-/// GP-19's fixture imported through the page's module, then `decode_open`
-/// with `config` as config.json's text: its status and its answer.
-fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
+/// The stand-in kernel GP-19's fixture is imported under in the page's
+/// module, installed there.
+fn en_52_kernel() {
     // The stand-in of EN-33, answering decision 20 for this fixture's shapes:
     // the codes are half a byte a weight, the scales one per block.
     let mut base = accepting();
@@ -10199,6 +10199,12 @@ fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
     };
     let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
     wasm::install_kernel(Box::new(Shared(kept)));
+}
+
+/// GP-19's fixture imported through the page's module, then `decode_open`
+/// with `config` as config.json's text: its status and its answer.
+fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
+    en_52_kernel();
     let graph = &fixture.graph;
     let root = import_record("model.onnx", 0, graph).address.0;
     let at = wasm::given(&root);
@@ -12232,6 +12238,398 @@ fn engine_fl_80() {
         decode::Held::read(&[1, 0, 0]).err(),
         Some(decode::DecodeError::Elsewhere)
     );
+}
+
+/// `EN-110`: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+#[test]
+fn engine_en_110() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let config = en_49_config(&fixture);
+        let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        let mut by_step = decode::Session::new(&model);
+        let mut last = Vec::new();
+        for &id in &fixture.prompt {
+            last = decode::step(&model, &mut by_step, id).expect("the prompt steps");
+        }
+        // The embedding alone first, then one more layer before each layer.
+        let first =
+            decode::read_first(&nodes, &initializers, config, 0).expect("the embedding reads");
+        let mut session = decode::Session::new(&first);
+        let mut prefill =
+            decode::prefill_start(&first, &session, &fixture.prompt).expect("the prefill starts");
+        for l in 0..model.dims.layers {
+            let held = decode::read_first(&nodes, &initializers, config, l + 1)
+                .expect("the layers so far read");
+            decode::prefill_layer(&held, &mut session, &mut prefill).expect("the layer runs");
+            assert_eq!(prefill.layers(), l + 1);
+        }
+        let mut logits =
+            decode::prefill_finish(&model, &mut session, &prefill).expect("the prefill finishes");
+        assert_eq!(
+            session, by_step,
+            "{family}: the prefill left another cache than step"
+        );
+        assert_eq!(
+            logits, last,
+            "{family}: the prefill's logits are not step's"
+        );
+        let (mut tokens, mut all) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            let next = decode::greedy(&logits).expect("a token");
+            tokens.push(next);
+            all.push(logits);
+            logits = decode::step(&model, &mut session, next).expect("a token steps");
+        }
+        assert_eq!(
+            (tokens, all),
+            stepped,
+            "{family}: a token or a logit's bits changed"
+        );
+    }
+}
+
+/// `FL-110`: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+#[test]
+fn engine_fl_110() {
+    use hologram_ai_cpu_decode::{self as decode, DecodeError};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let config = en_49_config(&fixture);
+    let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+    let partial = decode::read_first(&nodes, &initializers, config, 1).expect("one layer reads");
+    let mut session = decode::Session::new(&partial);
+    assert_eq!(
+        decode::step(&partial, &mut session, 1).err(),
+        Some(DecodeError::NotHeld),
+        "a step ran on a model with a layer missing"
+    );
+    assert_eq!(session.position(), 0, "a refused step moved the session");
+    assert_eq!(
+        decode::prefill_start(&partial, &session, &[]).err(),
+        Some(DecodeError::NotHeld),
+        "an empty prompt started"
+    );
+    let mut prefill =
+        decode::prefill_start(&partial, &session, &fixture.prompt).expect("the prefill starts");
+    decode::prefill_layer(&partial, &mut session, &mut prefill).expect("layer 0 runs");
+    let before = session.clone();
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut prefill).err(),
+        Some(DecodeError::NotHeld),
+        "layer 1 ran without its weights"
+    );
+    assert_eq!(session, before, "a refused layer changed the cache");
+    assert_eq!(
+        decode::prefill_finish(&model, &mut session, &prefill).err(),
+        Some(DecodeError::NotHeld),
+        "a prefill finished before its last layer"
+    );
+    // A second prefill on a session the first one is midway through.
+    let mut other =
+        decode::prefill_start(&partial, &decode::Session::new(&partial), &fixture.prompt)
+            .expect("a second prefill starts");
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut other).err(),
+        Some(DecodeError::NotHeld),
+        "a layer ran on a cache another prefill had grown"
+    );
+}
+
+/// `EN-111`: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+#[test]
+fn engine_en_111() {
+    use hologram_ai_kernel_client::opname;
+    let (graph, beside, _) = import_model();
+    for piece in [1usize, 7, 64, 4096, graph.len()] {
+        let mut kernel = accepting();
+        let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+        let mut given = Vec::new();
+        let mut taken = 0u64;
+        for chunk in graph.chunks(piece) {
+            reading
+                .take(chunk, &mut kernel)
+                .expect("the chunk is taken");
+            taken += chunk.len() as u64;
+            let before = kernel.asked.len();
+            for tensor in reading
+                .admit_so_far(&mut kernel)
+                .expect("the tensors so far admit")
+            {
+                // Whole, and no sooner than its last byte.
+                assert!(
+                    tensor.offset + tensor.length <= taken,
+                    "pieces of {piece}: {} given early",
+                    tensor.name
+                );
+                assert!(
+                    tensor.offset + tensor.length > taken - chunk.len() as u64,
+                    "pieces of {piece}: {} given late",
+                    tensor.name
+                );
+                // Its operators and 4-bit shape were asked before it was given.
+                let asked = &kernel.asked[..];
+                assert!(
+                    asked.iter().any(|q| q[0] == 18),
+                    "pieces of {piece}: no operator asked before {}",
+                    tensor.name
+                );
+                if tensor.name.starts_with("w_") {
+                    assert!(
+                        asked[before..].iter().any(|q| q[0] == 20)
+                            || asked.iter().any(|q| q[0] == 20),
+                        "pieces of {piece}: {}'s shape was not asked",
+                        tensor.name
+                    );
+                }
+                given.push(tensor);
+            }
+        }
+        let imported = reading.finish(&mut kernel).expect("the graph finishes");
+        let mut read = Vec::new();
+        for name in imported.data_files() {
+            let mut file = imported
+                .data(import_record(&name, 1, &beside), &mut kernel)
+                .expect("the data file starts");
+            file.take(&beside);
+            read.push(file.finish(&mut kernel).expect("the data file ends"));
+        }
+        let model = imported
+            .finish(read, &mut kernel)
+            .expect("the import finishes");
+        let inside: Vec<_> = model
+            .tensors
+            .iter()
+            .filter(|t| t.file == 0)
+            .cloned()
+            .collect();
+        assert_eq!(
+            given, inside,
+            "pieces of {piece}: the tensors given so far are not the finished import's"
+        );
+        for tensor in &given {
+            let (from, to) = (
+                tensor.offset as usize,
+                (tensor.offset + tensor.length) as usize,
+            );
+            assert_eq!(
+                tensor.address,
+                blake3_of(&graph[from..to]),
+                "pieces of {piece}: {}'s address",
+                tensor.name
+            );
+        }
+    }
+    // An operator the kernel refuses stops the import before any tensor is given.
+    let mut kernel = accepting();
+    let refuse = kernel_says("Opnames", "unsupported operator");
+    let mut refusing = Scripted {
+        answer: Box::new(move |request| {
+            if request[0] == 18 {
+                refuse.clone()
+            } else {
+                (kernel.answer)(request)
+            }
+        }),
+        asked: Vec::new(),
+    };
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+    reading
+        .take(&graph, &mut refusing)
+        .expect("the graph is taken");
+    assert!(
+        matches!(
+            reading.admit_so_far(&mut refusing),
+            Err(import::ImportError::OperatorRefused(
+                _,
+                opname::Verdict::Unsupported
+            ))
+        ),
+        "a refused operator let a tensor through"
+    );
+}
+
+/// The module's answer to a call, its status checked.
+fn en_112_said(what: &str, status: u32) -> Vec<u8> {
+    let said = wasm::last_answer();
+    assert_eq!(status, 0, "{what}: {}", String::from_utf8_lossy(&said));
+    said
+}
+
+/// `EN-112`: The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name
+#[test]
+fn engine_en_112() {
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        en_52_kernel();
+        let graph = &fixture.graph;
+        let root = import_record("model.onnx", 0, graph).address.0;
+        let at = wasm::given(&root);
+        en_112_said(
+            "onnx_start",
+            wasm::onnx_start(at, 32, graph.len() as u64, 0),
+        );
+        wasm::release(at);
+        let (nodes, initializers) = en_49_graph(graph);
+        // A layer's weights are those its nodes read, as the page finds them.
+        let reads = |l: usize| -> Vec<&String> {
+            let prefix = format!("/model/layers.{l}/");
+            initializers
+                .keys()
+                .filter(|w| {
+                    nodes
+                        .iter()
+                        .any(|n| n.name.starts_with(&prefix) && n.inputs.contains(w))
+                })
+                .collect()
+        };
+        let layers = (0..)
+            .take_while(|l| {
+                let prefix = format!("/model/layers.{l}/");
+                nodes
+                    .iter()
+                    .any(|n| n.name.starts_with(&prefix) && n.name.contains("q_proj"))
+            })
+            .count();
+        let mut handed: Vec<String> = Vec::new();
+        let (mut opened, mut held, mut ran, mut refused) = (false, 0usize, 0usize, false);
+        // The scaling as the page passes it once the loader confirmed it.
+        let scaling = match en_49_config(&fixture).scaling {
+            exact::RopeScaling::Llama3 {
+                factor,
+                low,
+                high,
+                original,
+            } => {
+                serde_json::json!({ "factor": factor, "low": low, "high": high, "original": original })
+            }
+            exact::RopeScaling::None => serde_json::Value::Null,
+        };
+        let opening = |held: usize| {
+            serde_json::json!({ "config": fixture.config.to_string(), "scaling": scaling, "held": held })
+                .to_string()
+        };
+        let prompt: Vec<u8> = fixture
+            .prompt
+            .iter()
+            .flat_map(|t| t.to_le_bytes())
+            .collect();
+        for chunk in graph.chunks(4096) {
+            let at = wasm::given(chunk);
+            en_112_said("onnx_take", wasm::onnx_take(at, chunk.len() as u32));
+            wasm::release(at);
+            let so_far = en_112_said("onnx_so_far", wasm::onnx_so_far());
+            let so_far = String::from_utf8(so_far).expect("text");
+            for line in so_far.lines() {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let name = fields[0];
+                let offset: usize = fields[2].parse().expect("an offset");
+                let length: usize = fields[3].parse().expect("a length");
+                assert_eq!(
+                    fields[4],
+                    format!(
+                        "blake3:{}",
+                        blake3_of(&graph[offset..offset + length])
+                            .0
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    ),
+                    "{family}: {name}'s address"
+                );
+                let Some(init) = initializers.get(name) else {
+                    continue;
+                };
+                assert_eq!(
+                    &graph[offset..offset + length],
+                    init.bytes,
+                    "{family}: {name}'s bytes"
+                );
+                let mut given = (name.len() as u32).to_le_bytes().to_vec();
+                given.extend_from_slice(name.as_bytes());
+                given.extend_from_slice(&(init.data_type as u32).to_le_bytes());
+                given.extend_from_slice(init.bytes);
+                let at = wasm::given(&given);
+                en_112_said("decode_tensor", wasm::decode_tensor(at, given.len() as u32));
+                wasm::release(at);
+                handed.push(name.to_string());
+            }
+            // A layer is held once every one of its weights has been handed in.
+            while held < layers && reads(held).into_iter().all(|n| handed.contains(n)) {
+                held += 1;
+            }
+            if held == 0 || !handed.iter().any(|n| n.contains("embed")) {
+                continue;
+            }
+            if !opened {
+                let opening = opening(held);
+                let at = wasm::given(opening.as_bytes());
+                en_112_said("decode_open", wasm::decode_open(at, opening.len() as u32));
+                wasm::release(at);
+                let at = wasm::given(&prompt);
+                en_112_said(
+                    "decode_prefill",
+                    wasm::decode_prefill(at, prompt.len() as u32),
+                );
+                wasm::release(at);
+                opened = true;
+            }
+            while ran < held {
+                let said = en_112_said(
+                    "decode_prefill_layer",
+                    wasm::decode_prefill_layer(held as u32),
+                );
+                ran = u32::from_le_bytes([said[0], said[1], said[2], said[3]]) as usize;
+            }
+            // The next layer, before its weights, is refused by name and
+            // leaves the run as it was.
+            if !refused && held < layers {
+                assert_eq!(
+                    wasm::decode_prefill_layer(held as u32),
+                    1,
+                    "{family}: a layer ran before its weights"
+                );
+                assert_eq!(wasm::last_answer(), b"Decode(NotHeld)");
+                refused = true;
+            }
+        }
+        assert_eq!(
+            ran, layers,
+            "{family}: every layer ran while the file arrived"
+        );
+        en_112_said("onnx_graph_finish", wasm::onnx_graph_finish());
+        en_112_said("onnx_finish", wasm::onnx_finish());
+        let words = |said: Vec<u8>| -> (u32, Vec<u32>) {
+            let w: Vec<u32> = said
+                .chunks_exact(4)
+                .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+                .collect();
+            (w[0], w[1..].to_vec())
+        };
+        let mut last = words(en_112_said(
+            "decode_prefill_finish",
+            wasm::decode_prefill_finish(),
+        ));
+        let (mut tokens, mut logits) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            tokens.push(last.0);
+            logits.push(last.1.clone());
+            last = words(en_112_said("decode_step", wasm::decode_step(last.0)));
+        }
+        let (nodes, initializers) = en_49_graph(graph);
+        let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+            .expect("the model reads");
+        let native = en_49_run(&model, &fixture.prompt);
+        assert_eq!(
+            (tokens, logits),
+            native,
+            "{family}: the streamed run is not the native run, bit for bit"
+        );
+        assert_eq!(wasm::decode_clear(), 0);
+    }
 }
 
 /// `EN-97`: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused

@@ -1,0 +1,61 @@
+\begin{lexlean}{Engine.Stage.Binary32}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: powTwo,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (match n | Nat.zero => 1 | Nat.succ rest => (prim multiply 2 (powTwo rest) : Nat)),
+  recursive_argument: n
+}
+
+definition{
+  name: minOf,
+  parameters: [kept : Nat, next : Nat],
+  result: Nat,
+  body: (prim subtract kept (prim subtract kept next : Nat) : Nat)
+}
+
+definition{
+  name: bitLength,
+  parameters: [n : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => 0
+    | Nat.succ rest => (Engine.Stage.Greedy::pick n ((bitLength (prim quotient n 2 0 : Nat) rest) + 1) 0)),
+  recursive_argument: fuel
+}
+
+definition{
+  name: field,
+  parameters: [n : Nat, k : Nat, fuel : Nat],
+  result: Nat,
+  body: (prim subtract ((bitLength n fuel) + 125) k : Nat)
+}
+
+definition{
+  name: significand,
+  parameters: [n : Nat, k : Nat, fuel : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 148 ((field n k fuel) + k)) (Engine.Stage.Softmax::divideEven n (powTwo (prim subtract ((field n k fuel) + k) 149 : Nat))) (prim multiply n (powTwo (prim subtract 149 ((field n k fuel) + k) : Nat)) : Nat))
+}
+
+definition{
+  name: magnitudeBits,
+  parameters: [n : Nat, k : Nat, fuel : Nat],
+  result: Nat,
+  body: (minOf ((prim multiply (field n k fuel) 8388608 : Nat) + (significand n k fuel)) 2139095040)
+}
+
+definition{
+  name: round,
+  parameters: [negative : Nat, n : Nat, k : Nat, fuel : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick n ((magnitudeBits n k fuel) + (Engine.Stage.Greedy::pick negative 2147483648 0)) 0)
+}
+\end{semanticmodule}
+\end{lexlean}
