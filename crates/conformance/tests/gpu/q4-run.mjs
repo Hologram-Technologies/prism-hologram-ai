@@ -15,7 +15,7 @@ const playwright = process.env.PRISM_PLAYWRIGHT ?? "/opt/prismpm/oracles/node_mo
 const { chromium } = await import(playwright);
 
 // The guest's text of one kernel: its pieces of 256 bytes, in order, up to the empty one.
-const claims = JSON.parse(await readFile(join(root, "crates/conformance/tests/kernel/claims.json"), "utf8")).claims;
+const claims = JSON.parse(await readFile(join(root, "crates/conformance/tests/kernel/claims/048.json"), "utf8")).claims;
 const answers = new Map(claims.map((one) => [one.request, one.answer]));
 const printed = (kind, units, width) => {
   let text = "";
