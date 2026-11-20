@@ -960,6 +960,12 @@ suite = "gpu"
 statement = "The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before"
 
 [[id]]
+id = "KN-62"
+level = "build"
+suite = "kernel"
+statement = "One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32"
+
+[[id]]
 id = "EN-92"
 level = "build"
 suite = "engine"
