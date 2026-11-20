@@ -5260,6 +5260,12 @@ fn kernel_kn_59() {
     );
     assert_pinned(
         &proofs,
+        "term_words_value",
+        "((Engine.Word::limbsValue (termFrom lo hi pos 12)) = (Engine.Stage.Accumulate::termValue lo hi pos))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
         "add_exact",
         "((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0))",
         "Quot.sound, propext",
