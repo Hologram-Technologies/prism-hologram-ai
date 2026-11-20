@@ -292,3 +292,9 @@ Feature: gpu
     When crates/conformance/tests/gpu/q4-run.mjs reads the quantiser, the 128-code group-sum kernel, the accumulator and the rounding kernel from decision 48's claims, as the guest prints them, and runs them in that order on WebGPU in headless Chromium
     Then every stage the GPU writes is hologram_ai_exact's, word for word, and WebGPU reports no error
 
+  @GP-51 @build
+  Scenario: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
+    Given the page's integer engine (site/app/engine/integer.mjs) and GP-19's Qwen3-shaped ONNX export
+    When `just page-journey` runs a turn on the CPU device, in the worker, and a second turn on a restored prefix
+    Then integer.mjs's run calls decode_advance for every prompt id but the last and decode_step for the last and each generated token
+    And the sixteen tokens are the reference's, and the second turn's are the first's
