@@ -836,3 +836,11 @@ Feature: engine
     Given GP-13's encoder with its first layer's query projection left out
     When the page's module is asked to open it
     Then encode_open says no with Encode(Unrecognised(Attention)), the encoder's own failure, where the page reads answers
+
+  @EN-91 @build
+  Scenario: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt's ids but the last are advanced and the last is stepped, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the sixteen greedy tokens and every logit of each are the same bits
+    And an id past the vocabulary is refused by advance as by step

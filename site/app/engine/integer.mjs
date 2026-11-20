@@ -113,8 +113,16 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   // The prompt, then `count` greedy picks, stopping at any id in `stops`.
   async function run(prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) {
     if (position + prompt.length + count > capacity) throw new Error(`context full: ${capacity} positions`);
+    // Every prompt id but the last goes through without the output head
+    // (GP-51): nothing reads those logits, and the head is a quarter of a
+    // token. The cache, and so every token after, is the same bits.
     let last = null;
-    for (const t of prompt) last = stepSync(t).token;
+    prompt.forEach((t, i) => {
+      if (i < prompt.length - 1) {
+        m.call("decode_advance", t);
+        position += 1;
+      } else last = stepSync(t).token;
+    });
     onFirst();
     const out = [];
     while (out.length < count) {

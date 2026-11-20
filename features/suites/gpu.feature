@@ -278,3 +278,10 @@ Feature: gpu
     Then the page's own thread made no decode or encode call, and the heartbeat was never unanswered for 500 ms
     And onToken was called once per token, and the sixteen tokens are the reference's
     And every embedding's bits are GP-35's
+
+  @GP-51 @build
+  Scenario: The integer engine computes no output head for a prompt id whose logits nothing reads: run sends every prompt id but the last through the module's decode_advance and the last through decode_step, and the page's tokens on the CPU device, in the worker and after a restored prefix, are the reference's, bit for bit as before
+    Given the page's integer engine (site/app/engine/integer.mjs) and GP-19's Qwen3-shaped ONNX export
+    When `just page-journey` runs a turn on the CPU device, in the worker, and a second turn on a restored prefix
+    Then integer.mjs's run calls decode_advance for every prompt id but the last and decode_step for the last and each generated token
+    And the sixteen tokens are the reference's, and the second turn's are the first's

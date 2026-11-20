@@ -11895,3 +11895,51 @@ fn engine_fl_60() {
         Err(TemplateError::ReasoningInTurn)
     );
 }
+
+/// `EN-91`: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
+#[test]
+fn engine_en_91() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let model =
+            decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        // The same prompt with every id but the last advanced, no head.
+        let (last, head) = fixture.prompt.split_last().expect("a prompt");
+        let mut session = decode::Session::new(&model);
+        for &id in head {
+            decode::advance(&model, &mut session, id).expect("the prompt advances");
+        }
+        // Every key and value in the cache is the bits step leaves.
+        let mut by_step = decode::Session::new(&model);
+        for &id in head {
+            decode::step(&model, &mut by_step, id).expect("the prompt steps");
+        }
+        assert_eq!(
+            session, by_step,
+            "{family}: advance left another cache than step"
+        );
+        let mut logits =
+            decode::step(&model, &mut session, *last).expect("the last prompt id steps");
+        let (mut tokens, mut all) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            let next = decode::greedy(&logits).expect("a token");
+            tokens.push(next);
+            all.push(logits);
+            logits = decode::step(&model, &mut session, next).expect("a token steps");
+        }
+        assert_eq!(
+            (tokens, all),
+            stepped,
+            "{family}: advancing the prompt changed a token or a logit's bits"
+        );
+        // An id past the vocabulary is refused as step refuses it.
+        assert_eq!(
+            decode::advance(&model, &mut session, u32::MAX).err(),
+            decode::step(&model, &mut session, u32::MAX).err(),
+            "{family}: advance refuses otherwise than step"
+        );
+    }
+}
