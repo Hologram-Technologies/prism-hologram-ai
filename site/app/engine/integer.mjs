@@ -52,9 +52,10 @@ export const placed = (table, read) => Object.keys(table.places).map((name) => [
 // The forward pass in the worker, with the interface createIntegerEngine
 // answers; each call is awaited, and `run` hands `onToken` each token as the
 // worker makes it.
-export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity, helpers }) {
+// `gpu`, the kernels decision 48 printed, puts its products on WebGPU (GP-56).
+export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity, helpers, gpu = null }) {
   const tensors = placed(table, read);
-  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity, helpers }, tensors.map(([, bytes]) => bytes.buffer));
+  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity, helpers, gpu }, tensors.map(([, bytes]) => bytes.buffer));
   let position = 0;
   const call = async (method, args, hooks) => {
     const said = await ask({ kind: "call", method, args }, [], hooks);
@@ -69,9 +70,12 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
     restoreState: (state) => call("restoreState", [state]),
     reset: () => call("reset", []),
     get position() { return position; },
-    device: "cpu",
+    device: opened.gpu ? "webgpu" : "cpu",
     integer: true,
     sizes: opened.sizes,
+    // What WebGPU holds (GP-56): how many products its kernels answer, how
+    // many the module answers beside them, and the adapter.
+    gpu: opened.gpu,
     // How many helpers answer its products (GP-52); 0 computes them all in
     // the worker.
     helpers: opened.helpers,

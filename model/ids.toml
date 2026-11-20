@@ -1042,3 +1042,15 @@ id = "KN-86"
 level = "build"
 suite = "kernel"
 statement = "The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle"
+
+[[id]]
+id = "GP-56"
+level = "build"
+suite = "gpu"
+statement = "On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's"
+
+[[id]]
+id = "EN-96"
+level = "build"
+suite = "engine"
+statement = "The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits"

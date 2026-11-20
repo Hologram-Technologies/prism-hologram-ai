@@ -1112,7 +1112,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels })",
         "const stops = session.stops ??",
     ] {
         assert!(
@@ -1270,8 +1270,8 @@ fn gpu_gp_22() {
         "new Uint8Array([24, code, PRECISIONS[chosen], sizes[chosen].data, part])",
         "join(new Uint8Array([21]), offer(\"q4f16\"), offer(\"q4\"),",
         "const path = sizes[chosen].path;",
-        "join(new Uint8Array([22, gpu ? 1 : 0]),",
-        "return on === \"webgpu\" ? createEngine(",
+        "join(new Uint8Array([22, usable ? 1 : 0]),",
+        "const kernels = on === \"webgpu\" ? await printedKernels((request) => kernel.dispatch(request)) : null;",
         "return Object.assign(generate, { task, model, dtype: chosen, device: on,",
     ] {
         assert!(
@@ -1440,7 +1440,7 @@ fn gpu_gp_28() {
     let pipeline = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "import { startIntegerEngine } from \"./integer.mjs\";",
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels })",
     ] {
         assert!(
             pipeline.contains(wanted),
@@ -1748,7 +1748,7 @@ fn gpu_gp_32() {
         ("site/app/engine/pipeline.mjs", "const verdict = await ask(\"reuse\", \"computed prefix to reuse\", join(new Uint8Array([27]), asked, held.label, be(held.length, 4), be(prompt.length, 4))"),
         ("site/app/engine/pipeline.mjs", "engine.restoreState(held.state);"),
         ("site/app/engine/pipeline.mjs", "computed: prompt.length - from,"),
-        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before });"),
+        ("crates/conformance/tests/gpu/journey.mjs", "results.reuse[name] = await onnxVisit(context, { variant: \"again\", texts: [\"hi\", \"hi\"], before, isolate: !noGpu });"),
         ("crates/conformance/tests/gpu/journey.mjs", "reusing the head changed the tokens"),
         ("crates/conformance/tests/gpu/journey.mjs", "a turn reported no time to first token"),
     ] {
@@ -1914,7 +1914,7 @@ fn gpu_gp_41() {
     };
     let pipeline = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels })",
         "const encoder = await startIntegerEncoder({ module, ...loaded });",
     ] {
         assert!(
@@ -2282,6 +2282,78 @@ fn gpu_gp_52() {
             "fail(`isolation: the return visit ran ${again.helpers} helpers, not 2`)",
             "fail(`isolation: the tokens with helpers ${got} are not the reference's ${again.expected}`)",
             "fail(`isolation: a first visit was isolated (${first.isolated}) or ran ${first.helpers} helpers`)",
+        ],
+    );
+}
+
+/// `GP-56`: On a cross-origin-isolated page the integer engine's products run on WebGPU: the worker that runs the model hands each q4 product to a WebGPU worker, which runs it with the quantiser, group-sum, accumulator and rounding kernels the verified kernel's guest prints (decision 48), every value a u32 word, and computes the dense output head on an instance of the same engine.wasm; WebGPU is usable, and offered to decision 22, only where the page is isolated and the guest prints the group-sum kernel for every width the model's products read; the float engine no longer runs an ONNX export; and the tokens on WebGPU, asked for by name and chosen by the kernel, are the reference's and the CPU's
+#[test]
+fn gpu_gp_56() {
+    // GP-29 shows the printed kernels give hologram_ai_exact's rows on WebGPU
+    // and EN-92 that a product answered elsewhere leaves every bit as it was;
+    // the journey runs the page on WebGPU, by name and by the kernel's choice,
+    // and on the CPU. This reads that the pieces between are in place, that
+    // no ONNX export reaches the float engine, and that the journey checks it.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/engine/integer-gpu.mjs",
+        &[
+            "request[0] = 48;",
+            "return { quantise: await printed(3, 0, 0), sums, accumulate: await printed(4, 0, 0), finish: await printed(5, 0, 0) };",
+            "export const onGpu = (s) => s.kind === 1 && s.block === 32 && s.scaleKind === 2 && s.packed === 0 && s.start === 0 && PRINTED.includes(s.columns);",
+            "cpu.callWith(\"slices_hold\", held);",
+            "const slices = m.call(\"decode_slices\", 0, 1);",
+            "Atomics.wait(control, ANSWERED, 0);",
+            "m.call(\"decode_helpers\", 1);",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer-worker.mjs",
+        &["const gpu = data.engine === \"encoder\" || !data.gpu ? null : await useGpu(module, data.gpu, engine.sizes);"],
+    );
+    pinned(
+        "site/app/engine/pipeline.mjs",
+        &[
+            "const usable = gpu && globalThis.crossOriginIsolated === true && [dims.d, dims.n_heads * dims.hd, dims.ff].every((w) => PRINTED.includes(w));",
+            "join(new Uint8Array([22, usable ? 1 : 0])",
+            "return startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers, gpu: kernels });",
+        ],
+    );
+    // The printed widths are Kernel.Render's, so the page never asks for one
+    // the guest refuses.
+    let render = read("app/src/Kernel/Render.lex.tex");
+    for width in [128, 256, 1024, 1536, 2048, 3072, 8192, 8960] {
+        assert!(
+            render.contains(&format!("(width =? {width})")),
+            "Kernel.Render no longer prints width {width}"
+        );
+    }
+    assert!(
+        read("site/app/engine/integer-gpu.mjs")
+            .contains("export const PRINTED = [128, 256, 1024, 1536, 2048, 3072, 8192, 8960];"),
+        "integer-gpu.mjs's widths are not Kernel.Render's"
+    );
+    let pipeline = read("site/app/engine/pipeline.mjs");
+    assert!(
+        !pipeline.contains("\"./gpu.mjs\"") && !pipeline.contains("createEngine"),
+        "pipeline.mjs still reaches the float engine"
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &[
+            "return { isolated: globalThis.crossOriginIsolated, webgpu: await turn(\"webgpu\"), auto: await turn(\"auto\"), cpu: await turn(\"cpu\") };",
+            "for (const [name, device] of [[\"webgpu\", \"webgpu\"], [\"auto\", \"webgpu\"], [\"cpu\", \"cpu\"]]) {",
+            "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected ${7 * layers} and the head`)",
+            "fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`)",
+            "const device = gpu && run.isolated ? \"webgpu\" : \"cpu\";",
         ],
     );
 }

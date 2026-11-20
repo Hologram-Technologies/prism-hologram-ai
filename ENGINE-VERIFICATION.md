@@ -3179,3 +3179,30 @@ to `blake3:5f6895f3…a2` (EN-90).
 | --- | --- |
 | The head's slice begins at `start * width / 2` bytes instead of `start * width` (the offset counted in halves) | rejected: `Head: the slices joined are not the whole product` |
 | none | passed, with FL-80 (a product one row short is refused as `DecodeError::Elsewhere`), EN-91 and EN-49 |
+
+## EN-96, a q4 export on the integer engine
+
+onnx-community writes two precisions of each model. The q4f16 export stores
+its MatMulNBits scales, embedding, head and norm weights as halves; the q4
+export stores them as binary32. The integer forward pass read only halves, so
+a q4 export was refused at its embedding (`Unrecognised(Embedding)`), and the
+page reached it only through the float GPU engine. Every weight vector is now
+read as `exact::Dense`, halves or binary32, each value exactly
+(`Dense::at`), and the head's slices carry which they hold (kind 2 halves,
+kind 3 binary32), so a q4 export runs on the integer engine with the same
+rounding rules as a q4f16 one. The engine changed, so its seal moved to
+`blake3:b5fd8212…a7bb26` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| A Qwen3-shaped q4 export runs to the float reference's sixteen tokens, every logit within 2^-7, the same bits twice | `engine_en_96`, on `forward-fixture.mjs qwen3-q4` | tested |
+| The page's q4 visits load and answer on the integer engine | `just page-journey`, GP-31's `store q4` and `store short` | tested on CI |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_96`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
+| none | passed |
