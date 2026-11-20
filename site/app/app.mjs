@@ -173,7 +173,12 @@ async function load() {
 // against its deploy, and shows what the call reports.
 async function loadOnnxModel({ kernel, ask, device, started }) {
   $("progress").hidden = false;
+  // A prompt can be sent while the model arrives (GP-70): it runs through
+  // each layer as that layer is checked, and is answered once the load ends.
+  state.loadStarted = started;
+  $("send").disabled = false;
   const generate = await pipeline("text-generation", MODEL.onnx, {
+    early: () => (early ? { text: early, max_new_tokens: 256 } : null),
     dtype: MODEL.precision ?? "auto",
     index: MODEL.indexBase,
     kernel,
@@ -191,15 +196,39 @@ async function loadOnnxModel({ kernel, ask, device, started }) {
   state.isolated = globalThis.crossOriginIsolated === true;
   state.precision = generate.dtype;
   state.loadSeconds = (performance.now() - started) / 1000;
-  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${generate.engine.gpu.products} products on the GPU, in integers` : "on the CPU"}`);
+  status(`Ready in ${state.loadSeconds.toFixed(1)} s · ${generate.device === "webgpu" ? `${generate.engine.gpu?.products ?? "its"} products on the GPU, in integers` : "on the CPU"}`);
   $("send").disabled = false;
+  if (early) {
+    $("send").disabled = true;
+    try {
+      await answer(early);
+    } catch (error) {
+      state.error = String(error.message ?? error);
+      status(`Stopped: ${state.error}`);
+      checks.add("stop", "answer stopped", "fail", state.error);
+    }
+    early = null;
+    $("send").disabled = false;
+  }
 }
+
+// The text sent while the model was still loading, if any (GP-70).
+let early = null;
 
 
 async function send(event) {
   event.preventDefault();
   // Enter reaches here too, so a turn in progress is not started twice.
-  if (!session || $("send").disabled) return;
+  if ($("send").disabled) return;
+  if (!session) {
+    // Still loading: the text is taken now and answered when the load ends.
+    if (state.phase !== "loading" || early) return;
+    early = $("prompt").value.trim() || $("prompt").placeholder;
+    state.sentAt = performance.now();
+    $("send").disabled = true;
+    status("Your prompt runs through each layer as it arrives…");
+    return;
+  }
   $("send").disabled = true;
   try {
     await answer();
@@ -211,12 +240,16 @@ async function send(event) {
   $("send").disabled = false;
 }
 
-async function answer() {
+async function answer(given = null) {
   // An empty box asks the example its placeholder shows.
-  const text = $("prompt").value.trim() || $("prompt").placeholder;
-  const out = await session.generate(text, { max_new_tokens: 256, onToken: (shown) => { $("answer").textContent = shown; } });
+  const text = given ?? ($("prompt").value.trim() || $("prompt").placeholder);
+  let firstAt = null;
+  const out = await session.generate(text, { max_new_tokens: 256, onToken: (shown) => { firstAt ??= performance.now(); $("answer").textContent = shown; } });
+  // From the click on Load to the first token shown, when the prompt was sent
+  // during the load (GP-70).
+  if (given && firstAt && state.loadStarted) state.clickToFirstToken = (firstAt - state.loadStarted) / 1000;
   state.output = { prompt: out.prompt, promptIds: out.promptIds, promptTokens: out.promptTokens, tokens: out.tokens, text: out.text, reuse: out.reuse, computed: out.computed };
-  state.stats = { timeToFirstToken: out.timeToFirstToken, tokensPerSecond: out.tokensPerSecond, generated: out.tokens.length };
+  state.stats = { timeToFirstToken: out.timeToFirstToken, tokensPerSecond: out.tokensPerSecond, generated: out.tokens.length, early: out.early === true, clickToFirstToken: state.clickToFirstToken ?? null };
   const reused = out.promptTokens - out.computed;
   $("stats").textContent = `${out.tokens.length} tokens · first token ${out.timeToFirstToken.toFixed(2)} s · ${out.tokensPerSecond.toFixed(1)} tokens/s (32 positions per submission)${reused ? ` · ${reused} of ${out.promptTokens} prompt positions reused` : ""}`;
 }

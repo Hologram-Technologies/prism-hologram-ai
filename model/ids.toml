@@ -1078,3 +1078,9 @@ id = "KN-95"
 level = "build"
 suite = "kernel"
 statement = "The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows"
+
+[[id]]
+id = "GP-70"
+level = "build"
+suite = "gpu"
+statement = "A prompt sent while the model is still arriving runs as it arrives: the page takes it during the load, frames it and asks its budget of the kernel (decision 9) at once, opens the engine's worker once the embedding and the first layer are in, hands it each tensor as the importer admits it (EN-111) and the prompt goes through each layer as soon as that layer is held (EN-110, EN-112); the device is decision 22's before any of the model is computed; the first token is made only after the whole file's BLAKE3 and decision 28, on the module, and WebGPU takes the turn's products after it when the kernel chose it; on WebGPU and on the CPU the tokens are the reference's"

@@ -1398,7 +1398,11 @@ fn gpu_gp_25() {
         "export async function pipeline(task, model, options = {}) {",
         "const code = TASKS[task] ?? 255;",
         "new Uint8Array([24, code, PRECISIONS[name], 0, 0])",
-        "const generate = turner({ engine, module, ask, stops, chat });",
+        // The turn exists before the model does, so a prompt sent while the
+        // model arrives can be framed and budgeted (GP-70); the engine, stops
+        // and template join the session when the load ends.
+        "const generate = turner(session);",
+        "Object.assign(session, { engine, stops, chat });",
         "export function turner(session) {",
     ] {
         assert!(
@@ -2392,6 +2396,58 @@ fn gpu_gp_56() {
             "fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected all ${7 * layers + 1}, the head among them`)",
             "fail(`gpu: WebGPU's tokens ${run.webgpu.output.tokens} are not the CPU's ${run.cpu.output.tokens}`)",
             "const device = gpu && run.isolated ? \"webgpu\" : \"cpu\";",
+        ],
+    );
+}
+
+/// `GP-70`: A prompt sent while the model is still arriving runs as it arrives: the page takes it during the load, frames it and asks its budget of the kernel (decision 9) at once, opens the engine's worker once the embedding and the first layer are in, hands it each tensor as the importer admits it (EN-111) and the prompt goes through each layer as soon as that layer is held (EN-110, EN-112); the device is decision 22's before any of the model is computed; the first token is made only after the whole file's BLAKE3 and decision 28, on the module, and WebGPU takes the turn's products after it when the kernel chose it; on WebGPU and on the CPU the tokens are the reference's
+#[test]
+fn gpu_gp_70() {
+    // EN-110 to EN-112 prove the module's layer-at-a-time prefill gives
+    // step's bits; the journey sends a prompt before the model arrives and
+    // holds its tokens to the reference on WebGPU and on the CPU. This reads
+    // that the pieces between are in place and that the journey checks them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/engine/onnx-load.mjs",
+        &["const lines = text.decode(m.call(\"onnx_so_far\")).split(\"\\n\").filter(Boolean);"],
+    );
+    pinned(
+        "site/app/engine/integer.mjs",
+        &[
+            "while (prompt && ran < layers) ran = word(m.call(\"decode_prefill_layer\", layers));",
+            "m.callWith(\"decode_prefill\", new Uint8Array(new Uint32Array(ids).buffer));",
+            "const said = m.call(\"decode_prefill_finish\");",
+        ],
+    );
+    pinned(
+        "site/app/engine/pipeline.mjs",
+        &[
+            "session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh });",
+            "adding = adding.then(() => session.engine.add(more, now));",
+            "on = await deviceFor({ d: config.hidden_size, heads, hd, ff: config.intermediate_size, largest });",
+            "const budget = await budgetOf(prompt, max_new_tokens);",
+            "if (session.kernels && !session.pending) await session.engine.attach(session.kernels);",
+        ],
+    );
+    pinned(
+        "site/app/app.mjs",
+        &["early = $(\"prompt\").value.trim() || $(\"prompt\").placeholder;"],
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &[
+            "results.early[name] = await onnxVisit(context, { variant: \"again\", before, isolate: !noGpu, early: true });",
+            "answered(`early ${name}`, run);",
+            "fail(`early ${name}: the prompt sent during the load was answered as a turn after it, not run as the model arrived`);",
         ],
     );
 }
