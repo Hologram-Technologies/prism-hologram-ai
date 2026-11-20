@@ -571,6 +571,14 @@ try {
         const flip = (hex) => (hex[0] === "0" ? "1" : "0") + hex.slice(1);
         checked.changed = await loaded.cpu.check({ ...g, output: { ...g.output, label: flip(g.output.label) } });
         checked.other = await loaded.cpu.check({ ...g, model: { ...g.model, label: flip(g.model.label) } });
+        // GP-60: one answer opened at a layer on each device, and a layer past
+        // the model's.
+        const at = { layer: 1, position: g.input.ids.length + 2 };
+        const strip = (r) => ({ verdict: r.verdict, label: r.label, width: r.values?.length ?? 0, check: r.checked?.verdict });
+        checked.probeCpu = strip(await loaded.cpu.probe(g, { ...at, component: "residual" }));
+        checked.probeGpu = strip(await loaded.webgpu.probe(g, { ...at, component: "residual" }));
+        checked.probeAttention = strip(await loaded.cpu.probe(g, { ...at, component: "attention" }));
+        checked.probeOut = strip(await loaded.cpu.probe(g, { layer: 99, position: 0 }));
       } catch (e) {
         checked.error = String(e.message ?? e);
       }
@@ -1147,6 +1155,13 @@ for (const kind of ["bert", "distil"]) {
   if (k.cpuOnGpu?.verdict !== "confirmed") fail(`check: the CPU's receipt run on WebGPU was ${k.cpuOnGpu?.verdict}`);
   if (k.changed?.verdict !== "mismatch") fail(`check: a receipt with a changed output was ${k.changed?.verdict}, not mismatch`);
   if (k.other?.verdict !== "not comparable" || k.other?.ready !== false) fail(`check: a receipt for another model was ${k.other?.verdict}, not "not comparable"`);
+  // GP-60: probes read the same bits on both devices, named by one BLAKE3.
+  const pc = k.probeCpu, pg = k.probeGpu;
+  if (pc?.verdict !== "exact replay" || pg?.verdict !== "exact replay") fail(`probe: the kernel answered ${pc?.verdict} and ${pg?.verdict}, not exact replay`);
+  if (!/^[0-9a-f]{64}$/.test(pc?.label ?? "") || pc?.label !== pg?.label) fail(`probe: the residual on the CPU ${pc?.label} is not WebGPU's ${pg?.label}`);
+  if (pc?.width !== onnx.model.dims.d) fail(`probe: read ${pc?.width} values, not the residual's ${onnx.model.dims.d}`);
+  if (!k.probeAttention?.label || k.probeAttention.label === pc?.label) fail("probe: attention's output read the residual's bits");
+  if (k.probeOut?.verdict !== "out of range" || k.probeOut?.label) fail(`probe: a layer past the model was ${k.probeOut?.verdict}`);
   const linked = results.onnx.linked;
   if (linked.check?.verdict !== "confirmed" || !/^Confirmed: /.test(linked.verdict ?? "")) fail(`link: a page opened with a receipt did not confirm it (${linked.phase}: ${linked.error ?? linked.check?.verdict}; ${linked.verdict})`);
   if (linked.errors?.length) fail(`link: page errors: ${linked.errors.join(" | ")}`);

@@ -1501,10 +1501,24 @@ fn gpu_gp_51() {
     ] {
         assert!(run.contains(wanted), "run no longer has `{wanted}`");
     }
+    // A probe (GP-60) also reads no logits, so it advances too; nothing else
+    // does.
+    let probe = integer
+        .split("async function probe(")
+        .nth(1)
+        .and_then(|rest| {
+            rest.split(
+                "
+  }
+",
+            )
+            .next()
+        })
+        .expect("integer.mjs has probe");
     assert_eq!(
         integer.matches("\"decode_advance\"").count(),
-        1,
-        "decode_advance is called outside run's prompt"
+        1 + probe.matches("\"decode_advance\"").count(),
+        "decode_advance is called outside run's prompt and a probe"
     );
     let journey = read("crates/conformance/tests/gpu/journey.mjs");
     for wanted in [
@@ -1777,4 +1791,48 @@ fn gpu_gp_59() {
             "the journey no longer checks: {wanted}"
         );
     }
+}
+
+/// `GP-60`: A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range
+#[test]
+fn gpu_gp_60() {
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/engine/pipeline.mjs",
+        &[
+            "if (checked.verdict !== \"confirmed\") return { verdict: \"not checked\", checked };",
+            "join(new Uint8Array([32]), be(layer, 4), be(layers, 4), be(position, 4), be(positions, 4), new Uint8Array([index < 0 ? 255 : index, COMPONENTS.length, classCode, sameAdapter]))",
+            "label: blake3Of(m, bits)",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer.mjs",
+        &[
+            "m.call(\"decode_probe\", layer, component);",
+            "return m.call(\"decode_probed\").slice();",
+        ],
+    );
+    pinned(
+        "crates/wasm/src/lib.rs",
+        &[
+            "pub extern \"C\" fn decode_probe(layer: u32, component: u32) -> u32 {",
+            "pub extern \"C\" fn decode_probed() -> u32 {",
+        ],
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &[
+            "fail(`probe: the residual on the CPU ${pc?.label} is not WebGPU's ${pg?.label}`);",
+            "fail(`probe: the kernel answered ${pc?.verdict} and ${pg?.verdict}, not exact replay`);",
+            "fail(`probe: a layer past the model was ${k.probeOut?.verdict}`);",
+        ],
+    );
 }

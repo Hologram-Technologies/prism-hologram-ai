@@ -536,13 +536,45 @@ pub fn read<'a>(
     })
 }
 
+/// One component of a layer a probe reads (EN-97), each binary32 bit
+/// patterns of the residual stream's width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Component {
+    /// The residual stream after the layer: what the next layer reads.
+    Residual,
+    /// What attention adds to the residual stream: its output projection.
+    Attention,
+    /// What the feed-forward adds: its down projection.
+    FeedForward,
+}
+
+impl Component {
+    /// Components by number, in the order above; how many there are is
+    /// [`Component::COUNT`].
+    #[must_use]
+    pub fn numbered(number: u32) -> Option<Self> {
+        match number {
+            0 => Some(Self::Residual),
+            1 => Some(Self::Attention),
+            2 => Some(Self::FeedForward),
+            _ => None,
+        }
+    }
+
+    /// How many components a layer has.
+    pub const COUNT: u32 = 3;
+}
+
 /// What a run holds between steps: each layer's keys and values, binary32
-/// bit patterns, position after position.
+/// bit patterns, position after position; and a probe, if one is set, with
+/// what it read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     keys: Vec<Vec<u32>>,
     values: Vec<Vec<u32>>,
     position: u32,
+    probe: Option<(usize, Component)>,
+    probed: Option<Vec<u32>>,
 }
 
 impl Session {
@@ -553,7 +585,24 @@ impl Session {
             keys: vec![Vec::new(); model.dims.layers],
             values: vec![Vec::new(); model.dims.layers],
             position: 0,
+            probe: None,
+            probed: None,
         }
+    }
+
+    /// Read `component` of `layer` in the next step (EN-97). Why on the
+    /// session: a probe is the run itself, recomputed to that point, so what
+    /// it reads is the value that produced the answer, not a copy kept aside.
+    pub fn probe(&mut self, layer: usize, component: Component) {
+        self.probe = Some((layer, component));
+        self.probed = None;
+    }
+
+    /// What the probe read in the last step, once; `None` when no probe was
+    /// set or its layer is past the model's.
+    pub fn probed(&mut self) -> Option<Vec<u32>> {
+        self.probe = None;
+        self.probed.take()
     }
 
     /// How many tokens it has seen.
@@ -577,6 +626,8 @@ impl Session {
                 .collect()
         };
         Some(Self {
+            probe: None,
+            probed: None,
             keys: cut(&self.keys),
             values: cut(&self.values),
             position: length,
@@ -1203,6 +1254,9 @@ fn through(
             }
         }
         let o = times(Product::Output(l), &attended)?;
+        if session.probe == Some((l, Component::Attention)) {
+            session.probed = Some(o.clone());
+        }
         x = x
             .iter()
             .zip(&o)
@@ -1227,11 +1281,17 @@ fn through(
             })
             .collect::<Result<Vec<u32>, DecodeError>>()?;
         let d = times(Product::Down(l), &gated)?;
+        if session.probe == Some((l, Component::FeedForward)) {
+            session.probed = Some(d.clone());
+        }
         x = x
             .iter()
             .zip(&d)
             .map(|(&a, &b)| add(a, b))
             .collect::<Result<Vec<u32>, DecodeError>>()?;
+        if session.probe == Some((l, Component::Residual)) {
+            session.probed = Some(x.clone());
+        }
     }
     norm(&x, model.final_norm, model.epsilon)
 }

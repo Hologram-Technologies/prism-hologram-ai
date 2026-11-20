@@ -66,6 +66,7 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
     step: (token, options) => call("step", [token, options]),
     run: (prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) => call("run", [prompt, count, stops], { onToken, onFirst }),
     generate: (prompt, count) => call("generate", [prompt, count]),
+    probe: (ids, at, layer, component) => call("probe", [ids, at, layer, component]),
     saveState: (length) => call("saveState", [length]),
     restoreState: (state) => call("restoreState", [state]),
     reset: () => call("reset", []),
@@ -143,6 +144,22 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   async function generate(prompt, count) {
     return run(prompt, count);
   }
+  // EN-97: component `component` of layer `layer` at position `at` of the
+  // run `ids`, replayed from the start: its binary32 bit patterns, four bytes
+  // each. The engine is left with no run, as reset leaves it.
+  async function probe(ids, at, layer, component) {
+    m.call("decode_reset");
+    position = 0;
+    try {
+      for (const id of ids.slice(0, at)) m.call("decode_advance", id);
+      m.call("decode_probe", layer, component);
+      m.call("decode_advance", ids[at]);
+      return m.call("decode_probed").slice();
+    } finally {
+      m.call("decode_reset");
+      position = 0;
+    }
+  }
   // The run after its first `length` tokens, kept in the module.
   function saveState(length = position) {
     if (!(length >= 1 && length <= position)) throw new Error(`prefix: ${length} positions asked, ${position} computed`);
@@ -154,7 +171,7 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   }
 
   return {
-    step, run, generate, saveState, restoreState,
+    step, run, generate, probe, saveState, restoreState,
     reset: () => { m.call("decode_reset"); position = 0; },
     get position() { return position; },
     device: "cpu",
