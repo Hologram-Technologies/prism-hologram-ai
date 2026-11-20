@@ -1732,6 +1732,51 @@ theorem: 0.3.0 cannot state it against `prim multiply`.
 | `scaled_zero_is_not_negative` deleted | rejected: `scaled_zero_is_not_negative is not declared` |
 | none | passed |
 
+## KN-81, softmax over a row
+
+`Engine.Stage.Softmax::run` is row 13's S6, the work of `softmax_exp2` in
+`crates/exact`. A row of `count` scores arrives as `2 count` words, each score
+a signed 64-bit value in two little-endian words, as the engine's scores are
+`i64`. Each score is read as an order key (the value plus 2^63), the top is
+the largest key, each weight is KN-56's `exp2Neg` of the top less the score's
+key, and each output word is the weight times 2^30 over the exact sum of the
+weights, rounded half to even. A score 33 or more units of 2^8 below the top
+weighs 0 in both, so the Rust's clamp of a distance to `u32::MAX` changes
+nothing. It exports through prod-export and prod-codegen with no external
+calls, opaque nodes or unsupported types.
+
+`weightOf` writes the weight as `exp2Neg d` plus a term that is 0 for every
+`d` and lets `omega` see that the weight at distance 0 is at least 2^30;
+`weight_is_exp2` proves, for every `d`, that it is exactly `exp2Neg d`.
+
+Lean proves, for every row: `no_key_above_top`, that the truncated excess of
+every key over the top sums to 0, so no score is above the top; and
+`total_at_least`, that the sum of the weights is at least 2^30 when the row is
+not empty, so the division is never by 0. lexlean 0.3.0's notation has no
+disjunction of propositions, so the bound is stated as `2^30 <= sum + 2^30 (1
+- count)`. The step is proved over plain variables (`total_step_given`) and
+discharged by `simplify` with the induction hypothesis and `weight_at_least`,
+since one `omega` call over the whole step ran out of memory.
+
+That each output is the rounded quotient is the definition, not a theorem:
+0.3.0 cannot reason about a quotient by a variable. Equality with the Rust is
+checked instead: `softmax_row_0` to `softmax_row_8` are evaluations of the
+stage by Lean, and `kernel_kn_81` replays each row through
+`exact::softmax_exp2` and requires the same words. The rows cover the empty
+row, a single score, the extremes of `i64`, distances past the last nonzero
+weight, equal scores, and a row whose weights sum to exactly 2^31 with one
+weight of 3, whose share is an exact tie at 1.5.
+
+### The pinned test: `kernel_kn_81`
+
+| Planted defect | Result |
+| --- | --- |
+| `softmax_exp2` rounding a tie down (`let up = 2 * rest > sum;`) | rejected: `softmax_row_8: crates/exact disagrees with the stage` |
+| none | passed |
+
+A wrong stage is the Lean gate's to catch: each `softmax_row_N` is checked by
+reflexivity against the words the Rust gives.
+
 ## The examples in the compiled guest
 
 `prismpm --project app verify` builds the holo and replays every example in the
