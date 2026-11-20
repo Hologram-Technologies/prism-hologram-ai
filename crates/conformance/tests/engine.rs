@@ -12268,7 +12268,7 @@ fn engine_en_110() {
             assert_eq!(prefill.layers(), l + 1);
         }
         let mut logits =
-            decode::prefill_finish(&model, &mut session, prefill).expect("the prefill finishes");
+            decode::prefill_finish(&model, &mut session, &prefill).expect("the prefill finishes");
         assert_eq!(
             session, by_step,
             "{family}: the prefill left another cache than step"
@@ -12324,7 +12324,7 @@ fn engine_fl_110() {
     );
     assert_eq!(session, before, "a refused layer changed the cache");
     assert_eq!(
-        decode::prefill_finish(&model, &mut session, prefill.clone()).err(),
+        decode::prefill_finish(&model, &mut session, &prefill).err(),
         Some(DecodeError::NotHeld),
         "a prefill finished before its last layer"
     );
@@ -12508,9 +12508,10 @@ fn engine_en_112() {
             }
             exact::RopeScaling::None => serde_json::Value::Null,
         };
-        let opening =
-            serde_json::json!({ "config": fixture.config.to_string(), "scaling": scaling })
-                .to_string();
+        let opening = |held: usize| {
+            serde_json::json!({ "config": fixture.config.to_string(), "scaling": scaling, "held": held })
+                .to_string()
+        };
         let prompt: Vec<u8> = fixture
             .prompt
             .iter()
@@ -12520,14 +12521,24 @@ fn engine_en_112() {
             let at = wasm::given(chunk);
             en_112_said("onnx_take", wasm::onnx_take(at, chunk.len() as u32));
             wasm::release(at);
-            let so_far: serde_json::Value =
-                serde_json::from_slice(&en_112_said("onnx_so_far", wasm::onnx_so_far()))
-                    .expect("JSON");
-            for t in so_far["tensors"].as_array().expect("tensors") {
-                let name = t[0].as_str().expect("a name");
-                let (offset, length) = (
-                    t[3].as_u64().expect("offset") as usize,
-                    t[4].as_u64().expect("length") as usize,
+            let so_far = en_112_said("onnx_so_far", wasm::onnx_so_far());
+            let so_far = String::from_utf8(so_far).expect("text");
+            for line in so_far.lines() {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let name = fields[0];
+                let offset: usize = fields[2].parse().expect("an offset");
+                let length: usize = fields[3].parse().expect("a length");
+                assert_eq!(
+                    fields[4],
+                    format!(
+                        "blake3:{}",
+                        blake3_of(&graph[offset..offset + length])
+                            .0
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    ),
+                    "{family}: {name}'s address"
                 );
                 let Some(init) = initializers.get(name) else {
                     continue;
@@ -12553,8 +12564,8 @@ fn engine_en_112() {
             if held == 0 || !handed.iter().any(|n| n.contains("embed")) {
                 continue;
             }
-            en_112_said("decode_held", wasm::decode_held(held as u32));
             if !opened {
+                let opening = opening(held);
                 let at = wasm::given(opening.as_bytes());
                 en_112_said("decode_open", wasm::decode_open(at, opening.len() as u32));
                 wasm::release(at);
@@ -12567,14 +12578,17 @@ fn engine_en_112() {
                 opened = true;
             }
             while ran < held {
-                let said = en_112_said("decode_prefill_layer", wasm::decode_prefill_layer());
+                let said = en_112_said(
+                    "decode_prefill_layer",
+                    wasm::decode_prefill_layer(held as u32),
+                );
                 ran = u32::from_le_bytes([said[0], said[1], said[2], said[3]]) as usize;
             }
             // The next layer, before its weights, is refused by name and
             // leaves the run as it was.
             if !refused && held < layers {
                 assert_eq!(
-                    wasm::decode_prefill_layer(),
+                    wasm::decode_prefill_layer(held as u32),
                     1,
                     "{family}: a layer ran before its weights"
                 );
@@ -12588,7 +12602,6 @@ fn engine_en_112() {
         );
         en_112_said("onnx_graph_finish", wasm::onnx_graph_finish());
         en_112_said("onnx_finish", wasm::onnx_finish());
-        en_112_said("decode_held", wasm::decode_held(u32::MAX));
         let words = |said: Vec<u8>| -> (u32, Vec<u32>) {
             let w: Vec<u32> = said
                 .chunks_exact(4)

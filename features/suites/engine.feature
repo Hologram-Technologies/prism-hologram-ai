@@ -907,7 +907,7 @@ Feature: engine
   @EN-112 @build
   Scenario: The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name
     Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures and the page's module
-    When each fixture's file is taken in pieces of 4 KiB, onnx_so_far asked after each, every tensor it gives handed to decode_tensor, decode_held told each layer once every weight its nodes read is handed in, the model opened and the prompt prefilled a layer at a time as layers are held
+    When each fixture's file is taken in pieces of 4 KiB, onnx_so_far asked after each, every tensor it gives handed to decode_tensor, the model opened once its first layer is held, and each layer prefilled with decode_prefill_layer told how many layers are held, a layer being held once every weight its nodes read is handed in
     Then every layer has run before the file ends
     And the next layer asked before its weights is refused as Decode(NotHeld) and the run carries on
     And decode_prefill_finish's token and logits, and the sixteen steps after it, are the native run's, bit for bit

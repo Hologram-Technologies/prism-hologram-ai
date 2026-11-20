@@ -3239,7 +3239,7 @@ Planted on 2026-11-20:
 
 ## EN-112, the page's module runs layers as the file arrives
 
-The page's module gains `onnx_so_far`, which gives the tensors EN-111 admits and keeps the nodes read so far for the forward pass. It also gains `decode_held`, which reads the model as far as its layers have arrived, and `decode_prefill`, `decode_prefill_layer` and `decode_prefill_finish`, which drive EN-110 a layer at a time. `onnx_start` now clears the last model's forward pass, and `onnx_finish` keeps the weights handed in while the file arrived.
+The page's module gains `onnx_so_far`, which gives the tensors EN-111 admits, one a line as text, and keeps the nodes read so far for the forward pass. It also gains `decode_prefill`, `decode_prefill_layer` and `decode_prefill_finish`, which drive EN-110 a layer at a time. `decode_open` and `decode_prefill_layer` are told how many layers are held, so the model is read that far. `decode_prefill_finish` reads it whole. `onnx_start` now clears the last model's forward pass, and `onnx_finish` keeps the weights handed in while the file arrived.
 
 `engine_en_112` takes GP-19's Qwen3, Qwen2 and Llama fixtures through the module in pieces of 4 KiB. It asks `onnx_so_far` after each piece and hands every tensor to `decode_tensor` as it is given. A layer is held once every weight its nodes read has been handed in, and the prompt is prefilled a layer at a time as layers are held. Every layer runs before the file ends. The next layer, asked before its weights, is refused as `Decode(NotHeld)` and the run carries on. The prefill's token and logits, and sixteen steps after it, are the native run's, bit for bit.
 
@@ -3251,3 +3251,5 @@ Planted on 2026-11-20:
 | --- | --- |
 | `onnx_finish` clears the forward pass as it did before (`*d = Decode { nodes, ..Decode::default() }`) | rejected: `decode_prefill_finish: NothingRead` |
 | none | passed, with EN-52, EN-53 and FL-59 |
+
+With EN-110 to EN-112 the module is 2,091,948 bytes by `just engine-build` (main's was 2,070,681), and EN-26's own build stays under 2,097,152. To fit, every forward function takes its products as `&mut dyn Products`, so each is compiled once rather than once per route, and `onnx_so_far` answers text lines rather than JSON. Decision 80 seals the module at `blake3:5e45aec59f1626b902e808d706ae16d205202e120f91a35192fa5cf629d15a83` (EN-90).

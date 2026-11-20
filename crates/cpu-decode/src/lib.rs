@@ -727,7 +727,7 @@ pub fn step_with(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
     let h = through(model, session, token, products)?;
     let logits = answered(model, products, Product::Head, &h)?;
@@ -744,7 +744,7 @@ pub fn advance_with(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<(), DecodeError> {
     through(model, session, token, products)?;
     session.position += 1;
@@ -813,7 +813,7 @@ pub fn prefill_layer_with(
     model: &Model<'_>,
     session: &mut Session,
     prefill: &mut Prefill,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<(), DecodeError> {
     let l = prefill.layer;
     let width = model.dims.kv_heads * model.dims.head_dim;
@@ -857,8 +857,8 @@ pub fn prefill_layer(
 pub fn prefill_finish_with(
     model: &Model<'_>,
     session: &mut Session,
-    prefill: Prefill,
-    products: &mut impl Products,
+    prefill: &Prefill,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
     if prefill.layer != model.dims.layers || model.layers.len() != model.dims.layers {
         return Err(DecodeError::NotHeld);
@@ -879,7 +879,7 @@ pub fn prefill_finish_with(
 pub fn prefill_finish(
     model: &Model<'_>,
     session: &mut Session,
-    prefill: Prefill,
+    prefill: &Prefill,
 ) -> Result<Vec<u32>, DecodeError> {
     prefill_finish_with(model, session, prefill, &mut Whole)
 }
@@ -1004,7 +1004,7 @@ impl<F: FnMut(u32, &[u8], &mut [u8]) -> bool> Products for Asked<F> {
 /// `which` answered by `products`, held to one bit pattern per row.
 fn answered(
     model: &Model<'_>,
-    products: &mut impl Products,
+    products: &mut dyn Products,
     which: Product,
     input: &[u32],
 ) -> Result<Vec<u32>, DecodeError> {
@@ -1296,7 +1296,7 @@ fn through(
     model: &Model<'_>,
     session: &mut Session,
     token: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
     if model.layers.len() != model.dims.layers {
         return Err(DecodeError::NotHeld);
@@ -1341,7 +1341,7 @@ fn layer_through(
     l: usize,
     x: &[u32],
     position: u32,
-    products: &mut impl Products,
+    products: &mut dyn Products,
 ) -> Result<Vec<u32>, DecodeError> {
     let Dims {
         heads,
