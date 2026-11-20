@@ -1112,7 +1112,7 @@ fn gpu_gp_19() {
     let module = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "compileGuest(resolveArchive(kernel.archive).guest.content)",
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
         "const stops = session.stops ??",
     ] {
         assert!(
@@ -1440,7 +1440,7 @@ fn gpu_gp_28() {
     let pipeline = read("site/app/engine/pipeline.mjs");
     for wanted in [
         "import { startIntegerEngine } from \"./integer.mjs\";",
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
     ] {
         assert!(
             pipeline.contains(wanted),
@@ -1914,7 +1914,7 @@ fn gpu_gp_41() {
     };
     let pipeline = read("site/app/engine/pipeline.mjs");
     for wanted in [
-        "startIntegerEngine({ module, ...raw, capacity: CAPACITY })",
+        "startIntegerEngine({ module, ...raw, capacity: CAPACITY, helpers: options.helpers })",
         "const encoder = await startIntegerEncoder({ module, ...loaded });",
     ] {
         assert!(
@@ -2215,4 +2215,73 @@ fn gpu_gp_55() {
             "the journey no longer checks `{wanted}`"
         );
     }
+}
+
+/// `GP-52`: On a cross-origin-isolated page the integer engine's worker hands every product to helper workers, each a fresh instance of the same engine.wasm holding one slice of each matrix's rows, the input and the rows passed through a SharedArrayBuffer; the engine page's service worker serves this deploy's files with Cross-Origin-Opener-Policy same-origin and Cross-Origin-Embedder-Policy credentialless, so a return visit is isolated; the tokens with helpers are the reference's, and a page that is not isolated runs the engine without helpers and gives the same tokens
+#[test]
+fn gpu_gp_52() {
+    // EN-92 proves a product's slices joined are its bits; the journey runs
+    // the page first unisolated and then reloaded under its worker. This reads
+    // that the pieces between are in place and that the journey checks them.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/sw.js",
+        &[
+            "headers.set(\"Cross-Origin-Opener-Policy\", \"same-origin\");",
+            "headers.set(\"Cross-Origin-Embedder-Policy\", \"credentialless\");",
+            "return isolated(fresh);",
+            "if (kept) return isolated(kept);",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer-helpers.mjs",
+        &[
+            "if (typeof SharedArrayBuffer !== \"function\" || globalThis.crossOriginIsolated === false) return 0;",
+            "const slices = m.call(\"decode_slices\", i, count);",
+            "Atomics.wait(control, ANSWERED, answered);",
+            "m.call(\"decode_helpers\", count);",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer-helper.mjs",
+        &[
+            "m = moduleOf(data.compiled);",
+            "m.callWith(\"slices_hold\", new Uint8Array(data.slices));",
+            "m.callWith(\"slices_run\", input, Atomics.load(control, NUMBER));",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer-worker.mjs",
+        &["if (helpers > 0) await useHelpers(module, helpers, engine.sizes);"],
+    );
+    pinned(
+        "site/app/engine/loader.mjs",
+        &["product: (number, at, len, out, cap) => (products ? products(number, at, len, out, cap) : 1),"],
+    );
+    pinned(
+        "crates/wasm/src/lib.rs",
+        &[
+            "decode::step_with(model, &mut session, token, &mut decode::Asked(helped))",
+            "decode::advance_with(model, &mut session, token, &mut decode::Asked(helped))",
+            "let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();",
+        ],
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &[
+            "device: \"cpu\", helpers: 2 });",
+            "fail(\"isolation: the return visit under the engine page's worker was not cross-origin isolated\")",
+            "fail(`isolation: the return visit ran ${again.helpers} helpers, not 2`)",
+            "fail(`isolation: the tokens with helpers ${got} are not the reference's ${again.expected}`)",
+            "fail(`isolation: a first visit was isolated (${first.isolated}) or ran ${first.helpers} helpers`)",
+        ],
+    );
 }

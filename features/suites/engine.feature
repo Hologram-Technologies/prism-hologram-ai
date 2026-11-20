@@ -861,3 +861,16 @@ Feature: engine
     Then the two sessions hold the same keys and values, bit for bit
     And the sixteen greedy tokens and every logit of each are the same bits
     And an id past the vocabulary is refused by advance as by step
+
+  @EN-92 @build
+  Scenario: hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt and sixteen greedy steps run with every product answered by its slices, each written to bytes and read back, cut two, three and seven ways
+    Then each product's slices joined are the whole product's bits
+    And the tokens and every logit are step's, bit for bit
+
+  @FL-80 @build
+  Scenario: A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it
+    Given the fixture model
+    When a step's products are answered one row short
+    Then the step is refused as DecodeError::Elsewhere

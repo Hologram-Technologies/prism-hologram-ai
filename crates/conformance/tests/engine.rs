@@ -4286,7 +4286,7 @@ import { readFileSync } from "node:fs";
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
 // The module asks the kernel through one import; these calls never reach it.
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0, product: () => 1 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -7552,7 +7552,7 @@ import { readFileSync } from "node:fs";
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
 // The module asks the kernel through one import; these calls never reach it.
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0, product: () => 1 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -12103,4 +12103,102 @@ fn engine_en_95() {
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     assert_eq!(said, encode::probabilities(&scores).expect("finite scores"));
+}
+
+/// Answers every product with the matrix's rows cut `parts` ways, each slice
+/// written to bytes and read back before it computes, and checks each joined
+/// answer against the whole product.
+struct EnSlices {
+    parts: usize,
+}
+
+impl hologram_ai_cpu_decode::Products for EnSlices {
+    fn product(
+        &mut self,
+        model: &hologram_ai_cpu_decode::Model<'_>,
+        which: hologram_ai_cpu_decode::Product,
+        input: &[u32],
+    ) -> Result<Vec<u32>, hologram_ai_cpu_decode::DecodeError> {
+        let rows = model.height(which);
+        let mut joined = Vec::with_capacity(rows);
+        for part in 0..self.parts {
+            let range = rows * part / self.parts..rows * (part + 1) / self.parts;
+            let bytes = model.slice(which, range).to_bytes();
+            let held = hologram_ai_cpu_decode::Held::read(&bytes).expect("a slice reads back");
+            joined.extend(held.product(input)?);
+        }
+        let whole = model.slice(which, 0..rows).product(input)?;
+        assert_eq!(
+            joined, whole,
+            "{which:?}: the slices joined are not the whole product"
+        );
+        Ok(joined)
+    }
+}
+
+/// `EN-92`: hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits
+#[test]
+fn engine_en_92() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let model =
+            decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        for parts in [2, 3, 7] {
+            let mut slices = EnSlices { parts };
+            let mut session = decode::Session::new(&model);
+            let (last, head) = fixture.prompt.split_last().expect("a prompt");
+            for &id in head {
+                decode::advance_with(&model, &mut session, id, &mut slices).expect("advances");
+            }
+            let mut logits =
+                decode::step_with(&model, &mut session, *last, &mut slices).expect("steps");
+            let (mut tokens, mut all) = (Vec::new(), Vec::new());
+            for _ in 0..16 {
+                let next = decode::greedy(&logits).expect("a token");
+                tokens.push(next);
+                all.push(logits);
+                logits = decode::step_with(&model, &mut session, next, &mut slices).expect("steps");
+            }
+            assert_eq!(
+                (tokens, all),
+                stepped,
+                "{family}, {parts} slices: a token or a logit's bits differ from step's"
+            );
+        }
+    }
+}
+
+/// `FL-80`: A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it
+#[test]
+fn engine_fl_80() {
+    use hologram_ai_cpu_decode as decode;
+    struct Short;
+    impl decode::Products for Short {
+        fn product(
+            &mut self,
+            model: &decode::Model<'_>,
+            which: decode::Product,
+            input: &[u32],
+        ) -> Result<Vec<u32>, decode::DecodeError> {
+            let rows = model.height(which);
+            model.slice(which, 0..rows - 1).product(input)
+        }
+    }
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model =
+        decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+    let mut session = decode::Session::new(&model);
+    assert_eq!(
+        decode::step_with(&model, &mut session, fixture.prompt[0], &mut Short).err(),
+        Some(decode::DecodeError::Elsewhere)
+    );
+    // A slice that does not read back is refused the same way.
+    assert_eq!(
+        decode::Held::read(&[1, 0, 0]).err(),
+        Some(decode::DecodeError::Elsewhere)
+    );
 }
