@@ -1160,7 +1160,7 @@ for (const kind of ["bert", "distil"]) {
     if (one.device !== device || one.integer !== true) fail(`gpu ${name}: ran on ${one.device} (integer ${one.integer}), expected the integer engine on ${device}`);
     const said = /^kernel answered "(.*)"$/.exec(one.checks.find((c) => c.step === "device" && c.verdict === "pass")?.detail ?? "")?.[1];
     if (said !== device) fail(`gpu ${name}: the device was not the kernel's ${device}: ${said}`);
-    if (device === "webgpu" && (one.gpu?.products !== 7 * layers || one.gpu?.cpu !== 1)) fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected ${7 * layers} and the head`);
+    if (device === "webgpu" && (one.gpu?.products !== 7 * layers + 1 || one.gpu?.cpu !== 0)) fail(`gpu ${name}: WebGPU held ${one.gpu?.products} products and the module ${one.gpu?.cpu}, expected all ${7 * layers + 1}, the head among them`);
     const reference = referenceModel(onnx.model);
     let last;
     for (const id of one.output.promptIds) last = reference.step(id);

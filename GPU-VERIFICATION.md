@@ -307,9 +307,10 @@ the input into a SharedArrayBuffer, posts the product's number to a WebGPU
 worker and waits on `Atomics.wait`; the WebGPU worker dispatches the four
 kernels, reads the rows back, writes them where the model's worker reads them
 and wakes it. The weights reach that worker once, as `decode_slices` writes
-them. A product the printed kernels do not take is answered on an instance of
-the same `engine.wasm` holding only it: today the output head, which is dense
-f16, and any matrix with binary32 scales or zero points.
+them. The dense f16 output head runs on the dense kernel (KN-87) when its weights fit
+one binding. A product no printed kernel takes is answered on an instance of
+the same `engine.wasm` holding only it: a head too large to bind or stored as
+binary32, and any matrix with binary32 scales or zero points.
 
 WebGPU is usable, and offered to decision 22 as a GPU, only where both hold:
 the page is cross-origin isolated (shared memory; the engine page's service
@@ -329,7 +330,7 @@ scripts, and finds no float.
 
 | Claim | Evidence | Kind |
 | --- | --- | --- |
-| The page's q4 products run on the guest's printed kernels and the tokens are the reference's and the CPU's, by name and by the kernel's choice, on an isolated page | `just page-journey`, GP-56's run: 14 products on WebGPU, the head on the module, 16 tokens each | tested on CI (SwiftShader) |
+| The page's q4 products run on the guest's printed kernels and the tokens are the reference's and the CPU's, by name and by the kernel's choice, on an isolated page | `just page-journey`, GP-56's run: all 15 products on WebGPU, the head on the dense kernel, 16 tokens each | tested on CI (SwiftShader) |
 | A first visit, not isolated, runs on the CPU, as the kernel's device | `just page-journey`, GP-19's runs, the device expected from whether the page was isolated | tested on CI |
 | The pieces between are in place and no ONNX export reaches the float engine | `gpu_gp_56` | tested |
 | Every kernel equals its stage for every input | not yet, as for GP-29: the stages are being defined in LexLean (row 13) | not proved |

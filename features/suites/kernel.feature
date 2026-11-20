@@ -517,3 +517,10 @@ Feature: kernel
     When the Lean kernel runs them through Engine.GpuRun during lexlean verify in the gate
     Then the quantiser's codes and power are hologram_ai_exact's for the fixture's 32 activations
     And the accumulator then the rounding kernel give hologram_ai_exact's binary32 for the fixture's first two rows, one negative and one positive
+
+  @KN-87 @build
+  Scenario: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+    Given app/src/Engine/Gpu.lex.tex's denseAccumulate and the guest's byte code of it in app/src/Engine/Code.lex.tex
+    When Lean checks dense_accumulate_code_prints_tree and dense_row_matches_exact, and the app recipe replays decision 48's claims for kernel 6 through the compiled guest
+    Then the guest prints renderKernel's text of the tree, and the kernels' rows are hologram_ai_exact's
+    And the printed text names no f32 or f16
