@@ -303,9 +303,13 @@ try {
   // page must ask decision 80 about the bytes' BLAKE3 and stop at "not the
   // sealed engine" before it compiles them or reads the container. Every
   // module the page compiles is recorded by its length; the engine's is the
-  // one that must not appear.
+  // one that must not appear. The route is the context's: the page's own
+  // service worker fetches engine.wasm itself once it takes over, and only a
+  // context route reaches a worker's requests, so a page route would let the
+  // unflipped bytes through.
   {
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message)));
     await page.addInitScript(() => {
@@ -319,7 +323,7 @@ try {
       }
     });
     let engineLength = 0;
-    await page.route("**/app/engine/engine.wasm", async (route) => {
+    await context.route("**/app/engine/engine.wasm", async (route) => {
       const body = Buffer.from(await (await route.fetch()).body());
       body[body.length >> 1] ^= 0x01;
       engineLength = body.length;
@@ -332,7 +336,7 @@ try {
     await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
     const state = await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, checks: window.__qengine.checks, compiled: window.__compiled }));
     results.unsealed = { ...state, engineLength, containerReads: containerReads() - before, errors };
-    await page.close();
+    await context.close();
   }
 
   // GP-19: the ONNX export, on WebGPU and, with navigator.gpu taken away, on
