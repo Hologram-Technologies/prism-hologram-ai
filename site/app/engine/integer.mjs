@@ -102,6 +102,7 @@ export async function startStreamingEngine({ module: m, config, rope = {}, capac
   return {
     add: (more, layers) => call("add", [more, layers], {}, more.map(([, , bytes]) => bytes.buffer)),
     prefill: (prompt) => call("prefill", [prompt]),
+    complete: () => call("complete", []),
     probe: (ids, at, layer, component) => call("probe", [ids, at, layer, component]),
     // Every product on WebGPU from now on (GP-56), for a load no early turn
     // is waiting on.
@@ -181,6 +182,12 @@ export function createStreamingEngine({ module: m, config, rope = {}, capacity, 
       layers = now;
       runHeld();
       return { ran, layers };
+    },
+    // Every weight is in and no prompt waits: the model is read whole from
+    // now on, as an engine opened after the load reads it.
+    complete() {
+      if (!prompt) openDecode(m, config, rope, null);
+      return { layers };
     },
     prefill(ids) {
       if (engine.position + ids.length > capacity) throw new Error(`context full: ${capacity} positions`);

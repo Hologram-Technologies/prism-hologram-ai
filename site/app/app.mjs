@@ -189,16 +189,17 @@ async function checkReceipt(receipt) {
 async function send(event) {
   event.preventDefault();
   // Enter reaches here too, so a turn in progress is not started twice.
-  if ($("send").disabled) return;
-  if (!session) {
-    // Still loading: the text is taken now and answered when the load ends.
-    if (state.phase !== "loading" || early) return;
+  // Still loading (GP-70): the text is taken now, even before Send is
+  // enabled, and answered when the load ends.
+  if (!session && state.phase === "loading") {
+    if (early) return;
     early = $("prompt").value.trim() || $("prompt").placeholder;
     state.sentAt = performance.now();
     $("send").disabled = true;
     status("Your prompt runs through each layer as it arrives…");
     return;
   }
+  if (!session || $("send").disabled) return;
   $("send").disabled = true;
   try {
     await answer();

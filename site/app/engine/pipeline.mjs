@@ -275,6 +275,7 @@ export async function pipeline(task, model, options = {}) {
         session.kernels = on === "webgpu" ? await printedKernels((request) => kernel.dispatch(request)) : null;
         // With no turn waiting, every product goes to WebGPU now; a waiting
         // turn's first token is made on the module and WebGPU takes the rest.
+        if (!session.pending) await session.engine.complete();
         if (session.kernels && !session.pending) await session.engine.attach(session.kernels);
         return session.engine;
       }
