@@ -5387,6 +5387,12 @@ fn kernel_kn_71() {
         "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
         "Quot.sound, propext",
     );
+    assert_pinned(
+        &proofs,
+        "picked_below_seen",
+        "((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) best) < (1 + (Engine.Stage.Greedy::size logits)))",
+        "Quot.sound, propext",
+    );
     for fixture in [
         "pick_is_greedy_ordered",
         "pick_is_greedy_first_of_ties",
