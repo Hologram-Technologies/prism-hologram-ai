@@ -307,6 +307,12 @@ Planted on 2026-11-20:
 | `onGpu` taking a matrix with binary32 scales | rejected: `site/app/engine/integer-gpu.mjs no longer has` the rule |
 | none | passed |
 
+## GP-51 and GP-52 after EN-110
+
+EN-110 routes the module's step, advance and prefill through one `products_for(helpers, ...)`, which hands every product to the helpers whenever there are any and computes it on the model otherwise. GP-51 and GP-52 read the module's source for that route, so their pins now name `decode::step_with(model, &mut session, token, p)`, `decode::advance_with(model, &mut session, token, p)` and `products_for`'s `if helpers > 0 { run(&mut decode::Asked(helped))`. They no longer name the two `if`/`else` branches each call had before.
+
+Planted on 2026-11-20: `products_for` answering `decode::Whole` whatever the helpers. Rejected by `gpu_gp_52`: `crates/wasm/src/lib.rs no longer has if helpers > 0 { run(&mut decode::Asked(helped))`. Restored, it passes.
+
 ## GP-58 and GP-59, receipts named by BLAKE3 and checked on any device
 
 Why: Hologram AI's inference is integers only, so the same model, input and
