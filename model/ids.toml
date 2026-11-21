@@ -1054,3 +1054,9 @@ id = "GP-60"
 level = "build"
 suite = "gpu"
 statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
+
+[[id]]
+id = "KN-92"
+level = "build"
+suite = "kernel"
+statement = "The logits head is defined in LexLean, not Rust: Engine.Stage.Head::head puts the input on KN-61's sixteen-bit codes and group powers, multiplies each row of f16 or binary32 weights by them exactly, each group at its own power, and rounds each logit once by KN-62's Binary32::round, as cpu-decode's head through crates/exact's dense_product_with; Lean proves every logit is a word and the head gives one logit a row, and evaluates heads that the kernel test replays through dense_product_with"

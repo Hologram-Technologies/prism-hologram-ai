@@ -563,3 +563,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageSilu in the gate
     Then silu_count gives two words a value for every input
     And silu_row_0 evaluates the stage on twelve values, and kernel_kn_83 replays each through crates/exact's silu and finds the same words
+
+  @KN-92 @build
+  Scenario: The logits head is defined in LexLean, not Rust: Engine.Stage.Head::head puts the input on KN-61's sixteen-bit codes and group powers, multiplies each row of f16 or binary32 weights by them exactly, each group at its own power, and rounds each logit once by KN-62's Binary32::round, as cpu-decode's head through crates/exact's dense_product_with; Lean proves every logit is a word and the head gives one logit a row, and evaluates heads that the kernel test replays through dense_product_with
+    Given the stage in app/src/Engine/Stage/Head.lex.tex and its proofs in app/src/Proofs/StageHead.lex.tex
+    When lexlean verify checks Proofs.StageHead in the gate
+    Then head_logit_is_word holds for every input, and head_count gives one logit a row
+    And head_row_0 to head_row_2 evaluate the stage on f16 and binary32 weights, and kernel_kn_92 replays them through crates/exact's dense_product_with and finds the same words
