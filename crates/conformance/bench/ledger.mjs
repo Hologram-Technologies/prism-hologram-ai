@@ -60,7 +60,7 @@ async function equality(referencePath, floatPath, note) {
   await write({
     id: `OPEN-GREEDY-256-${keyOf(r.model)}-INTEGER`,
     sample_size: r.runs.length * r.tokens,
-    statement: `Rows 2 and 3 of milestone 2, the CPU half: the page's integer CPU engine on ${r.model}@${revision} (${graph.split("/").pop()}), loaded through pipeline() with device cpu from the deployed page's own files (engine.wasm sha256 ${short(r.site.engineWasmSha256)}, holo ${short(r.site.holoSha256)}, pipeline.mjs ${short(r.site.pipelineSha256)}${r.site.loaderSha256 ? `, loader.mjs ${short(r.site.loaderSha256)}` : ""}${note ? `; ${note}` : ""}), ${r.runner}, one thread: 256 greedy tokens of each of three fixed prompts (crates/conformance/bench/equality-run.mjs), run past the end of turn, every id recorded in crates/conformance/bench/references/${r.key}.json as the reference the WebGPU integer engine is held to. Against the float model, the same file in ${f.float}: ${each.join("; ")}. ${perToken.join(", ")} s per token. The WebGPU half is not measured: the deployed WebGPU engine is the float one until row 15, and equality-browser.mjs refuses to compare it. Measured ${new Date().toISOString().slice(0, 10)}.`,
+    statement: `Rows 2 and 3 of milestone 2, the CPU half: the page's integer CPU engine on ${r.model}@${revision} (${graph.split("/").pop()}), loaded through pipeline() with device cpu from the deployed page's own files (engine.wasm sha256 ${short(r.site.engineWasmSha256)}, holo ${short(r.site.holoSha256)}, pipeline.mjs ${short(r.site.pipelineSha256)}${r.site.loaderSha256 ? `, loader.mjs ${short(r.site.loaderSha256)}` : ""}${note ? `; ${note}` : ""}), ${r.runner}, one thread: 256 greedy tokens of each of three fixed prompts (crates/conformance/bench/equality-run.mjs), run past the end of turn, every id recorded in crates/conformance/bench/references/${r.key}.json as the reference the WebGPU integer engine is held to. Against the float model, the same file in ${f.float}: ${each.join("; ")}. ${perToken.join(", ")} s per token. The WebGPU half is row 15 (OPEN-ROW15-*), held to the same prompts by receipts. Measured ${new Date().toISOString().slice(0, 10)}.`,
   });
 }
 
@@ -119,10 +119,75 @@ async function speed(machineId, hologramPath, transformersPath, bounds) {
   });
 }
 
+// Row 15: the integer engine on WebGPU against the integer engine on the CPU,
+// on the published page, held by receipts (row15.mjs).
+async function row15(path, note) {
+  const r = JSON.parse(await readFile(path, "utf8"));
+  const s = r.summary, g = r.webgpu, c = r.cpu;
+  const legs = (x, name) => x.turns ? `${name}: ${x.turns.map((t) => `${t.name} ${t.tokens} tokens in ${fixed(t.seconds, 0)} s`).join(", ")}` : `${name}: did not run (${x.error})`;
+  const verdict = s.error
+    ? `Not passed: ${s.error}; the CPU leg ran, so nothing was compared across devices`
+    : `Model label equal on both devices: ${s.modelLabelEqual}; every input label equal: ${s.inputLabelsEqual}; every output label equal: ${s.outputLabelsEqual}; the CPU's generate.check of WebGPU's three receipts: ${s.cpuChecksGpu.join(", ")}; WebGPU's of the CPU's three: ${s.gpuChecksCpu.join(", ")}`;
+  await write({
+    id: `OPEN-ROW15-${keyOf(r.model)}-Z13`,
+    sample_size: (g.turns?.length ?? 0) + (c.turns?.length ?? 0),
+    statement: `Row 15 of milestone 2 on ${r.model} q4f16, Z13, ${r.date.slice(0, 10)}, on the published page ${r.page} ${note ? `(${note}) ` : ""}on a cross-origin-isolated return visit (isolated: WebGPU ${s.isolated.webgpu}, CPU ${s.isolated.cpu}), protocol ${r.protocol} (crates/conformance/bench/row15.mjs): rows 2 and 3's three prompts, ${r.tokens} tokens each, on the integer engine on WebGPU and on the CPU, each device in a page of its own, receipt class ${s.classes?.webgpu ?? "n/a"} / ${s.classes?.cpu ?? "n/a"}; adapter ${s.adapter ? `${s.adapter.vendor} ${s.adapter.architecture}` : "none"}. ${legs(g, "WebGPU")}. ${legs(c, "CPU")}. ${verdict}. Model label ${g.identity?.label ? short(g.identity.label) : c.identity?.label ? short(c.identity.label) : "n/a"}.`,
+  });
+}
+
+// Row 9: the real encoders in the page (encoders.mjs, encoders-browser.mjs,
+// engine_row9_real_exports).
+async function row9(dump, browserPath) {
+  const b = JSON.parse(await readFile(browserPath, "utf8"));
+  for (const key of ["minilm", "sst2"]) {
+    const s = JSON.parse(await readFile(join(dump, key, "cases.json"), "utf8"));
+    const m = b.models[key];
+    const each = s.cases.map((c) => s.task === "feature-extraction"
+      ? `${c.ids.length} ids: largest component gap ${c.float.largestGap.toExponential(1)}, cosine ${c.float.cosine.toFixed(8)}`
+      : `${c.ids.length} ids: label ${s.labels?.[c.label] ?? c.label}, the float reference's ${c.float.sameLabel ? "the same" : "another"}, largest score gap ${c.float.largestScoreGap.toExponential(1)}`);
+    await write({
+      id: `OPEN-ROW9-${key.toUpperCase()}-PAGE`,
+      sample_size: s.cases.length,
+      statement: `Row 9 of milestone 2 on the real export ${s.repo} (onnx/model_q4f16.onnx), ${s.task}, ${b.date.slice(0, 10)}: five English sentences (crates/conformance/bench/encoders.mjs). The published page in Chrome (${b.page}, device ${m.device}) answered every id and binary32 bit equal to the deployed page's pipeline run in Node, and the weights that pipeline placed, run through the native build of the module, which is hologram-ai-cpu-encode (engine_row9_real_exports, cargo test --ignored), answered the same bits word for word: equal on all five (equal to Node and native: ${m.equalToNodeAndNative}). Against the double-precision float reference crates/conformance/tests/gpu/encoder-reference.mjs on the same weights decoded exactly: ${each.join("; ")}.`,
+    });
+  }
+}
+
+// Row 7: prefix reuse's gain on a real model (prefix-run.mjs through speed.mjs).
+async function prefix(path) {
+  const r = JSON.parse(await readFile(path, "utf8"));
+  const byDevice = {};
+  for (const run of r.runs) (byDevice[run.device] ??= []).push(run);
+  const parts = Object.entries(byDevice).map(([device, runs]) => {
+    const ok = runs.filter((x) => !x.error && x.samples?.length);
+    if (!ok.length) return `${device}: did not run (${runs.find((x) => x.error)?.error ?? "no sample"})`;
+    const samples = ok.flatMap((x) => x.samples);
+    const whole = samples.map((x) => x.whole.firstToken), reused = samples.map((x) => x.reused.firstToken);
+    const med = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+    const verdicts = [...new Set(samples.flatMap((x) => x.verdictReused))].join("; ");
+    return `${device}: ${samples.length} fresh pages; time to first token, whole prompt then head reused, median ${fixed(med(whole), 3)} s then ${fixed(med(reused), 3)} s (each sample ${samples.map((x, i) => `${fixed(whole[i], 2)}/${fixed(reused[i], 2)}`).join(", ")}); the second turn's verdict ${verdicts || "none"}; the two turns' texts equal in ${samples.filter((x) => x.sameText).length} of ${samples.length}`;
+  });
+  const first = r.runs.find((x) => x.promptTokens);
+  await write({
+    id: `OPEN-PREFIX-${keyOf(r.model)}-Z13`,
+    sample_size: r.runs.reduce((n, x) => n + (x.samples?.length ?? 0), 0),
+    statement: `Row 7 of milestone 2 on ${r.model} q4f16, Z13, ${r.date.slice(0, 10)}, on the published page ${r.page}, protocol m2-prefix/1 (crates/conformance/bench/prefix-run.mjs): a fresh page and pipeline per sample, the engine's setup paid on a bare string shorter than the head, then one chat text twice, 32 tokens each; ${first ? `${first.promptTokens} prompt ids, the frame's head ${first.headTokens} of them` : "prompt not counted"}. ${parts.join(". ")}.`,
+  });
+}
+
+// A row measured nowhere yet, written open with the reason.
+async function open(id, statement) {
+  await write({ id, sample_size: 0, statement });
+}
+
 const [mode, ...rest] = process.argv.slice(2);
 if (mode === "equality") await equality(rest[0], rest[1], rest[2] === "--note" ? rest[3] : null);
 else if (mode === "speed") {
   const bounds = {};
   rest.forEach((a, i) => { if (a === "--bound") { const [k, ...v] = rest[i + 1].split("="); bounds[k] = v.join("="); } });
   await speed(rest[0], rest[1], rest[2], bounds);
-} else throw new Error("usage: ledger.mjs equality <reference> <float> | speed <machine id> <hologram> <transformers> [--bound target=step]");
+} else if (mode === "row15") await row15(rest[0], rest[1] === "--note" ? rest[2] : null);
+else if (mode === "row9") await row9(rest[0], rest[1]);
+else if (mode === "prefix") await prefix(rest[0]);
+else if (mode === "open") await open(rest[0], rest[1]);
+else throw new Error("usage: ledger.mjs equality <reference> <float> | speed <machine id> <hologram> <transformers> [--bound target=step] | row15 <row15.json> | row9 <encoders out dir> <browser.json> | prefix <prefix.json> | open <id> <statement>");

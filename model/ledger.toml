@@ -81,3 +81,49 @@ level = "open"
 statement = "Row 9's encoders on hologram-ai-cpu-encode (EN-62, EN-63) against the float reference in crates/conformance/tests/gpu/encoder-reference.mjs (double precision, epsilon 1e-12, the same weights decoded exactly and the same ids), on the real exports Xenova/all-MiniLM-L6-v2@751bff3 and Xenova/distilbert-base-uncased-finetuned-sst-2-english@0b6928e, onnx/model_q4f16.onnx, each file checked against the BLAKE3 its hub record names, the weights placed by the page's encoderRoles (GP-17), five English sentences of 8 to 33 tokens tokenised by hologram-ai-tokenizer's WordPiece, 2026-11-19, WSL, release build, one thread. all-MiniLM-L6-v2 embedding: largest component gap 3.1e-5 to 5.4e-5, cosine to the float embedding 0.999999949 to 0.999999978. DistilBERT SST-2: the label equal to the float reference's on all five (POSITIVE, POSITIVE, NEGATIVE, POSITIVE, NEGATIVE), largest score gap 2.2e-5 to 5.8e-4. Every second run the same bits. 0.3 to 1.3 s per sentence for all-MiniLM-L6-v2 and 0.9 to 3.5 s for DistilBERT. The float reference is this repository's, not transformers.js or ONNX Runtime; the integer epsilon is 0, as 1e-12 is below one unit of 2^-32."
 sample_size = 10
 
+
+[[claim]]
+id = "OPEN-ROW9-MINILM-PAGE"
+level = "open"
+statement = "Row 9 of milestone 2 on the real export Xenova/all-MiniLM-L6-v2 (onnx/model_q4f16.onnx), feature-extraction, 2026-11-21: five English sentences (crates/conformance/bench/encoders.mjs). The published page in Chrome (https://hologram-technologies.github.io/prism-hologram-ai/app/, device cpu) answered every id and binary32 bit equal to the deployed page's pipeline run in Node, and the weights that pipeline placed, run through the native build of the module, which is hologram-ai-cpu-encode (engine_row9_real_exports, cargo test --ignored), answered the same bits word for word: equal on all five (equal to Node and native: true). Against the double-precision float reference crates/conformance/tests/gpu/encoder-reference.mjs on the same weights decoded exactly: 8 ids: largest component gap 4.1e-5, cosine 0.99999997; 24 ids: largest component gap 5.6e-5, cosine 0.99999994; 21 ids: largest component gap 3.2e-5, cosine 0.99999998; 20 ids: largest component gap 6.3e-5, cosine 0.99999995; 29 ids: largest component gap 3.7e-5, cosine 0.99999997."
+sample_size = 5
+
+[[claim]]
+id = "OPEN-ROW9-SST2-PAGE"
+level = "open"
+statement = "Row 9 of milestone 2 on the real export Xenova/distilbert-base-uncased-finetuned-sst-2-english (onnx/model_q4f16.onnx), text-classification, 2026-11-21: five English sentences (crates/conformance/bench/encoders.mjs). The published page in Chrome (https://hologram-technologies.github.io/prism-hologram-ai/app/, device cpu) answered every id and binary32 bit equal to the deployed page's pipeline run in Node, and the weights that pipeline placed, run through the native build of the module, which is hologram-ai-cpu-encode (engine_row9_real_exports, cargo test --ignored), answered the same bits word for word: equal on all five (equal to Node and native: true). Against the double-precision float reference crates/conformance/tests/gpu/encoder-reference.mjs on the same weights decoded exactly: 8 ids: label POSITIVE, the float reference's the same, largest score gap 2.2e-5; 24 ids: label NEGATIVE, the float reference's the same, largest score gap 2.3e-4; 21 ids: label NEGATIVE, the float reference's the same, largest score gap 8.5e-5; 20 ids: label POSITIVE, the float reference's the same, largest score gap 1.3e-5; 29 ids: label NEGATIVE, the float reference's the same, largest score gap 1.9e-4."
+sample_size = 5
+
+[[claim]]
+id = "OPEN-ROW15-QWEN3-0.6B-Z13"
+level = "open"
+statement = "Row 15 of milestone 2 on onnx-community/Qwen3-0.6B-ONNX q4f16, Z13, 2026-11-20, on the published page https://hologram-technologies.github.io/prism-hologram-ai/app/ (main a1d4660 as deployed) on a cross-origin-isolated return visit (isolated: WebGPU true, CPU true), protocol m2-row15/1 (crates/conformance/bench/row15.mjs): rows 2 and 3's three prompts, 256 tokens each, on the integer engine on WebGPU and on the CPU, each device in a page of its own, receipt class everywhere / everywhere; adapter amd rdna-3. WebGPU: law 256 tokens in 620 s, lighthouse 256 tokens in 527 s, planets 256 tokens in 509 s. CPU: law 256 tokens in 291 s, lighthouse 256 tokens in 287 s, planets 256 tokens in 294 s. Model label equal on both devices: true; every input label equal: true; every output label equal: true; the CPU's generate.check of WebGPU's three receipts: confirmed, confirmed, confirmed; WebGPU's of the CPU's three: confirmed, confirmed, confirmed. Model label 9648e943...."
+sample_size = 6
+[[claim]]
+id = "OPEN-ROW15-LLAMA-3.2-1B-Z13"
+level = "open"
+statement = "Row 15 of milestone 2 on onnx-community/Llama-3.2-1B-Instruct-ONNX q4f16, Z13, 2026-11-21, on the published page https://hologram-technologies.github.io/prism-hologram-ai/app/ (main a1d4660 as deployed) on a cross-origin-isolated return visit (isolated: WebGPU true, CPU true), protocol m2-row15/1 (crates/conformance/bench/row15.mjs): rows 2 and 3's three prompts, 256 tokens each, on the integer engine on WebGPU and on the CPU, each device in a page of its own, receipt class n/a / everywhere; adapter amd rdna-3. WebGPU: did not run (the WebGPU worker did not open: slices_hold: WrongSize). CPU: law 256 tokens in 363 s, lighthouse 256 tokens in 331 s, planets 256 tokens in 313 s. Not passed: the WebGPU worker did not open: slices_hold: WrongSize; the CPU leg ran, so nothing was compared across devices. Model label 488cae4e...."
+sample_size = 3
+[[claim]]
+id = "OPEN-ROW15-QWEN2.5-1.5B-Z13"
+level = "open"
+statement = "Row 15 of milestone 2 on onnx-community/Qwen2.5-1.5B-Instruct q4f16, Z13, 2026-11-21, on the published page https://hologram-technologies.github.io/prism-hologram-ai/app/ (main a1d4660 as deployed) on a cross-origin-isolated return visit (isolated: WebGPU true, CPU true), protocol m2-row15/1 (crates/conformance/bench/row15.mjs): rows 2 and 3's three prompts, 256 tokens each, on the integer engine on WebGPU and on the CPU, each device in a page of its own, receipt class n/a / everywhere; adapter amd rdna-3. WebGPU: did not run (the WebGPU worker did not open: slices_hold: Decode(Elsewhere)). CPU: law 256 tokens in 446 s, lighthouse 256 tokens in 400 s, planets 256 tokens in 408 s. Not passed: the WebGPU worker did not open: slices_hold: Decode(Elsewhere); the CPU leg ran, so nothing was compared across devices. Model label 764168a8...."
+sample_size = 3
+
+[[claim]]
+id = "OPEN-ROW8-PHONE"
+level = "open"
+statement = "Row 8 of milestone 2, its phone half: not measured. Ilya dropped the phone part from this milestone on 2026-11-20 (\"Drop the phone part\"), so rows 8, 11 and 16 are reported on this machine (Z13) only; the harnesses take a phone's Chrome over CDP (speed.mjs --cdp), and nothing here says what a phone would measure."
+sample_size = 0
+
+[[claim]]
+id = "OPEN-ROW11-PHONE"
+level = "open"
+statement = "Row 11 of milestone 2, its phone half: not measured. Ilya dropped the phone part from this milestone on 2026-11-20 (\"Drop the phone part\"), so rows 8, 11 and 16 are reported on this machine (Z13) only; the harnesses take a phone's Chrome over CDP (speed.mjs --cdp), and nothing here says what a phone would measure."
+sample_size = 0
+
+[[claim]]
+id = "OPEN-ROW16-PHONE"
+level = "open"
+statement = "Row 16 of milestone 2, its phone half: not measured. Ilya dropped the phone part from this milestone on 2026-11-20 (\"Drop the phone part\"), so rows 8, 11 and 16 are reported on this machine (Z13) only; the harnesses take a phone's Chrome over CDP (speed.mjs --cdp), and nothing here says what a phone would measure."
+sample_size = 0
