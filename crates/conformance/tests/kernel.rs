@@ -6026,3 +6026,86 @@ fn kernel_kn_83() {
     }
     assert!(rows >= 1, "a row is evaluated, found {rows}");
 }
+
+/// `KN-91`: Reading a token's embedding row is defined in LexLean, not Rust: Engine.Stage.Embedding::halfRow, brainRow and singleRow read row id of an f16, bfloat16 or binary32 table, two 16-bit values or one 32-bit value to a little-endian word, and give the binary32 of the same value exactly, -0 as +0, as cpu-decode's step reads its embedding through Dense::at and round_exact; Lean proves every half read is a word and a row has hidden values, and evaluates rows that the kernel test replays through crates/exact's Dense::at and round_exact
+#[test]
+fn kernel_kn_91() {
+    use hologram_ai_exact::Dense;
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageEmbedding.lex.tex");
+    for name in [
+        "embedding_half_is_word",
+        "embedding_half_count",
+        "embedding_brain_count",
+        "embedding_single_count",
+    ] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "let e = half(model.embedding, id * hidden + k)?;",
+        "Ok(exact::round_exact(e.mantissa, e.exponent))",
+        "weights.at(i).map_err(DecodeError::Exact)",
+    ] {
+        assert!(
+            decoder.contains(line),
+            "cpu-decode's embedding read changed: {line}"
+        );
+    }
+    let mut wrong = Vec::new();
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: embedding_row_{rows},\n")) {
+        let name = format!("embedding_row_{rows}");
+        let found = declaration(&proofs, &name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let (format, statement) = ["halfRow", "brainRow", "singleRow"]
+            .iter()
+            .find_map(|f| {
+                found
+                    .split(&format!("statement: ((Engine.Stage.Embedding::{f} "))
+                    .nth(1)
+                    .map(|s| (*f, s))
+            })
+            .expect("an evaluation of a row");
+        let (words, rest) = cons_list(statement);
+        let (sizes, rest) = rest.trim_start().split_once(')').expect("id and hidden");
+        let s: Vec<usize> = sizes
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let (id, hidden) = (s[0], s[1]);
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let bytes: Vec<u8> = words
+            .iter()
+            .flat_map(|&w| (w as u32).to_le_bytes())
+            .collect();
+        let table = match format {
+            "halfRow" => Dense::F16(&bytes),
+            "brainRow" => Dense::Bf16(&bytes),
+            _ => Dense::F32(&bytes),
+        };
+        let rust: Vec<u64> = (0..hidden)
+            .map(|k| {
+                let e = table.at(id * hidden + k).expect("a finite value");
+                u64::from(hologram_ai_exact::round_exact(e.mantissa, e.exponent))
+            })
+            .collect();
+        if rust != expected {
+            wrong.push(format!("{name}: cpu-decode's read gives {rust:?}"));
+        }
+        rows += 1;
+    }
+    assert!(
+        wrong.is_empty(),
+        "cpu-decode's embedding read disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+    assert!(rows >= 4, "four rows are evaluated, found {rows}");
+}
