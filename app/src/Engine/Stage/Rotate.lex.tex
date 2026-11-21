@@ -1,0 +1,120 @@
+\begin{lexlean}{Engine.Stage.Rotate}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Rotary}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: turnNeg,
+  parameters: [c : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 2147483647 c)
+}
+
+definition{
+  name: turnSize,
+  parameters: [c : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (turnNeg c) (prim subtract 4294967296 c : Nat) c)
+}
+
+definition{
+  name: term,
+  parameters: [a : Nat, c : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply (Engine.Stage.Attention::mantissaOf a) (turnSize c) : Nat) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Attention::scaleOf a) 1 : Nat)) : Nat)
+}
+
+definition{
+  name: termSign,
+  parameters: [a : Nat, c : Nat, flip : Nat],
+  result: Nat,
+  body: (prim remainder (((Engine.Stage.Attention::negOf a) + (turnNeg c)) + flip) 2 0 : Nat)
+}
+
+definition{
+  name: plus,
+  parameters: [a : Nat, c : Nat, flip : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (termSign a c flip) 0 (term a c))
+}
+
+definition{
+  name: minus,
+  parameters: [a : Nat, c : Nat, flip : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (termSign a c flip) (term a c) 0)
+}
+
+definition{
+  name: combine,
+  parameters: [a : Nat, c : Nat, aFlip : Nat, b : Nat, s : Nat, bFlip : Nat],
+  result: Nat,
+  body: (Engine.Stage.Attention::signedRound ((plus a c aFlip) + (plus b s bFlip)) ((minus a c aFlip) + (minus b s bFlip)) 179)
+}
+
+definition{
+  name: wordAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::nth words i) 4294967296 0 : Nat)
+}
+
+definition{
+  name: angleAt,
+  parameters: [frequencies : (List Nat), position : Nat, i : Nat],
+  result: Nat,
+  body: (Engine.Stage.Rotary::ropeAngle position (Engine.Stage.Greedy::nth frequencies i))
+}
+
+definition{
+  name: firstAt,
+  parameters: [head : (List Nat), frequencies : (List Nat), position : Nat, half : Nat, i : Nat],
+  result: Nat,
+  body: (combine (wordAt head i) (Engine.Stage.Rotary::cosineTurn (angleAt frequencies position i)) 0 (wordAt head (half + i)) (Engine.Stage.Rotary::sineTurn (angleAt frequencies position i)) 1)
+}
+
+definition{
+  name: secondAt,
+  parameters: [head : (List Nat), frequencies : (List Nat), position : Nat, half : Nat, i : Nat],
+  result: Nat,
+  body: (combine (wordAt head (half + i)) (Engine.Stage.Rotary::cosineTurn (angleAt frequencies position i)) 0 (wordAt head i) (Engine.Stage.Rotary::sineTurn (angleAt frequencies position i)) 0)
+}
+
+definition{
+  name: firstsFrom,
+  parameters: [
+    head : (List Nat),
+    frequencies : (List Nat),
+    position : Nat,
+    half : Nat,
+    i : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (firstAt head frequencies position half i) (firstsFrom head frequencies position half (i + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: secondsFrom,
+  parameters: [
+    head : (List Nat),
+    frequencies : (List Nat),
+    position : Nat,
+    half : Nat,
+    i : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (secondAt head frequencies position half i) (secondsFrom head frequencies position half (i + 1) rest))),
+  recursive_argument: remaining
+}
+\end{semanticmodule}
+\end{lexlean}

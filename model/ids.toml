@@ -1048,3 +1048,9 @@ id = "GP-60"
 level = "build"
 suite = "gpu"
 statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
+
+[[id]]
+id = "KN-88"
+level = "build"
+suite = "kernel"
+statement = "Rotating a head's pairs is defined in LexLean, not Rust: Engine.Stage.Rotate::firstsFrom and secondsFrom give pair i of a head, at its frequency's angle (KN-86), as x cos - y sin and y cos + x sin, each summed exactly at 2^-179 and rounded once by KN-62's Binary32::round; Lean proves every output is a word and each half has one output a pair, and evaluates heads that the kernel test replays through cpu-decode's rotate arithmetic on crates/exact's rope_angle, cosine_turn, sine_turn and round_to_binary32"
