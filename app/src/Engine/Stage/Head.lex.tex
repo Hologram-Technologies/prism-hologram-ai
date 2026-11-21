@@ -1,0 +1,163 @@
+\begin{lexlean}{Engine.Stage.Head}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Binary32}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\importmodule{Engine.Stage.Requant}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: codeNeg,
+  parameters: [c : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::below 2147483647 c)
+}
+
+definition{
+  name: codeSize,
+  parameters: [c : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (codeNeg c) (prim subtract 4294967296 c : Nat) c)
+}
+
+definition{
+  name: powerShift,
+  parameters: [p : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (codeNeg p) (200 + (prim subtract 4294967296 p : Nat)) (prim subtract 200 p : Nat))
+}
+
+definition{
+  name: halfNeg,
+  parameters: [h : Nat],
+  result: Nat,
+  body: (prim quotient (prim remainder h 65536 0 : Nat) 32768 0 : Nat)
+}
+
+definition{
+  name: halfSize,
+  parameters: [h : Nat],
+  result: Nat,
+  body: (prim multiply (prim multiply (Engine.Stage.HalfScale::mantissa h) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Greedy::maxOf (Engine.Stage.HalfScale::exponent h) 1) 1 : Nat)) : Nat) (Engine.Stage.Attention::powTwo 125) : Nat)
+}
+
+definition{
+  name: singleSize,
+  parameters: [w : Nat],
+  result: Nat,
+  body: (prim multiply (Engine.Stage.Attention::mantissaOf w) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Attention::scaleOf w) 1 : Nat)) : Nat)
+}
+
+definition{
+  name: weightNeg,
+  parameters: [format : Nat, table : (List Nat), at : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick format (Engine.Stage.Attention::negOf (prim remainder (Engine.Stage.Greedy::nth table at) 4294967296 0 : Nat)) (halfNeg (Engine.Stage.HalfScale::halfAt table at)))
+}
+
+definition{
+  name: weightSize,
+  parameters: [format : Nat, table : (List Nat), at : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick format (singleSize (prim remainder (Engine.Stage.Greedy::nth table at) 4294967296 0 : Nat)) (halfSize (Engine.Stage.HalfScale::halfAt table at)))
+}
+
+definition{
+  name: termSize,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    at : Nat,
+    k : Nat
+  ],
+  result: Nat,
+  body: (prim multiply (prim multiply (codeSize (Engine.Stage.Greedy::nth codes k)) (weightSize format table at) : Nat) (Engine.Stage.Attention::powTwo (powerShift (Engine.Stage.Greedy::nth powers (prim quotient k 32 0 : Nat)))) : Nat)
+}
+
+definition{
+  name: termNeg,
+  parameters: [codes : (List Nat), format : Nat, table : (List Nat), at : Nat, k : Nat],
+  result: Nat,
+  body: (prim remainder ((codeNeg (Engine.Stage.Greedy::nth codes k)) + (weightNeg format table at)) 2 0 : Nat)
+}
+
+definition{
+  name: sumPos,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    base : Nat,
+    k : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (termNeg codes format table (base + k) k) 0 (termSize codes powers format table (base + k) k)) + (sumPos codes powers format table base (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: sumNeg,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    base : Nat,
+    k : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (termNeg codes format table (base + k) k) (termSize codes powers format table (base + k) k) 0) + (sumNeg codes powers format table base (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: logitAt,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    columns : Nat,
+    n : Nat
+  ],
+  result: Nat,
+  body: (Engine.Stage.Attention::signedRound (sumPos codes powers format table (prim multiply n columns : Nat) 0 columns) (sumNeg codes powers format table (prim multiply n columns : Nat) 0 columns) 349)
+}
+
+definition{
+  name: logitsFrom,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    columns : Nat,
+    n : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (logitAt codes powers format table columns n) (logitsFrom codes powers format table columns (n + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: head,
+  parameters: [input : (List Nat), format : Nat, table : (List Nat), columns : Nat, rows : Nat],
+  result: (List Nat),
+  body: (logitsFrom (Engine.Stage.Requant::codes input (prim quotient columns 32 0 : Nat)) (Engine.Stage.Requant::powers input (prim quotient columns 32 0 : Nat)) format table columns 0 rows)
+}
+\end{semanticmodule}
+\end{lexlean}

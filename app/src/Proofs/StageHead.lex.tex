@@ -1,0 +1,89 @@
+\begin{lexlean}{Proofs.StageHead}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Head}
+\importmodule{Engine.Word}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: head_logit_is_word,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    columns : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Stage.Head::logitAt codes powers format table columns n) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::signedRound,
+      Engine.Stage.Head::logitAt,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: head_count,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    format : Nat,
+    table : (List Nat),
+    columns : Nat,
+    n : Nat,
+    k : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Head::logitsFrom codes powers format table columns n k)) = k),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Head::logitsFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Head::logitsFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [n],
+    scrutinee: k
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: head_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Head::head (Engine.Word::joined (cons 3198268252 (cons 1048900100 (cons 1047405742 (cons 1052112654 (cons 1067057163 (cons 1072630393 (cons 1060159694 (cons 1067326391 (cons 1049619520 (cons 3186196075 (cons 1068317113 (cons 1073605898 (cons 1049929211 (cons 1057369853 (cons 3219139982 (cons 1069113970 (nil Nat))))))))))))))))) (cons 1058091656 (cons 1057543428 (cons 3215690704 (cons 1051099258 (cons 1054406402 (cons 3215965146 (cons 3199542268 (cons 1064921757 (cons 1066362940 (cons 1062870227 (cons 1060241866 (cons 1072101177 (cons 1066729974 (cons 3218935748 (cons 3205296154 (cons 3220045738 (nil Nat)))))))))))))))))) 0 (Engine.Word::joined (cons 839595656 (cons 3038884989 (cons 787264604 (cons 3085214939 (cons 3000316136 (cons 939176656 (cons 906180214 (cons 745616953 (cons 2950870811 (cons 920923875 (cons 3067523468 (cons 854538054 (cons 2706191725 (cons 2982392448 (cons 2957161926 (cons 929704959 (nil Nat))))))))))))))))) (cons 2736469864 (cons 929477777 (cons 3067394012 (cons 779497896 (cons 836122553 (cons 907818237 (cons 908736319 (cons 813506517 (cons 3080401999 (cons 2916296275 (cons 3034854556 (cons 3027318113 (cons 712288497 (cons 856994305 (cons 937309400 (cons 918990296 (nil Nat)))))))))))))))))) 32 2) = (cons 3216569727 (cons 3199498438 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: head_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Head::head (Engine.Word::joined (cons 961312766 (cons 974970268 (cons 3123192918 (cons 3100084670 (cons 973702859 (cons 965714527 (cons 3122989340 (cons 960206015 (cons 973916431 (cons 976674363 (cons 3128047779 (cons 3126210222 (cons 3117085859 (cons 3129091599 (cons 977364157 (cons 975371932 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 974493184 (cons 956374323 (cons 3116339106 (cons 3097485829 (cons 3126985038 (cons 975674763 (cons 3122336612 (cons 973247093 (cons 3115019273 (cons 3123930258 (cons 3111497660 (cons 3116693610 (cons 979836818 (cons 3128059847 (cons 3113892624 (cons 3105798229 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 1065131082 (cons 3259242765 (cons 1106279518 (cons 3243651528 (cons 1096755414 (cons 3251803819 (cons 3250641833 (cons 3249217428 (cons 3247421617 (cons 1108931825 (cons 3254212183 (cons 3259309532 (cons 1110995998 (cons 3253245361 (cons 1110454358 (cons 1099742982 (nil Nat))))))))))))))))) (cons 1108722344 (cons 3234469859 (cons 3227402688 (cons 1105682612 (cons 3233918560 (cons 3229739523 (cons 3256916588 (cons 1096335414 (cons 3250168602 (cons 1108684650 (cons 3251748251 (cons 1108165942 (cons 1099137946 (cons 1102916560 (cons 1108998649 (cons 1107082015 (nil Nat)))))))))))))))))))) 0 (Engine.Word::joined (cons 2795667466 (cons 2968861039 (cons 3060054593 (cons 2148546812 (cons 3145349935 (cons 3091477123 (cons 955628295 (cons 3109814283 (cons 3100816527 (cons 982529917 (cons 2148219345 (cons 834516772 (cons 3087416090 (cons 3057924079 (cons 815104007 (cons 2903620258 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3109337575 (cons 571573 (cons 973616377 (cons 964636061 (cons 944813361 (cons 933691397 (cons 856992359 (cons 2926851397 (cons 78194 (cons 888158935 (cons 893401647 (cons 961231144 (cons 886079504 (cons 3111565255 (cons 666711655 (cons 275919 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 984169404 (cons 3145971021 (cons 3059528239 (cons 3104243724 (cons 969978433 (cons 3106648794 (cons 2147924119 (cons 998976676 (cons 1000159717 (cons 747418693 (cons 3115909133 (cons 969322026 (cons 1005073087 (cons 2148055487 (cons 979315754 (cons 807352967 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 954181207 (cons 3038707725 (cons 3105076403 (cons 619294234 (cons 2147629800 (cons 3118217480 (cons 964605827 (cons 2909485373 (cons 809664517 (cons 2954114629 (cons 2994518658 (cons 373249 (cons 966703105 (cons 3108124687 (cons 879408831 (cons 2983100424 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3066313078 (cons 2718280914 (cons 863139 (cons 3057858533 (cons 999897102 (cons 945567060 (cons 3023667216 (cons 823440665 (cons 3075189382 (cons 2147760187 (cons 971714014 (cons 3034035584 (cons 3015752066 (cons 3091890188 (cons 3088790670 (cons 2911352971 (nil Nat))))))))))))))))) (cons 2148088771 (cons 3102783601 (cons 941471132 (cons 461813892 (cons 968917003 (cons 2890968566 (cons 3076494438 (cons 2147793162 (cons 2825762220 (cons 3009788148 (cons 921056742 (cons 750157833 (cons 782542996 (cons 950743083 (cons 2148383254 (cons 3069979293 (nil Nat)))))))))))))))))))))) 64 3) = (cons 3207750773 (cons 3249365589 (cons 3246426259 (nil Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: head_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Head::head (Engine.Word::joined (cons 3206484203 (cons 3204433042 (cons 1075486501 (cons 3222517981 (cons 3224697127 (cons 3185455481 (cons 3202061204 (cons 1070213222 (cons 3188039267 (cons 3217737144 (cons 3213654411 (cons 3217984417 (cons 1077503747 (cons 1071761131 (cons 3215568286 (cons 3223165861 (nil Nat))))))))))))))))) (cons 3209486300 (cons 1074351320 (cons 3223698644 (cons 1066027219 (cons 1074744779 (cons 1070806432 (cons 3188174609 (cons 1037521941 (cons 3213684406 (cons 1052063735 (cons 3208859241 (cons 1067741099 (cons 3217259836 (cons 1056483032 (cons 1069270162 (cons 3220203969 (nil Nat)))))))))))))))))) 1 (Engine.Word::joined (cons 1024845709 (cons 1047451595 (cons 3195837339 (cons 1021284341 (cons 3189012379 (cons 1008819324 (cons 3186625661 (cons 3168653130 (cons 1044432331 (cons 1040269003 (cons 1026225369 (cons 1048165461 (cons 1042333496 (cons 3184683255 (cons 3179367145 (cons 1042290102 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3194261641 (cons 1022373724 (cons 3192172660 (cons 3174486796 (cons 3195870378 (cons 1045151224 (cons 3191341868 (cons 3193114322 (cons 1040256092 (cons 3171135321 (cons 3191052017 (cons 1037020644 (cons 1032703900 (cons 3173465212 (cons 1035950557 (cons 3168978629 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3189647561 (cons 1044742063 (cons 3194398890 (cons 1045691794 (cons 3167141531 (cons 3172100172 (cons 1035752755 (cons 3186073177 (cons 1027425004 (cons 1031809365 (cons 3190559291 (cons 1041597557 (cons 1044483025 (cons 3183530195 (cons 3150056805 (cons 3189575388 (nil Nat))))))))))))))))) (cons 3183550391 (cons 1042405364 (cons 1017967772 (cons 3190384634 (cons 3195257242 (cons 1047206825 (cons 3187995652 (cons 3188995886 (cons 3195627971 (cons 1041593282 (cons 3171282079 (cons 3180853763 (cons 3188274772 (cons 1046767132 (cons 1043434483 (cons 3173077605 (nil Nat)))))))))))))))))))) 32 2) = (cons 3202043422 (cons 1052346044 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

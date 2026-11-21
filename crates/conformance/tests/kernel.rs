@@ -6134,3 +6134,109 @@ fn kernel_kn_90() {
         wrong.join("\n")
     );
 }
+
+/// A LexLean list written as `(cons a ...)` or as `(Engine.Word::joined A B)`
+/// of such lists, at the start of `text`, and the text after it.
+fn joined_list(text: &str) -> (Vec<u64>, &str) {
+    if let Some(rest) = text.strip_prefix("(Engine.Word::joined ") {
+        let (mut first, rest) = joined_list(rest);
+        let (second, rest) = joined_list(rest.trim_start());
+        first.extend(second);
+        (first, rest.strip_prefix(')').expect("a closed join"))
+    } else {
+        cons_list(text)
+    }
+}
+
+/// `KN-92`: The logits head is defined in LexLean, not Rust: Engine.Stage.Head::head puts the input on KN-61's sixteen-bit codes and group powers, multiplies each row of f16 or binary32 weights by them exactly, each group at its own power, and rounds each logit once by KN-62's Binary32::round, as cpu-decode's head through crates/exact's dense_product_with; Lean proves every logit is a word and the head gives one logit a row, and evaluates heads that the kernel test replays through dense_product_with
+#[test]
+fn kernel_kn_92() {
+    use hologram_ai_exact::{Dense, DenseLayout, Grouping, Scheme, Width};
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageHead.lex.tex");
+    for name in ["head_logit_is_word", "head_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "} => exact::dense_product_with(",
+        "DenseLayout::OutputMajor,",
+        "const SCHEME: Scheme = Scheme {",
+        "width: Width::Sixteen,",
+        "grouping: Grouping::Groups,",
+    ] {
+        assert!(decoder.contains(line), "cpu-decode's head changed: {line}");
+    }
+    let scheme = Scheme {
+        width: Width::Sixteen,
+        grouping: Grouping::Groups,
+    };
+    let mut wrong = Vec::new();
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: head_row_{rows},\n")) {
+        let name = format!("head_row_{rows}");
+        let found = declaration(&proofs, &name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Head::head ")
+            .nth(1)
+            .expect("an evaluation of head");
+        let (input, rest) = joined_list(statement);
+        let (format, rest) = rest.trim_start().split_once(' ').expect("a format");
+        let (table, rest) = joined_list(rest.trim_start());
+        let (sizes, rest) = rest.trim_start().split_once(')').expect("columns and rows");
+        let s: Vec<usize> = sizes
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let (columns, count) = (s[0], s[1]);
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let input: Vec<u32> = input.iter().map(|&x| x as u32).collect();
+        let bytes: Vec<u8> = if format == "0" {
+            table
+                .iter()
+                .flat_map(|&w| (w as u32).to_le_bytes())
+                .take(2 * columns * count)
+                .collect()
+        } else {
+            table
+                .iter()
+                .flat_map(|&w| (w as u32).to_le_bytes())
+                .collect()
+        };
+        let weights = if format == "0" {
+            Dense::F16(&bytes)
+        } else {
+            Dense::F32(&bytes)
+        };
+        let rust: Vec<u64> = hologram_ai_exact::dense_product_with(
+            &input,
+            weights,
+            DenseLayout::OutputMajor,
+            columns,
+            count,
+            scheme,
+        )
+        .expect("a head within bounds")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        if rust != expected {
+            wrong.push(format!("{name}: dense_product_with gives {rust:?}"));
+        }
+        rows += 1;
+    }
+    assert!(
+        wrong.is_empty(),
+        "crates/exact's head disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+    assert!(rows >= 3, "three heads are evaluated, found {rows}");
+}
