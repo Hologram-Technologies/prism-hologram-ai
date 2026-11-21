@@ -9,7 +9,7 @@
 // module each weight's bytes once, opens the model with what its config says,
 // and reads back the greedy token and the logits' bits.
 
-const TYPES = { f32: 1, u8: 2, i8: 3, i32: 6, i64: 7, f16: 10, bf16: 16 };
+export const TYPES = { f32: 1, u8: 2, i8: 3, i32: 6, i64: 7, f16: 10, bf16: 16 };
 const le = (n) => new Uint8Array(new Uint32Array([n]).buffer);
 const word = (bytes, at = 0) => new DataView(bytes.buffer, bytes.byteOffset, bytes.length).getUint32(at, true);
 
@@ -83,28 +83,146 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
   };
 }
 
+// The forward pass in the worker while the model's file is still arriving
+// (GP-70): opened on the weights held so far, `held` layers of them; `add`
+// hands it more as they arrive, `prefill` starts a prompt that runs each
+// layer as soon as it is held, and `finish` answers the prompt's first token
+// once every weight is in, then the rest of the turn, its products on WebGPU
+// from then on when `gpu` names the kernels (GP-56). Otherwise it answers as
+// startIntegerEngine's engine does.
+export async function startStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors }) {
+  const { ask, opened } = await openWorker(m, { engine: "stream", config, rope, capacity, held, tensors }, tensors.map(([, , bytes]) => bytes.buffer));
+  let position = 0;
+  let gpu = null;
+  const call = async (method, args, hooks, given = []) => {
+    const said = await ask({ kind: "call", method, args }, given, hooks);
+    position = said.position;
+    return said.value;
+  };
+  return {
+    add: (more, layers) => call("add", [more, layers], {}, more.map(([, , bytes]) => bytes.buffer)),
+    prefill: (prompt) => call("prefill", [prompt]),
+    complete: () => call("complete", []),
+    probe: (ids, at, layer, component) => call("probe", [ids, at, layer, component]),
+    // Every product on WebGPU from now on (GP-56), for a load no early turn
+    // is waiting on.
+    attach: async (kernels) => { gpu = await call("attach", [kernels]); return gpu; },
+    finish: async (count, { stops = new Set(), onToken = () => {}, onFirst = () => {}, gpu: kernels = null } = {}) => {
+      const said = await call("finish", [count, stops, kernels], { onToken, onFirst });
+      gpu = said.gpu;
+      return said.tokens;
+    },
+    step: (token, options) => call("step", [token, options]),
+    run: (prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) => call("run", [prompt, count, stops], { onToken, onFirst }),
+    saveState: (length) => call("saveState", [length]),
+    restoreState: (state) => call("restoreState", [state]),
+    reset: () => call("reset", []),
+    get position() { return position; },
+    get device() { return gpu ? "webgpu" : "cpu"; },
+    get gpu() { return gpu; },
+    integer: true,
+    streamed: true,
+    sizes: opened.sizes,
+    helpers: 0,
+  };
+}
+
 // `module` is the page's module after the graph was imported through it;
 // `table` and `read` are the import's tensors and their bytes; `config` the
 // text of config.json, whose numbers the module reads exactly (KN-50, EN-58);
 // `rope` the rotary parameters the loader confirmed.
 export function createIntegerEngine({ module: m, table, read, config, rope = {}, capacity }) {
-  const text = new TextEncoder();
   for (const [name, [element]] of Object.entries(table.tensors)) {
     if (!(name in table.places) || !(element in TYPES)) continue;
-    const named = text.encode(name);
-    const bytes = read(name);
-    const given = new Uint8Array(8 + named.length + bytes.length);
-    given.set(le(named.length), 0);
-    given.set(named, 4);
-    given.set(le(TYPES[element]), 4 + named.length);
-    given.set(bytes, 8 + named.length);
-    m.callWith("decode_tensor", given);
+    handTensor(m, name, TYPES[element], read(name));
   }
+  return engineOver(m, openDecode(m, config, rope, null), capacity);
+}
+
+// One weight for the module's forward pass: its name, its element type as
+// onnx.proto numbers it, its bytes.
+function handTensor(m, name, type, bytes) {
+  const named = new TextEncoder().encode(name);
+  const given = new Uint8Array(8 + named.length + bytes.length);
+  given.set(le(named.length), 0);
+  given.set(named, 4);
+  given.set(le(type), 4 + named.length);
+  given.set(bytes, 8 + named.length);
+  m.callWith("decode_tensor", given);
+}
+
+// The module's forward pass opened with the config's text and the rotary
+// parameters, as far as `held` layers when a streamed load says how many
+// (EN-112); its sizes.
+function openDecode(m, config, rope, held) {
   const opened = {
     config,
     scaling: rope.llama3 ? { factor: rope.llama3.factor, low: rope.llama3.low, high: rope.llama3.high, original: rope.llama3.orig } : null,
+    ...(held === null ? {} : { held }),
   };
-  const sizes = JSON.parse(new TextDecoder().decode(m.callWith("decode_open", text.encode(JSON.stringify(opened)))));
+  return JSON.parse(new TextDecoder().decode(m.callWith("decode_open", new TextEncoder().encode(JSON.stringify(opened)))));
+}
+
+// The engine in the worker while the file arrives (GP-70): `tensors` are
+// [name, type, bytes] held so far and `held` the layers whole among them.
+// A prompt given to `prefill` goes through each layer as soon as it is held
+// (EN-110, EN-112), the layers it can before the rest arrive.
+export function createStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors }) {
+  for (const [name, type, bytes] of tensors) handTensor(m, name, type, bytes);
+  let layers = held;
+  const engine = engineOver(m, openDecode(m, config, rope, held), capacity);
+  let prompt = null;
+  let ran = 0;
+  const runHeld = () => {
+    while (prompt && ran < layers) ran = word(m.call("decode_prefill_layer", layers));
+  };
+  return Object.assign(engine, {
+    add(more, now) {
+      for (const [name, type, bytes] of more) handTensor(m, name, type, bytes);
+      layers = now;
+      runHeld();
+      return { ran, layers };
+    },
+    // Every weight is in and no prompt waits: the model is read whole from
+    // now on, as an engine opened after the load reads it.
+    complete() {
+      if (!prompt) openDecode(m, config, rope, null);
+      return { layers };
+    },
+    prefill(ids) {
+      if (engine.position + ids.length > capacity) throw new Error(`context full: ${capacity} positions`);
+      m.callWith("decode_prefill", new Uint8Array(new Uint32Array(ids).buffer));
+      prompt = ids;
+      ran = 0;
+      runHeld();
+      return { ran, layers };
+    },
+    // Every weight in: the prompt's first token, then up to `count` in all,
+    // stopping at any id in `stops`; `attach` runs once the first token is
+    // out, before the next is computed.
+    async finish(count, { stops = new Set(), onToken = () => {}, onFirst = () => {}, attach = async () => {} } = {}) {
+      if (!prompt) throw new Error("no prompt was prefilled");
+      runHeld();
+      const said = m.call("decode_prefill_finish");
+      engine.moved(prompt.length);
+      prompt = null;
+      let last = word(said);
+      onFirst();
+      await attach();
+      const out = [];
+      while (out.length < count) {
+        if (stops.has(last)) break;
+        out.push(last);
+        onToken(out.slice());
+        if (out.length < count) last = (await engine.step(last)).token;
+      }
+      return out;
+    },
+  });
+}
+
+// What every integer engine answers, over the module's open forward pass.
+function engineOver(m, sizes, capacity) {
   let position = 0;
 
   // One token through the model: the greedy token, and the logits if asked,
@@ -173,6 +291,8 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   return {
     step, run, generate, probe, saveState, restoreState,
     reset: () => { m.call("decode_reset"); position = 0; },
+    // A prefill moved the run past its prompt (GP-70).
+    moved: (n) => { position += n; },
     get position() { return position; },
     device: "cpu",
     integer: true,

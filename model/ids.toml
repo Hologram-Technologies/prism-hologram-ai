@@ -990,6 +990,12 @@ suite = "kernel"
 statement = "RMS norm is defined in LexLean, not Rust: Engine.Stage.RmsNorm::run reads values and weights as signed 64-bit integers in units of 2^-16, takes r, the largest integer with count r^2 at most (the sum of squares plus count epsilon) 2^32, by the digit-by-digit integer root (KN-43), and writes each value times its weight times 2^16 over r, rounded half to even (KN-44), refusing a row whose root is 0; Lean proves run gives two words a value, and evaluates roots and rows that the kernel test replays through crates/exact's integer_root and rms_norm"
 
 [[id]]
+id = "KN-83"
+level = "build"
+suite = "kernel"
+statement = "SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu"
+
+[[id]]
 id = "GP-56"
 level = "build"
 suite = "gpu"
@@ -1024,6 +1030,12 @@ id = "KN-95"
 level = "build"
 suite = "kernel"
 statement = "The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows"
+
+[[id]]
+id = "GP-70"
+level = "build"
+suite = "gpu"
+statement = "A prompt sent while the model is still arriving runs as it arrives: the page takes it during the load, frames it and asks its budget of the kernel (decision 9) at once, opens the engine's worker once the embedding and the first layer are in, hands it each tensor as the importer admits it (EN-111) and the prompt goes through each layer as soon as that layer is held (EN-110, EN-112); the device is decision 22's before any of the model is computed; the first token is made only after the whole file's BLAKE3 and decision 28, on the module, and WebGPU takes the turn's products after it when the kernel chose it; on WebGPU and on the CPU the tokens are the reference's"
 
 [[id]]
 id = "GP-58"

@@ -47,7 +47,7 @@
 #![forbid(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use hologram_ai_cpu_decode::{self as decode, Config, DecodeError, Initializer, Session};
 use hologram_ai_cpu_encode as encode;
@@ -794,6 +794,47 @@ pub extern "C" fn onnx_so_far() -> u32 {
                     out.push(char::from(b"0123456789abcdef"[usize::from(b & 15)]));
                 }
                 out.push('\n');
+            }
+            Ok(out.into_bytes())
+        })
+    })
+}
+
+/// The layer each value the graph's nodes read belongs to, as the decoder
+/// finds them (EN-112): one line `layers` and how many layers have a query
+/// projection, one line `embedding` and the value the token gather reads,
+/// then each value a node of `/model/layers.N/` reads and that N, separated
+/// by tabs. The page holds a layer once every weight of it has arrived.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_layers() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow(|onnx| {
+            let graph = onnx.graph.as_ref().ok_or(CallError::NothingRead)?;
+            let layer_of = |name: &str| {
+                name.strip_prefix("/model/layers.")
+                    .and_then(|rest| rest.split('/').next())
+                    .and_then(|n| n.parse::<usize>().ok())
+            };
+            let mut queries = BTreeSet::new();
+            let mut lines = Vec::new();
+            let mut embedding = String::new();
+            for node in graph.nodes() {
+                if node.name == "/model/embed_tokens/Gather" {
+                    embedding = node.inputs.first().cloned().unwrap_or_default();
+                }
+                if let Some(l) = layer_of(&node.name) {
+                    if node.name.contains("q_proj") {
+                        queries.insert(l);
+                    }
+                    for input in &node.inputs {
+                        lines.push(format!("{input}\t{l}\n"));
+                    }
+                }
+            }
+            let mut out = format!("layers\t{}\nembedding\t{embedding}\n", queries.len());
+            for line in lines {
+                out.push_str(&line);
             }
             Ok(out.into_bytes())
         })
