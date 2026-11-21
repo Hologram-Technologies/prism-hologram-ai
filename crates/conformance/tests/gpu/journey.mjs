@@ -74,7 +74,9 @@ async function onnxVisit(context, { variant, repo = onnx.repo, precision = null,
   if (opened && early) {
     // GP-70: the prompt is sent in the same task as the click on Load, so
     // before any byte of the model has arrived; it is answered when the load
-    // ends, its layers run as they arrived.
+    // ends, its layers run as they arrived. Load is enabled once the page's
+    // module listens, as page.click waits for.
+    await page.waitForSelector("#load:not([disabled])", { timeout: 60000 }).catch(() => {});
     await page.evaluate((text) => {
       document.getElementById("load").click();
       document.getElementById("prompt").value = text;
