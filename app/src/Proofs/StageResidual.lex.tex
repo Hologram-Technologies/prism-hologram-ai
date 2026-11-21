@@ -1,0 +1,73 @@
+\begin{lexlean}{Proofs.StageResidual}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Residual}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: residual_add_is_word,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Stage.Residual::addWord a b) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::signedRound,
+      Engine.Stage.Residual::addWord,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: residual_sum_swaps,
+  parameters: [x : Nat, y : Nat],
+  statement: ((x + y) = (y + x)),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Residual::size]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: residual_add_commutes,
+  parameters: [a : Nat, b : Nat],
+  statement: ((Engine.Stage.Residual::addWord a b) = (Engine.Stage.Residual::addWord b a)),
+  proof: simplify{definitions: [residual_sum_swaps, Engine.Stage.Residual::addWord]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: residual_count,
+  parameters: [xs : (List Nat), ys : (List Nat), i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Residual::addFrom xs ys i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Residual::addFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Residual::addFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: residual_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Residual::addFrom (cons 1065353216 (cons 1065353216 (cons 1900671690 (cons 1 (cons 1266679808 (cons 2147483648 (cons 2139095039 (cons 3223322624 (cons 1069547520 (nil Nat)))))))))) (cons 1073741824 (cons 3212836864 (cons 1065353216 (cons 1 (cons 1065353216 (cons 2147483648 (cons 2139095039 (cons 1061158912 (cons 2961178624 (nil Nat)))))))))) 0 9) = (cons 1077936128 (cons 0 (cons 1900671690 (cons 2 (cons 1266679808 (cons 0 (cons 2139095040 (cons 3219128320 (cons 1069547520 (nil Nat))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

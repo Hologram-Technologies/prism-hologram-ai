@@ -1,0 +1,53 @@
+\begin{lexlean}{Engine.Stage.Residual}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: size,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (prim multiply (Engine.Stage.Attention::mantissaOf a) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Attention::scaleOf a) 1 : Nat)) : Nat)
+}
+
+definition{
+  name: positivePart,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Attention::negOf a) 0 (size a))
+}
+
+definition{
+  name: negativePart,
+  parameters: [a : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Attention::negOf a) (size a) 0)
+}
+
+definition{
+  name: addWord,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (Engine.Stage.Attention::signedRound ((positivePart a) + (positivePart b)) ((negativePart a) + (negativePart b)) 149)
+}
+
+definition{
+  name: wordAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::nth words i) 4294967296 0 : Nat)
+}
+
+definition{
+  name: addFrom,
+  parameters: [xs : (List Nat), ys : (List Nat), i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (addWord (wordAt xs i) (wordAt ys i)) (addFrom xs ys (i + 1) rest))),
+  recursive_argument: remaining
+}
+\end{semanticmodule}
+\end{lexlean}

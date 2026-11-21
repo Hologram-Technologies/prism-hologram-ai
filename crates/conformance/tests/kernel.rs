@@ -5985,3 +5985,64 @@ fn kernel_kn_63() {
     }
     assert!(rows >= 8, "eight rows are evaluated, found {rows}");
 }
+
+/// `KN-89`: The residual and bias additions are defined in LexLean, not Rust: Engine.Stage.Residual::addWord is two binary32 values summed exactly at 2^-149 and rounded once by KN-62's Binary32::round, as cpu-decode's add; Lean proves every sum is a word and the addition commutes, for every input, and evaluates sums that the kernel test replays through cpu-decode's add arithmetic on crates/exact's Row and round_to_binary32
+#[test]
+fn kernel_kn_89() {
+    use hologram_ai_exact::{Dyadic, Row};
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageResidual.lex.tex");
+    assert_pinned(
+        &proofs,
+        "residual_add_commutes",
+        "((Engine.Stage.Residual::addWord a b) = (Engine.Stage.Residual::addWord b a))",
+        "Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\n  name: residual_add_is_word,\n"),
+        "residual_add_is_word is the stage's guarantee"
+    );
+    // cpu-decode's add, whose arithmetic the replay repeats.
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "fn add(a: u32, b: u32) -> Result<u32, DecodeError> {",
+        "add_to(&mut row, a.mantissa, a.exponent);",
+        "add_to(&mut row, b.mantissa, b.exponent);",
+        "Ok(exact::round_to_binary32(&row))",
+    ] {
+        assert!(decoder.contains(line), "cpu-decode's add changed: {line}");
+    }
+    let add = |a: u32, b: u32| -> u32 {
+        let (a, b) = (
+            Dyadic::from_binary32(a).expect("finite"),
+            Dyadic::from_binary32(b).expect("finite"),
+        );
+        let mut row = Row::ZERO;
+        row.add_scaled(a.mantissa.unsigned_abs(), a.exponent, a.mantissa < 0);
+        row.add_scaled(b.mantissa.unsigned_abs(), b.exponent, b.mantissa < 0);
+        hologram_ai_exact::round_to_binary32(&row)
+    };
+    let found = declaration(&proofs, "residual_row_0");
+    assert!(
+        found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+        "residual_row_0 must be evaluated by Lean:\n{found}"
+    );
+    let statement = found
+        .split("statement: ((Engine.Stage.Residual::addFrom ")
+        .nth(1)
+        .expect("an evaluation of addFrom");
+    let (xs, rest) = cons_list(statement);
+    let (ys, rest) = cons_list(rest.trim_start());
+    let (_, rest) = rest.trim_start().split_once(')').expect("the sizes");
+    let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+    let rust: Vec<u64> = xs
+        .iter()
+        .zip(&ys)
+        .map(|(&a, &b)| u64::from(add(a as u32, b as u32)))
+        .collect();
+    assert_eq!(
+        rust, expected,
+        "residual_row_0: cpu-decode's add disagrees with the stage"
+    );
+}
