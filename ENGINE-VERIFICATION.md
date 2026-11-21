@@ -3154,6 +3154,45 @@ pins the recipe, the toolchain, the profile and the workflow, and runs
 `engine-seal` on a module that is not the engine: it must fail naming both
 addresses. Passed on 2026-11-19.
 
+### Every host builds the amd64 engine
+
+Found on 2026-11-20: the gate's arm64 leg (`bootstrap.yml`, `acceptance /
+ubuntu-24.04-arm`) had failed on every main push since at least cac123b,
+`just engine` building `blake3:5d2ee896…` where the seal names the amd64
+build (`blake3:b5fd8212…` at fd721e7, run 44799617959). The two modules are
+the same 2,070,681 bytes, 51,383 of them different. Stable cargo mixes
+`rustc -vV`, which names the host, into every crate's metadata hash; the hash
+reaches the symbol names rustc orders items by, so the module's layout follows
+the host. Shown in WSL on x86 at main 9864dcf: `just engine-build` gives the
+sealed `blake3:b5fd8212…`, and the same build with `RUSTC` a wrapper that only
+rewrites `rustc -vV`'s `host:` line to `aarch64-unknown-linux-gnu` gives
+`blake3:5d2ee896…`, arm64's module exactly. Cargo offers no stable setting that
+leaves the host out, and a wrapper on arm64 would misbuild the build scripts
+cargo runs on the host.
+
+So `engine-build` on any host but x86_64 gives cargo a rustc that answers
+`-vV` naming `x86_64-unknown-linux-gnu` and passes every other call to the
+real one. Build scripts and proc-macros are still compiled and run natively;
+only the host's name in cargo's hashes, the `HOST` it gives build scripts and
+its host cfgs change. The seal check after the build vouches for the result: a
+module that is not the sealed one fails, so a pass on arm64 is the published
+engine built there. Decided by Ilya on 2026-11-20.
+
+Tried first and refused: building in the SDK image's linux/amd64 variant under
+emulation. The index digest could not be pulled as a second platform
+(`cannot overwrite digest`, run 44815391796); with the amd64 manifest named by
+its own digest, GitHub's arm64 runner had no amd64 emulator (`exec format
+error`, run 44821949449); with QEMU registered, the amd64 `rustc -vV` died of
+SIGSEGV (run 44828663585), and the job had already spent 39 of its 45 minutes.
+
+| Planted | Result |
+| --- | --- |
+| none of this, the engine built natively on arm64 (main before this change) | rejected on CI, run 44799617959: `engine.wasm is blake3:5d2ee896…, but app/src/Kernel/Seal.lex.tex seals blake3:b5fd8212…` |
+| the same build on x86 with rustc naming an aarch64 host | the same module, `blake3:5d2ee896…`: the host string alone makes the difference |
+| the host rename removed from `engine-build` | rejected by `engine_en_90`: ``engine-build does not `if [[ $(uname -m) != x86_64 ]]; then` `` |
+| none, WSL on x86 | `engine_en_90` passed; `just engine-build` gave the sealed `blake3:b5fd8212…` |
+| none, CI on arm64, `bootstrap` run 44835369567 dispatched on this branch | passed: `engine-build: aarch64 host, cargo told the host is x86_64-unknown-linux-gnu`, built in 43 s, `engine-seal` found the sealed `blake3:b5fd8212…`, `vv: the acceptance gate passed`; the amd64 leg passed too |
+
 ## EN-95, a classifier's probabilities
 
 transformers.js scores a text-classification by the softmax of the label

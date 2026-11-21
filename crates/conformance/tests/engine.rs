@@ -11950,6 +11950,11 @@ fn engine_en_90() {
         "export CARGO_ENCODED_RUSTFLAGS=\"--remap-path-prefix=$PWD=/workspace\"$'\\x1f'\"--remap-path-prefix=$registry=/registry\"",
         "export SOURCE_DATE_EPOCH=0",
         "cargo build --release --locked --target wasm32-unknown-unknown -p hologram-ai-wasm",
+        // Stable cargo hashes the host into every crate's metadata, so on a
+        // host other than amd64 cargo is told the host is amd64's.
+        "if [[ $(uname -m) != x86_64 ]]; then",
+        "sed \"s/^host: .*/host: x86_64-unknown-linux-gnu/\"",
+        "export RUSTC=\"$target/engine-host/rustc\"",
     ] {
         assert!(build.contains(wanted), "engine-build does not `{wanted}`:\n{build}");
     }

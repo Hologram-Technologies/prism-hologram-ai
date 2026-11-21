@@ -138,6 +138,20 @@ engine:
 # a dependency that starts reading the clock cannot make two builds differ.
 # The toolchain and target are rust-toolchain.toml's; codegen-units is 1 in
 # the release profile.
+#
+# One engine is sealed, and it is the one amd64 builds. Found on 2026-11-20:
+# stable cargo mixes `rustc -vV`, which names the host, into every crate's
+# metadata hash, which reaches the symbol names rustc orders items by, so an
+# arm64 host builds the same tree to other bytes (x86 told by a wrapper that
+# its host was aarch64 gave arm64's engine exactly). So on any other host
+# cargo is given a rustc that answers `-vV` naming x86_64-unknown-linux-gnu
+# and passes every other call to the real one: build scripts and proc-macros
+# are still compiled and run natively, and only the host's name in cargo's
+# hashes, the HOST it gives build scripts and its host cfgs change. The seal
+# check after the build vouches for it: a module that is not the sealed one
+# fails. Building under amd64 emulation was tried first: GitHub's arm64 runner
+# has no emulator, and with one registered the amd64 rustc died of SIGSEGV
+# under QEMU (runs 44821949449, 44828663585). Chosen by Ilya on 2026-11-20.
 engine-build out:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -147,6 +161,16 @@ engine-build out:
     registry=$(grep -o '"manifest_path":"[^"]*/registry/src/[^/"]*/' <<<"$meta" | sed -n '1{s/^"manifest_path":"//; s#/$##; p}')
     target=$(grep -o '"target_directory":"[^"]*"' <<<"$meta" | sed 's/^"target_directory":"//; s/"$//')
     [[ -n $registry && -n $target ]] || { echo "engine-build: cargo metadata names no registry source or target directory" >&2; exit 64; }
+    if [[ $(uname -m) != x86_64 ]]; then
+      export ENGINE_REAL_RUSTC=$(rustup which rustc 2>/dev/null || command -v rustc)
+      mkdir -p "$target/engine-host"
+      printf '%s\n' '#!/usr/bin/env bash' \
+        'if [[ " $* " == *" -vV "* ]]; then "$ENGINE_REAL_RUSTC" "$@" | sed "s/^host: .*/host: x86_64-unknown-linux-gnu/"; exit "${PIPESTATUS[0]}"; fi' \
+        'exec "$ENGINE_REAL_RUSTC" "$@"' >"$target/engine-host/rustc"
+      chmod +x "$target/engine-host/rustc"
+      export RUSTC="$target/engine-host/rustc"
+      echo "engine-build: $(uname -m) host, cargo told the host is x86_64-unknown-linux-gnu ($ENGINE_REAL_RUSTC)"
+    fi
     # rustc applies the last prefix that matches, so the registry comes last:
     # a cargo home inside the workspace still maps to /registry.
     export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/workspace"$'\x1f'"--remap-path-prefix=$registry=/registry"
