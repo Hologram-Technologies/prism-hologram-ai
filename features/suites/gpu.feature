@@ -255,3 +255,9 @@ Feature: gpu
     When `just page-journey` opens it at layer 1, two positions past the prompt, on the CPU and on WebGPU, its attention output there, and a layer past the model's
     Then the kernel answers exact replay, and the residual read on both devices has one BLAKE3 and the residual stream's width
     And attention's output is other bits, and the layer past the model is out of range
+
+  @GP-61 @build
+  Scenario: The page reads every address the module gives it as an unsigned 32-bit number: its answer's address and length, the address it allocates, and the addresses it passes when it asks for a product or a kernel answer; so a model whose weights take the module past 2 GiB of memory, as Llama 3.2 1B's do, is read at the right bytes and its products reach WebGPU, where read signed its slices were other bytes and the WebGPU worker refused them
+    Given a stand-in module whose answer lies at 0xFFFFFFFC and which asks for a product at 0x80000020 and 0xFFFFFFF0
+    When crates/conformance/tests/gpu/addresses.mjs reads them through moduleOf
+    Then the answer read is past the memory's end, not its first bytes, and the product's addresses are 2147483680 and 4294967280

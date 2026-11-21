@@ -401,3 +401,34 @@ GP-25 now pins `const generate = turner(session);` and `Object.assign(session, {
 | a probe that skips checking its receipt | rejected: ``pipeline.mjs no longer has `if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };` `` |
 | none | passed |
 
+
+## GP-61, addresses past 2 GiB
+
+Found on 2026-11-21 by row 15 on the published page: Llama 3.2 1B on WebGPU
+stopped at `the WebGPU worker did not open: slices_hold: WrongSize`, while its
+CPU run and Qwen3-0.6B on both devices passed. The module's memory holds
+Llama's weights and then the copy of every product's rows it hands the WebGPU
+worker, about 2.1 GB together, so the copy's address is past 2^31. A wasm32
+address is unsigned, but an export returns it to JavaScript as a signed
+number: past 2 GiB it is negative, and `slice` reads a negative start from
+the end, so the page read other bytes, which the WebGPU worker could not
+parse. The same held for the address `allocate` returns and the addresses
+the module passes when it asks for a product. Qwen3-0.6B's weights are half
+the size and never reached it.
+
+`moduleOf` (`site/app/engine/loader.mjs`) now reads every address and length
+the module gives as unsigned where it enters.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| An answer, an allocation and a product's addresses past 2 GiB are read at the right place | `gpu_gp_61`: a stand-in module whose answer lies at 0xFFFFFFFC and which asks for a product at 0x80000020 and 0xFFFFFFF0 | tested |
+| Llama 3.2 1B runs on WebGPU on the published page | row 15, rerun once this is deployed | open |
+
+### The gate: `cargo test -p repo-conformance --test gpu gpu_gp_61`
+
+Planted on 2026-11-21:
+
+| Planted | Result |
+| --- | --- |
+| the loader as before, every address read signed | rejected: `an answer past 2 GiB was read at other bytes: {"answer":[7,7,7,7],"asked":{"at":-2147483616,...,"out":-16}}` |
+| none | passed |
