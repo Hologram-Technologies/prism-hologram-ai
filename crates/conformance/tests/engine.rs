@@ -12709,3 +12709,53 @@ fn engine_en_97() {
     );
     assert_eq!(Component::COUNT, 3);
 }
+
+/// Row 9 of milestone 2 on the real exports (not an ID; run by hand). The
+/// weights the deployed page placed and handed its worker, saved by
+/// `crates/conformance/bench/encoders.mjs` as the module's `encode_tensor`
+/// reads them, run through the native build of the module, which is
+/// hologram-ai-cpu-encode (EN-64): every sentence's ids give the bits the page
+/// answered, word for word.
+///
+///     ROW9_DUMP=<encoders.mjs out dir> cargo test -p repo-conformance --test engine -- --ignored row9_real_exports
+#[test]
+#[ignore = "needs ROW9_DUMP, the page's weights for the real exports"]
+fn row9_real_exports() {
+    let dump = std::path::PathBuf::from(std::env::var("ROW9_DUMP").expect("ROW9_DUMP names encoders.mjs's out dir"));
+    for key in ["minilm", "sst2"] {
+        let dir = dump.join(key);
+        let given = std::fs::read(dir.join("given.bin")).expect("given.bin");
+        let config = std::fs::read(dir.join("config.txt")).expect("config.txt");
+        let cases: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json")).expect("JSON");
+        let label = wasm::given(&[0; 32]);
+        assert_eq!(wasm::onnx_start_encoder(label, 32, 0, 0), 0);
+        let mut at = 0;
+        let mut weights = 0;
+        while at < given.len() {
+            let n = u32::from_le_bytes(given[at..at + 4].try_into().expect("a length")) as usize;
+            let record = &given[at + 4..at + 4 + n];
+            let p = wasm::given(record);
+            assert_eq!(wasm::encode_tensor(p, n as u32), 0, "{key}: {}", String::from_utf8_lossy(&wasm::last_answer()));
+            at += 4 + n;
+            weights += 1;
+        }
+        let p = wasm::given(&config);
+        assert_eq!(wasm::encode_open(p, config.len() as u32), 0, "{key}: encode_open: {}", String::from_utf8_lossy(&wasm::last_answer()));
+        let embedding = cases["task"] == "feature-extraction";
+        for case in cases["cases"].as_array().expect("cases") {
+            let ids: Vec<u32> = case["ids"].as_array().expect("ids").iter().map(|i| i.as_u64().expect("an id") as u32).collect();
+            let bytes: Vec<u8> = ids.iter().flat_map(|i| i.to_le_bytes()).collect();
+            let p = wasm::given(&bytes);
+            let status = if embedding { wasm::encode_embed(p, bytes.len() as u32) } else { wasm::encode_classify(p, bytes.len() as u32) };
+            assert_eq!(status, 0, "{key}: {}", String::from_utf8_lossy(&wasm::last_answer()));
+            let said = wasm::last_answer();
+            let (chosen, bits) = if embedding { (None, &said[..]) } else { (Some(u32::from_le_bytes(said[..4].try_into().expect("a label"))), &said[4..]) };
+            let hex: String = bits.iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(hex, case["bits"].as_str().expect("bits"), "{key}: {}: the native module's bits are not the page's", case["text"]);
+            if let Some(chosen) = chosen {
+                assert_eq!(Some(u64::from(chosen)), case["label"].as_u64(), "{key}: {}: the label", case["text"]);
+            }
+        }
+        println!("{key}: {weights} weights, {} sentences, every bit the page's", cases["cases"].as_array().map_or(0, Vec::len));
+    }
+}
