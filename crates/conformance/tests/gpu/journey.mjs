@@ -56,7 +56,7 @@ async function secondTurn(page) {
 // GP-30 to GP-32: one visit to the engine page in `context`, loading `repo`
 // from `variant`'s hub, then a turn per text; answers the page's state, its
 // turns, the kept entries and the byte ranges the server sent meanwhile.
-async function onnxVisit(context, { variant, repo = onnx.repo, precision = null, texts = ["hi"], before = async () => {}, isolate = false }) {
+async function onnxVisit(context, { variant, repo = onnx.repo, precision = null, texts = ["hi"], before = async () => {}, isolate = false, early = false }) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e.message)));
@@ -71,7 +71,20 @@ async function onnxVisit(context, { variant, repo = onnx.repo, precision = null,
   const url = `${origin}/app/?onnx=${repo}&index=/onnx/${variant}/index${precision ? `&precision=${precision}` : ""}`;
   const opened = await page.goto(url).then(() => true, (e) => (errors.push(`goto: ${e.message}`), false));
   const turns = [];
-  if (opened) {
+  if (opened && early) {
+    // GP-70: the prompt is sent in the same task as the click on Load, so
+    // before any byte of the model has arrived; it is answered when the load
+    // ends, its layers run as they arrived. Load is enabled once the page's
+    // module listens, as page.click waits for.
+    await page.waitForSelector("#load:not([disabled])", { timeout: 60000 }).catch(() => {});
+    await page.evaluate((text) => {
+      document.getElementById("load").click();
+      document.getElementById("prompt").value = text;
+      document.getElementById("ask").requestSubmit();
+    }, texts[0]);
+    await page.waitForFunction(() => window.__qengine.stats || window.__qengine.error || window.__qengine.phase === "failed", null, { timeout: 180000 }).catch(() => {});
+    turns.push(await page.evaluate(() => ({ ...window.__qengine.output, stats: window.__qengine.stats })));
+  } else if (opened) {
     await page.click("#load");
     await page.waitForFunction(() => ["ready", "failed"].includes(window.__qengine?.phase), null, { timeout: 180000 }).catch(() => {});
     for (const text of (await page.evaluate(() => window.__qengine.phase)) === "ready" ? texts : []) {
@@ -644,12 +657,20 @@ try {
     results.onnx["kept offline"] = await visit(true);
     const tamper = await context.newPage();
     await tamper.goto(`${origin}/app/`);
-    await tamper.evaluate(async ({ name, bytes }) => {
+    // The tensor is expected kept by the two visits before. If it is not, the
+    // tamper is recorded with what the browser holds, so the verdicts below
+    // say which visit lost it, rather than the journey stopping here with no
+    // verdict at all.
+    results.onnx.tamper = await tamper.evaluate(async ({ name, bytes }) => {
       const root = await navigator.storage.getDirectory();
-      const dir = await root.getDirectoryHandle("hologram-files");
+      const dir = await root.getDirectoryHandle("hologram-files", { create: true });
+      const held = [];
+      for await (const [n, h] of dir.entries()) if (h.kind === "file") held.push(n);
+      if (!held.includes(name)) return { tampered: false, name, held };
       const w = await (await dir.getFileHandle(name)).createWritable();
       await w.write(new Uint8Array(bytes));
       await w.close();
+      return { tampered: true, name, held };
     }, (() => {
       // The graph is kept as its tensors (GP-31): one byte of its largest
       // kept tensor flipped, so the graph read back is not its BLAKE3.
@@ -800,6 +821,15 @@ try {
     await context.close();
   }
 
+  // GP-70: a prompt sent before the model has arrived, on WebGPU and on the CPU.
+  results.early = {};
+  for (const [name, noGpu] of [["webgpu", false], ["cpu", true]]) {
+    const context = await browser.newContext();
+    const before = async (page) => { if (noGpu) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined })); };
+    results.early[name] = await onnxVisit(context, { variant: "again", before, isolate: !noGpu, early: true });
+    await context.close();
+  }
+
   // A cache left by an earlier deploy (GP-07): one file that is not this
   // deploy's, and one that is. The page must remove the first, keep the
   // second, reload once, and then import the engine.
@@ -926,6 +956,11 @@ if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`a
 // GP-19: the ONNX export.
 // WebGPU is usable only on a cross-origin-isolated page (GP-56), so a visit
 // that is not runs on the CPU and one that is runs on WebGPU.
+// GP-21: the tensor the journey tampers with was kept by the visits before.
+if (!results.onnx.tamper?.tampered) {
+  const offline = results.onnx["kept offline"];
+  fail(`kept: the largest tensor ${results.onnx.tamper?.name} was not held when the journey went to change it; held ${results.onnx.tamper?.held?.length ?? 0} files; the offline visit was ${offline?.phase} on ${offline?.device}${offline?.error ? ` (${offline.error})` : ""}`);
+}
 for (const [name, gpu] of [["good", true], ["cpu", false], ["kept first", true], ["kept offline", true], ["kept again", true], ["kept short", true]]) {
   const run = results.onnx[name];
   const device = gpu && run.isolated ? "webgpu" : "cpu";
@@ -1320,6 +1355,17 @@ for (const [name, run] of Object.entries(results.reuse)) {
   if (JSON.stringify(two.promptIds) !== JSON.stringify(one.promptIds)) fail(`reuse ${name}: the two turns' prompts differ`);
   if (JSON.stringify(two.tokens) !== JSON.stringify(one.tokens)) fail(`reuse ${name}: reusing the head changed the tokens: ${one.tokens} then ${two.tokens}`);
   if (!(one.stats?.timeToFirstToken > 0 && two.stats?.timeToFirstToken > 0)) fail(`reuse ${name}: a turn reported no time to first token`);
+}
+
+// GP-70: a prompt sent before any byte of the model arrived is answered with
+// the reference's tokens, its layers run as the model arrived.
+for (const [name, run] of Object.entries(results.early)) {
+  answered(`early ${name}`, run);
+  if (run.device !== name) fail(`early ${name}: ran on ${run.device}`);
+  const [turn] = run.turns;
+  if (!turn?.stats) { fail(`early ${name}: the prompt sent during the load was never answered`); continue; }
+  if (turn.stats.early !== true) fail(`early ${name}: the prompt sent during the load was answered as a turn after it, not run as the model arrived`);
+  if (!(turn.stats.clickToFirstToken > 0)) fail(`early ${name}: no time from the click on Load to the first token`);
 }
 
 if (failures.length) {

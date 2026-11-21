@@ -16,10 +16,12 @@
 // 27. The page is one caller of this module; nothing here reads the page.
 
 import { startIntegerEngine } from "./integer.mjs";
+import { TYPES, startStreamingEngine } from "./integer.mjs";
 import { startIntegerEncoder } from "./integer-encoder.mjs";
 import { PRINTED, printedKernels } from "./integer-gpu.mjs";
 import { asker, checklist, hubRecord, keptFetch, openModule, tensorManifest } from "./loader.mjs";
 import { strftime } from "./jinja.mjs";
+import { ropeCandidates } from "./onnx-roles.mjs";
 import { fetched, loadOnnx } from "./onnx-load.mjs";
 import { keepFiles, manifestReady } from "./files.mjs";
 
@@ -146,6 +148,94 @@ export async function pipeline(task, model, options = {}) {
   onStatus("Downloading and checking every tensor…");
   let on = null;
   const encoding = ENCODER_TASKS.has(task);
+  // A turn given while the model is still arriving (GP-70): `options.early`
+  // answers the text the caller has been given so far, or null. The model's
+  // forward pass opens in a worker once its embedding and first layer are
+  // in, each later tensor is handed to it as the importer admits it
+  // (EN-111), and the turn's prompt goes through each layer as soon as that
+  // layer is held (EN-110, EN-112). Its first token is still made only after
+  // the last byte, the whole file's BLAKE3 and decision 28.
+  const session = { module, ask, engine: null, stops: null, chat: null, kernels: null, pending: null };
+  const generate = turner(session);
+  const streaming = !encoding && typeof options.early === "function";
+  const listed = [...(manifest.get(path)?.tensors ?? [])];
+  // Which weights each layer reads, and the embedding, as the module's
+  // nodes say once they are read (EN-112): weight names do not say it.
+  let layers = 0;
+  let needs = null;
+  let embedding = null;
+  const mapLayers = () => {
+    const weights = new Set(listed.map((t) => t.name));
+    const lines = new TextDecoder().decode(module.call("onnx_layers")).split("\n").filter(Boolean).map((line) => line.split("\t"));
+    layers = Number(lines[0][1]);
+    embedding = lines[1][1] || null;
+    needs = Array.from({ length: layers }, () => new Set());
+    for (const [name, l] of lines.slice(2)) if (weights.has(name) && Number(l) < layers) needs[Number(l)].add(name);
+  };
+  const got = new Set();
+  const handed = new Set();
+  let fresh = [];
+  let held = 0;
+  let rope = null;
+  let adding = Promise.resolve();
+  let earlyFailure = null;
+  const deviceFor = async ({ d, heads, hd, ff, largest }) => {
+    const usable = gpu && globalThis.crossOriginIsolated === true && [d, heads * hd, ff].every((w) => PRINTED.includes(w));
+    if (want === "webgpu" && !usable) throw new Error(`device webgpu: ${globalThis.crossOriginIsolated !== true ? "this page is not cross-origin isolated, so the integer engine cannot wait on the GPU" : `the guest prints no group-sum kernel for every width of this model (${d}, ${heads * hd}, ${ff})`}`);
+    const limit = usable ? Math.min(gpu.limits.maxStorageBufferBindingSize, gpu.limits.maxBufferSize) : 0;
+    return ask("device", "device to run on", join(new Uint8Array([22, usable ? 1 : 0]), be(limit, 8), be(largest, 8), be(sizes[chosen].bytes, 8), be(CPU_CEILING, 8)), (a) => (want === "auto" ? a === "webgpu" || a === "cpu" : a === want));
+  };
+  const onHeader = async ({ config, configText, chat, stops }) => {
+    session.configText = configText;
+    session.chat = chat;
+    session.stops = stops;
+    const candidates = ropeCandidates(config);
+    // A model whose rotary parameters are checked against its own cos cache
+    // waits for the whole file, as before.
+    rope = candidates.length === 1 ? (candidates[0].kind === "llama3" ? { llama3: candidates[0].llama3 } : {}) : null;
+    // The device is asked before any of the model is computed: decision 22 on
+    // the widths the config states and the largest 4-bit codes the UOR index
+    // lists, as the built engine would put them.
+    const heads = config.num_attention_heads;
+    const hd = config.head_dim ?? config.hidden_size / heads;
+    const largest = Math.max(0, ...listed.filter((t) => /_Q4$/.test(t.name)).map((t) => t.length));
+    on = await deviceFor({ d: config.hidden_size, heads, hd, ff: config.intermediate_size, largest });
+  };
+  const onArrived = async (tensors, bytesAt) => {
+    if (!rope || earlyFailure) return;
+    if (!needs) {
+      mapLayers();
+      // A graph the decoder cannot read by layer streams nothing, and keeps
+      // no copy of its weights here: it loads as before.
+      if (!layers || !embedding) {
+        rope = null;
+        return;
+      }
+    }
+    for (const t of tensors) {
+      got.add(t.name);
+      fresh.push([t.name, t.type, bytesAt(t.offset, t.length)]);
+    }
+    while (held < layers && [...needs[held]].every((n) => got.has(n))) held++;
+    try {
+      if (!session.engine) {
+        if (held < 1 || !got.has(embedding)) return;
+        session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh });
+      } else if (fresh.length) {
+        const more = fresh;
+        const now = held;
+        // Handed in order, never awaited here, so the download is not held up
+        // by the layers the worker runs meanwhile.
+        adding = adding.then(() => session.engine.add(more, now));
+      }
+      for (const [name] of fresh) handed.add(name);
+      fresh = [];
+      const input = options.early();
+      if (input && !session.pending) await generate.early(input.text, input);
+    } catch (e) {
+      earlyFailure = e;
+    }
+  };
   const loading = loadOnnx({
     encoder: encoding,
     record,
@@ -169,7 +259,26 @@ export async function pipeline(task, model, options = {}) {
       }
     },
     onProgress: (file, done) => { if (file === 0) onProgress(done / graph.size); },
+    onHeader: streaming ? onHeader : null,
+    onArrived: streaming ? onArrived : null,
     build: async (dims, tensors, raw) => {
+      // A streamed engine has every weight the graph file held already; the
+      // rest (a data file's) is handed in now, and the device was decision
+      // 22's before any of it was computed.
+      if (session.engine) {
+        if (earlyFailure) throw earlyFailure;
+        const rest = Object.keys(raw.table.places).filter((name) => !handed.has(name) && TYPES[raw.table.tensors[name]?.[0]] !== undefined);
+        if (rest.length) adding = adding.then(() => session.engine.add(rest.map((name) => [name, TYPES[raw.table.tensors[name][0]], raw.read(name)]), layers));
+        await adding;
+        if (session.pending) await session.pending.started;
+        onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
+        session.kernels = on === "webgpu" ? await printedKernels((request) => kernel.dispatch(request)) : null;
+        // With no turn waiting, every product goes to WebGPU now; a waiting
+        // turn's first token is made on the module and WebGPU takes the rest.
+        if (!session.pending) await session.engine.complete();
+        if (session.kernels && !session.pending) await session.engine.attach(session.kernels);
+        return session.engine;
+      }
       // The device is the kernel's decision 22, on the largest buffer WebGPU
       // would bind: a 4-bit weight binds its codes and its scales apart, and
       // the module holds the dense ones. WebGPU is usable only where its
@@ -210,7 +319,8 @@ export async function pipeline(task, model, options = {}) {
   const promised = await ask("class", "reproducibility class of this run (decision 30)", new Uint8Array([30, 1, 1, 0]), (a) => a === "everywhere");
   const identity = modelIdentity({ record, model, dtype: chosen, paths: [path, ...dataPaths], module });
   checks.add("receipt", "the model named by the BLAKE3 of the files that decide its answers", "pass", `${identity.label}: ${identity.files.map((f) => `${f.path} ${f.blake3.slice(0, 12)}…`).join(", ")}`);
-  const generate = turner({ engine, module, ask, stops, chat, identity, promised, device: on, adapter: engine.gpu?.adapter ?? null });
+  // The turn exists before the model does (GP-70); what the load found joins it.
+  Object.assign(session, { engine, stops, chat, identity, promised, device: on, adapter: engine.gpu?.adapter ?? null });
   return Object.assign(generate, { task, model, dtype: chosen, device: on, engine, module, record, identity, promised });
 }
 
@@ -270,7 +380,7 @@ async function encoderPipeline({ task, model, dtype, record, module, ask, checks
 // A model with no chat template of its own (a weight container) is framed by
 // what its vocabulary knows.
 export function turner(session) {
-  const { engine, module: m, ask } = session;
+  const { module: m, ask } = session;
   const encode = (text) => {
     const bytes = m.callWith("tokeniser_encode", new TextEncoder().encode(text));
     return Array.from(new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4));
@@ -333,6 +443,7 @@ export function turner(session) {
   // ready for it only when this tab's model has the receipt's label; a run
   // from another device is comparable because the class is "everywhere".
   async function check(receipt) {
+    const { engine } = session;
     const ready = receipt?.model?.label === session.identity.label ? 1 : 0;
     const stops = stopIds();
     let replayed = { label: "0".repeat(64), tokens: [] };
@@ -354,6 +465,7 @@ export function turner(session) {
   // the value that produced the answer, named by its BLAKE3.
   const COMPONENTS = ["residual", "attention", "feed-forward"];
   async function probe(receipt, { layer, position, component = "residual" }) {
+    const { engine } = session;
     const checked = await check(receipt);
     if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };
     const ids = [...receipt.input.ids, ...checked.tokens];
@@ -368,14 +480,56 @@ export function turner(session) {
     return { verdict, layer, position, component, label: blake3Of(m, bits), values: Array.from(new Uint32Array(bits.buffer, bits.byteOffset, bits.length / 4)), checked };
   }
 
+  // A turn's budget: decision 9.
+  const budgetOf = async (prompt, max_new_tokens) => Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(max_new_tokens, 8)), (a) => /^\d+$/.test(a)));
+
+  // A turn given while the model is still arriving (GP-70): its ids and its
+  // budget (decision 9) now, and its prompt handed to the streamed engine,
+  // which runs each layer as soon as that layer is held. generate(text)
+  // finishes it once the load has ended.
+  async function early(text, { max_new_tokens = 256 } = {}) {
+    const prompt = encode(framing(text));
+    const budget = await budgetOf(prompt, max_new_tokens);
+    session.pending = { text, prompt, budget, at: performance.now(), started: session.engine.prefill(prompt) };
+  }
+
   // `template: false` runs the text as it is, as transformers.js runs a string.
   async function generate(text, { max_new_tokens = 256, onToken = () => {}, template = true } = {}) {
-    const prompt = encode(template ? framing(text) : text);
+    const { engine } = session;
     // The model stops on the ids its own files name (EN-28); a file naming
     // none runs to the turn's budget.
     const stops = stopIds();
+    const pending = template && session.pending?.text === text ? session.pending : null;
+    session.pending = null;
+    if (pending) {
+      // Its layers ran as they arrived; the final norm and the head now,
+      // then the rest of the turn.
+      await pending.started;
+      let firstAt = pending.at;
+      const tokens = await engine.finish(pending.budget, {
+        stops,
+        gpu: session.kernels,
+        onFirst: () => { firstAt = performance.now(); },
+        onToken: (ids) => onToken(decode(ids), ids),
+      });
+      const end = performance.now();
+      return {
+        receipt: session.identity ? receiptOf(pending.prompt, pending.budget, tokens) : null,
+        prompt: text,
+        promptIds: pending.prompt,
+        promptTokens: pending.prompt.length,
+        tokens,
+        text: decode(tokens),
+        reuse: null,
+        computed: pending.prompt.length,
+        early: true,
+        timeToFirstToken: (firstAt - pending.at) / 1000,
+        tokensPerSecond: tokens.length > 1 ? (tokens.length - 1) / ((end - firstAt) / 1000) : 0,
+      };
+    }
+    const prompt = encode(template ? framing(text) : text);
     await engine.reset();
-    const budget = Number(await ask("turn", "token budget for this turn", join(new Uint8Array([9]), be(CAPACITY, 8), be(prompt.length, 8), be(max_new_tokens, 8)), (a) => /^\d+$/.test(a)));
+    const budget = await budgetOf(prompt, max_new_tokens);
     const t0 = performance.now();
     let firstAt = t0;
     // The frame's head, the ids every turn opens with, is computed once and
@@ -418,5 +572,5 @@ export function turner(session) {
       tokensPerSecond: tokens.length > 1 ? (tokens.length - 1) / ((end - firstAt) / 1000) : 0,
     };
   }
-  return Object.assign(generate, { render, decode, check, probe });
+  return Object.assign(generate, { render, decode, check, probe, early });
 }

@@ -307,6 +307,20 @@ Planted on 2026-11-20:
 | `onGpu` taking a matrix with binary32 scales | rejected: `site/app/engine/integer-gpu.mjs no longer has` the rule |
 | none | passed |
 
+## GP-51 and GP-52 after EN-110
+
+EN-110 routes the module's step, advance and prefill through one `products_for(helpers, ...)`, which hands every product to the helpers whenever there are any and computes it on the model otherwise. GP-51 and GP-52 read the module's source for that route, so their pins now name `decode::step_with(model, &mut session, token, p)`, `decode::advance_with(model, &mut session, token, p)` and `products_for`'s `if helpers > 0 { run(&mut decode::Asked(helped))`. They no longer name the two `if`/`else` branches each call had before.
+
+Planted on 2026-11-20: `products_for` answering `decode::Whole` whatever the helpers. Rejected by `gpu_gp_52`: `crates/wasm/src/lib.rs no longer has if helpers > 0 { run(&mut decode::Asked(helped))`. Restored, it passes.
+
+## GP-70, a prompt sent while the model arrives
+
+The page takes a prompt sent during the load. It frames the prompt and asks its budget of the kernel (decision 9) at once. The engine's worker opens once the embedding and the first layer are in. Each later tensor is handed to it as the importer admits it (EN-111), and the prompt goes through each layer as soon as that layer is held (EN-110, EN-112). The handing-in is never awaited on the download's path, so the layers run while the bytes keep coming.
+
+The device is decision 22's before any of the model is computed. It is asked on the widths config.json states and the largest 4-bit codes the UOR index lists, as the built engine would put them. The first token is made only after the whole file's BLAKE3 and decision 28. It is made on the module, because a model read before its last layer cannot hand WebGPU its products: the module has 148 bytes left under EN-26's ceiling, too few for an export that hands one layer's products at a time. WebGPU takes the turn's products after the first token when decision 22 chose it. With no prompt waiting, WebGPU takes every product when the load ends, as before.
+
+`just page-journey` clicks Load and sends "hi" in the same task, so before any byte has arrived, on an isolated page (WebGPU) and on one with no WebGPU. The turn must be the early one, its sixteen tokens the reference's, and the time from the click to the first token recorded. `gpu_gp_70` reads that these pieces are in place and that the journey checks them.
+
 ## GP-58 and GP-59, receipts named by BLAKE3 and checked on any device
 
 Why: Hologram AI's inference is integers only, so the same model, input and
@@ -379,6 +393,11 @@ Planted on 2026-11-20:
 
 | Planted | Result |
 | --- | --- |
+| The page awaits each hand-off to the worker on the download's path (`await session.engine.add(more, now)`) | rejected by `gpu_gp_70`: `site/app/engine/pipeline.mjs no longer has adding = adding.then(() => session.engine.add(more, now));` |
+| none | passed, with GP-19, GP-25, GP-28, GP-41, GP-51, GP-52 and GP-56 |
+
+GP-25 now pins `const generate = turner(session);` and `Object.assign(session, { engine, stops, chat });` in place of `turner({ engine, module, ask, stops, chat })`. The turn exists before the model does, and the engine, stops and template join it when the load ends.
+
 | a probe that skips checking its receipt | rejected: ``pipeline.mjs no longer has `if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };` `` |
 | none | passed |
 
