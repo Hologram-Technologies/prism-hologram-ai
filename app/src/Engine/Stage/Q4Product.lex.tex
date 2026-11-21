@@ -1,0 +1,186 @@
+\begin{lexlean}{Engine.Stage.Q4Product}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\importmodule{Engine.Stage.Head}
+\importmodule{Engine.Stage.Requant}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: byteAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient (Engine.Stage.Greedy::nth words (prim quotient i 4 0 : Nat)) (Engine.Stage.Attention::powTwo (prim multiply 8 (prim remainder i 4 0 : Nat) : Nat)) 0 : Nat) 256 0 : Nat)
+}
+
+definition{
+  name: nibbleAt,
+  parameters: [words : (List Nat), g : Nat],
+  result: Nat,
+  body: (prim remainder (prim quotient (byteAt words (prim quotient g 2 0 : Nat)) (Engine.Stage.Attention::powTwo (prim multiply 4 (prim remainder g 2 0 : Nat) : Nat)) 0 : Nat) 16 0 : Nat)
+}
+
+definition{
+  name: zeroAt,
+  parameters: [zeros : (List Nat), packed : Nat, blocks : Nat, row : Nat, b : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick packed (nibbleAt zeros ((prim multiply 2 ((prim multiply row ((prim quotient blocks 2 0 : Nat) + (prim remainder blocks 2 0 : Nat)) : Nat) + (prim quotient b 2 0 : Nat)) : Nat) + (prim remainder b 2 0 : Nat))) 8)
+}
+
+definition{
+  name: scaleNeg,
+  parameters: [format : Nat, scales : (List Nat), at : Nat],
+  result: Nat,
+  body: (Engine.Stage.Head::weightNeg format scales at)
+}
+
+definition{
+  name: scaleSize,
+  parameters: [format : Nat, scales : (List Nat), at : Nat],
+  result: Nat,
+  body: (Engine.Stage.Head::weightSize format scales at)
+}
+
+definition{
+  name: termNeg,
+  parameters: [
+    codes : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    blocks : Nat,
+    block : Nat,
+    row : Nat,
+    k : Nat
+  ],
+  result: Nat,
+  body: (prim remainder (((Engine.Stage.Head::codeNeg (Engine.Stage.Greedy::nth codes k)) + (Engine.Stage.Greedy::below (nibbleAt weights ((prim multiply row (prim multiply blocks block : Nat) : Nat) + k)) (zeroAt zeros packed blocks row (prim quotient k block 0 : Nat)))) + (scaleNeg format scales ((prim multiply row blocks : Nat) + (prim quotient k block 0 : Nat)))) 2 0 : Nat)
+}
+
+definition{
+  name: termSize,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    blocks : Nat,
+    block : Nat,
+    row : Nat,
+    k : Nat
+  ],
+  result: Nat,
+  body: (prim multiply (prim multiply (prim multiply (Engine.Stage.Head::codeSize (Engine.Stage.Greedy::nth codes k)) ((prim subtract (nibbleAt weights ((prim multiply row (prim multiply blocks block : Nat) : Nat) + k)) (zeroAt zeros packed blocks row (prim quotient k block 0 : Nat)) : Nat) + (prim subtract (zeroAt zeros packed blocks row (prim quotient k block 0 : Nat)) (nibbleAt weights ((prim multiply row (prim multiply blocks block : Nat) : Nat) + k)) : Nat)) : Nat) (scaleSize format scales ((prim multiply row blocks : Nat) + (prim quotient k block 0 : Nat))) : Nat) (Engine.Stage.Attention::powTwo (Engine.Stage.Head::powerShift (Engine.Stage.Greedy::nth powers (prim quotient k 32 0 : Nat)))) : Nat)
+}
+
+definition{
+  name: sumPos,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    blocks : Nat,
+    block : Nat,
+    row : Nat,
+    k : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (termNeg codes weights zeros packed format scales blocks block row k) 0 (termSize codes powers weights zeros packed format scales blocks block row k)) + (sumPos codes powers weights zeros packed format scales blocks block row (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: sumNeg,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    blocks : Nat,
+    block : Nat,
+    row : Nat,
+    k : Nat,
+    remaining : Nat
+  ],
+  result: Nat,
+  body: (match remaining
+    | Nat.zero => 0
+    | Nat.succ rest => ((Engine.Stage.Greedy::pick (termNeg codes weights zeros packed format scales blocks block row k) (termSize codes powers weights zeros packed format scales blocks block row k) 0) + (sumNeg codes powers weights zeros packed format scales blocks block row (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: rowAt,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    columns : Nat,
+    block : Nat,
+    row : Nat
+  ],
+  result: Nat,
+  body: (Engine.Stage.Attention::signedRound (sumPos codes powers weights zeros packed format scales ((prim quotient columns block 0 : Nat) + (Engine.Stage.Greedy::pick (prim remainder columns block 0 : Nat) 1 0)) block row 0 columns) (sumNeg codes powers weights zeros packed format scales ((prim quotient columns block 0 : Nat) + (Engine.Stage.Greedy::pick (prim remainder columns block 0 : Nat) 1 0)) block row 0 columns) 349)
+}
+
+definition{
+  name: rowsFrom,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    columns : Nat,
+    block : Nat,
+    row : Nat,
+    remaining : Nat
+  ],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (rowAt codes powers weights zeros packed format scales columns block row) (rowsFrom codes powers weights zeros packed format scales columns block (row + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: product,
+  parameters: [
+    input : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    rows : Nat,
+    columns : Nat,
+    block : Nat
+  ],
+  result: (List Nat),
+  body: (rowsFrom (Engine.Stage.Requant::codes input (prim quotient columns 32 0 : Nat)) (Engine.Stage.Requant::powers input (prim quotient columns 32 0 : Nat)) weights zeros packed format scales columns block 0 rows)
+}
+\end{semanticmodule}
+\end{lexlean}
