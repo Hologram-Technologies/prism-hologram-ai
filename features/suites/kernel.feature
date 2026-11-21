@@ -557,6 +557,13 @@ Feature: kernel
     Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
     And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word
 
+  @KN-83 @build
+  Scenario: SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu
+    Given the stage in app/src/Engine/Stage/Silu.lex.tex and its proofs in app/src/Proofs/StageSilu.lex.tex
+    When lexlean verify checks Proofs.StageSilu in the gate
+    Then silu_count gives two words a value for every input
+    And silu_row_0 evaluates the stage on twelve values, and kernel_kn_83 replays each through crates/exact's silu and finds the same words
+
   @KN-86 @build
   Scenario: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
     Given the stage in app/src/Engine/Stage/Rotary.lex.tex and its proofs in app/src/Proofs/StageRotary.lex.tex

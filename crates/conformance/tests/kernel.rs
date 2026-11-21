@@ -5387,6 +5387,12 @@ fn kernel_kn_71() {
         "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
         "Quot.sound, propext",
     );
+    assert_pinned(
+        &proofs,
+        "picked_below_seen",
+        "((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) best) < (1 + (Engine.Stage.Greedy::size logits)))",
+        "Quot.sound, propext",
+    );
     for fixture in [
         "pick_is_greedy_ordered",
         "pick_is_greedy_first_of_ties",
@@ -5984,6 +5990,47 @@ fn kernel_kn_63() {
         rows += 1;
     }
     assert!(rows >= 8, "eight rows are evaluated, found {rows}");
+}
+
+/// `KN-83`: SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu
+#[test]
+fn kernel_kn_83() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageSilu.lex.tex");
+    assert!(
+        proofs.contains("\n  name: silu_count,\n"),
+        "silu_count is the stage's guarantee"
+    );
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: silu_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("silu_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "silu_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Silu::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("silu_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let (count, rest) = rest.trim_start().split_once(')').expect("a count");
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let count: usize = count.parse().expect("a count");
+        assert_eq!(words.len(), 2 * count, "silu_row_{rows}: two words a value");
+        let rust: Vec<u64> = words
+            .chunks(2)
+            .flat_map(|pair| {
+                let y = hologram_ai_exact::silu((pair[0] | (pair[1] << 32)) as i64) as u64;
+                [y & 0xffff_ffff, y >> 32]
+            })
+            .collect();
+        assert_eq!(
+            rust, expected,
+            "silu_row_{rows}: crates/exact disagrees with the stage"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 1, "a row is evaluated, found {rows}");
 }
 
 /// `KN-86`: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
