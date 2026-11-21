@@ -6134,3 +6134,85 @@ fn kernel_kn_90() {
         wrong.join("\n")
     );
 }
+
+/// `KN-85`: RMS norm is defined in LexLean, not Rust: Engine.Stage.RmsNorm::run reads values and weights as signed 64-bit integers in units of 2^-16, takes r, the largest integer with count r^2 at most (the sum of squares plus count epsilon) 2^32, by the digit-by-digit integer root (KN-43), and writes each value times its weight times 2^16 over r, rounded half to even (KN-44), refusing a row whose root is 0; Lean proves run gives two words a value, and evaluates roots and rows that the kernel test replays through crates/exact's integer_root and rms_norm
+#[test]
+fn kernel_kn_85() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRmsNorm.lex.tex");
+    assert!(
+        proofs.contains("\n  name: rms_count,\n"),
+        "rms_count is the stage's guarantee"
+    );
+    let mut wrong = Vec::new();
+    // The roots Lean evaluated, through exact::integer_root.
+    let found = declaration(&proofs, "rms_root_row_0");
+    assert!(
+        found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+        "rms_root_row_0 must be evaluated by Lean:\n{found}"
+    );
+    let statement = found.split("statement: (").nth(1).expect("a statement");
+    let (asked, expected) = statement.split_once(") = ").expect("an equation");
+    let rust: Vec<u64> = asked
+        .split("Engine.Stage.RmsNorm::integerRoot ")
+        .skip(1)
+        .map(|v| {
+            let v: u128 = v.split(')').next().unwrap_or(v).parse().expect("a value");
+            hologram_ai_exact::integer_root(v) as u64
+        })
+        .collect();
+    let expected = cons_list(expected).0;
+    if rust != expected {
+        wrong.push(format!("rms_root_row_0: crates/exact gives {rust:?}"));
+    }
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: rms_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("rms_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "rms_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.RmsNorm::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("rms_row_{rows} is not an evaluation of run"));
+        let (values, rest) = cons_list(statement);
+        let (weights, rest) = cons_list(rest.trim_start());
+        let (sizes, rest) = rest
+            .trim_start()
+            .split_once(')')
+            .expect("count and epsilon");
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let sizes: Vec<u64> = sizes
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number"))
+            .collect();
+        let signed = |words: &[u64]| -> Vec<i64> {
+            words
+                .chunks(2)
+                .map(|pair| (pair[0] | (pair[1] << 32)) as i64)
+                .collect()
+        };
+        assert_eq!(
+            values.len() as u64,
+            2 * sizes[0],
+            "rms_row_{rows}: two words a value"
+        );
+        let rust: Vec<u64> =
+            hologram_ai_exact::rms_norm(&signed(&values), &signed(&weights), sizes[1])
+                .unwrap_or_default()
+                .into_iter()
+                .flat_map(|y| [(y as u64) & 0xffff_ffff, (y as u64) >> 32])
+                .collect();
+        if rust != expected {
+            wrong.push(format!("rms_row_{rows}: crates/exact gives {rust:?}"));
+        }
+        rows += 1;
+    }
+    assert!(
+        wrong.is_empty(),
+        "crates/exact disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+    assert!(rows >= 6, "six rows are evaluated, found {rows}");
+}

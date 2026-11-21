@@ -1,0 +1,102 @@
+\begin{lexlean}{Proofs.StageRmsNorm}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.RmsNorm}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: rms_two_more,
+  parameters: [r : Nat],
+  statement: ((((r + r) + 1) + 1) = ((r + 1) + (r + 1))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.RmsNorm::size]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rms_count,
+  parameters: [values : (List Nat), weights : (List Nat), r : Nat, i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.RmsNorm::outFrom values weights r i n)) = (n + n)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.RmsNorm::outFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            rms_two_more,
+            Engine.Stage.Greedy::size,
+            Engine.Stage.RmsNorm::outFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rms_root_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.RmsNorm::integerRoot 0) (cons (Engine.Stage.RmsNorm::integerRoot 1) (cons (Engine.Stage.RmsNorm::integerRoot 2) (cons (Engine.Stage.RmsNorm::integerRoot 3) (cons (Engine.Stage.RmsNorm::integerRoot 4) (cons (Engine.Stage.RmsNorm::integerRoot 15) (cons (Engine.Stage.RmsNorm::integerRoot 16) (cons (Engine.Stage.RmsNorm::integerRoot 17) (cons (Engine.Stage.RmsNorm::integerRoot 4611686018427387904) (cons (Engine.Stage.RmsNorm::integerRoot 18446744073709551615) (cons (Engine.Stage.RmsNorm::integerRoot 170141183460469231731687303715884105728) (cons (Engine.Stage.RmsNorm::integerRoot 340282366920938463463374607431768211455) (nil Nat))))))))))))) = (cons 0 (cons 1 (cons 1 (cons 1 (cons 2 (cons 3 (cons 4 (cons 4 (cons 2147483648 (cons 4294967295 (cons 13043817825332782212 (cons 18446744073709551615 (nil Nat)))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 65536 (cons 0 (cons 4294836224 (cons 4294967295 (cons 32768 (cons 0 (cons 196608 (cons 0 (nil Nat))))))))) (cons 65536 (cons 0 (cons 65536 (cons 0 (cons 65536 (cons 0 (cons 65536 (cons 0 (nil Nat))))))))) 4 4295) = (cons 34722 (cons 0 (cons 4294897852 (cons 4294967295 (cons 17361 (cons 0 (cons 104165 (cons 0 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 65536 (cons 0 (cons 4294836224 (cons 4294967295 (cons 32768 (cons 0 (cons 196608 (cons 0 (nil Nat))))))))) (cons 98304 (cons 0 (cons 4294950912 (cons 4294967295 (cons 131072 (cons 0 (cons 65536 (cons 0 (nil Nat))))))))) 4 4295) = (cons 52083 (cons 0 (cons 17361 (cons 0 (cons 34722 (cons 0 (cons 104165 (cons 0 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 4294967289 (cons 4294967295 (nil Nat))) (cons 65536 (cons 0 (nil Nat))) 1 0) = (cons 4294901760 (cons 4294967295 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))) (cons 65536 (cons 0 (cons 65536 (cons 0 (cons 65536 (cons 0 (nil Nat))))))) 3 0) = (nil Nat)),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_4,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))) (cons 65536 (cons 0 (cons 65536 (cons 0 (nil Nat))))) 2 4295) = (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rms_row_5,
+  parameters: [],
+  statement: ((Engine.Stage.RmsNorm::run (cons 2147483647 (cons 0 (cons 3221225472 (cons 4294967295 (cons 12345 (cons 0 (nil Nat))))))) (cons 65536 (cons 0 (cons 2147483647 (cons 0 (cons 4294901760 (cons 4294967295 (nil Nat))))))) 3 4295) = (cons 101528 (cons 0 (cons 2631533615 (cons 4294967295 (cons 4294967295 (cons 4294967295 (nil Nat)))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}
