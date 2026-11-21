@@ -570,3 +570,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageGated in the gate
     Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
     And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
+
+  @KN-91 @build
+  Scenario: Reading a token's embedding row is defined in LexLean, not Rust: Engine.Stage.Embedding::halfRow, brainRow and singleRow read row id of an f16, bfloat16 or binary32 table, two 16-bit values or one 32-bit value to a little-endian word, and give the binary32 of the same value exactly, -0 as +0, as cpu-decode's step reads its embedding through Dense::at and round_exact; Lean proves every half read is a word and a row has hidden values, and evaluates rows that the kernel test replays through crates/exact's Dense::at and round_exact
+    Given the stage in app/src/Engine/Stage/Embedding.lex.tex and its proofs in app/src/Proofs/StageEmbedding.lex.tex
+    When lexlean verify checks Proofs.StageEmbedding in the gate
+    Then embedding_half_is_word holds for every half, and embedding_half_count, embedding_brain_count and embedding_single_count give a row its hidden values
+    And embedding_row_0 to embedding_row_3 evaluate the stage on f16, bfloat16 and binary32 tables, and kernel_kn_91 replays them through crates/exact's Dense::at and round_exact and finds the same words

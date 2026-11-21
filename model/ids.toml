@@ -1056,6 +1056,12 @@ suite = "gpu"
 statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
 
 [[id]]
+id = "KN-91"
+level = "build"
+suite = "kernel"
+statement = "Reading a token's embedding row is defined in LexLean, not Rust: Engine.Stage.Embedding::halfRow, brainRow and singleRow read row id of an f16, bfloat16 or binary32 table, two 16-bit values or one 32-bit value to a little-endian word, and give the binary32 of the same value exactly, -0 as +0, as cpu-decode's step reads its embedding through Dense::at and round_exact; Lean proves every half read is a word and a row has hidden values, and evaluates rows that the kernel test replays through crates/exact's Dense::at and round_exact"
+
+[[id]]
 id = "KN-90"
 level = "build"
 suite = "kernel"

@@ -1,0 +1,82 @@
+\begin{lexlean}{Engine.Stage.Embedding}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Binary32}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.HalfScale}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: halfToBinary32,
+  parameters: [h : Nat],
+  result: Nat,
+  body: (Engine.Stage.Binary32::round (prim quotient (prim remainder h 65536 0 : Nat) 32768 0 : Nat) (prim multiply (Engine.Stage.HalfScale::mantissa h) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Greedy::maxOf (Engine.Stage.HalfScale::exponent h) 1) 1 : Nat)) : Nat) 24 128)
+}
+
+definition{
+  name: brainToBinary32,
+  parameters: [b : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (prim remainder b 32768 0 : Nat) (prim multiply (prim remainder b 65536 0 : Nat) 65536 : Nat) 0)
+}
+
+definition{
+  name: singleToBinary32,
+  parameters: [w : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (prim remainder w 2147483648 0 : Nat) (prim remainder w 4294967296 0 : Nat) 0)
+}
+
+definition{
+  name: halfRowFrom,
+  parameters: [table : (List Nat), base : Nat, k : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (halfToBinary32 (Engine.Stage.HalfScale::halfAt table (base + k))) (halfRowFrom table base (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: brainRowFrom,
+  parameters: [table : (List Nat), base : Nat, k : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (brainToBinary32 (Engine.Stage.HalfScale::halfAt table (base + k))) (brainRowFrom table base (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: singleRowFrom,
+  parameters: [table : (List Nat), base : Nat, k : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (singleToBinary32 (Engine.Stage.Greedy::nth table (base + k))) (singleRowFrom table base (k + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: halfRow,
+  parameters: [table : (List Nat), token : Nat, hidden : Nat],
+  result: (List Nat),
+  body: (halfRowFrom table (prim multiply token hidden : Nat) 0 hidden)
+}
+
+definition{
+  name: brainRow,
+  parameters: [table : (List Nat), token : Nat, hidden : Nat],
+  result: (List Nat),
+  body: (brainRowFrom table (prim multiply token hidden : Nat) 0 hidden)
+}
+
+definition{
+  name: singleRow,
+  parameters: [table : (List Nat), token : Nat, hidden : Nat],
+  result: (List Nat),
+  body: (singleRowFrom table (prim multiply token hidden : Nat) 0 hidden)
+}
+\end{semanticmodule}
+\end{lexlean}

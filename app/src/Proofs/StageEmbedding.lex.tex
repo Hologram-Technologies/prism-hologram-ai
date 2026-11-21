@@ -1,0 +1,139 @@
+\begin{lexlean}{Proofs.StageEmbedding}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Embedding}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: embedding_half_is_word,
+  parameters: [h : Nat],
+  statement: ((Engine.Stage.Embedding::halfToBinary32 h) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Embedding::halfToBinary32,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: embedding_half_count,
+  parameters: [table : (List Nat), base : Nat, k : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Embedding::halfRowFrom table base k n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [Engine.Stage.Embedding::halfRowFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Embedding::halfRowFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [k],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: embedding_brain_count,
+  parameters: [table : (List Nat), base : Nat, k : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Embedding::brainRowFrom table base k n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [Engine.Stage.Embedding::brainRowFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Embedding::brainRowFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [k],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: embedding_single_count,
+  parameters: [table : (List Nat), base : Nat, k : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Embedding::singleRowFrom table base k n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [Engine.Stage.Embedding::singleRowFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            Engine.Stage.Embedding::singleRowFrom,
+            Engine.Stage.Greedy::size
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [k],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: embedding_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Embedding::halfRow (cons 3221240832 (cons 2080309249 (cons 894795776 (cons 67044352 (nil Nat))))) 0 8) = (cons 1065353216 (cons 3221225472 (cons 864026624 (cons 1199562752 (cons 0 (cons 1051369472 (cons 947912704 (cons 947896320 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: embedding_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Embedding::halfRow (cons 3221240832 (cons 2080309249 (cons 894795776 (cons 67044352 (nil Nat))))) 1 3) = (cons 1199562752 (cons 0 (cons 1051369472 (nil Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: embedding_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Embedding::brainRow (cons 3223338880 (cons 2139029505 (cons 1051361280 (cons 8323200 (nil Nat))))) 0 8) = (cons 1065353216 (cons 3223322624 (cons 65536 (cons 2139029504 (cons 0 (cons 1051328512 (cons 8388608 (cons 8323072 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: embedding_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Embedding::singleRow (cons 1065353216 (cons 3223322624 (cons 1 (cons 2139095039 (cons 2147483648 (cons 1051361018 (cons 8388608 (cons 8388607 (nil Nat))))))))) 0 8) = (cons 1065353216 (cons 3223322624 (cons 1 (cons 2139095039 (cons 0 (cons 1051361018 (cons 8388608 (cons 8388607 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}
