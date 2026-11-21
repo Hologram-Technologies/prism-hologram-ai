@@ -12751,3 +12751,79 @@ fn engine_en_97() {
     );
     assert_eq!(Component::COUNT, 3);
 }
+
+/// The records `decode_slices` and `decode_slices_of` write, by product
+/// number: each record's bytes, its number, first row and length included.
+fn en_113_records(said: &[u8]) -> std::collections::BTreeMap<u32, Vec<u8>> {
+    let word = |at: usize| u32::from_le_bytes([said[at], said[at + 1], said[at + 2], said[at + 3]]);
+    let mut out = std::collections::BTreeMap::new();
+    let mut at = 0;
+    while at < said.len() {
+        let (number, length) = (word(at), word(at + 8) as usize);
+        out.insert(number, said[at..at + 12 + length].to_vec());
+        at += 12 + length;
+    }
+    out
+}
+
+/// `EN-113`: The page's module writes the slices of any range of product numbers, as decode_slices writes them for one helper of one, so WebGPU can take a layer's seven products when that layer arrives: on GP-19's Qwen3 fixture each layer's range and the head's are exactly decode_slices' records of those numbers, and a model opened with only its first layer held writes layer 0's records and nothing for layer 1
+#[test]
+fn engine_en_113() {
+    let fixture = en_49_fixture("qwen3");
+    let sizes: serde_json::Value = serde_json::from_str(&en_52_open(&fixture)).expect("sizes");
+    let layers = sizes["layers"].as_u64().expect("layers") as u32;
+    let slices = |first: u32, count: u32, held: u32| {
+        assert_eq!(
+            wasm::decode_slices_of(first, count, held),
+            0,
+            "decode_slices_of"
+        );
+        en_113_records(&wasm::last_answer())
+    };
+    assert_eq!(wasm::decode_slices(0, 1), 0, "decode_slices");
+    let all = en_113_records(&wasm::last_answer());
+    assert_eq!(
+        all.len() as u32,
+        7 * layers + 1,
+        "every product and the head"
+    );
+    for l in 0..=layers {
+        let (first, count) = if l < layers {
+            (7 * l, 7)
+        } else {
+            (7 * layers, 1)
+        };
+        let want: std::collections::BTreeMap<u32, Vec<u8>> = all
+            .range(first..first + count)
+            .map(|(n, r)| (*n, r.clone()))
+            .collect();
+        assert_eq!(slices(first, count, u32::MAX), want, "layer {l}'s slices");
+    }
+    // Opened with only the first layer held, as a streamed load opens it.
+    let opening =
+        serde_json::json!({ "config": fixture.config.to_string(), "scaling": null, "held": 1 })
+            .to_string();
+    let at = wasm::given(opening.as_bytes());
+    assert_eq!(
+        wasm::decode_open(at, opening.len() as u32),
+        0,
+        "decode_open with one layer held"
+    );
+    wasm::release(at);
+    let first_layer: std::collections::BTreeMap<u32, Vec<u8>> =
+        all.range(0..7).map(|(n, r)| (*n, r.clone())).collect();
+    assert_eq!(
+        slices(0, 7, u32::MAX),
+        first_layer,
+        "layer 0's slices with one layer held"
+    );
+    assert!(
+        slices(7, 7, u32::MAX).is_empty(),
+        "layer 1's slices before its weights"
+    );
+    // Told every layer is held, the model is read that far again.
+    let second: std::collections::BTreeMap<u32, Vec<u8>> =
+        all.range(7..14).map(|(n, r)| (*n, r.clone())).collect();
+    assert_eq!(slices(7, 7, layers), second, "layer 1's slices once held");
+    assert_eq!(wasm::decode_clear(), 0);
+}

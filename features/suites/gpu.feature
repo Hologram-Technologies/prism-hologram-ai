@@ -255,3 +255,10 @@ Feature: gpu
     When `just page-journey` opens it at layer 1, two positions past the prompt, on the CPU and on WebGPU, its attention output there, and a layer past the model's
     Then the kernel answers exact replay, and the residual read on both devices has one BLAKE3 and the residual stream's width
     And attention's output is other bits, and the layer past the model is out of range
+
+  @GP-71 @build
+  Scenario: A prompt sent while the model arrives runs its layers on WebGPU as they arrive: when decision 22 chose WebGPU, the page reads the printed kernels before the engine opens, the streamed engine's worker opens WebGPU with the layers held so far and the head, and each later layer's seven products are placed on WebGPU (EN-113) before that layer runs; the first token and the turn are the reference's
+    Given the engine page on a cross-origin-isolated page and GP-19's Qwen3-shaped ONNX export
+    When `just page-journey` sends "hi" in the same task as the click on Load
+    Then WebGPU holds the streamed engine's products when the load ends
+    And the sixteen tokens are the reference's

@@ -12,6 +12,8 @@ import { helperCount, useHelpers } from "./integer-helpers.mjs";
 import { useGpu } from "./integer-gpu.mjs";
 
 let engine = null;
+// WebGPU, once it takes the streamed engine's products (GP-71).
+let streamedGpu = null;
 // The module the engine runs on, kept for WebGPU to take its products later.
 let current = null;
 
@@ -23,8 +25,15 @@ self.onmessage = async ({ data }) => {
       const module = moduleOf(data.compiled, data.memory);
       current = module;
       if (data.engine === "stream") {
-        engine = createStreamingEngine({ module, config: data.config, rope: data.rope, capacity: data.capacity, held: data.held, tensors: data.tensors });
-        self.postMessage({ id, kind: "done", ok: true, value: { sizes: engine.sizes } });
+        const onHeld = async (before, now) => {
+          if (streamedGpu) await streamedGpu.more(7 * before, 7 * (now - before), now);
+        };
+        engine = createStreamingEngine({ module, config: data.config, rope: data.rope, capacity: data.capacity, held: data.held, tensors: data.tensors, onHeld });
+        // The layers held at open and the head on WebGPU now, when the page
+        // chose it; the products of each later layer before it runs.
+        streamedGpu = data.gpu ? await useGpu(module, data.gpu, engine.sizes) : null;
+        const gpu = streamedGpu && { products: streamedGpu.gpu, cpu: streamedGpu.cpu, adapter: streamedGpu.adapter };
+        self.postMessage({ id, kind: "done", ok: true, value: { sizes: engine.sizes, gpu } });
         return;
       }
       const held = new Map(data.tensors);
@@ -49,12 +58,12 @@ self.onmessage = async ({ data }) => {
       // by now; WebGPU, when the page chose it, takes every product after.
       let gpu = null;
       const attach = async () => {
-        if (data.args[2]) gpu = await useGpu(current, data.args[2], engine.sizes);
+        if (data.args[2] && !streamedGpu) gpu = await useGpu(current, data.args[2], engine.sizes);
       };
       const tokens = await engine.finish(data.args[0], { stops: data.args[1], ...hooks, attach });
       value = { tokens, gpu: gpu && { products: gpu.gpu, cpu: gpu.cpu, adapter: gpu.adapter } };
     } else if (data.method === "attach") {
-      const gpu = await useGpu(current, data.args[0], engine.sizes);
+      const gpu = streamedGpu ?? await useGpu(current, data.args[0], engine.sizes);
       value = { products: gpu.gpu, cpu: gpu.cpu, adapter: gpu.adapter };
     } else {
       value = await engine[data.method](...data.args);

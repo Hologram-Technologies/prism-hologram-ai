@@ -1877,7 +1877,7 @@ fn gpu_gp_70() {
     pinned(
         "site/app/engine/pipeline.mjs",
         &[
-            "session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh });",
+            "session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh, gpu: session.kernels });",
             "adding = adding.then(() => session.engine.add(more, now));",
             "on = await deviceFor({ d: config.hidden_size, heads, hd, ff: config.intermediate_size, largest });",
             "const budget = await budgetOf(prompt, max_new_tokens);",
@@ -1895,5 +1895,48 @@ fn gpu_gp_70() {
             "answered(`early ${name}`, run);",
             "fail(`early ${name}: the prompt sent during the load was answered as a turn after it, not run as the model arrived`);",
         ],
+    );
+}
+
+/// `GP-71`: A prompt sent while the model arrives runs its layers on WebGPU as they arrive: when decision 22 chose WebGPU, the page reads the printed kernels before the engine opens, the streamed engine's worker opens WebGPU with the layers held so far and the head, and each later layer's seven products are placed on WebGPU (EN-113) before that layer runs; the first token and the turn are the reference's
+#[test]
+fn gpu_gp_71() {
+    // EN-113 proves a layer's slices are decode_slices' records of its
+    // numbers; the journey runs an early turn on WebGPU and checks WebGPU
+    // held products when the load ended. This reads the pieces between.
+    let read = |path: &str| {
+        std::fs::read_to_string(root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    let pinned = |path: &str, wanted: &[&str]| {
+        let text = read(path);
+        for one in wanted {
+            assert!(text.contains(one), "{path} no longer has `{one}`");
+        }
+    };
+    pinned(
+        "site/app/engine/integer-gpu.mjs",
+        &[
+            "const slices = m.call(\"decode_slices_of\", first, count, held);",
+            "await place(data.more);",
+        ],
+    );
+    pinned(
+        "site/app/engine/integer.mjs",
+        &["if (now > layers) await onHeld(layers, now);"],
+    );
+    pinned(
+        "site/app/engine/integer-worker.mjs",
+        &[
+            "if (streamedGpu) await streamedGpu.more(7 * before, 7 * (now - before), now);",
+            "streamedGpu = data.gpu ? await useGpu(module, data.gpu, engine.sizes) : null;",
+        ],
+    );
+    pinned(
+        "site/app/engine/pipeline.mjs",
+        &["if (on === \"webgpu\") session.kernels = await printedKernels((request) => kernel.dispatch(request));"],
+    );
+    pinned(
+        "crates/conformance/tests/gpu/journey.mjs",
+        &["fail(`early webgpu: WebGPU held no product when the load ended, so the layers ran on the module`);"],
     );
 }

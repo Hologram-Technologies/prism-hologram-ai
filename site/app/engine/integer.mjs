@@ -90,10 +90,12 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
 // once every weight is in, then the rest of the turn, its products on WebGPU
 // from then on when `gpu` names the kernels (GP-56). Otherwise it answers as
 // startIntegerEngine's engine does.
-export async function startStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors }) {
-  const { ask, opened } = await openWorker(m, { engine: "stream", config, rope, capacity, held, tensors }, tensors.map(([, , bytes]) => bytes.buffer));
+export async function startStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors, gpu: kernels = null }) {
+  const { ask, opened } = await openWorker(m, { engine: "stream", config, rope, capacity, held, tensors, gpu: kernels }, tensors.map(([, , bytes]) => bytes.buffer));
   let position = 0;
-  let gpu = null;
+  // WebGPU takes the products from the first layer on when the kernel chose
+  // it (GP-71); each later layer's as that layer arrives.
+  let gpu = opened.gpu ?? null;
   const call = async (method, args, hooks, given = []) => {
     const said = await ask({ kind: "call", method, args }, given, hooks);
     position = said.position;
@@ -109,7 +111,7 @@ export async function startStreamingEngine({ module: m, config, rope = {}, capac
     attach: async (kernels) => { gpu = await call("attach", [kernels]); return gpu; },
     finish: async (count, { stops = new Set(), onToken = () => {}, onFirst = () => {}, gpu: kernels = null } = {}) => {
       const said = await call("finish", [count, stops, kernels], { onToken, onFirst });
-      gpu = said.gpu;
+      gpu = said.gpu ?? gpu;
       return said.tokens;
     },
     step: (token, options) => call("step", [token, options]),
@@ -167,7 +169,7 @@ function openDecode(m, config, rope, held) {
 // [name, type, bytes] held so far and `held` the layers whole among them.
 // A prompt given to `prefill` goes through each layer as soon as it is held
 // (EN-110, EN-112), the layers it can before the rest arrive.
-export function createStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors }) {
+export function createStreamingEngine({ module: m, config, rope = {}, capacity, held, tensors, onHeld = async () => {} }) {
   for (const [name, type, bytes] of tensors) handTensor(m, name, type, bytes);
   let layers = held;
   const engine = engineOver(m, openDecode(m, config, rope, held), capacity);
@@ -177,8 +179,11 @@ export function createStreamingEngine({ module: m, config, rope = {}, capacity, 
     while (prompt && ran < layers) ran = word(m.call("decode_prefill_layer", layers));
   };
   return Object.assign(engine, {
-    add(more, now) {
+    // `onHeld(before, now)` runs once the weights are in and before any new
+    // layer does: WebGPU takes those layers' products there (GP-71).
+    async add(more, now) {
       for (const [name, type, bytes] of more) handTensor(m, name, type, bytes);
+      if (now > layers) await onHeld(layers, now);
       layers = now;
       runHeld();
       return { ran, layers };
