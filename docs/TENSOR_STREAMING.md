@@ -137,6 +137,30 @@ The first token was not measured end to end with streaming, because the engine d
 | hologram | None needed. `PieceTree` is the format. Publishing hologram-space (now `publish = false`) would let crates depend on it rather than copy it. |
 | prism-hologram-ai | Import the hub's piece rule (HK-39 to HK-42) as a kernel decision. Let `files.mjs` read pieces in forward-pass order, through a worker hash pool, and keep them by address. Let `onnx-load.mjs` take tensors as they complete, with decision 28 asked per tensor. Let the integer engine accept a layer's weights when that layer is admitted and run prefill layer by layer. Compute the head in pieces as they arrive. Each change starts as a registered ID, a scenario and a failing test (R3). |
 
+## Step 1, built and measured
+
+Step 1 is built: the engine side in #132 (EN-110 to EN-112, merged) and the page side in #133 (GP-70). A prompt sent with the click on Load runs through each layer as that layer's weights are admitted (EN-111). The rest of the model keeps arriving in the meantime. The first token is made only after the last byte, the whole file's BLAKE3 and decision 28.
+
+Measured on 2026-11-20 and 2026-11-21, on this machine in the Claude app's browser pane, isolated, cold (the private file system cleared), with Qwen3-0.6B q4f16 and the prompt "Hello, how are you?" (18 ids). The streamed page was served locally from #133's branch, with the kernel package its CI built (`prism/build/stream-page-3`) and the engine sealed at `blake3:4ae90ec2…24e0`. Today's page is the one published from main. The two runs were back to back. The link ran at different speeds in each, so the time after the last byte is the comparable number:
+
+| | Today's page | Streamed (#133) |
+| --- | --- | --- |
+| Last byte downloaded, from the click | 418.4 s | 309.5 s |
+| Ready | 433.3 s | 311.2 s |
+| First token shown, from the click | 452.2 s | 319.3 s |
+| **First token after the last byte** | **33.8 s** | **9.8 s** |
+| The 32 tokens | the reference | the same 32 ids, bit for bit |
+| Tokens per second after the first | 0.57 | 0.55 |
+
+So step 1 removes 24 s of the 34 s that followed the last byte. On this link that is 5 to 7 % of the time to the first token, as projected. On a link where the download takes 30 s, the same 24 s would be about half of it (projected, not measured).
+
+The 9.8 s left are: the importer's end, the whole-file BLAKE3 and decision 28 (1.7 s to ready); then whatever layers the prefill had not caught up with, the final norm, and the head on the module. The prefill runs on the module (CPU) while the file arrives. WebGPU takes the products only after the first token, because a model read before its last layer cannot yet hand WebGPU its products one layer at a time. That needs an engine export, and the engine has about 34 KB of room for it under EN-26's ceiling (2,062,257 of 2,097,152 bytes) since #132. It is the next step for step 1.
+
+Three bugs were found only by this measurement and are fixed in #133:
+- the page counted Qwen3's final norm, named under `layers.28`, as a layer. Layers now come from the module's `onnx_layers`, which reads the graph's nodes;
+- a prompt sent in the same moment as Load was dropped, because Send was still disabled;
+- with no prompt waiting, the worker kept reading the model as one layer, so WebGPU took only that layer and the head.
+
 ## Ranked next steps
 
 1. **Admit and place per layer, with prefill as layers arrive** (prism-hologram-ai). The first usable layer moves from 299 s to 6.1 to 6.3 s, and all 28 layers are usable 123 s into a 275 s download (measured, file mode). The first token does not move as far. All three milestone 2 models tie their output layer to their embedding (`tie_word_embeddings` is true in each config.json, and no export has an `lm_head` initializer), so the first token needs every byte of every one of them. What step 1 can hide is the work after the last byte: about 5 s of serial work and the 15 s prefill measured on today's page. That is at most about 20 s of 387 s on this link (5 %), a bound from measured parts. On a link fast enough that the download is shorter than the compute, the same 20 s is most of the time to the first token. Cost: the importer (`crates/model-reader`, inside the sealed engine module) has to expose the graph's nodes and each tensor as it completes; that means a reseal, a kernel decision for pieces, file tables from the hub, and an engine that places weights per layer.
