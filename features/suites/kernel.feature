@@ -577,3 +577,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageHead in the gate
     Then head_logit_is_word holds for every input, and head_count gives one logit a row
     And head_row_0 to head_row_2 evaluate the stage on f16 and binary32 weights, and kernel_kn_92 replays them through crates/exact's dense_product_with and finds the same words
+
+  @KN-93 @build
+  Scenario: A q4 product is defined in LexLean, not Rust: Engine.Stage.Q4Product::product puts the input on KN-61's sixteen-bit codes and group powers, multiplies each code by its four-bit weight less the block's zero point (eight, or packed) and by the block's f16 or binary32 scale, exactly, each group at its own power, and rounds each row once by KN-62's Binary32::round, as cpu-decode's products through crates/exact's q4_product_with; Lean proves every row is a word and the product gives one output a row, and evaluates products that the kernel test replays through q4_product_with
+    Given the stage in app/src/Engine/Stage/Q4Product.lex.tex and its proofs in app/src/Proofs/StageQ4Product.lex.tex
+    When lexlean verify checks Proofs.StageQ4Product in the gate
+    Then q4_row_is_word holds for every input, and q4_count gives one output a row
+    And q4_row_0 to q4_row_2 evaluate the stage on f16 and binary32 scales with stored and default zero points, and kernel_kn_93 replays them through crates/exact's q4_product_with and finds the same words

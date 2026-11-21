@@ -1,0 +1,97 @@
+\begin{lexlean}{Proofs.StageQ4Product}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Q4Product}
+\importmodule{Engine.Word}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: q4_row_is_word,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    columns : Nat,
+    block : Nat,
+    row : Nat
+  ],
+  statement: ((Engine.Stage.Q4Product::rowAt codes powers weights zeros packed format scales columns block row) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::signedRound,
+      Engine.Stage.Q4Product::rowAt,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: q4_count,
+  parameters: [
+    codes : (List Nat),
+    powers : (List Nat),
+    weights : (List Nat),
+    zeros : (List Nat),
+    packed : Nat,
+    format : Nat,
+    scales : (List Nat),
+    columns : Nat,
+    block : Nat,
+    row : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Q4Product::rowsFrom codes powers weights zeros packed format scales columns block row n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Q4Product::rowsFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Q4Product::rowsFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [row],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: q4_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Q4Product::product (Engine.Word::joined (cons 1075730176 (cons 3171605585 (cons 1053434975 (cons 3210827467 (cons 3222560523 (cons 3210617568 (cons 3220914622 (cons 3222352269 (cons 3221366199 (cons 3224590057 (cons 1050940008 (cons 3222422922 (cons 1060827558 (cons 3209361247 (cons 1075590023 (cons 1064245818 (nil Nat))))))))))))))))) (cons 1070593539 (cons 1063539328 (cons 1069646004 (cons 1076471332 (cons 1077853309 (cons 3221341804 (cons 3214718453 (cons 3214877202 (cons 3218903478 (cons 1070451580 (cons 1075949260 (cons 3223808573 (cons 3221156467 (cons 1075873323 (cons 3222774830 (cons 3223371974 (nil Nat)))))))))))))))))) (cons 3930875401 (cons 3089390834 (cons 3759999234 (cons 2018069760 (cons 4137832881 (cons 2628606129 (cons 3037468676 (cons 2449586703 (nil Nat))))))))) (nil Nat) 0 0 (cons 768352669 (nil Nat)) 2 32 32) = (cons 3176939881 (cons 3218213933 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: q4_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Q4Product::product (Engine.Word::joined (cons 3221646722 (cons 3199963890 (cons 1072534727 (cons 3183176587 (cons 3180462210 (cons 1062126436 (cons 3220227686 (cons 1077626070 (cons 3221809402 (cons 3201135250 (cons 1068315843 (cons 1071055203 (cons 3221826656 (cons 3192271469 (cons 3183314749 (cons 3203755435 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3220394493 (cons 1066135694 (cons 3188767420 (cons 3206467308 (cons 1066748153 (cons 3201440051 (cons 3186283759 (cons 3205372561 (cons 1070593692 (cons 3217525887 (cons 3225412038 (cons 3211945268 (cons 3211395804 (cons 3224502772 (cons 1058319224 (cons 1041369223 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3163627826 (cons 998344318 (cons 3164466125 (cons 1007956606 (cons 3163060187 (cons 1010183779 (cons 3162134917 (cons 1018225259 (cons 1019571426 (cons 3167720693 (cons 1020685642 (cons 3165383341 (cons 1020979518 (cons 1019925513 (cons 3163409759 (cons 1008484678 (nil Nat))))))))))))))))) (cons 3165386431 (cons 1022069250 (cons 3160182791 (cons 1009068963 (cons 3152661694 (cons 3162368349 (cons 3166010181 (cons 3163335975 (cons 1019703072 (cons 3161159863 (cons 3157647718 (cons 1014315392 (cons 1022092947 (cons 3141873825 (cons 3158889605 (cons 1015096441 (nil Nat)))))))))))))))))))) (cons 1202959547 (cons 4081133396 (cons 762586512 (cons 21007311 (cons 1333060875 (cons 1616127618 (cons 3099584202 (cons 1054644254 (cons 1689258780 (cons 352104873 (cons 4069780214 (cons 4257158002 (cons 2344323213 (cons 166048001 (cons 2824918595 (cons 1768647778 (nil Nat))))))))))))))))) (cons 62752 (nil Nat)) 1 1 (cons 3172547953 (cons 1032075534 (cons 1035730084 (cons 3178610283 (nil Nat))))) 2 64 32) = (cons 1074775701 (cons 3226909220 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: q4_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Q4Product::product (Engine.Word::joined (cons 1061302968 (cons 3215961053 (cons 1075989619 (cons 3188681009 (cons 1075048075 (cons 1075457425 (cons 1077366079 (cons 3219765539 (cons 1050664237 (cons 1047668559 (cons 1057177057 (cons 1074072301 (cons 3220302836 (cons 1058339987 (cons 1067060499 (cons 3215859484 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 3198891696 (cons 1077676664 (cons 3224778711 (cons 1076124871 (cons 3223971371 (cons 1073216528 (cons 3223670335 (cons 3222676959 (cons 3224695028 (cons 3223939989 (cons 1069614959 (cons 3221673571 (cons 1075257365 (cons 3218963094 (cons 1068344024 (cons 3215416311 (nil Nat))))))))))))))))) (Engine.Word::joined (cons 1022427722 (cons 1021751540 (cons 968222508 (cons 1012060212 (cons 3169362691 (cons 3120742058 (cons 1014946190 (cons 3162890986 (cons 3131747756 (cons 1016103786 (cons 1007446579 (cons 3164564855 (cons 1015503987 (cons 3156181517 (cons 3166738746 (cons 975633841 (nil Nat))))))))))))))))) (cons 985164212 (cons 3163875456 (cons 1013626056 (cons 1020332608 (cons 3159267342 (cons 1021016272 (cons 1010920639 (cons 3165470785 (cons 3139474561 (cons 1012017467 (cons 1018328786 (cons 1019036883 (cons 3159534555 (cons 3166857578 (cons 1000548434 (cons 3154747453 (nil Nat)))))))))))))))))))) (cons 2315832285 (cons 2902344230 (cons 6786719 (cons 3538061797 (cons 1991595086 (cons 339723891 (cons 754029631 (cons 2395891707 (nil Nat))))))))) (cons 14 (nil Nat)) 1 0 (cons 44131 (nil Nat)) 1 64 64) = (cons 1080988432 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

@@ -6240,3 +6240,108 @@ fn kernel_kn_92() {
     );
     assert!(rows >= 3, "three heads are evaluated, found {rows}");
 }
+
+/// `KN-93`: A q4 product is defined in LexLean, not Rust: Engine.Stage.Q4Product::product puts the input on KN-61's sixteen-bit codes and group powers, multiplies each code by its four-bit weight less the block's zero point (eight, or packed) and by the block's f16 or binary32 scale, exactly, each group at its own power, and rounds each row once by KN-62's Binary32::round, as cpu-decode's products through crates/exact's q4_product_with; Lean proves every row is a word and the product gives one output a row, and evaluates products that the kernel test replays through q4_product_with
+#[test]
+fn kernel_kn_93() {
+    use hologram_ai_exact::{Grouping, Q4Matrix, Q4Scales, Q4Zeros, Scheme, Width};
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageQ4Product.lex.tex");
+    for name in ["q4_row_is_word", "q4_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    assert!(
+        decoder.contains("Self::Q4(matrix) => exact::q4_product_with(input, &matrix, SCHEME)?,"),
+        "cpu-decode's q4 product changed"
+    );
+    let scheme = Scheme {
+        width: Width::Sixteen,
+        grouping: Grouping::Groups,
+    };
+    let bytes = |words: &[u64]| -> Vec<u8> {
+        words
+            .iter()
+            .flat_map(|&w| (w as u32).to_le_bytes())
+            .collect()
+    };
+    let mut wrong = Vec::new();
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: q4_row_{rows},\n")) {
+        let name = format!("q4_row_{rows}");
+        let found = declaration(&proofs, &name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Q4Product::product ")
+            .nth(1)
+            .expect("an evaluation of product");
+        let (input, rest) = joined_list(statement);
+        let (weights, rest) = joined_list(rest.trim_start());
+        let (zeros, rest) = cons_list(rest.trim_start());
+        let mut parts = rest.trim_start().splitn(3, ' ');
+        let packed = parts.next().expect("packed") == "1";
+        let format = parts.next().expect("format").to_string();
+        let rest = parts.next().expect("the rest");
+        let (scales, rest) = cons_list(rest.trim_start());
+        let (sizes, rest) = rest.trim_start().split_once(')').expect("the shape");
+        let s: Vec<usize> = sizes
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let (count, columns, block) = (s[0], s[1], s[2]);
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let blocks = columns.div_ceil(block);
+        let code_bytes: Vec<u8> = bytes(&weights)
+            .into_iter()
+            .take(count * blocks * block / 2)
+            .collect();
+        let scale_width = if format == "0" { 2 } else { 4 };
+        let scale_bytes: Vec<u8> = bytes(&scales)
+            .into_iter()
+            .take(count * blocks * scale_width)
+            .collect();
+        let zero_bytes: Vec<u8> = bytes(&zeros)
+            .into_iter()
+            .take(count * blocks.div_ceil(2))
+            .collect();
+        let matrix = Q4Matrix {
+            codes: &code_bytes,
+            scales: if format == "0" {
+                Q4Scales::F16(&scale_bytes)
+            } else {
+                Q4Scales::F32(&scale_bytes)
+            },
+            zeros: if packed {
+                Q4Zeros::Packed(&zero_bytes)
+            } else {
+                Q4Zeros::Eight
+            },
+            rows: count,
+            columns,
+            block,
+        };
+        let input: Vec<u32> = input.iter().map(|&x| x as u32).collect();
+        let rust: Vec<u64> = hologram_ai_exact::q4_product_with(&input, &matrix, scheme)
+            .expect("a product within bounds")
+            .into_iter()
+            .map(u64::from)
+            .collect();
+        if rust != expected {
+            wrong.push(format!("{name}: q4_product_with gives {rust:?}"));
+        }
+        rows += 1;
+    }
+    assert!(
+        wrong.is_empty(),
+        "crates/exact's q4 product disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+    assert!(rows >= 3, "three products are evaluated, found {rows}");
+}
