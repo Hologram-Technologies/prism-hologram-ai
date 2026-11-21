@@ -3206,3 +3206,73 @@ Planted on 2026-11-20:
 | --- | --- |
 | `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
 | none | passed |
+
+## EN-110, a prompt a layer at a time
+
+A model's file arrives over seconds or minutes. So that a layer can run as soon as its weights are held, `hologram-ai-cpu-decode` reads a model as far as its layers have arrived (`read_first`) and prefills a prompt a layer at a time (`prefill_start`, `prefill_layer`, `prefill_finish`). Every prompt row goes through layer `l` before any row enters layer `l + 1`. Row `i`'s work in layer `l` reads its own row and layer `l`'s keys and values at positions up to its own. All of those are in the cache, with the same bits, whatever order the rows and layers run in. So the result is `step`'s.
+
+`engine_en_110` runs GP-19's Qwen3, Qwen2 and Llama fixtures. It reads the model again with one more layer held before each layer, and compares against a run that steps every id. Every key and value, the last prompt id's logits, and the sixteen tokens after it with each of their logits must be the same bits. `engine_fl_110` refuses with `DecodeError::NotHeld` each of: a step on a model with a layer missing, a layer the model does not hold, a finish before the last layer, an empty prompt, and a layer on a cache that another prefill has grown. A refusal leaves the session as it was.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_110 engine_fl_110`
+
+## EN-97, probes read the run's own values
+
+The session takes a probe for its next step, a layer and a component, and the
+step keeps what it computed there: the residual after the layer, attention's
+output projection or the feed-forward's down projection. `decode_probe` sets
+it and `decode_probed` reads it once. Nothing else changes, so a probed run is
+the run. The engine is resealed at `blake3:a8d3c758…3a3638` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every component of every layer, two positions past GP-19's prompt, reads the residual stream's width, and a second replay reads the same bits | `engine_en_97` | tested |
+| Each layer's residual differs from the one before it; a layer past the model's reads nothing | the same | tested |
+| A run with a probe set gives every logit the run without one gives | the same | tested |
+| A fourth component is refused | the same | tested |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_97`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| Every prompt row rotated at the prefill's first position (`start + i * 0`) | rejected: `qwen3: the prefill left another cache than step` |
+| none | passed, with FL-110, EN-91 and EN-49 |
+
+## EN-111, tensors given as they arrive
+
+So that the engine can place a layer before the file ends, the ONNX importer's `Graph::admit_so_far` gives each tensor inside the graph file once its last byte has passed, with the BLAKE3 its bytes hash to. Before a tensor is given, every operator named so far is put to the kernel (decision 18), and so is the tensor's 4-bit shape (decision 20); its span was put when it was found (decision 23). `Graph::finish` still asks every one of these again, and about the whole file (decision 5). So the end of the import decides exactly as before.
+
+`engine_en_111` feeds EN-31's model in pieces of 1, 7, 64 and 4,096 bytes and whole. It checks four things. Each tensor is given once, in file order, after its last byte and no later than the piece that holds it. The kernel was asked about the operators and the tensor's shape before it was given. The tensors given are the finished import's, with the same addresses. A kernel that refuses an operator stops the import before any tensor is given.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_111`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `admit_so_far` marks each operator asked without asking the kernel | rejected: `pieces of 1: no operator asked before w_Q4` |
+| none | passed, with EN-31 and the other EN-3x import tests |
+
+## EN-112, the page's module runs layers as the file arrives
+
+The page's module gains `onnx_so_far`, which gives the tensors EN-111 admits, one a line as text, and keeps the nodes read so far for the forward pass. It also gains `decode_prefill`, `decode_prefill_layer` and `decode_prefill_finish`, which drive EN-110 a layer at a time. `decode_open` and `decode_prefill_layer` are told how many layers are held, so the model is read that far. `decode_prefill_finish` reads it whole. `onnx_start` now clears the last model's forward pass, and `onnx_finish` keeps the weights handed in while the file arrived.
+
+`engine_en_112` takes GP-19's Qwen3, Qwen2 and Llama fixtures through the module in pieces of 4 KiB. It asks `onnx_so_far` after each piece and hands every tensor to `decode_tensor` as it is given. A layer is held once every weight its nodes read has been handed in, and the prompt is prefilled a layer at a time as layers are held. Every layer runs before the file ends. The next layer, asked before its weights, is refused as `Decode(NotHeld)` and the run carries on. The prefill's token and logits, and sixteen steps after it, are the native run's, bit for bit.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_112`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `onnx_finish` clears the forward pass as it did before (`*d = Decode { nodes, ..Decode::default() }`) | rejected: `decode_prefill_finish: NothingRead` |
+| none | passed, with EN-52, EN-53 and FL-59 |
+
+With EN-110 to EN-112 the module is 2,091,948 bytes by `just engine-build` (main's was 2,070,681), and EN-26's own build stays under 2,097,152. To fit, every forward function takes its products as `&mut dyn Products`, so each is compiled once rather than once per route, and `onnx_so_far` answers text lines rather than JSON. Decision 80 seals the module at `blake3:5e45aec59f1626b902e808d706ae16d205202e120f91a35192fa5cf629d15a83` (EN-90).
+
+Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,101,194 bytes in EN-26's own build. The cause was `with_model`: it is generic over its closure, so the weight map and `read_first` were compiled once for every call that reads the model. They now sit in `model_of`, compiled once, and the module is 2,055,353 bytes by `just engine-build`. Decision 80 seals it at `blake3:8b4e99905330e261448ec7deccf7d4cde182ad9269f1938078e9c1f590d11c51` (EN-90). Merged with #113, whose attention is `attend_head` (KN-80), `layer_through` calls `attend_head` too. Decision 80 then seals `blake3:5c3b24bdb8f10938befc588e392567e606b4faa93507d1ba676b1f281ef2c712`, 2,055,222 bytes.
+
+| a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
+| none | passed |
+

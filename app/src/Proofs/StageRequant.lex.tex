@@ -1,0 +1,188 @@
+\begin{lexlean}{Proofs.StageRequant}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Requant}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: signed16,
+  parameters: [v : Nat],
+  result: Bool,
+  body: ((v <=? 32767) || (4294934529 <=? v))
+}
+
+definition{
+  name: allCodes,
+  parameters: [codes : (List Nat)],
+  result: Bool,
+  body: (match codes
+    | List.nil => true
+    | List.cons head tail => ((signed16 head) && (allCodes tail))),
+  recursive_argument: codes
+}
+
+theorem{
+  name: requant_min_bound,
+  parameters: [x : Nat],
+  statement: ((Engine.Stage.Requant::minOf x 32767) <= 32767),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Requant::minOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_magnitude_bound,
+  parameters: [a : Nat, top : Nat, k : Nat],
+  statement: ((Engine.Stage.Requant::magnitude a top k) <= 32767),
+  proof: simplify{definitions: [requant_min_bound, Engine.Stage.Requant::magnitude]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_signed_given,
+  parameters: [f : Nat, m : Nat],
+  statement: ((m <= 32767) -> ((((Engine.Stage.Greedy::pick f (Engine.Stage.Requant::word (prim subtract 4294967296 m : Nat)) m) <=? 32767) || (4294934529 <=? (Engine.Stage.Greedy::pick f (Engine.Stage.Requant::word (prim subtract 4294967296 m : Nat)) m))) = true)),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::pick, Engine.Stage.Requant::word]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::pick, Engine.Stage.Requant::word]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_code_is_signed_16,
+  parameters: [x : Nat, top : Nat, k : Nat],
+  statement: ((signed16 (Engine.Stage.Requant::code x top k)) = true),
+  proof: simplify{
+    definitions: [
+      requant_magnitude_bound,
+      requant_signed_given,
+      signed16,
+      Engine.Stage.Requant::code
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_true_and,
+  parameters: [b : Bool],
+  statement: ((true && b) = b),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_cons_code,
+  parameters: [x : Nat, top : Nat, k : Nat, tail : (List Nat)],
+  statement: ((allCodes (cons (Engine.Stage.Requant::code x top k) tail)) = (allCodes tail)),
+  proof: simplify{definitions: [allCodes, requant_code_is_signed_16, requant_true_and]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_codes_split,
+  parameters: [e : Nat, a : (List Nat), b : (List Nat)],
+  statement: ((allCodes (match e
+    | Nat.zero => a
+    | Nat.succ last => b)) = (match e | Nat.zero => (allCodes a) | Nat.succ last => (allCodes b))),
+  proof: cases{
+    branches: [
+      {proof: reflexivity{}, binders: [], constructor: zero},
+      {proof: reflexivity{}, binders: [last], constructor: succ}
+    ],
+    scrutinee: e
+  },
+  axioms: []
+}
+
+theorem{
+  name: requant_either_true,
+  parameters: [e : Nat],
+  statement: ((match e | Nat.zero => true | Nat.succ last => true) = true),
+  proof: cases{
+    branches: [
+      {proof: reflexivity{}, binders: [], constructor: zero},
+      {proof: reflexivity{}, binders: [last], constructor: succ}
+    ],
+    scrutinee: e
+  },
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_empty,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat, top : Nat, k : Nat],
+  statement: ((allCodes (Engine.Stage.Requant::codesFrom inputs g i top k 0)) = true),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_step,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat, top : Nat, k : Nat, rest : Nat],
+  statement: ((Engine.Stage.Requant::codesFrom inputs g i top k (rest + 1)) = (cons (Engine.Stage.Requant::code (Engine.Stage.Requant::inputAt inputs g i) top k) (match (Engine.Stage.Requant::equal i 31)
+    | Nat.zero => (Engine.Stage.Requant::codesFrom inputs g (i + 1) top k rest)
+    | Nat.succ last => (Engine.Stage.Requant::codesFrom inputs (g + 1) 0 (Engine.Stage.Requant::best inputs (g + 1)) (Engine.Stage.Requant::shiftOf (Engine.Stage.Requant::best inputs (g + 1))) rest)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_are_signed_16,
+  parameters: [inputs : (List Nat), g : Nat, i : Nat, top : Nat, k : Nat, n : Nat],
+  statement: ((allCodes (Engine.Stage.Requant::codesFrom inputs g i top k n)) = true),
+  proof: induction{
+    branches: [
+      {proof: simplify{definitions: [requant_codes_empty]}, binders: [], constructor: zero},
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            requant_codes_split,
+            requant_codes_step,
+            requant_cons_code,
+            requant_either_true
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [g, i, k, top],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_power_is_word,
+  parameters: [top : Nat],
+  statement: ((Engine.Stage.Requant::power top) < 4294967296),
+  proof: linear_arithmetic{
+    definitions: [
+      Engine.Stage.Greedy::pick,
+      Engine.Stage.Requant::power,
+      Engine.Stage.Requant::word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

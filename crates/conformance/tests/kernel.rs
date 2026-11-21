@@ -4898,7 +4898,7 @@ fn kernel_kn_49() {
             (q4(0, 0, 5, 128), "invalid request"),
             (q4(0, 0, 4, 128)[..16].to_vec(), "invalid request"),
             (
-                vec![48, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                vec![48, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "invalid request",
             ),
             (
@@ -5451,6 +5451,114 @@ fn kernel_kn_71() {
     );
 }
 
+/// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+#[test]
+fn kernel_kn_59() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/RowSum.lex.tex");
+    let accumulate = model("app/src/Engine/Stage/Accumulate.lex.tex");
+    let proofs = model("app/src/Proofs/StageRowSum.lex.tex");
+    // The value both S3 and the accumulate kernel are proved to reach.
+    assert!(
+        declaration(&accumulate, "rowTotal").contains(
+            "body: (prim remainder (signedTotal entries powers units (prim multiply row units : Nat) units) 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 0 : Nat)"
+        ),
+        "rowTotal changed"
+    );
+    assert_pinned(
+        &proofs,
+        "row_is_signed_total",
+        "((rowValue e p u row) = (Engine.Stage.Accumulate::rowTotal e p u row))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_row",
+        "((Engine.Stage.RowSum::runWords e p u row 0 (total0 e p u row) (n + 12)) = (cons (Engine.Stage.RowSum::word (total0 e p u row)) (cons (Engine.Stage.RowSum::word (total1 e p u row)) (cons (Engine.Stage.RowSum::word (total2 e p u row)) (cons (Engine.Stage.RowSum::word (total3 e p u row)) (cons (Engine.Stage.RowSum::word (total4 e p u row)) (cons (Engine.Stage.RowSum::word (total5 e p u row)) (cons (Engine.Stage.RowSum::word (total6 e p u row)) (cons (Engine.Stage.RowSum::word (total7 e p u row)) (cons (Engine.Stage.RowSum::word (total8 e p u row)) (cons (Engine.Stage.RowSum::word (total9 e p u row)) (cons (Engine.Stage.RowSum::word (total10 e p u row)) (cons (Engine.Stage.RowSum::word (total11 e p u row)) (Engine.Stage.RowSum::runWords e p u (row + 1) 0 (total0 e p u (row + 1)) n))))))))))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_starts_at_row_zero",
+        "((Engine.Stage.RowSum::run e p u rows) = (Engine.Stage.RowSum::runWords e p u 0 0 (total0 e p u 0) (prim multiply 12 rows : Nat)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "columns_are_signed_total",
+        "(((colValue e p u g n) + (Engine.Stage.RowSum::negatives e g n)) = (Engine.Stage.Accumulate::signedTotal e p u g n))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "carries_close",
+        "(((rowValue e p u row) + (prim multiply 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 (prim quotient (total11 e p u row) 4294967296 0 : Nat) : Nat)) = ((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "column_bound",
+        "((Engine.Stage.RowSum::column e p u g i n) <= (prim multiply 4294967295 n : Nat))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "negatives_bound",
+        "((Engine.Stage.RowSum::negatives e g n) <= n)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "output_is_word",
+        "((Engine.Stage.RowSum::word x) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "term_words_value",
+        "((Engine.Word::limbsValue (termFrom lo hi pos 12)) = (Engine.Stage.Accumulate::termValue lo hi pos))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "add_exact",
+        "((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "complement_twelve",
+        "(((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "subtract_exact",
+        "((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816))",
+        "Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.RowSum}")
+            && !proofs.contains("\n  name: column,"),
+        "the proofs must read the stage, not restate it"
+    );
+    for (name, body) in [
+        (
+            "position",
+            "body: (word (((entryAt entries g 3) + 168) + (prim subtract 4294967296 (word (Engine.Stage.Greedy::nth powers (prim remainder g units 0 : Nat))) : Nat)))",
+        ),
+        (
+            "run",
+            "body: (runWords entries powers units 0 0 (startTotal entries powers units 0) (prim multiply 12 rows : Nat))",
+        ),
+    ] {
+        assert!(
+            declaration(&stage, name).contains(body),
+            "{name} changed"
+        );
+    }
+}
+
 /// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
 #[test]
 fn kernel_kn_81() {
@@ -5664,4 +5772,216 @@ fn kernel_kn_82() {
 {found}");
     }
     assert_routed(82, "Kernel.Encode::encodeAnswer");
+}
+
+/// `KN-95`: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+#[test]
+fn kernel_kn_95() {
+    assert_proofs_are_gated();
+    assert_pinned(
+        &model("app/src/Proofs/GpuQ4Chain.lex.tex"),
+        "dense_row_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 1430144537 (cons 102202 (cons 3526847775 (cons 10704 (cons 1404628537 (cons 2830412270 (cons 1362921683 (cons 1180659896 (cons 3235834506 (cons 1228905597 (cons 3923659967 (cons 4104302296 (cons 3259627804 (cons 3599647722 (cons 2591308769 (cons 3617227430 (cons 1665251947 (cons 695883207 (cons 763283582 (cons 2229213358 (cons 846430211 (cons 3954447145 (cons 2187673206 (cons 598088509 (cons 2608081371 (cons 234716159 (cons 323262589 (cons 2808617743 (cons 702919287 (cons 2981642025 (cons 2392372116 (cons 2361431086 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 32 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::denseAccumulate)) buffers), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 1250986792 (cons 3330998693 (nil Nat))))",
+        "",
+    );
+    assert_pinned(
+        &model("app/src/Proofs/GpuCode.lex.tex"),
+        "dense_accumulate_code_prints_tree",
+        "((Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0), p1 := (Engine.Code::denseAccumulateCode1), p2 := (Engine.Code::denseAccumulateCode2), p3 := (Engine.Code::denseAccumulateCode3), p4 := (Engine.Code::denseAccumulateCode4), p5 := (Engine.Code::denseAccumulateCode5), p6 := (Engine.Code::denseAccumulateCode6), p7 := (Engine.Code::denseAccumulateCode7), p8 := (Engine.Code::denseAccumulateCode8), p9 := (Engine.Code::denseAccumulateCode9), p10 := (Engine.Code::denseAccumulateCode10), p11 := (Engine.Code::denseAccumulateCode11), p12 := (Engine.Code::denseAccumulateCode12), p13 := (Engine.Code::denseAccumulateCode13), p14 := (Engine.Code::denseAccumulateCode14), p15 := (Engine.Code::denseAccumulateCode15), p16 := (Engine.Code::denseAccumulateCode16), p17 := (Engine.Code::denseAccumulateCode17), p18 := (Engine.Code::denseAccumulateCode18), p19 := (Engine.Code::denseAccumulateCode19), p20 := (Engine.Code::denseAccumulateCode20), p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 43 (Engine.Gpu::denseAccumulate)))",
+        "Quot.sound, propext",
+    );
+    let gpu = model("app/src/Engine/Gpu.lex.tex");
+    let found = declaration(&gpu, "denseAccumulate");
+    assert!(
+        found.contains("parameters: []") && found.contains("result: Stmt"),
+        "denseAccumulate must be one kernel tree for every width:\n{found}"
+    );
+    let render = model("app/src/Kernel/Render.lex.tex");
+    let render = declaration(&render, "renderText");
+    assert!(
+        render.contains("(Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0)"),
+        "decision 48 must print the dense kernel's checked code as kernel 6:\n{render}"
+    );
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims/048.json"))
+            .expect("the claims the crates make of the kernel"),
+    )
+    .expect("048.json is JSON");
+    let mut text = String::new();
+    for piece in 0u8.. {
+        let request: String = [48u8, 6, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let answer = claims["claims"]
+            .as_array()
+            .expect("a list of claims")
+            .iter()
+            .find(|one| one["request"].as_str() == Some(request.as_str()))
+            .and_then(|one| one["answer"].as_str())
+            .unwrap_or_else(|| panic!("no claim for decision 48's {request}"));
+        if answer.is_empty() {
+            break;
+        }
+        text.push_str(answer);
+    }
+    assert!(
+        !text.is_empty() && !text.contains("f32") && !text.contains("f16"),
+        "the dense kernel must be integers only:\n{text}"
+    );
+    assert_claimed(
+        48,
+        &[(
+            vec![48, 6, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "invalid request",
+        )],
+    );
+}
+
+/// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_62() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageAttention.lex.tex");
+    let rounding = model("app/src/Proofs/StageBinary32.lex.tex");
+    for (module, name) in [
+        (&proofs, "attention_score_is_word"),
+        (&proofs, "attention_out_is_word"),
+        (&proofs, "attention_head_count"),
+        (&rounding, "binary32_round_is_word"),
+    ] {
+        assert!(
+            module.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut heads = 0;
+    while proofs.contains(&format!("\n  name: attention_head_row_{heads},\n")) {
+        let found = declaration(&proofs, &format!("attention_head_row_{heads}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "attention_head_row_{heads} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Attention::attend ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("attention_head_row_{heads} is not an evaluation of attend"));
+        let (query, rest) = cons_list(statement);
+        let (keys, rest) = cons_list(rest.trim_start());
+        let (values, rest) = cons_list(rest.trim_start());
+        let (numbers, rest) = rest.trim_start().split_once(')').expect("the head's sizes");
+        let n: Vec<usize> = numbers
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let [hq, group, kv_heads, head_dim, seen, root] = n[..] else {
+            panic!("attention_head_row_{heads}: six sizes")
+        };
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let words = |xs: &[u64]| xs.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+        let (query, keys, values) = (words(&query), words(&keys), words(&values));
+        let rust: Vec<u64> = hologram_ai_cpu_decode::attend_head(
+            &query[hq * head_dim..(hq + 1) * head_dim],
+            &keys[..seen * kv_heads * head_dim],
+            &values[..seen * kv_heads * head_dim],
+            hq / group,
+            kv_heads,
+            root as i128,
+        )
+        .expect("finite values")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        assert_eq!(
+            rust, expected,
+            "attention_head_row_{heads}: cpu-decode disagrees with the stage"
+        );
+        heads += 1;
+    }
+    assert!(heads >= 4, "four heads are evaluated, found {heads}");
+    let mut rows = 0;
+    while rounding.contains(&format!("\n  name: binary32_row_{rows},\n")) {
+        let found = declaration(&rounding, &format!("binary32_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "binary32_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Binary32::round ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("binary32_row_{rows} is not an evaluation of round"));
+        let (args, result) = statement.split_once(") = ").expect("an equation");
+        let args: Vec<u128> = args
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number below 2^128"))
+            .collect();
+        let (negative, n, k) = (args[0] == 1, args[1], args[2] as i32);
+        let expected: u32 = result
+            .split(')')
+            .next()
+            .unwrap_or(result)
+            .parse()
+            .expect("bits");
+        let mut row = hologram_ai_exact::Row::ZERO;
+        row.add_scaled(n & u128::from(u64::MAX), -k, negative);
+        row.add_scaled(n >> 64, 64 - k, negative);
+        assert_eq!(
+            hologram_ai_exact::round_to_binary32(&row),
+            expected,
+            "binary32_row_{rows}: crates/exact rounds (-1)^{negative} {n} 2^-{k} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
+}
+
+/// `KN-63`: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_63() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRowFinish.lex.tex");
+    for name in ["row_finish_is_word", "row_finish_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: row_finish_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("row_finish_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "row_finish_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.RowFinish::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("row_finish_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let rest = rest.trim_start().strip_prefix("1) = ").expect("one row");
+        let expected = cons_list(rest).0;
+        assert_eq!(words.len(), 12, "row_finish_row_{rows}: twelve words");
+        // The register's magnitude, two's complement over 384 bits.
+        let negative = words[11] >> 31 == 1;
+        let mut magnitude: Vec<u64> = words.clone();
+        if negative {
+            let mut carry = 1u64;
+            for word in &mut magnitude {
+                let flipped = (!*word & 0xffff_ffff) + carry;
+                *word = flipped & 0xffff_ffff;
+                carry = flipped >> 32;
+            }
+        }
+        let mut row = hologram_ai_exact::Row::ZERO;
+        for (i, &word) in magnitude.iter().enumerate() {
+            row.add_scaled(u128::from(word), 32 * i as i32 - 192, negative);
+        }
+        let rust = vec![u64::from(hologram_ai_exact::round_to_binary32(&row))];
+        assert_eq!(
+            rust, expected,
+            "row_finish_row_{rows}: crates/exact rounds the register {words:?} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 8, "eight rows are evaluated, found {rows}");
 }

@@ -880,3 +880,41 @@ Feature: engine
     Given a Qwen3-shaped fixture written as a q4 export, binary32 scales, embedding and norms
     When hologram-ai-cpu-decode reads its graph and runs the prompt and sixteen greedy steps, twice
     Then the tokens are the float reference's, every logit within 2^-7, and the two runs' bits agree
+
+  @EN-110 @build
+  Scenario: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt is prefilled a layer at a time, the model read again with one more layer held before each layer, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the prefill's logits for the last prompt id are step's
+    And the sixteen greedy tokens after it and every logit of each are the same bits
+
+  @FL-110 @build
+  Scenario: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+    Given the fixture model read with only its first layer held
+    When it is stepped, prefilled past that layer, finished early, prefilled from an empty prompt, or prefilled on a cache another prefill has grown
+    Then each is refused as DecodeError::NotHeld and the session is left as it was
+
+  @EN-111 @build
+  Scenario: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+    Given EN-31's model of one 4-bit projection, its codes and scales inside the graph file
+    When its graph file is fed in pieces of 1, 7, 64 and 4096 bytes and whole, the import asked after each piece for the tensors that have arrived
+    Then each tensor is given once, in file order, after its last byte and no later than the piece that holds it
+    And the kernel was asked about the operators and the tensor's 4-bit shape before it was given
+    And the tensors given are the finished import's, each named by the BLAKE3 of its bytes
+    And a kernel that refuses an operator stops the import before any tensor is given
+
+  @EN-112 @build
+  Scenario: The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures and the page's module
+    When each fixture's file is taken in pieces of 4 KiB, onnx_so_far asked after each, every tensor it gives handed to decode_tensor, the model opened once its first layer is held, and each layer prefilled with decode_prefill_layer told how many layers are held, a layer being held once every weight its nodes read is handed in
+    Then every layer has run before the file ends
+    And the next layer asked before its weights is refused as Decode(NotHeld) and the run carries on
+    And decode_prefill_finish's token and logits, and the sixteen steps after it, are the native run's, bit for bit
+
+  @EN-97 @build
+  Scenario: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused
+    Given GP-19's Qwen3-shaped fixture read by hologram-ai-cpu-decode
+    When its prompt and generated tokens run once without a probe and once with a probe set at a position
+    Then the tokens and logits are the same bits both times, and each component read has the residual stream's width
+    And a replay of the run's ids to that position reads the same bits, a layer past the model reads nothing, and the module refuses a fourth component
