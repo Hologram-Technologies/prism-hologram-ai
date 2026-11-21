@@ -570,3 +570,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageGated in the gate
     Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
     And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
+
+  @KN-86 @build
+  Scenario: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
+    Given the stage in app/src/Engine/Stage/Rotary.lex.tex and its proofs in app/src/Proofs/StageRotary.lex.tex
+    When lexlean verify checks Proofs.StageRotary in the gate
+    Then rotary_entries_row_0, rotary_sines_row_0, rotary_cosines_row_0 and rotary_angles_row_0 evaluate the stage
+    And kernel_kn_86 replays each through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle and finds the same words

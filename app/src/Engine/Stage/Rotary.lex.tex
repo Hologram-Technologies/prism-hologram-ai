@@ -1,0 +1,98 @@
+\begin{lexlean}{Engine.Stage.Rotary}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Exp2}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{name: unit120, parameters: [], result: Nat, body: 1329227995784915872903807060280344576}
+
+definition{
+  name: fixedMul,
+  parameters: [a : Nat, b : Nat],
+  result: Nat,
+  body: (prim quotient (prim multiply a b : Nat) (unit120) 0 : Nat)
+}
+
+definition{
+  name: atanFrom,
+  parameters: [m : Nat, power : Nat, k : Nat, sum : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => sum
+    | Nat.succ more => (match power
+      | Nat.zero => sum
+      | Nat.succ less => (atanFrom m (prim quotient power (prim multiply m m : Nat) 0 : Nat) (k + 1) (Engine.Stage.Greedy::pick (prim remainder k 2 0 : Nat) (prim subtract sum (prim quotient power ((prim multiply 2 k : Nat) + 1) 0 : Nat) : Nat) (sum + (prim quotient power ((prim multiply 2 k : Nat) + 1) 0 : Nat))) more))),
+  recursive_argument: fuel
+}
+
+definition{
+  name: atanInverse,
+  parameters: [m : Nat],
+  result: Nat,
+  body: (atanFrom m (prim quotient (unit120) m 0 : Nat) 0 0 128)
+}
+
+definition{
+  name: pi,
+  parameters: [],
+  result: Nat,
+  body: (prim subtract (prim multiply 16 (atanInverse 5) : Nat) (prim multiply 4 (atanInverse 239) : Nat) : Nat)
+}
+
+definition{
+  name: sineFrom,
+  parameters: [square : Nat, term : Nat, k : Nat, sum : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => sum
+    | Nat.succ more => (match (prim quotient (fixedMul term square) (prim multiply (prim multiply 2 k : Nat) ((prim multiply 2 k : Nat) + 1) : Nat) 0 : Nat)
+      | Nat.zero => sum
+      | Nat.succ less => (sineFrom square (prim quotient (fixedMul term square) (prim multiply (prim multiply 2 k : Nat) ((prim multiply 2 k : Nat) + 1) : Nat) 0 : Nat) (k + 1) (Engine.Stage.Greedy::pick (prim remainder k 2 0 : Nat) (prim subtract sum (prim quotient (fixedMul term square) (prim multiply (prim multiply 2 k : Nat) ((prim multiply 2 k : Nat) + 1) : Nat) 0 : Nat) : Nat) (sum + (prim quotient (fixedMul term square) (prim multiply (prim multiply 2 k : Nat) ((prim multiply 2 k : Nat) + 1) : Nat) 0 : Nat))) more))),
+  recursive_argument: fuel
+}
+
+definition{
+  name: sineEntry,
+  parameters: [r : Nat],
+  result: Nat,
+  body: (Engine.Stage.Softmax::divideEven (sineFrom (fixedMul (prim quotient (prim multiply (pi) r : Nat) 32768 0 : Nat) (prim quotient (prim multiply (pi) r : Nat) 32768 0 : Nat)) (prim quotient (prim multiply (pi) r : Nat) 32768 0 : Nat) 1 (prim quotient (prim multiply (pi) r : Nat) 32768 0 : Nat) 64) 1237940039285380274899124224)
+}
+
+definition{
+  name: step,
+  parameters: [angle : Nat],
+  result: Nat,
+  body: (prim remainder ((prim quotient angle 65536 0 : Nat) + (Engine.Stage.Exp2::roundUp (prim quotient angle 65536 0 : Nat) (prim remainder angle 65536 0 : Nat) 32768)) 65536 0 : Nat)
+}
+
+definition{
+  name: quarterRead,
+  parameters: [s : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (prim remainder (prim quotient s 16384 0 : Nat) 2 0 : Nat) (sineEntry (prim subtract 16384 (prim remainder s 16384 0 : Nat) : Nat)) (sineEntry (prim remainder s 16384 0 : Nat)))
+}
+
+definition{
+  name: sineTurn,
+  parameters: [angle : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (prim quotient (step angle) 32768 0 : Nat) (prim remainder (prim subtract 4294967296 (quarterRead (step angle)) : Nat) 4294967296 0 : Nat) (quarterRead (step angle)))
+}
+
+definition{
+  name: cosineTurn,
+  parameters: [angle : Nat],
+  result: Nat,
+  body: (sineTurn (prim remainder (angle + 1073741824) 4294967296 0 : Nat))
+}
+
+definition{
+  name: ropeAngle,
+  parameters: [position : Nat, frequency : Nat],
+  result: Nat,
+  body: (prim remainder ((prim quotient (prim remainder (prim multiply position frequency : Nat) 18446744073709551616 0 : Nat) 4294967296 0 : Nat) + (Engine.Stage.Exp2::roundUp (prim quotient (prim remainder (prim multiply position frequency : Nat) 18446744073709551616 0 : Nat) 4294967296 0 : Nat) (prim remainder (prim multiply position frequency : Nat) 4294967296 0 : Nat) 2147483648)) 4294967296 0 : Nat)
+}
+\end{semanticmodule}
+\end{lexlean}

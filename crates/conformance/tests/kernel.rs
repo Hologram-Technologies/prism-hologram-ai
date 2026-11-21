@@ -6134,3 +6134,59 @@ fn kernel_kn_90() {
         wrong.join("\n")
     );
 }
+
+/// `KN-86`: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
+#[test]
+fn kernel_kn_86() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRotary.lex.tex");
+    let word = |v: i32| u64::from(v as u32);
+    type Replay<'a> = (&'a str, &'a str, &'a dyn Fn(&[u128]) -> u64);
+    let rows: [Replay; 4] = [
+        ("rotary_entries_row_0", "sineEntry", &|a| {
+            u64::from(hologram_ai_exact::sine_quarter()[a[0] as usize])
+        }),
+        ("rotary_sines_row_0", "sineTurn", &|a| {
+            word(hologram_ai_exact::sine_turn(a[0] as u32))
+        }),
+        ("rotary_cosines_row_0", "cosineTurn", &|a| {
+            word(hologram_ai_exact::cosine_turn(a[0] as u32))
+        }),
+        ("rotary_angles_row_0", "ropeAngle", &|a| {
+            u64::from(hologram_ai_exact::rope_angle(a[0] as u32, a[1] as u64))
+        }),
+    ];
+    let mut wrong = Vec::new();
+    for (name, function, rust) in rows {
+        let found = declaration(&proofs, name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found.split("statement: (").nth(1).expect("a statement");
+        let (asked, expected) = statement.split_once(") = ").expect("an equation");
+        let given: Vec<u64> = asked
+            .split(&format!("Engine.Stage.Rotary::{function} "))
+            .skip(1)
+            .map(|call| {
+                let args: Vec<u128> = call
+                    .split(')')
+                    .next()
+                    .unwrap_or(call)
+                    .split_whitespace()
+                    .map(|x| x.parse().expect("an argument"))
+                    .collect();
+                rust(&args)
+            })
+            .collect();
+        let expected = cons_list(expected).0;
+        if given != expected {
+            wrong.push(format!("{name}: crates/exact gives {given:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "crates/exact disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+}
