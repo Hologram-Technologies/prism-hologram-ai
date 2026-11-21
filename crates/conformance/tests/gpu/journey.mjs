@@ -95,7 +95,7 @@ async function onnxVisit(context, { variant, repo = onnx.repo, precision = null,
       turns.push(await page.evaluate(() => ({ ...window.__qengine.output, stats: window.__qengine.stats })));
     }
   }
-  const state = opened ? await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, checks: window.__qengine.checks })) : { phase: "unopened", error: errors[0], checks: [] };
+  const state = opened ? await page.evaluate(() => ({ phase: window.__qengine.phase, error: window.__qengine.error, device: window.__qengine.device ?? null, gpu: window.__qengine.gpu ?? null, checks: window.__qengine.checks })) : { phase: "unopened", error: errors[0], checks: [] };
   const held = opened ? await page.evaluate(async () => {
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("hologram-files", { create: true });
     const out = [];
@@ -1366,6 +1366,9 @@ for (const [name, run] of Object.entries(results.early)) {
   if (!turn?.stats) { fail(`early ${name}: the prompt sent during the load was never answered`); continue; }
   if (turn.stats.early !== true) fail(`early ${name}: the prompt sent during the load was answered as a turn after it, not run as the model arrived`);
   if (!(turn.stats.clickToFirstToken > 0)) fail(`early ${name}: no time from the click on Load to the first token`);
+  // GP-71: on WebGPU the streamed engine's products were on WebGPU before
+  // the first token, its layers run there as they arrived.
+  if (name === "webgpu" && !(run.gpu?.products > 0)) fail(`early webgpu: WebGPU held no product when the load ended, so the layers ran on the module`);
 }
 
 if (failures.length) {

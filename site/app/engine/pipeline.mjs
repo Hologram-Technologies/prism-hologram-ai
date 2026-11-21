@@ -200,6 +200,9 @@ export async function pipeline(task, model, options = {}) {
     const hd = config.head_dim ?? config.hidden_size / heads;
     const largest = Math.max(0, ...listed.filter((t) => /_Q4$/.test(t.name)).map((t) => t.length));
     on = await deviceFor({ d: config.hidden_size, heads, hd, ff: config.intermediate_size, largest });
+    // The kernels decision 48 prints, so the streamed engine's products run
+    // on WebGPU from its first layer (GP-71).
+    if (on === "webgpu") session.kernels = await printedKernels((request) => kernel.dispatch(request));
   };
   const onArrived = async (tensors, bytesAt) => {
     if (!rope || earlyFailure) return;
@@ -220,7 +223,7 @@ export async function pipeline(task, model, options = {}) {
     try {
       if (!session.engine) {
         if (held < 1 || !got.has(embedding)) return;
-        session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh });
+        session.engine = await startStreamingEngine({ module, config: session.configText, rope, capacity: CAPACITY, held, tensors: fresh, gpu: session.kernels });
       } else if (fresh.length) {
         const more = fresh;
         const now = held;
@@ -272,7 +275,7 @@ export async function pipeline(task, model, options = {}) {
         await adding;
         if (session.pending) await session.pending.started;
         onStatus(on === "webgpu" ? "Uploading to the GPU…" : "Preparing the CPU engine…");
-        session.kernels = on === "webgpu" ? await printedKernels((request) => kernel.dispatch(request)) : null;
+        session.kernels ??= on === "webgpu" ? await printedKernels((request) => kernel.dispatch(request)) : null;
         // With no turn waiting, every product goes to WebGPU now; a waiting
         // turn's first token is made on the module and WebGPU takes the rest.
         if (!session.pending) await session.engine.complete();

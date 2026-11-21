@@ -1489,21 +1489,67 @@ pub extern "C" fn decode_slices(helper: u32, helpers: u32) -> u32 {
                 return Err(CallError::WrongSize);
             }
             with_model(d, config, |model| {
-                let (h, n) = (helper as usize, helpers as usize);
-                let mut out = Vec::new();
-                for which in model.products() {
-                    let rows = model.height(which);
-                    let start = rows * h / n;
-                    let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();
-                    for word in [which.number(model.dims.layers), start, bytes.len()] {
-                        out.extend_from_slice(&(word as u32).to_le_bytes());
-                    }
-                    out.extend_from_slice(&bytes);
-                }
-                Ok(out)
+                Ok(slices_written(
+                    model,
+                    helper as usize,
+                    helpers as usize,
+                    0..usize::MAX,
+                ))
             })
         })
     })
+}
+
+/// The slices `decode_slices(0, 1)` writes, of the products numbered
+/// `first..first + count` that the model has once the page has handed in
+/// every weight of its first `held` layers (`u32::MAX`: the model as it is
+/// read now) (EN-113): what WebGPU takes of a layer once the layer arrives,
+/// its seven products numbered `7 l` to `7 l + 6`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_slices_of(first: u32, count: u32, held: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            if held != u32::MAX {
+                d.held = Some(held as usize);
+            }
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let first = first as usize;
+            with_model(d, config, |model| {
+                Ok(slices_written(
+                    model,
+                    0,
+                    1,
+                    first..first.saturating_add(count as usize),
+                ))
+            })
+        })
+    })
+}
+
+/// Helper `h` of `n`'s rows of each product the model has whose number lies
+/// in `numbers`: its number, first row and length, then its slice.
+fn slices_written(
+    model: &decode::Model<'_>,
+    h: usize,
+    n: usize,
+    numbers: std::ops::Range<usize>,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    for which in model.products() {
+        let number = which.number(model.dims.layers);
+        if !numbers.contains(&number) {
+            continue;
+        }
+        let rows = model.height(which);
+        let start = rows * h / n;
+        let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();
+        for word in [number, start, bytes.len()] {
+            out.extend_from_slice(&(word as u32).to_le_bytes());
+        }
+        out.extend_from_slice(&bytes);
+    }
+    out
 }
 
 thread_local! {

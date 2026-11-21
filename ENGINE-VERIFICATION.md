@@ -3278,3 +3278,18 @@ Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,10
 
 
 The page's module also answers `onnx_layers`: the number of layers with a query projection, the value the token gather reads, and the layer of each value a node of `/model/layers.N/` reads. A page holds a layer by it, because weight names do not say it: GP-19's fixture names some of a layer's weights `model.layers.N.` and others `lN.`. `engine_en_112` checks that, for every layer of the three fixtures, its answer is the set of weights the test reads from the nodes itself. With it, and with #113's `attend_head`, the module is 2,062,257 bytes, and decision 80 seals it at `blake3:4ae90ec2c35a3c1301bbcc4a64896909a666a491c1c967801d289b9ff9d624e0` (EN-90).
+
+## EN-113, a layer's products as it arrives
+
+`decode_slices_of(first, count, held)` writes the slices `decode_slices(0, 1)` writes, but only of the product numbers `first..first + count`. It reads the model as far as `held` layers (`u32::MAX`: as it is read now). So WebGPU can take a layer's seven products, numbered `7 l` to `7 l + 6`, once that layer has arrived. `decode_slices` and the new call share one writer, `slices_written`. The module is 2,063,546 bytes, and decision 80 seals it at `blake3:20c684f399373a2ee5756f2c6b65760996a426f8969925d57436fae1919d9162` (EN-90).
+
+`engine_en_113` opens GP-19's Qwen3 fixture in the module. Each layer's range and the head's must be exactly `decode_slices`' records of those numbers. Opened with only its first layer held, the module must write layer 0's records and nothing for layer 1. Told every layer is held, it must write layer 1's.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_113`
+
+Planted on 2026-11-21:
+
+| Planted | Result |
+| --- | --- |
+| `slices_written` ignoring the range (`if false && !numbers.contains(&number)`) | rejected: `layer 0's slices` |
+| none | passed, with EN-52 and EN-112 |

@@ -918,3 +918,10 @@ Feature: engine
     When its prompt and generated tokens run once without a probe and once with a probe set at a position
     Then the tokens and logits are the same bits both times, and each component read has the residual stream's width
     And a replay of the run's ids to that position reads the same bits, a layer past the model reads nothing, and the module refuses a fourth component
+
+  @EN-113 @build
+  Scenario: The page's module writes the slices of any range of product numbers, as decode_slices writes them for one helper of one, so WebGPU can take a layer's seven products when that layer arrives: on GP-19's Qwen3 fixture each layer's range and the head's are exactly decode_slices' records of those numbers, and a model opened with only its first layer held writes layer 0's records and nothing for layer 1
+    Given GP-19's Qwen3-shaped fixture opened in the page's module
+    When decode_slices_of is asked for each layer's seven product numbers and for the head's
+    Then each answer is decode_slices' records of those numbers, byte for byte
+    And with the model opened holding only its first layer, layer 0's range gives its records and layer 1's gives none

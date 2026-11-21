@@ -103,23 +103,14 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
   device.addEventListener("uncapturederror", (event) => errors.push(String(event.error.message)));
   const control = new Int32Array(shared, 0, CONTROL / 4);
   const bytes = new Uint8Array(shared);
-  const all = slicesOf(new Uint8Array(slices));
 
   // The products the printed kernels do not take, held by an instance of the
   // engine's module.
   // A slice whose weights one binding cannot hold stays on the module too.
   const bound = device.limits.maxStorageBufferBindingSize;
   const fits = (s) => (s.kind === 1 ? s.codes.length : s.weights.length) <= bound;
-  const gpuSide = all.filter((s) => onGpu(s) && fits(s));
-  const rest = all.filter((s) => !gpuSide.includes(s));
   let cpu = null;
-  if (rest.length) {
-    cpu = moduleOf(compiled);
-    const held = new Uint8Array(rest.reduce((n, s) => n + s.record.length, 0));
-    let at = 0;
-    for (const s of rest) { held.set(s.record, at); at += s.record.length; }
-    cpu.callWith("slices_hold", held);
-  }
+  const rest = [];
 
   // Every buffer is at least one word, as WebGPU binds none smaller.
   const empty = (count) => device.createBuffer({ size: 4 * (count > 0 ? count : 1), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
@@ -162,7 +153,24 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
     return inputs.get(width);
   };
   const products = new Map();
-  for (const s of gpuSide) {
+  // Slices placed as they come (GP-71): the products the printed kernels
+  // take on WebGPU, the rest on the module, each number once. A streamed
+  // load hands a layer's seven products when that layer arrives.
+  const place = async (given) => {
+    const all = slicesOf(new Uint8Array(given)).filter((s) => !products.has(s.number) && !rest.some((r) => r.number === s.number));
+    const gpuSide = all.filter((s) => onGpu(s) && fits(s));
+    const others = all.filter((s) => !gpuSide.includes(s));
+    if (others.length) {
+      cpu ??= moduleOf(compiled);
+      rest.push(...others.map((s) => ({ number: s.number, record: s.record.slice() })));
+      const held = new Uint8Array(rest.reduce((n, s) => n + s.record.length, 0));
+      let at = 0;
+      for (const s of rest) { held.set(s.record, at); at += s.record.length; }
+      cpu.callWith("slices_hold", held);
+    }
+    await placeGpu(gpuSide);
+  };
+  const placeGpu = async (gpuSide) => { for (const s of gpuSide) {
     const units = s.columns / 32;
     const shared = await inputOf(s.columns);
     const registers = empty(s.rows * 12), rows = empty(s.rows);
@@ -187,7 +195,8 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
       ];
     }
     products.set(s.number, { rows: s.rows, columns: s.columns, shared, registers, out: rows, read, steps });
-  }
+  } };
+  await place(slices);
 
   // One product: `number`, its input `length` bytes at CONTROL; its rows go at rowsAt.
   const answer = async (number, length) => {
@@ -225,6 +234,15 @@ async function open({ compiled, slices, shared, rowsAt, kernels, port }) {
     }
     Atomics.store(control, ANSWERED, 1);
     Atomics.notify(control, ANSWERED);
+  };
+  // More slices after it opened (GP-71): placed, then counted back.
+  self.onmessage = async ({ data }) => {
+    try {
+      await place(data.more);
+      self.postMessage({ placed: true, gpu: products.size, cpu: rest.length });
+    } catch (error) {
+      self.postMessage({ placed: false, error: String(error?.message ?? error) });
+    }
   };
   return { gpu: products.size, cpu: rest.length, adapter: adapter.info ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture } : null };
 }
@@ -273,5 +291,16 @@ export async function useGpu(m, kernels, sizes) {
     return 0;
   });
   m.call("decode_helpers", 1);
-  return { ...opened, stop: () => { m.call("decode_helpers", 0); m.setProducts(null); worker.terminate(); } };
+  // A layer's seven products, or any range of numbers, once the model the
+  // module reads holds them (EN-113, GP-71).
+  let placing = Promise.resolve(opened);
+  const more = (first, count, held = 0xffffffff) => {
+    placing = placing.then(() => new Promise((done, refused) => {
+      const slices = m.call("decode_slices_of", first, count, held);
+      worker.onmessage = ({ data }) => (data.placed ? done(data) : refused(new Error(`the WebGPU worker did not take products ${first} to ${first + count - 1}: ${data.error}`)));
+      worker.postMessage({ more: slices.buffer }, [slices.buffer]);
+    }));
+    return placing;
+  };
+  return { ...opened, more, stop: () => { m.call("decode_helpers", 0); m.setProducts(null); worker.terminate(); } };
 }

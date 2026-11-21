@@ -401,3 +401,9 @@ GP-25 now pins `const generate = turner(session);` and `Object.assign(session, {
 | a probe that skips checking its receipt | rejected: ``pipeline.mjs no longer has `if (checked.verdict !== "confirmed") return { verdict: "not checked", checked };` `` |
 | none | passed |
 
+
+## GP-71, the early turn's layers on WebGPU
+
+When decision 22 chose WebGPU, the page reads the printed kernels before the streamed engine opens. The engine's worker opens WebGPU with the layers held so far and the head. Before each later layer runs, that layer's seven products are placed on WebGPU, from `decode_slices_of` (EN-113) through the GPU worker's `place`, which takes slices after it has opened. So the prefill runs on WebGPU while the file arrives, and the first token's head is computed there too. The journey's early WebGPU visit fails if WebGPU held no product when the load ended. `gpu_gp_71` reads that these pieces are in place.
+
+Planted on 2026-11-21: the streamed engine running a newly held layer without first handing its products to WebGPU (`void onHeld`). Rejected by `gpu_gp_71`: `site/app/engine/integer.mjs no longer has if (now > layers) await onHeld(layers, now);`. Restored, it passes.
