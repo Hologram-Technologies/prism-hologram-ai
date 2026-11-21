@@ -557,6 +557,13 @@ Feature: kernel
     Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
     And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word
 
+  @KN-83 @build
+  Scenario: SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu
+    Given the stage in app/src/Engine/Stage/Silu.lex.tex and its proofs in app/src/Proofs/StageSilu.lex.tex
+    When lexlean verify checks Proofs.StageSilu in the gate
+    Then silu_count gives two words a value for every input
+    And silu_row_0 evaluates the stage on twelve values, and kernel_kn_83 replays each through crates/exact's silu and finds the same words
+
   @KN-61 @build
   Scenario: Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs
     Given the stage in app/src/Engine/Stage/Requant.lex.tex and its proofs in app/src/Proofs/StageRequant.lex.tex

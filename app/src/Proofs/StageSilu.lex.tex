@@ -1,0 +1,54 @@
+\begin{lexlean}{Proofs.StageSilu}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Silu}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: silu_two_more,
+  parameters: [r : Nat],
+  statement: ((((r + r) + 1) + 1) = ((r + 1) + (r + 1))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Silu::valueAt]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: silu_count,
+  parameters: [words : (List Nat), i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Silu::runFrom words i n)) = (n + n)),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Silu::runFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [
+            hypothesis,
+            silu_two_more,
+            Engine.Stage.Greedy::size,
+            Engine.Stage.Silu::runFrom
+          ]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: silu_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Silu::run (cons 0 (cons 0 (cons 65536 (cons 0 (cons 4294901760 (cons 4294967295 (cons 1 (cons 0 (cons 4294967295 (cons 4294967295 (cons 1048576 (cons 0 (cons 4293918720 (cons 4294967295 (cons 196608 (cons 0 (cons 4294803456 (cons 4294967295 (cons 0 (cons 256 (cons 0 (cons 4294967040 (cons 7 (cons 16384 (nil Nat))))))))))))))))))))))))) 12) = (cons 0 (cons 0 (cons 47899 (cons 0 (cons 4294949659 (cons 4294967295 (cons 0 (cons 0 (cons 0 (cons 0 (cons 1048576 (cons 0 (cons 0 (cons 0 (cons 187284 (cons 0 (cons 4294954857 (cons 4294967295 (cons 0 (cons 256 (cons 0 (cons 0 (cons 7 (cons 16384 (nil Nat)))))))))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

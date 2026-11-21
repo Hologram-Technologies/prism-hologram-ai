@@ -23,6 +23,17 @@ export const fetched = (base) => async (path) => {
   return response.body;
 };
 
+// Bytes [offset, offset + length) of a file from the parts read so far.
+function slice(parts, offset, length) {
+  const out = new Uint8Array(length);
+  for (const { at, bytes } of parts) {
+    const from = Math.max(offset, at);
+    const to = Math.min(offset + length, at + bytes.length);
+    if (from < to) out.set(bytes.subarray(from - at, to - at), from - offset);
+  }
+  return out;
+}
+
 async function whole(stream) {
   const parts = [];
   const reader = stream.getReader();
@@ -42,7 +53,11 @@ async function whole(stream) {
 
 // `admitted(table)` is asked after the import and before any weight is placed:
 // the pipeline puts the importer's own addresses to decision 28 there.
-export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, admitted = async () => {}, onProgress = () => {}, encoder = false }) {
+// `onArrived(tensors, bytesAt)`, when given, is called as the graph file
+// streams with each tensor inside it that the importer has admitted whole
+// (EN-111), and `onHeader` once the model's small files are read, before
+// any weight: so a caller can run layers while the rest arrives (GP-70).
+export async function loadOnnx({ record, path, open, module: m, kernel, checks, build, admitted = async () => {}, onProgress = () => {}, encoder = false, onArrived = null, onHeader = null }) {
   // A file the record names, with its BLAKE3. A record that gives a file no
   // BLAKE3 is refused: Hugging Face's SHA-256 and Git's SHA-1 are not checked.
   const entry = (p) => {
@@ -119,10 +134,24 @@ export async function loadOnnx({ record, path, open, module: m, kernel, checks, 
       parts.push({ at: got, bytes: value });
       got += value.length;
       onProgress(index, got);
+      if (index === 0 && onArrived) {
+        const lines = text.decode(m.call("onnx_so_far")).split("\n").filter(Boolean);
+        if (lines.length) await onArrived(lines.map(arrivedTensor), (offset, length) => slice(parts, offset, length));
+      }
     }
     kept.set(index, parts);
     return got;
   };
+  // What the importer gives as each tensor arrives (EN-111): its name, its
+  // element type as onnx.proto numbers it, where it lies and its address.
+  const arrivedTensor = (line) => {
+    const [name, type, offset, length, address] = line.split("\t");
+    return { name, type: Number(type), offset: Number(offset), length: Number(length), address };
+  };
+  if (onHeader && !encoder) {
+    const named = (generation ? JSON.parse(text.decode(generation)).eos_token_id : null) ?? config.eos_token_id;
+    await onHeader({ config, configText, chat, stops: new Set([named].flat().filter((id) => Number.isInteger(id))) });
+  }
   const graph = entry(path);
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
   const declared = record.files.filter((f) => f.path.startsWith(`${path}_data`)).length;

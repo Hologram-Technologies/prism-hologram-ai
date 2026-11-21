@@ -2,14 +2,18 @@
 // sends a copy of its module as it stands after the import and every weight's
 // bytes; this worker opens the engine the page names on them, exactly as the
 // page opened it before, and answers each call. A run's tokens go back one
-// message per step, so the page shows each as it is made.
+// message per step, so the page shows each as it is made. A streamed engine
+// (GP-70) is opened on the weights that have arrived and handed the rest as
+// they come; its products move to WebGPU once its first token is out.
 import { moduleOf } from "./loader.mjs";
-import { createIntegerEngine } from "./integer.mjs";
+import { createIntegerEngine, createStreamingEngine } from "./integer.mjs";
 import { createIntegerEncoder } from "./integer-encoder.mjs";
 import { helperCount, useHelpers } from "./integer-helpers.mjs";
 import { useGpu } from "./integer-gpu.mjs";
 
 let engine = null;
+// The module the engine runs on, kept for WebGPU to take its products later.
+let current = null;
 
 self.onmessage = async ({ data }) => {
   const { id } = data;
@@ -17,6 +21,12 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.kind === "open") {
       const module = moduleOf(data.compiled, data.memory);
+      current = module;
+      if (data.engine === "stream") {
+        engine = createStreamingEngine({ module, config: data.config, rope: data.rope, capacity: data.capacity, held: data.held, tensors: data.tensors });
+        self.postMessage({ id, kind: "done", ok: true, value: { sizes: engine.sizes } });
+        return;
+      }
       const held = new Map(data.tensors);
       const given = { module, table: data.table, read: (name) => held.get(name), config: data.config };
       engine = data.engine === "encoder" ? createIntegerEncoder(given) : createIntegerEngine({ ...given, rope: data.rope, capacity: data.capacity });
@@ -30,10 +40,25 @@ self.onmessage = async ({ data }) => {
       self.postMessage({ id, kind: "done", ok: true, value });
       return;
     }
-    const args = data.method === "run"
-      ? [data.args[0], data.args[1], { stops: data.args[2], onFirst: () => say("first"), onToken: (out) => say("token", out) }]
-      : data.args;
-    const value = await engine[data.method](...args);
+    const hooks = { onFirst: () => say("first"), onToken: (out) => say("token", out) };
+    let value;
+    if (data.method === "run") {
+      value = await engine.run(data.args[0], data.args[1], { stops: data.args[2], ...hooks });
+    } else if (data.method === "finish") {
+      // The first token is computed on the module, whose weights are all in
+      // by now; WebGPU, when the page chose it, takes every product after.
+      let gpu = null;
+      const attach = async () => {
+        if (data.args[2]) gpu = await useGpu(current, data.args[2], engine.sizes);
+      };
+      const tokens = await engine.finish(data.args[0], { stops: data.args[1], ...hooks, attach });
+      value = { tokens, gpu: gpu && { products: gpu.gpu, cpu: gpu.cpu, adapter: gpu.adapter } };
+    } else if (data.method === "attach") {
+      const gpu = await useGpu(current, data.args[0], engine.sizes);
+      value = { products: gpu.gpu, cpu: gpu.cpu, adapter: gpu.adapter };
+    } else {
+      value = await engine[data.method](...data.args);
+    }
     self.postMessage({ id, kind: "done", ok: true, value, position: engine.position });
   } catch (error) {
     self.postMessage({ id, kind: "done", ok: false, error: String(error?.message ?? error) });

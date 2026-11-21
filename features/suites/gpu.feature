@@ -227,6 +227,14 @@ Feature: gpu
     And all three turns' sixteen tokens are the reference's, and WebGPU's are the CPU's
     And a first visit, not isolated, runs on the CPU
 
+  @GP-70 @build
+  Scenario: A prompt sent while the model is still arriving runs as it arrives: the page takes it during the load, frames it and asks its budget of the kernel (decision 9) at once, opens the engine's worker once the embedding and the first layer are in, hands it each tensor as the importer admits it (EN-111) and the prompt goes through each layer as soon as that layer is held (EN-110, EN-112); the device is decision 22's before any of the model is computed; the first token is made only after the whole file's BLAKE3 and decision 28, on the module, and WebGPU takes the turn's products after it when the kernel chose it; on WebGPU and on the CPU the tokens are the reference's
+    Given the engine page and GP-19's Qwen3-shaped ONNX export, on a cross-origin-isolated page and on one with no WebGPU
+    When `just page-journey` clicks Load and sends "hi" in the same task, before any byte of the model has arrived
+    Then the turn is answered as the early one, its layers run as the model arrived
+    And its sixteen tokens are the reference's, on WebGPU and on the CPU
+    And the time from the click on Load to the first token is recorded
+
   @GP-58 @build
   Scenario: Every answer carries a receipt named by BLAKE3: the model's label, the BLAKE3 of the graph, data and config files that decide its answers as the hub's record names them; the input's ids and budget and their label; the output's label, the BLAKE3 of its token ids; and the reproducibility class the kernel gave the run (decision 30), everywhere for the integer engine; on the CPU and on WebGPU one model, one input and one output give the same three labels, byte for byte
     Given GP-19's Qwen3-shaped ONNX export on a cross-origin-isolated page
