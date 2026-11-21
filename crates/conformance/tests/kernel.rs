@@ -5387,6 +5387,12 @@ fn kernel_kn_71() {
         "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
         "Quot.sound, propext",
     );
+    assert_pinned(
+        &proofs,
+        "picked_below_seen",
+        "((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) best) < (1 + (Engine.Stage.Greedy::size logits)))",
+        "Quot.sound, propext",
+    );
     for fixture in [
         "pick_is_greedy_ordered",
         "pick_is_greedy_first_of_ties",
@@ -5984,4 +5990,147 @@ fn kernel_kn_63() {
         rows += 1;
     }
     assert!(rows >= 8, "eight rows are evaluated, found {rows}");
+}
+
+/// `KN-83`: SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu
+#[test]
+fn kernel_kn_83() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageSilu.lex.tex");
+    assert!(
+        proofs.contains("\n  name: silu_count,\n"),
+        "silu_count is the stage's guarantee"
+    );
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: silu_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("silu_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "silu_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Silu::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("silu_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let (count, rest) = rest.trim_start().split_once(')').expect("a count");
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let count: usize = count.parse().expect("a count");
+        assert_eq!(words.len(), 2 * count, "silu_row_{rows}: two words a value");
+        let rust: Vec<u64> = words
+            .chunks(2)
+            .flat_map(|pair| {
+                let y = hologram_ai_exact::silu((pair[0] | (pair[1] << 32)) as i64) as u64;
+                [y & 0xffff_ffff, y >> 32]
+            })
+            .collect();
+        assert_eq!(
+            rust, expected,
+            "silu_row_{rows}: crates/exact disagrees with the stage"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 1, "a row is evaluated, found {rows}");
+}
+
+/// `KN-90`: The feed-forward's fixed-point entry and gated product are defined in LexLean, not Rust: Engine.Stage.Gated::entry puts a binary32 gate value on units of 2^-16, rounded half to even, as cpu-decode's shift_even, and gatedWord multiplies its SiLU (KN-83) by the up value exactly and rounds once by KN-62's Binary32::round, as cpu-decode's round_exact step; Lean proves every product is a word and one output a pair, and evaluates entries and products that the kernel test replays through cpu-decode's arithmetic on crates/exact's silu and round_exact
+#[test]
+fn kernel_kn_90() {
+    use hologram_ai_exact::Dyadic;
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageGated.lex.tex");
+    for name in ["gated_is_word", "gated_entry_count", "gated_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    // cpu-decode's shift_even and gated step, whose arithmetic the replay repeats.
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "let up = rest > half || (rest == half && whole & 1 == 1);",
+        "let fixed = i64::try_from(shift_even(g.mantissa, g.exponent + 16))",
+        "let a = exact::silu(fixed);",
+        "i128::from(a) * u.mantissa,",
+        "u.exponent - 16,",
+    ] {
+        assert!(
+            decoder.contains(line),
+            "cpu-decode's gated step changed: {line}"
+        );
+    }
+    let shift_even = |value: i128, shift: i32| -> i128 {
+        if shift >= 0 {
+            return value
+                .checked_shl(shift.unsigned_abs())
+                .unwrap_or(if value < 0 { i128::MIN } else { i128::MAX });
+        }
+        let by = shift.unsigned_abs();
+        if by >= 127 {
+            return 0;
+        }
+        let magnitude = value.unsigned_abs();
+        let (whole, rest, half) = (
+            magnitude >> by,
+            magnitude & ((1u128 << by) - 1),
+            1u128 << (by - 1),
+        );
+        let up = rest > half || (rest == half && whole & 1 == 1);
+        let rounded = (whole + u128::from(up)) as i128;
+        if value < 0 {
+            -rounded
+        } else {
+            rounded
+        }
+    };
+    let entry = |g: u32| -> i64 {
+        let g = Dyadic::from_binary32(g).expect("finite");
+        i64::try_from(shift_even(g.mantissa, g.exponent + 16)).expect("within i64")
+    };
+    let row = |name: &str, function: &str| -> (Vec<u64>, String) {
+        let found = declaration(&proofs, name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split(&format!("statement: ((Engine.Stage.Gated::{function} "))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{name} is not an evaluation of {function}"));
+        let (xs, rest) = cons_list(statement);
+        (xs, rest.to_string())
+    };
+    let (gs, rest) = row("gated_entry_row_0", "entryFrom");
+    let (_, rest) = rest.trim_start().split_once(')').expect("the sizes");
+    let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+    let rust: Vec<u64> = gs.iter().map(|&g| entry(g as u32) as u64).collect();
+    let mut wrong = Vec::new();
+    if rust != expected {
+        wrong.push(format!("gated_entry_row_0: cpu-decode gives {rust:?}"));
+    }
+    let (gs, rest) = row("gated_row_0", "gatedFrom");
+    let (us, rest) = cons_list(rest.trim_start());
+    let (_, rest) = rest.trim_start().split_once(')').expect("the sizes");
+    let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+    let rust: Vec<u64> = gs
+        .iter()
+        .zip(&us)
+        .map(|(&g, &u)| {
+            let a = hologram_ai_exact::silu(entry(g as u32));
+            let u = Dyadic::from_binary32(u as u32).expect("finite");
+            u64::from(hologram_ai_exact::round_exact(
+                i128::from(a) * u.mantissa,
+                u.exponent - 16,
+            ))
+        })
+        .collect();
+    if rust != expected {
+        wrong.push(format!("gated_row_0: cpu-decode gives {rust:?}"));
+    }
+    assert!(
+        wrong.is_empty(),
+        "cpu-decode's gated step disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
 }

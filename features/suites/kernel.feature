@@ -556,3 +556,17 @@ Feature: kernel
     When lexlean verify checks Proofs.StageRowFinish in the gate
     Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
     And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word
+
+  @KN-83 @build
+  Scenario: SiLU is defined in LexLean, not Rust: Engine.Stage.Silu::run reads each value as a signed 64-bit integer in units of 2^-16 in two little-endian words, takes its exponent |x| log2(e) in units of 2^-8 rounded half to even, its weight by exp2Neg (KN-56), and writes x 2^30 / (2^30 + w), or x w / (2^30 + w) below zero, rounded half to even; Lean proves run gives two words a value, and evaluates rows that the kernel test replays through crates/exact's silu
+    Given the stage in app/src/Engine/Stage/Silu.lex.tex and its proofs in app/src/Proofs/StageSilu.lex.tex
+    When lexlean verify checks Proofs.StageSilu in the gate
+    Then silu_count gives two words a value for every input
+    And silu_row_0 evaluates the stage on twelve values, and kernel_kn_83 replays each through crates/exact's silu and finds the same words
+
+  @KN-90 @build
+  Scenario: The feed-forward's fixed-point entry and gated product are defined in LexLean, not Rust: Engine.Stage.Gated::entry puts a binary32 gate value on units of 2^-16, rounded half to even, as cpu-decode's shift_even, and gatedWord multiplies its SiLU (KN-83) by the up value exactly and rounds once by KN-62's Binary32::round, as cpu-decode's round_exact step; Lean proves every product is a word and one output a pair, and evaluates entries and products that the kernel test replays through cpu-decode's arithmetic on crates/exact's silu and round_exact
+    Given the stage in app/src/Engine/Stage/Gated.lex.tex and its proofs in app/src/Proofs/StageGated.lex.tex
+    When lexlean verify checks Proofs.StageGated in the gate
+    Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
+    And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
