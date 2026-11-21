@@ -1,0 +1,85 @@
+\begin{lexlean}{Proofs.StageGated}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Gated}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: gated_is_word,
+  parameters: [g : Nat, u : Nat],
+  statement: ((Engine.Stage.Gated::gatedWord g u) <= 4286578688),
+  proof: simplify{
+    definitions: [Engine.Stage.Gated::gatedWord, Proofs.StageBinary32::binary32_round_is_word]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: gated_entry_count,
+  parameters: [xs : (List Nat), i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Gated::entryFrom xs i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Gated::entryFrom, Engine.Stage.Greedy::size]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Gated::entryFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: gated_count,
+  parameters: [gs : (List Nat), us : (List Nat), i : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Gated::gatedFrom gs us i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Gated::gatedFrom, Engine.Stage.Greedy::size]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Gated::gatedFrom, Engine.Stage.Greedy::size]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: gated_entry_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Gated::entryFrom (cons 1065353216 (cons 3223322624 (cons 0 (cons 869711765 (cons 1189765120 (cons 3064448428 (cons 1088421888 (cons 2147483648 (nil Nat))))))))) 0 8) = (cons 65536 (cons 18446744073709387776 (cons 0 (cons 0 (cons 1966080000 (cons 0 (cons 458752 (cons 0 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: gated_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Gated::gatedFrom (cons 1065353216 (cons 3223322624 (cons 0 (cons 869711765 (cons 1189765120 (cons 3064448428 (cons 1088421888 (cons 2147483648 (nil Nat))))))))) (cons 1073741824 (cons 1056964608 (cons 3212836864 (cons 1077936128 (cons 981668463 (cons 3229614080 (cons 3196059648 (cons 1065353216 (nil Nat))))))))) 0 8) = (cons 1069226752 (cons 3183631360 (cons 0 (cons 0 (cons 1106247681 (cons 0 (cons 3219114944 (cons 0 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}
