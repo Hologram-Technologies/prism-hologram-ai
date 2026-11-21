@@ -1,0 +1,168 @@
+\begin{lexlean}{Proofs.StageRotate}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Rotate}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: rotate_first_is_word,
+  parameters: [head : (List Nat), frequencies : (List Nat), position : Nat, half : Nat, i : Nat],
+  statement: ((Engine.Stage.Rotate::firstAt head frequencies position half i) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::signedRound,
+      Engine.Stage.Rotate::combine,
+      Engine.Stage.Rotate::firstAt,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rotate_second_is_word,
+  parameters: [head : (List Nat), frequencies : (List Nat), position : Nat, half : Nat, i : Nat],
+  statement: ((Engine.Stage.Rotate::secondAt head frequencies position half i) <= 4286578688),
+  proof: simplify{
+    definitions: [
+      Engine.Stage.Attention::signedRound,
+      Engine.Stage.Rotate::combine,
+      Engine.Stage.Rotate::secondAt,
+      Proofs.StageBinary32::binary32_round_is_word
+    ]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: rotate_firsts_count,
+  parameters: [
+    head : (List Nat),
+    frequencies : (List Nat),
+    position : Nat,
+    half : Nat,
+    i : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Rotate::firstsFrom head frequencies position half i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Rotate::firstsFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Rotate::firstsFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: rotate_seconds_count,
+  parameters: [
+    head : (List Nat),
+    frequencies : (List Nat),
+    position : Nat,
+    half : Nat,
+    i : Nat,
+    n : Nat
+  ],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.Rotate::secondsFrom head frequencies position half i n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{definitions: [Engine.Stage.Greedy::size, Engine.Stage.Rotate::secondsFrom]},
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.Rotate::secondsFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [i],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: rotate_firsts_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::firstsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 0 2 0 2) = (cons 1065353216 (cons 3204448256 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_seconds_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::secondsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 0 2 0 2) = (cons 1073741824 (cons 1048576000 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_firsts_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::firstsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 1 2 0 2) = (cons 3214032827 (cons 3204489659 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_seconds_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::secondsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 1 2 0 2) = (cons 1073088494 (cons 1048240605 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_firsts_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::firstsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 300 2 0 2) = (cons 1073552783 (cons 1055612771 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_seconds_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::secondsFrom (cons 1065353216 (cons 3204448256 (cons 1073741824 (cons 1048576000 (nil Nat))))) (cons 2935890503282001200 (cons 29358905032820012 (nil Nat))) 300 2 0 2) = (cons 3213204749 (cons 3198343500 (nil Nat)))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_firsts_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::firstsFrom (cons 1077936128 (cons 1069547520 (cons 3212836864 (cons 3221225472 (cons 0 (cons 1089470464 (nil Nat))))))) (cons 2935890503282001200 (cons 377812037553223150 (cons 8848357527104 (nil Nat)))) 4095 3 0 3) = (cons 3222037762 (cons 1065614789 (cons 3213614312 (nil Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rotate_seconds_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Rotate::secondsFrom (cons 1077936128 (cons 1069547520 (cons 3212836864 (cons 3221225472 (cons 0 (cons 1089470464 (nil Nat))))))) (cons 2935890503282001200 (cons 377812037553223150 (cons 8848357527104 (nil Nat)))) 4095 3 0 3) = (cons 3224838609 (cons 3213586311 (cons 1089443325 (nil Nat))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

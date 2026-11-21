@@ -6041,3 +6041,106 @@ fn kernel_kn_86() {
         wrong.join("\n")
     );
 }
+
+/// `KN-88`: Rotating a head's pairs is defined in LexLean, not Rust: Engine.Stage.Rotate::firstsFrom and secondsFrom give pair i of a head, at its frequency's angle (KN-86), as x cos - y sin and y cos + x sin, each summed exactly at 2^-179 and rounded once by KN-62's Binary32::round; Lean proves every output is a word and each half has one output a pair, and evaluates heads that the kernel test replays through cpu-decode's rotate arithmetic on crates/exact's rope_angle, cosine_turn, sine_turn and round_to_binary32
+#[test]
+fn kernel_kn_88() {
+    use hologram_ai_exact::{Dyadic, Row};
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRotate.lex.tex");
+    for name in [
+        "rotate_first_is_word",
+        "rotate_second_is_word",
+        "rotate_firsts_count",
+        "rotate_seconds_count",
+    ] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    // The decoder's rotation, whose arithmetic the replay below repeats: a
+    // change to it fails here before the rows are compared.
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "let angle = exact::rope_angle(position, f);",
+        "i128::from(exact::cosine_turn(angle)),",
+        "i128::from(exact::sine_turn(angle)),",
+        "add_to(&mut first, x.mantissa * c, x.exponent - 30);",
+        "add_to(&mut first, -(y.mantissa * s), y.exponent - 30);",
+        "add_to(&mut second, y.mantissa * c, y.exponent - 30);",
+        "add_to(&mut second, x.mantissa * s, x.exponent - 30);",
+        "head[i] = exact::round_to_binary32(&first);",
+        "head[i + half_width] = exact::round_to_binary32(&second);",
+    ] {
+        assert!(
+            decoder.contains(line),
+            "cpu-decode's rotate changed: {line}"
+        );
+    }
+    let add = |row: &mut Row, product: i128, exponent: i32| {
+        row.add_scaled(product.unsigned_abs(), exponent, product < 0);
+    };
+    let rotate = |head: &[u32], frequencies: &[u64], position: u32| -> Vec<u32> {
+        let half = head.len() / 2;
+        let mut out = head.to_vec();
+        for (i, &f) in frequencies.iter().enumerate().take(half) {
+            let angle = hologram_ai_exact::rope_angle(position, f);
+            let c = i128::from(hologram_ai_exact::cosine_turn(angle));
+            let s = i128::from(hologram_ai_exact::sine_turn(angle));
+            let x = Dyadic::from_binary32(head[i]).expect("finite");
+            let y = Dyadic::from_binary32(head[i + half]).expect("finite");
+            let mut first = Row::ZERO;
+            add(&mut first, x.mantissa * c, x.exponent - 30);
+            add(&mut first, -(y.mantissa * s), y.exponent - 30);
+            let mut second = Row::ZERO;
+            add(&mut second, y.mantissa * c, y.exponent - 30);
+            add(&mut second, x.mantissa * s, x.exponent - 30);
+            out[i] = hologram_ai_exact::round_to_binary32(&first);
+            out[i + half] = hologram_ai_exact::round_to_binary32(&second);
+        }
+        out
+    };
+    let mut wrong = Vec::new();
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: rotate_firsts_row_{rows},\n")) {
+        for (part, offset) in [("firsts", 0), ("seconds", 1)] {
+            let name = format!("rotate_{part}_row_{rows}");
+            let found = declaration(&proofs, &name);
+            assert!(
+                found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+                "{name} must be evaluated by Lean:\n{found}"
+            );
+            let statement = found
+                .split(&format!("statement: ((Engine.Stage.Rotate::{part}From "))
+                .nth(1)
+                .unwrap_or_else(|| panic!("{name} is not an evaluation of {part}From"));
+            let (head, rest) = cons_list(statement);
+            let (frequencies, rest) = cons_list(rest.trim_start());
+            let (numbers, rest) = rest.trim_start().split_once(')').expect("the sizes");
+            let n: Vec<u64> = numbers
+                .split_whitespace()
+                .map(|x| x.parse().expect("a number"))
+                .collect();
+            let (position, half) = (n[0] as u32, n[1] as usize);
+            let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+            let head: Vec<u32> = head.iter().map(|&x| x as u32).collect();
+            let rotated = rotate(&head, &frequencies, position);
+            let rust: Vec<u64> = rotated[offset * half..(offset + 1) * half]
+                .iter()
+                .map(|&x| u64::from(x))
+                .collect();
+            if rust != expected {
+                wrong.push(format!("{name}: cpu-decode's rotation gives {rust:?}"));
+            }
+        }
+        rows += 1;
+    }
+    assert!(
+        wrong.is_empty(),
+        "cpu-decode's rotation disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+    assert!(rows >= 4, "four heads are evaluated, found {rows}");
+}

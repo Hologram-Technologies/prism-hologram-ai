@@ -563,3 +563,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageRotary in the gate
     Then rotary_entries_row_0, rotary_sines_row_0, rotary_cosines_row_0 and rotary_angles_row_0 evaluate the stage
     And kernel_kn_86 replays each through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle and finds the same words
+
+  @KN-88 @build
+  Scenario: Rotating a head's pairs is defined in LexLean, not Rust: Engine.Stage.Rotate::firstsFrom and secondsFrom give pair i of a head, at its frequency's angle (KN-86), as x cos - y sin and y cos + x sin, each summed exactly at 2^-179 and rounded once by KN-62's Binary32::round; Lean proves every output is a word and each half has one output a pair, and evaluates heads that the kernel test replays through cpu-decode's rotate arithmetic on crates/exact's rope_angle, cosine_turn, sine_turn and round_to_binary32
+    Given the stage in app/src/Engine/Stage/Rotate.lex.tex and its proofs in app/src/Proofs/StageRotate.lex.tex
+    When lexlean verify checks Proofs.StageRotate in the gate
+    Then rotate_first_is_word and rotate_second_is_word hold for every input, and rotate_firsts_count and rotate_seconds_count give one output a pair
+    And rotate_firsts_row_0 to _3 and rotate_seconds_row_0 to _3 evaluate the stage, and kernel_kn_88 replays them through cpu-decode's rotate arithmetic and finds the same words
