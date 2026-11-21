@@ -3,6 +3,7 @@
 \useglossary{lexlean.std.nat@1.2.0}
 \importmodule{Engine.Stage.Greedy}
 \importmodule{Engine.Stage.Requant}
+\importmodule{Engine.Word}
 \title{Natural numbers}
 \begin{semanticmodule}
 definition{
@@ -183,6 +184,70 @@ theorem{
     ]
   },
   axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: requant_codes_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::codes (Engine.Word::joined (cons 3171383822 (cons 1051600945 (cons 1072554471 (cons 3213476970 (cons 3213459258 (cons 1066687013 (cons 3182033488 (cons 3210218457 (cons 3205572325 (cons 3213014725 (cons 3221179086 (cons 1061843136 (cons 1075262998 (cons 1066467907 (cons 1062143367 (cons 3212412666 (nil Nat))))))))))))))))) (cons 3201055471 (cons 3221791669 (cons 1068476735 (cons 3214692241 (cons 3214928902 (cons 1077451767 (cons 3212131680 (cons 1077400694 (cons 1060450017 (cons 1070109065 (cons 1061459206 (cons 3220620568 (cons 1067679898 (cons 3216589803 (cons 3205349980 (cons 3222136491 (nil Nat)))))))))))))))))) 1) = (Engine.Word::joined (cons 4294967025 (cons 2787 (cons 15224 (cons 4294958479 (cons 4294958496 (cons 9495 (cons 4294966616 (cons 4294960383 (cons 4294962651 (cons 4294958930 (cons 4294950957 (cons 6478 (cons 19355 (cons 9281 (cons 6625 (cons 4294959311 (nil Nat))))))))))))))))) (cons 4294964028 (cons 4294949806 (cons 11242 (cons 4294957292 (cons 4294957061 (cons 23630 (cons 4294959448 (cons 23530 (cons 5798 (cons 12836 (cons 6291 (cons 4294951503 (cons 10464 (cons 4294955439 (cons 4294962760 (cons 4294949133 (nil Nat))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_powers_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::powers (Engine.Word::joined (cons 3171383822 (cons 1051600945 (cons 1072554471 (cons 3213476970 (cons 3213459258 (cons 1066687013 (cons 3182033488 (cons 3210218457 (cons 3205572325 (cons 3213014725 (cons 3221179086 (cons 1061843136 (cons 1075262998 (cons 1066467907 (cons 1062143367 (cons 3212412666 (nil Nat))))))))))))))))) (cons 3201055471 (cons 3221791669 (cons 1068476735 (cons 3214692241 (cons 3214928902 (cons 1077451767 (cons 3212131680 (cons 1077400694 (cons 1060450017 (cons 1070109065 (cons 1061459206 (cons 3220620568 (cons 1067679898 (cons 3216589803 (cons 3205349980 (cons 3222136491 (nil Nat)))))))))))))))))) 1) = (cons 13 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::codes (Engine.Word::joined (cons 3127345762 (cons 3121274185 (cons 3141472655 (cons 3127949715 (cons 996505563 (cons 1002701649 (cons 3129830362 (cons 3150811936 (cons 3140843660 (cons 3155096014 (cons 3150686398 (cons 993975012 (cons 994514370 (cons 3159817208 (cons 3116597149 (cons 3139597137 (nil Nat))))))))))))))))) (cons 3143865261 (cons 3159837488 (cons 3146041433 (cons 3162657982 (cons 1006638831 (cons 1003976321 (cons 1002575208 (cons 3146874812 (cons 1018894990 (cons 3151997657 (cons 3162702915 (cons 3152564291 (cons 1019484786 (cons 3165138716 (cons 1015409491 (cons 1021689066 (nil Nat)))))))))))))))))) 1) = (Engine.Word::joined (cons 4294966370 (cons 4294966741 (cons 4294964239 (cons 4294966333 (cons 3671 (cons 6272 (cons 4294966165 (cons 4294960718 (cons 4294964392 (cons 4294958148 (cons 4294960779 (cons 3054 (cons 3185 (cons 4294953537 (cons 4294966905 (cons 4294964697 (nil Nat))))))))))))))))) (cons 4294963655 (cons 4294953517 (cons 4294963047 (cons 4294950614 (cons 8198 (cons 6895 (cons 6211 (cons 4294962640 (cons 23949 (cons 4294960139 (cons 4294950526 (cons 4294959862 (cons 25101 (cons 4294945768 (cons 17142 (cons 29406 (nil Nat))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_powers_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::powers (Engine.Word::joined (cons 3127345762 (cons 3121274185 (cons 3141472655 (cons 3127949715 (cons 996505563 (cons 1002701649 (cons 3129830362 (cons 3150811936 (cons 3140843660 (cons 3155096014 (cons 3150686398 (cons 993975012 (cons 994514370 (cons 3159817208 (cons 3116597149 (cons 3139597137 (nil Nat))))))))))))))))) (cons 3143865261 (cons 3159837488 (cons 3146041433 (cons 3162657982 (cons 1006638831 (cons 1003976321 (cons 1002575208 (cons 3146874812 (cons 1018894990 (cons 3151997657 (cons 3162702915 (cons 3152564291 (cons 1019484786 (cons 3165138716 (cons 1015409491 (cons 1021689066 (nil Nat)))))))))))))))))) 1) = (cons 20 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::codes (Engine.Word::joined (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))) (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))))))))))))) 1) = (Engine.Word::joined (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))) (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_powers_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::powers (Engine.Word::joined (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))) (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat)))))))))))))))))) 1) = (cons 0 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_codes_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::codes (Engine.Word::joined (cons 931135488 (cons 3338665984 (cons 947912704 (cons 3321888768 (cons 964689920 (cons 3305111552 (cons 981467136 (cons 3288334336 (cons 998244352 (cons 3271557120 (cons 1015021568 (cons 3254779904 (cons 1031798784 (cons 3238002688 (cons 1048576000 (cons 3221225472 (nil Nat))))))))))))))))) (cons 1065353216 (cons 3204448256 (cons 1082130432 (cons 3187671040 (cons 1098907648 (cons 3170893824 (cons 1115684864 (cons 3154116608 (cons 1132462080 (cons 3137339392 (cons 1149239296 (cons 3120562176 (cons 1166016512 (cons 3103784960 (cons 1182793728 (cons 3087007744 (nil Nat)))))))))))))))))) 1) = (Engine.Word::joined (cons 0 (cons 4294950912 (cons 0 (cons 4294963200 (cons 0 (cons 4294966272 (cons 0 (cons 4294967040 (cons 0 (cons 4294967232 (cons 0 (cons 4294967280 (cons 0 (cons 4294967292 (cons 0 (cons 4294967295 (nil Nat))))))))))))))))) (cons 0 (cons 0 (cons 2 (cons 0 (cons 8 (cons 0 (cons 32 (cons 0 (cons 128 (cons 0 (cons 512 (cons 0 (cons 2048 (cons 0 (cons 8192 (cons 0 (nil Nat))))))))))))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: requant_powers_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.Requant::powers (Engine.Word::joined (cons 931135488 (cons 3338665984 (cons 947912704 (cons 3321888768 (cons 964689920 (cons 3305111552 (cons 981467136 (cons 3288334336 (cons 998244352 (cons 3271557120 (cons 1015021568 (cons 3254779904 (cons 1031798784 (cons 3238002688 (cons 1048576000 (cons 3221225472 (nil Nat))))))))))))))))) (cons 1065353216 (cons 3204448256 (cons 1082130432 (cons 3187671040 (cons 1098907648 (cons 3170893824 (cons 1115684864 (cons 3154116608 (cons 1132462080 (cons 3137339392 (cons 1149239296 (cons 3120562176 (cons 1166016512 (cons 3103784960 (cons 1182793728 (cons 3087007744 (nil Nat)))))))))))))))))) 1) = (cons 4294967295 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
 }
 \end{semanticmodule}
 \end{lexlean}

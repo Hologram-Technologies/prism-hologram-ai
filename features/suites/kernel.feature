@@ -570,3 +570,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageGated in the gate
     Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
     And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
+
+  @KN-61 @build
+  Scenario: Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs
+    Given the stage in app/src/Engine/Stage/Requant.lex.tex and its proofs in app/src/Proofs/StageRequant.lex.tex
+    When lexlean verify checks Proofs.StageRequant in the gate
+    Then requant_codes_are_signed_16 holds for every input and requant_power_is_word for every group
+    And requant_codes_row_0 to _3 and requant_powers_row_0 to _3 evaluate the stage on four groups, and kernel_kn_61 replays each through crates/exact's quantise_with and finds the same codes and powers
