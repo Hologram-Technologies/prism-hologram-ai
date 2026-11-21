@@ -6033,6 +6033,108 @@ fn kernel_kn_83() {
     assert!(rows >= 1, "a row is evaluated, found {rows}");
 }
 
+/// `KN-90`: The feed-forward's fixed-point entry and gated product are defined in LexLean, not Rust: Engine.Stage.Gated::entry puts a binary32 gate value on units of 2^-16, rounded half to even, as cpu-decode's shift_even, and gatedWord multiplies its SiLU (KN-83) by the up value exactly and rounds once by KN-62's Binary32::round, as cpu-decode's round_exact step; Lean proves every product is a word and one output a pair, and evaluates entries and products that the kernel test replays through cpu-decode's arithmetic on crates/exact's silu and round_exact
+#[test]
+fn kernel_kn_90() {
+    use hologram_ai_exact::Dyadic;
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageGated.lex.tex");
+    for name in ["gated_is_word", "gated_entry_count", "gated_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    // cpu-decode's shift_even and gated step, whose arithmetic the replay repeats.
+    let decoder = std::fs::read_to_string(root().join("crates/cpu-decode/src/lib.rs"))
+        .expect("cpu-decode's source");
+    for line in [
+        "let up = rest > half || (rest == half && whole & 1 == 1);",
+        "let fixed = i64::try_from(shift_even(g.mantissa, g.exponent + 16))",
+        "let a = exact::silu(fixed);",
+        "i128::from(a) * u.mantissa,",
+        "u.exponent - 16,",
+    ] {
+        assert!(
+            decoder.contains(line),
+            "cpu-decode's gated step changed: {line}"
+        );
+    }
+    let shift_even = |value: i128, shift: i32| -> i128 {
+        if shift >= 0 {
+            return value
+                .checked_shl(shift.unsigned_abs())
+                .unwrap_or(if value < 0 { i128::MIN } else { i128::MAX });
+        }
+        let by = shift.unsigned_abs();
+        if by >= 127 {
+            return 0;
+        }
+        let magnitude = value.unsigned_abs();
+        let (whole, rest, half) = (
+            magnitude >> by,
+            magnitude & ((1u128 << by) - 1),
+            1u128 << (by - 1),
+        );
+        let up = rest > half || (rest == half && whole & 1 == 1);
+        let rounded = (whole + u128::from(up)) as i128;
+        if value < 0 {
+            -rounded
+        } else {
+            rounded
+        }
+    };
+    let entry = |g: u32| -> i64 {
+        let g = Dyadic::from_binary32(g).expect("finite");
+        i64::try_from(shift_even(g.mantissa, g.exponent + 16)).expect("within i64")
+    };
+    let row = |name: &str, function: &str| -> (Vec<u64>, String) {
+        let found = declaration(&proofs, name);
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "{name} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split(&format!("statement: ((Engine.Stage.Gated::{function} "))
+            .nth(1)
+            .unwrap_or_else(|| panic!("{name} is not an evaluation of {function}"));
+        let (xs, rest) = cons_list(statement);
+        (xs, rest.to_string())
+    };
+    let (gs, rest) = row("gated_entry_row_0", "entryFrom");
+    let (_, rest) = rest.trim_start().split_once(')').expect("the sizes");
+    let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+    let rust: Vec<u64> = gs.iter().map(|&g| entry(g as u32) as u64).collect();
+    let mut wrong = Vec::new();
+    if rust != expected {
+        wrong.push(format!("gated_entry_row_0: cpu-decode gives {rust:?}"));
+    }
+    let (gs, rest) = row("gated_row_0", "gatedFrom");
+    let (us, rest) = cons_list(rest.trim_start());
+    let (_, rest) = rest.trim_start().split_once(')').expect("the sizes");
+    let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+    let rust: Vec<u64> = gs
+        .iter()
+        .zip(&us)
+        .map(|(&g, &u)| {
+            let a = hologram_ai_exact::silu(entry(g as u32));
+            let u = Dyadic::from_binary32(u as u32).expect("finite");
+            u64::from(hologram_ai_exact::round_exact(
+                i128::from(a) * u.mantissa,
+                u.exponent - 16,
+            ))
+        })
+        .collect();
+    if rust != expected {
+        wrong.push(format!("gated_row_0: cpu-decode gives {rust:?}"));
+    }
+    assert!(
+        wrong.is_empty(),
+        "cpu-decode's gated step disagrees with the stage:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// `KN-86`: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
 #[test]
 fn kernel_kn_86() {

@@ -564,6 +564,13 @@ Feature: kernel
     Then silu_count gives two words a value for every input
     And silu_row_0 evaluates the stage on twelve values, and kernel_kn_83 replays each through crates/exact's silu and finds the same words
 
+  @KN-90 @build
+  Scenario: The feed-forward's fixed-point entry and gated product are defined in LexLean, not Rust: Engine.Stage.Gated::entry puts a binary32 gate value on units of 2^-16, rounded half to even, as cpu-decode's shift_even, and gatedWord multiplies its SiLU (KN-83) by the up value exactly and rounds once by KN-62's Binary32::round, as cpu-decode's round_exact step; Lean proves every product is a word and one output a pair, and evaluates entries and products that the kernel test replays through cpu-decode's arithmetic on crates/exact's silu and round_exact
+    Given the stage in app/src/Engine/Stage/Gated.lex.tex and its proofs in app/src/Proofs/StageGated.lex.tex
+    When lexlean verify checks Proofs.StageGated in the gate
+    Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
+    And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
+
   @KN-86 @build
   Scenario: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
     Given the stage in app/src/Engine/Stage/Rotary.lex.tex and its proofs in app/src/Proofs/StageRotary.lex.tex
