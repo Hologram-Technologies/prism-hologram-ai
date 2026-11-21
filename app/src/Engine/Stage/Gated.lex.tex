@@ -1,0 +1,59 @@
+\begin{lexlean}{Engine.Stage.Gated}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Attention}
+\importmodule{Engine.Stage.Binary32}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Silu}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: entrySize,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 133 (Engine.Stage.Attention::scaleOf bits)) (prim multiply (Engine.Stage.Attention::mantissaOf bits) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Attention::scaleOf bits) 134 : Nat)) : Nat) (Engine.Stage.Softmax::divideEven (Engine.Stage.Attention::mantissaOf bits) (Engine.Stage.Attention::powTwo (prim subtract 134 (Engine.Stage.Attention::scaleOf bits) : Nat))))
+}
+
+definition{
+  name: entry,
+  parameters: [bits : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Attention::negOf bits) (prim remainder (prim subtract 18446744073709551616 (entrySize bits) : Nat) 18446744073709551616 0 : Nat) (entrySize bits))
+}
+
+definition{
+  name: gatedWord,
+  parameters: [g : Nat, u : Nat],
+  result: Nat,
+  body: (Engine.Stage.Binary32::round (prim remainder ((Engine.Stage.Silu::negative (Engine.Stage.Silu::silu (entry g))) + (Engine.Stage.Attention::negOf u)) 2 0 : Nat) (prim multiply (prim multiply (Engine.Stage.Silu::size (Engine.Stage.Silu::silu (entry g))) (Engine.Stage.Attention::mantissaOf u) : Nat) (Engine.Stage.Attention::powTwo (prim subtract (Engine.Stage.Attention::scaleOf u) 1 : Nat)) : Nat) 165 1280)
+}
+
+definition{
+  name: wordAt,
+  parameters: [words : (List Nat), i : Nat],
+  result: Nat,
+  body: (prim remainder (Engine.Stage.Greedy::nth words i) 4294967296 0 : Nat)
+}
+
+definition{
+  name: entryFrom,
+  parameters: [xs : (List Nat), i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (entry (wordAt xs i)) (entryFrom xs (i + 1) rest))),
+  recursive_argument: remaining
+}
+
+definition{
+  name: gatedFrom,
+  parameters: [gs : (List Nat), us : (List Nat), i : Nat, remaining : Nat],
+  result: (List Nat),
+  body: (match remaining
+    | Nat.zero => (nil Nat)
+    | Nat.succ rest => (cons (gatedWord (wordAt gs i) (wordAt us i)) (gatedFrom gs us (i + 1) rest))),
+  recursive_argument: remaining
+}
+\end{semanticmodule}
+\end{lexlean}
