@@ -644,12 +644,20 @@ try {
     results.onnx["kept offline"] = await visit(true);
     const tamper = await context.newPage();
     await tamper.goto(`${origin}/app/`);
-    await tamper.evaluate(async ({ name, bytes }) => {
+    // The tensor is expected kept by the two visits before. If it is not, the
+    // tamper is recorded with what the browser holds, so the verdicts below
+    // say which visit lost it, rather than the journey stopping here with no
+    // verdict at all.
+    results.onnx.tamper = await tamper.evaluate(async ({ name, bytes }) => {
       const root = await navigator.storage.getDirectory();
-      const dir = await root.getDirectoryHandle("hologram-files");
+      const dir = await root.getDirectoryHandle("hologram-files", { create: true });
+      const held = [];
+      for await (const [n, h] of dir.entries()) if (h.kind === "file") held.push(n);
+      if (!held.includes(name)) return { tampered: false, name, held };
       const w = await (await dir.getFileHandle(name)).createWritable();
       await w.write(new Uint8Array(bytes));
       await w.close();
+      return { tampered: true, name, held };
     }, (() => {
       // The graph is kept as its tensors (GP-31): one byte of its largest
       // kept tensor flipped, so the graph read back is not its BLAKE3.
@@ -926,6 +934,11 @@ if (!/^Stopped: stale page/.test(again.status ?? "") || !again.disabled) fail(`a
 // GP-19: the ONNX export.
 // WebGPU is usable only on a cross-origin-isolated page (GP-56), so a visit
 // that is not runs on the CPU and one that is runs on WebGPU.
+// GP-21: the tensor the journey tampers with was kept by the visits before.
+if (!results.onnx.tamper?.tampered) {
+  const offline = results.onnx["kept offline"];
+  fail(`kept: the largest tensor ${results.onnx.tamper?.name} was not held when the journey went to change it; held ${results.onnx.tamper?.held?.length ?? 0} files; the offline visit was ${offline?.phase} on ${offline?.device}${offline?.error ? ` (${offline.error})` : ""}`);
+}
 for (const [name, gpu] of [["good", true], ["cpu", false], ["kept first", true], ["kept offline", true], ["kept again", true], ["kept short", true]]) {
   const run = results.onnx[name];
   const device = gpu && run.isolated ? "webgpu" : "cpu";

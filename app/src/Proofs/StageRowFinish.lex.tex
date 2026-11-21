@@ -1,0 +1,110 @@
+\begin{lexlean}{Proofs.StageRowFinish}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.RowFinish}
+\importmodule{Proofs.StageBinary32}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: row_finish_is_word,
+  parameters: [words : (List Nat), row : Nat],
+  statement: ((Engine.Stage.RowFinish::finish words row) <= 4286578688),
+  proof: simplify{
+    definitions: [Engine.Stage.RowFinish::finish, Proofs.StageBinary32::binary32_round_is_word]
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: row_finish_count,
+  parameters: [words : (List Nat), row : Nat, n : Nat],
+  statement: ((Engine.Stage.Greedy::size (Engine.Stage.RowFinish::finishFrom words row n)) = n),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [Engine.Stage.Greedy::size, Engine.Stage.RowFinish::finishFrom]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: simplify{
+          definitions: [hypothesis, Engine.Stage.Greedy::size, Engine.Stage.RowFinish::finishFrom]
+        },
+        binders: [rest, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [row],
+    scrutinee: n
+  },
+  axioms: [propext]
+}
+
+theorem{
+  name: row_finish_row_0,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 1 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))) 1) = (cons 1065353216 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_1,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 2147483648 (cons 4294967294 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (nil Nat))))))))))))) 1) = (cons 3217031168 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_2,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 1 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))) 1) = (cons 0 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_3,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (nil Nat))))))))))))) 1) = (cons 2147483648 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_4,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 4294967295 (cons 2147483647 (nil Nat))))))))))))) 1) = (cons 2139095040 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_5,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 256 (cons 1 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))) 1) = (cons 1065353216 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_6,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 768 (cons 1 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))) 1) = (cons 1065353218 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: row_finish_row_7,
+  parameters: [],
+  statement: ((Engine.Stage.RowFinish::run (cons 0 (cons 2048 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))) 1) = (cons 1 (nil Nat))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

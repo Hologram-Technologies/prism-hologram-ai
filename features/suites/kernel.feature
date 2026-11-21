@@ -542,6 +542,21 @@ Feature: kernel
     Then the guest prints renderKernel's text of the tree, and the kernels' rows are hologram_ai_exact's
     And the printed text names no f32 or f16
 
+  @KN-62 @build
+  Scenario: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/Attention.lex.tex, its rounding in app/src/Engine/Stage/Binary32.lex.tex, and their proofs in app/src/Proofs/StageAttention.lex.tex and app/src/Proofs/StageBinary32.lex.tex
+    When lexlean verify checks Proofs.StageAttention and Proofs.StageBinary32 in the gate
+    Then attention_score_is_word and attention_out_is_word hold for every input, and attention_head_count gives head_dim words for every head
+    And binary32_round_is_word holds for every value the rounding takes
+    And attention_head_row_0 to attention_head_row_3 and binary32_row_0 to binary32_row_11 evaluate the stage, and kernel_kn_62 replays each through cpu-decode's attend_head and crates/exact's round_to_binary32 and finds the same words
+
+  @KN-63 @build
+  Scenario: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/RowFinish.lex.tex and its proofs in app/src/Proofs/StageRowFinish.lex.tex
+    When lexlean verify checks Proofs.StageRowFinish in the gate
+    Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
+    And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word
+
   @KN-86 @build
   Scenario: The rotary sine table, angle and quarter-wave reading are defined in LexLean, not Rust: Engine.Stage.Rotary::sineEntry generates entry r, the integer nearest 2^30 sin(pi r / 32768), from pi by Machin's formula and the sine's Taylor series in integers over 2^120; sineTurn and cosineTurn read it by quadrant at the angle rounded half to even to 2^-16 of a turn; ropeAngle is position times frequency modulo a turn, rounded half to even to 2^-32 of a turn; Lean evaluates entries, sines, cosines and angles that the kernel test replays through crates/exact's sine_quarter, sine_turn, cosine_turn and rope_angle
     Given the stage in app/src/Engine/Stage/Rotary.lex.tex and its proofs in app/src/Proofs/StageRotary.lex.tex
