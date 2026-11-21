@@ -549,3 +549,10 @@ Feature: kernel
     Then attention_score_is_word and attention_out_is_word hold for every input, and attention_head_count gives head_dim words for every head
     And binary32_round_is_word holds for every value the rounding takes
     And attention_head_row_0 to attention_head_row_3 and binary32_row_0 to binary32_row_11 evaluate the stage, and kernel_kn_62 replays each through cpu-decode's attend_head and crates/exact's round_to_binary32 and finds the same words
+
+  @KN-63 @build
+  Scenario: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/RowFinish.lex.tex and its proofs in app/src/Proofs/StageRowFinish.lex.tex
+    When lexlean verify checks Proofs.StageRowFinish in the gate
+    Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
+    And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word
