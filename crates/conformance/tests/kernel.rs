@@ -6135,6 +6135,19 @@ fn kernel_kn_90() {
     );
 }
 
+/// A LexLean list written as `(cons a ...)` or as `(Engine.Word::joined A B)`
+/// of such lists, at the start of `text`, and the text after it.
+fn joined_list(text: &str) -> (Vec<u64>, &str) {
+    if let Some(rest) = text.strip_prefix("(Engine.Word::joined ") {
+        let (mut first, rest) = joined_list(rest);
+        let (second, rest) = joined_list(rest.trim_start());
+        first.extend(second);
+        (first, rest.strip_prefix(')').expect("a closed join"))
+    } else {
+        cons_list(text)
+    }
+}
+
 /// `KN-92`: The logits head is defined in LexLean, not Rust: Engine.Stage.Head::head puts the input on KN-61's sixteen-bit codes and group powers, multiplies each row of f16 or binary32 weights by them exactly, each group at its own power, and rounds each logit once by KN-62's Binary32::round, as cpu-decode's head through crates/exact's dense_product_with; Lean proves every logit is a word and the head gives one logit a row, and evaluates heads that the kernel test replays through dense_product_with
 #[test]
 fn kernel_kn_92() {
