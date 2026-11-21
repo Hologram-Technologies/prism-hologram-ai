@@ -1048,3 +1048,9 @@ id = "GP-60"
 level = "build"
 suite = "gpu"
 statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
+
+[[id]]
+id = "GP-61"
+level = "build"
+suite = "gpu"
+statement = "The page reads every address the module gives it as an unsigned 32-bit number: its answer's address and length, the address it allocates, and the addresses it passes when it asks for a product or a kernel answer; so a model whose weights take the module past 2 GiB of memory, as Llama 3.2 1B's do, is read at the right bytes and its products reach WebGPU, where read signed its slices were other bytes and the WebGPU worker refused them"

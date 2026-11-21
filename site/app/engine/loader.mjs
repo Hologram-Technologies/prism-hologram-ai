@@ -66,9 +66,15 @@ export function moduleOf(compiled, memory = null) {
   // with nothing, which the importer refuses.
   let kernel = null;
   let x = null;
+  // A wasm32 address or length is an unsigned 32-bit number, and reaches
+  // JavaScript as a signed one: past 2 GiB of memory it is negative, and a
+  // view or a slice at it reads other bytes (GP-61). Every address is read
+  // unsigned where it enters.
+  const u = (n) => n >>> 0;
   const imports = {
     kernel: {
       ask: (at, len, out, cap) => {
+        [at, len, out, cap] = [u(at), u(len), u(out), u(cap)];
         if (!kernel) return 0;
         const answer = kernel(new Uint8Array(x.memory.buffer).slice(at, at + len));
         new Uint8Array(x.memory.buffer).set(answer.subarray(0, Math.min(answer.length, cap)), out);
@@ -76,7 +82,7 @@ export function moduleOf(compiled, memory = null) {
       },
       // A product handed to the engine's helpers (GP-52), once
       // setProducts names them; until then every product is refused.
-      product: (number, at, len, out, cap) => (products ? products(number, at, len, out, cap) : 1),
+      product: (number, at, len, out, cap) => (products ? products(number, u(at), u(len), u(out), u(cap)) : 1),
     },
   };
   let products = null;
@@ -86,13 +92,16 @@ export function moduleOf(compiled, memory = null) {
     if (pages > 0) x.memory.grow(pages);
     new Uint8Array(x.memory.buffer).set(memory);
   }
-  const result = () => new Uint8Array(x.memory.buffer).slice(x.result_at(), x.result_at() + x.result_len());
+  const result = () => {
+    const at = u(x.result_at());
+    return new Uint8Array(x.memory.buffer).slice(at, at + u(x.result_len()));
+  };
   const check = (name, status) => {
     if (status !== 0) throw new Error(`${name}: ${text.decode(result())}`);
     return result();
   };
   const withBytes = (bytes, run) => {
-    const at = x.allocate(bytes.length);
+    const at = u(x.allocate(bytes.length));
     new Uint8Array(x.memory.buffer).set(bytes, at);
     try {
       return run(at, bytes.length);

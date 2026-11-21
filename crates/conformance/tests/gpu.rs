@@ -1634,7 +1634,7 @@ fn gpu_gp_52() {
     );
     pinned(
         "site/app/engine/loader.mjs",
-        &["product: (number, at, len, out, cap) => (products ? products(number, at, len, out, cap) : 1),"],
+        &["product: (number, at, len, out, cap) => (products ? products(number, u(at), u(len), u(out), u(cap)) : 1),"],
     );
     pinned(
         "crates/wasm/src/lib.rs",
@@ -1895,5 +1895,25 @@ fn gpu_gp_70() {
             "answered(`early ${name}`, run);",
             "fail(`early ${name}: the prompt sent during the load was answered as a turn after it, not run as the model arrived`);",
         ],
+    );
+}
+
+/// `GP-61`: The page reads every address the module gives it as an unsigned 32-bit number: its answer's address and length, the address it allocates, and the addresses it passes when it asks for a product or a kernel answer; so a model whose weights take the module past 2 GiB of memory, as Llama 3.2 1B's do, is read at the right bytes and its products reach WebGPU, where read signed its slices were other bytes and the WebGPU worker refused them
+#[test]
+fn gpu_gp_61() {
+    // Found on 2026-11-21 by row 15 on the published page: Llama 3.2 1B on
+    // WebGPU stopped at "the WebGPU worker did not open: slices_hold:
+    // WrongSize", its weights and their slices past 2 GiB of the module's
+    // memory, while Qwen3-0.6B, half its size, passed.
+    let result = node("crates/conformance/tests/gpu/addresses.mjs", &[]);
+    assert_eq!(
+        result["answer"],
+        serde_json::json!([]),
+        "an answer past 2 GiB was read at other bytes: {result}"
+    );
+    assert_eq!(
+        result["asked"],
+        serde_json::json!({"number": 3, "at": 2_147_483_680u64, "len": 16, "out": 4_294_967_280u64, "cap": 8}),
+        "a product's addresses past 2 GiB reached the page signed: {result}"
     );
 }
