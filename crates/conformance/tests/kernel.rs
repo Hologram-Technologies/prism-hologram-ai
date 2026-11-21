@@ -5838,6 +5838,154 @@ fn kernel_kn_95() {
     );
 }
 
+/// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_62() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageAttention.lex.tex");
+    let rounding = model("app/src/Proofs/StageBinary32.lex.tex");
+    for (module, name) in [
+        (&proofs, "attention_score_is_word"),
+        (&proofs, "attention_out_is_word"),
+        (&proofs, "attention_head_count"),
+        (&rounding, "binary32_round_is_word"),
+    ] {
+        assert!(
+            module.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut heads = 0;
+    while proofs.contains(&format!("\n  name: attention_head_row_{heads},\n")) {
+        let found = declaration(&proofs, &format!("attention_head_row_{heads}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "attention_head_row_{heads} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Attention::attend ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("attention_head_row_{heads} is not an evaluation of attend"));
+        let (query, rest) = cons_list(statement);
+        let (keys, rest) = cons_list(rest.trim_start());
+        let (values, rest) = cons_list(rest.trim_start());
+        let (numbers, rest) = rest.trim_start().split_once(')').expect("the head's sizes");
+        let n: Vec<usize> = numbers
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let [hq, group, kv_heads, head_dim, seen, root] = n[..] else {
+            panic!("attention_head_row_{heads}: six sizes")
+        };
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let words = |xs: &[u64]| xs.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+        let (query, keys, values) = (words(&query), words(&keys), words(&values));
+        let rust: Vec<u64> = hologram_ai_cpu_decode::attend_head(
+            &query[hq * head_dim..(hq + 1) * head_dim],
+            &keys[..seen * kv_heads * head_dim],
+            &values[..seen * kv_heads * head_dim],
+            hq / group,
+            kv_heads,
+            root as i128,
+        )
+        .expect("finite values")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        assert_eq!(
+            rust, expected,
+            "attention_head_row_{heads}: cpu-decode disagrees with the stage"
+        );
+        heads += 1;
+    }
+    assert!(heads >= 4, "four heads are evaluated, found {heads}");
+    let mut rows = 0;
+    while rounding.contains(&format!("\n  name: binary32_row_{rows},\n")) {
+        let found = declaration(&rounding, &format!("binary32_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "binary32_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Binary32::round ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("binary32_row_{rows} is not an evaluation of round"));
+        let (args, result) = statement.split_once(") = ").expect("an equation");
+        let args: Vec<u128> = args
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number below 2^128"))
+            .collect();
+        let (negative, n, k) = (args[0] == 1, args[1], args[2] as i32);
+        let expected: u32 = result
+            .split(')')
+            .next()
+            .unwrap_or(result)
+            .parse()
+            .expect("bits");
+        let mut row = hologram_ai_exact::Row::ZERO;
+        row.add_scaled(n & u128::from(u64::MAX), -k, negative);
+        row.add_scaled(n >> 64, 64 - k, negative);
+        assert_eq!(
+            hologram_ai_exact::round_to_binary32(&row),
+            expected,
+            "binary32_row_{rows}: crates/exact rounds (-1)^{negative} {n} 2^-{k} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
+}
+
+/// `KN-63`: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_63() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRowFinish.lex.tex");
+    for name in ["row_finish_is_word", "row_finish_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: row_finish_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("row_finish_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "row_finish_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.RowFinish::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("row_finish_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let rest = rest.trim_start().strip_prefix("1) = ").expect("one row");
+        let expected = cons_list(rest).0;
+        assert_eq!(words.len(), 12, "row_finish_row_{rows}: twelve words");
+        // The register's magnitude, two's complement over 384 bits.
+        let negative = words[11] >> 31 == 1;
+        let mut magnitude: Vec<u64> = words.clone();
+        if negative {
+            let mut carry = 1u64;
+            for word in &mut magnitude {
+                let flipped = (!*word & 0xffff_ffff) + carry;
+                *word = flipped & 0xffff_ffff;
+                carry = flipped >> 32;
+            }
+        }
+        let mut row = hologram_ai_exact::Row::ZERO;
+        for (i, &word) in magnitude.iter().enumerate() {
+            row.add_scaled(u128::from(word), 32 * i as i32 - 192, negative);
+        }
+        let rust = vec![u64::from(hologram_ai_exact::round_to_binary32(&row))];
+        assert_eq!(
+            rust, expected,
+            "row_finish_row_{rows}: crates/exact rounds the register {words:?} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 8, "eight rows are evaluated, found {rows}");
+}
+
 /// `KN-61`: Requantising inputs to sixteen bits is defined in LexLean, not Rust: Engine.Stage.Requant::codes gives each binary32 input its 16-bit code under its group of 32's largest power of two that keeps every code within 32767, rounded half to even, and powers gives each group that power; Lean proves every code is a signed 16-bit word and every power a u32 word, and evaluates groups that the kernel test replays through crates/exact's quantise_with at the scheme cpu-decode runs
 #[test]
 fn kernel_kn_61() {
