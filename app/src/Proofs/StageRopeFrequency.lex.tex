@@ -1,0 +1,23 @@
+\begin{lexlean}{Proofs.StageRopeFrequency}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.RopeFrequency}
+\title{Natural numbers}
+\begin{semanticmodule}
+theorem{
+  name: rope_plain_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.RopeFrequency::plain 1000000 128 0) (cons (Engine.Stage.RopeFrequency::plain 1000000 128 1) (cons (Engine.Stage.RopeFrequency::plain 1000000 128 31) (cons (Engine.Stage.RopeFrequency::plain 1000000 128 63) (cons (Engine.Stage.RopeFrequency::plain 500000 64 0) (cons (Engine.Stage.RopeFrequency::plain 500000 64 5) (cons (Engine.Stage.RopeFrequency::plain 500000 64 15) (cons (Engine.Stage.RopeFrequency::plain 500000 64 31) (nil Nat))))))))) = (cons 2935890503282001200 (cons 2365864426192925755 (cons 3643257386955005 (cons 3643257386955 (cons 2935890503282001200 (cons 377812037553223150 (cons 6256733609778575 (cons 8848357527104 (nil Nat)))))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+
+theorem{
+  name: rope_llama3_row_0,
+  parameters: [],
+  statement: ((cons (Engine.Stage.RopeFrequency::llama3 500000 64 0 32 1 4 8192) (cons (Engine.Stage.RopeFrequency::llama3 500000 64 5 32 1 4 8192) (cons (Engine.Stage.RopeFrequency::llama3 500000 64 12 32 1 4 8192) (cons (Engine.Stage.RopeFrequency::llama3 500000 64 15 32 1 4 8192) (cons (Engine.Stage.RopeFrequency::llama3 500000 64 20 32 1 4 8192) (cons (Engine.Stage.RopeFrequency::llama3 500000 64 31 32 1 4 8192) (nil Nat))))))) = (cons 2935890503282001200 (cons 377812037553223150 (cons 21410465145615241 (cons 3788907406459839 (cons 25161331703443 (cons 276511172722 (nil Nat)))))))),
+  proof: reflexivity{},
+  axioms: []
+}
+\end{semanticmodule}
+\end{lexlean}

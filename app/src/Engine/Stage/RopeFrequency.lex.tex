@@ -1,0 +1,117 @@
+\begin{lexlean}{Engine.Stage.RopeFrequency}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\importmodule{Engine.Stage.Greedy}
+\importmodule{Engine.Stage.Rotary}
+\importmodule{Engine.Stage.Softmax}
+\title{Natural numbers}
+\begin{semanticmodule}
+definition{
+  name: twoTo,
+  parameters: [n : Nat],
+  result: Nat,
+  body: (match n | Nat.zero => 1 | Nat.succ less => (prim multiply 2 (twoTo less) : Nat)),
+  recursive_argument: n
+}
+
+definition{
+  name: halveFrom,
+  parameters: [m : Nat, result : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => result
+    | Nat.succ more => (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 9223372036854775807 m) (halveFrom (prim quotient m 2 0 : Nat) (result + 4611686018427387904) more) result)),
+  recursive_argument: fuel
+}
+
+definition{
+  name: halved,
+  parameters: [m : Nat, fuel : Nat],
+  result: Nat,
+  body: (match fuel
+    | Nat.zero => m
+    | Nat.succ more => (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 9223372036854775807 m) (halved (prim quotient m 2 0 : Nat) more) m)),
+  recursive_argument: fuel
+}
+
+definition{
+  name: logBits,
+  parameters: [m : Nat, result : Nat, k : Nat],
+  result: Nat,
+  body: (match k
+    | Nat.zero => result
+    | Nat.succ b => (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 9223372036854775807 (prim quotient (prim multiply m m : Nat) 4611686018427387904 0 : Nat)) (logBits (prim quotient (prim quotient (prim multiply m m : Nat) 4611686018427387904 0 : Nat) 2 0 : Nat) (result + (twoTo b)) b) (logBits (prim quotient (prim multiply m m : Nat) 4611686018427387904 0 : Nat) result b))),
+  recursive_argument: k
+}
+
+definition{
+  name: log2Fixed,
+  parameters: [x : Nat],
+  result: Nat,
+  body: (logBits (halved x 128) (halveFrom x 0 128) 62)
+}
+
+definition{
+  name: rootLoop,
+  parameters: [rest : Nat, found : Nat, bit : Nat, steps : Nat],
+  result: Nat,
+  body: (match steps
+    | Nat.zero => found
+    | Nat.succ more => (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below rest (found + bit)) (rootLoop rest (prim quotient found 2 0 : Nat) (prim quotient bit 4 0 : Nat) more) (rootLoop (prim subtract rest (found + bit) : Nat) ((prim quotient found 2 0 : Nat) + bit) (prim quotient bit 4 0 : Nat) more))),
+  recursive_argument: steps
+}
+
+definition{
+  name: integerRoot,
+  parameters: [v : Nat],
+  result: Nat,
+  body: (rootLoop v 0 85070591730234615865843651857942052864 64)
+}
+
+definition{
+  name: powBits,
+  parameters: [power : Nat, product : Nat, fraction : Nat, k : Nat],
+  result: Nat,
+  body: (match k
+    | Nat.zero => product
+    | Nat.succ b => (Engine.Stage.Greedy::pick (prim remainder (prim quotient fraction (twoTo b) 0 : Nat) 2 0 : Nat) (powBits (integerRoot (prim multiply power 4611686018427387904 : Nat)) (prim quotient (prim multiply product (integerRoot (prim multiply power 4611686018427387904 : Nat)) : Nat) 4611686018427387904 0 : Nat) fraction b) (powBits (integerRoot (prim multiply power 4611686018427387904 : Nat)) product fraction b))),
+  recursive_argument: k
+}
+
+definition{
+  name: pow2Fixed,
+  parameters: [e : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below 61 (prim quotient e 4611686018427387904 0 : Nat)) (prim multiply (powBits 9223372036854775808 4611686018427387904 (prim remainder e 4611686018427387904 0 : Nat) 62) (twoTo (prim subtract (prim quotient e 4611686018427387904 0 : Nat) 62 : Nat)) : Nat) (prim quotient (powBits 9223372036854775808 4611686018427387904 (prim remainder e 4611686018427387904 0 : Nat) 62) (twoTo (prim subtract 62 (prim quotient e 4611686018427387904 0 : Nat) : Nat)) 0 : Nat))
+}
+
+definition{
+  name: plain,
+  parameters: [theta : Nat, headDim : Nat, i : Nat],
+  result: Nat,
+  body: (pow2Fixed (prim subtract 290536219160925437952 ((prim quotient (prim multiply i (log2Fixed (prim multiply theta 4611686018427387904 : Nat)) : Nat) (prim quotient headDim 2 0 : Nat) 0 : Nat) + (log2Fixed (prim quotient (Engine.Stage.Rotary::pi) 288230376151711744 0 : Nat))) : Nat))
+}
+
+definition{
+  name: llama3Scale,
+  parameters: [f : Nat, factor : Nat, low : Nat, high : Nat, original : Nat],
+  result: Nat,
+  body: (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (prim multiply high 18446744073709551616 : Nat) (prim multiply f original : Nat)) f (Engine.Stage.Greedy::pick (Engine.Stage.Greedy::below (prim multiply f original : Nat) (prim multiply low 18446744073709551616 : Nat)) (Engine.Stage.Softmax::divideEven f factor) (Engine.Stage.Softmax::divideEven (prim multiply f ((prim multiply (prim subtract high low : Nat) 18446744073709551616 : Nat) + (prim multiply (prim subtract (prim multiply f original : Nat) (prim multiply low 18446744073709551616 : Nat) : Nat) (prim subtract factor 1 : Nat) : Nat)) : Nat) (prim multiply factor (prim multiply (prim subtract high low : Nat) 18446744073709551616 : Nat) : Nat))))
+}
+
+definition{
+  name: llama3,
+  parameters: [
+    theta : Nat,
+    headDim : Nat,
+    i : Nat,
+    factor : Nat,
+    low : Nat,
+    high : Nat,
+    original : Nat
+  ],
+  result: Nat,
+  body: (llama3Scale (plain theta headDim i) factor low high original)
+}
+\end{semanticmodule}
+\end{lexlean}
