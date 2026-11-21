@@ -632,6 +632,11 @@ extern "C" {
     /// written at `answer`, at most `capacity` bytes; the answer's length.
     #[link_name = "ask"]
     fn page_ask(request: u32, length: u32, answer: u32, capacity: u32) -> u32;
+    /// The engine's helpers (GP-52): product `number` of the input at
+    /// `input`, `length` bytes, its rows written at `rows`, `capacity` bytes;
+    /// 0 when every helper answered.
+    #[link_name = "product"]
+    fn page_product(number: u32, input: u32, length: u32, rows: u32, capacity: u32) -> u32;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -739,6 +744,8 @@ pub extern "C" fn onnx_start(at: u32, len: u32, length: u64, declared: u32) -> u
                 ..OnnxImport::default()
             };
         });
+        // A new model: nothing of the last one's forward pass is kept.
+        DECODE.with_borrow_mut(|d| *d = Decode::default());
         Ok(Vec::new())
     })
 }
@@ -756,6 +763,40 @@ pub extern "C" fn onnx_take(at: u32, len: u32) -> u32 {
                 .map_err(CallError::Import)
         })?;
         Ok(Vec::new())
+    })
+}
+
+/// The tensors of the graph file that have arrived whole since the last
+/// call, after the kernel's questions on them (EN-111), one a line: its
+/// name, its element type as `onnx.proto` numbers it, its offset and length
+/// in the file and the BLAKE3 its bytes hash to, separated by tabs. The
+/// nodes read so far are kept for the forward pass, which reads a model by
+/// them before the import finishes (EN-112).
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn onnx_so_far() -> u32 {
+    answer(|_| {
+        ONNX.with_borrow_mut(|onnx| {
+            let graph = onnx.graph.as_mut().ok_or(CallError::NothingRead)?;
+            let given = graph
+                .admit_so_far(&mut PageKernel)
+                .map_err(CallError::Import)?;
+            let nodes = graph.nodes().to_vec();
+            DECODE.with_borrow_mut(|d| d.nodes = nodes);
+            let mut out = String::new();
+            for t in given {
+                out.push_str(&format!(
+                    "{}\t{}\t{}\t{}\tblake3:",
+                    t.name, t.data_type, t.offset, t.length
+                ));
+                for b in t.address.0 {
+                    out.push(char::from(b"0123456789abcdef"[usize::from(b >> 4)]));
+                    out.push(char::from(b"0123456789abcdef"[usize::from(b & 15)]));
+                }
+                out.push('\n');
+            }
+            Ok(out.into_bytes())
+        })
     })
 }
 
@@ -858,12 +899,9 @@ pub extern "C" fn onnx_finish() -> u32 {
         ONNX.with_borrow_mut(|onnx| {
             let imported = onnx.imported.take().ok_or(CallError::NothingRead)?;
             let nodes = imported.nodes().to_vec();
-            DECODE.with_borrow_mut(|d| {
-                *d = Decode {
-                    nodes: nodes.clone(),
-                    ..Decode::default()
-                }
-            });
+            // The weights handed in while the file arrived (EN-112) are
+            // kept: onnx_start has already cleared the last model's.
+            DECODE.with_borrow_mut(|d| d.nodes = nodes.clone());
             let read = std::mem::take(&mut onnx.read);
             let model = imported
                 .finish(read, &mut PageKernel)
@@ -941,6 +979,14 @@ struct Decode {
     session: Option<Session>,
     /// Runs kept for a later turn, by the number `decode_save` gave.
     saved: BTreeMap<u32, Session>,
+    /// How many helpers answer each product (GP-52); none computes it here.
+    helpers: u32,
+    /// How many layers' weights the page has handed in so far (EN-112), as
+    /// `decode_open` and `decode_prefill_layer` are told; `None` reads the
+    /// model whole, as before a streamed load.
+    held: Option<usize>,
+    /// A prompt on its way through the model a layer at a time (EN-110).
+    prefill: Option<decode::Prefill>,
 }
 
 thread_local! {
@@ -953,6 +999,14 @@ fn with_model<T>(
     config: Config,
     run: impl FnOnce(&decode::Model<'_>) -> Result<T, CallError>,
 ) -> Result<T, CallError> {
+    run(&model_of(decode, config)?)
+}
+
+/// The model the held nodes and weights make under `config`, as far as
+/// its layers are held (EN-112). Apart from `with_model` so that it is
+/// compiled once, not once for each call that reads the model.
+#[inline(never)]
+fn model_of(decode: &Decode, config: Config) -> Result<decode::Model<'_>, CallError> {
     let initializers: BTreeMap<String, Initializer<'_>> = decode
         .tensors
         .iter()
@@ -966,8 +1020,8 @@ fn with_model<T>(
             )
         })
         .collect();
-    let model = decode::read(&decode.nodes, &initializers, config).map_err(CallError::Decode)?;
-    run(&model)
+    let held = decode.held.unwrap_or(usize::MAX);
+    decode::read_first(&decode.nodes, &initializers, config, held).map_err(CallError::Decode)
 }
 
 fn word(bytes: &[u8], at: usize) -> Result<u32, CallError> {
@@ -1048,6 +1102,9 @@ pub extern "C" fn decode_open(at: u32, len: u32) -> u32 {
             scaling,
         };
         DECODE.with_borrow_mut(|d| {
+            // A streamed load opens the model as far as its layers have
+            // arrived (EN-112); otherwise it is read whole.
+            d.held = c["held"].as_u64().and_then(|h| usize::try_from(h).ok());
             let (dims, session) = with_model(d, config, |model| {
                 let x = model.dims;
                 Ok((
@@ -1128,6 +1185,28 @@ pub extern "C" fn rope_confirm(at: u32, len: u32) -> u32 {
     })
 }
 
+/// A step's answer: the greedy token, four bytes, then one logit per token
+/// id, binary32 bits, four bytes each, little-endian.
+fn stepped_answer(logits: &[u32]) -> Result<Vec<u8>, CallError> {
+    let greedy = decode::greedy(logits).ok_or(CallError::NothingRead)?;
+    let mut out = Vec::with_capacity(4 + 4 * logits.len());
+    out.extend_from_slice(&greedy.to_le_bytes());
+    for bits in logits {
+        out.extend_from_slice(&bits.to_le_bytes());
+    }
+    Ok(out)
+}
+
+/// The products of a step, answered by the helpers when there are any
+/// (GP-52), else computed here.
+fn products_for<T>(helpers: u32, run: impl FnOnce(&mut dyn decode::Products) -> T) -> T {
+    if helpers > 0 {
+        run(&mut decode::Asked(helped))
+    } else {
+        run(&mut decode::Whole)
+    }
+}
+
 /// One token through the open model: the greedy token, four bytes, then one
 /// logit per token id, binary32 bits, four bytes each, little-endian.
 #[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
@@ -1137,15 +1216,305 @@ pub extern "C" fn decode_step(token: u32) -> u32 {
         DECODE.with_borrow_mut(|d| {
             let config = d.config.ok_or(CallError::NothingRead)?;
             let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let helpers = d.helpers;
             let stepped = with_model(d, config, |model| {
-                decode::step(model, &mut session, token).map_err(CallError::Decode)
+                products_for(helpers, |p| {
+                    decode::step_with(model, &mut session, token, p)
+                })
+                .map_err(CallError::Decode)
             });
             d.session = Some(session);
             let logits = stepped?;
-            let greedy = decode::greedy(&logits).ok_or(CallError::NothingRead)?;
-            let mut out = Vec::with_capacity(4 + 4 * logits.len());
-            out.extend_from_slice(&greedy.to_le_bytes());
-            for bits in logits {
+            stepped_answer(&logits)
+        })
+    })
+}
+
+/// One token through the open model with no logits (EN-91, GP-51): the run is
+/// left as `decode_step` leaves it, and the answer is empty. The page uses it
+/// for every prompt id but the last, the head being a quarter of a token.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_advance(token: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let helpers = d.helpers;
+            let advanced = with_model(d, config, |model| {
+                products_for(helpers, |p| {
+                    decode::advance_with(model, &mut session, token, p)
+                })
+                .map_err(CallError::Decode)
+            });
+            d.session = Some(session);
+            advanced.map(|()| Vec::new())
+        })
+    })
+}
+
+/// Start a prefill of the prompt at `at`, token ids as four little-endian
+/// bytes each, after what the open run has seen (EN-110, EN-112). Only the
+/// embedding need be held.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        if given.len() % 4 != 0 {
+            return Err(CallError::WrongSize);
+        }
+        let prompt: Vec<u32> = given
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let session = d.session.as_ref().ok_or(CallError::NothingRead)?;
+            let prefill = with_model(d, config, |model| {
+                decode::prefill_start(model, session, &prompt).map_err(CallError::Decode)
+            })?;
+            d.prefill = Some(prefill);
+            Ok(Vec::new())
+        })
+    })
+}
+
+// ─── Probes: one layer's component at one position (EN-97) ────────────────
+//
+// Why: an answer is interpretable when any layer at any position opens to the
+// exact integers that produced it. The page replays the run to that position
+// (decision 32 says whether the replay is exact) and reads the component the
+// step computed, so nothing is recorded while generating.
+
+/// Read `component` (0 the residual after the layer, 1 attention's output, 2
+/// the feed-forward's) of `layer` in the next `decode_step` or
+/// `decode_advance`.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probe(layer: u32, component: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let component = decode::Component::numbered(component).ok_or(CallError::WrongSize)?;
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            session.probe(layer as usize, component);
+            Ok(Vec::new())
+        })
+    })
+}
+
+/// The prefill's next layer, once the page has handed in every weight of
+/// the first `held` layers (EN-112): the model is read that far from now on.
+/// Answers how many layers the prefill has been through, four little-endian
+/// bytes.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill_layer(held: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            d.held = Some(held as usize);
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let Some(mut prefill) = d.prefill.take() else {
+                d.session = Some(session);
+                return Err(CallError::NothingRead);
+            };
+            let helpers = d.helpers;
+            let ran = with_model(d, config, |model| {
+                products_for(helpers, |p| {
+                    decode::prefill_layer_with(model, &mut session, &mut prefill, p)
+                })
+                .map_err(CallError::Decode)
+            });
+            let done = u32::try_from(prefill.layers()).unwrap_or(u32::MAX);
+            d.session = Some(session);
+            d.prefill = Some(prefill);
+            ran?;
+            Ok(done.to_le_bytes().to_vec())
+        })
+    })
+}
+
+/// Every layer done and every weight handed in: the model is read whole
+/// from now on, and the prefill's last prompt id goes through the final norm
+/// and the head, answered as `decode_step` answers, the run moved past the
+/// prompt.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_prefill_finish() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            d.held = None;
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            let mut session = d.session.take().ok_or(CallError::NothingRead)?;
+            let Some(prefill) = d.prefill.take() else {
+                d.session = Some(session);
+                return Err(CallError::NothingRead);
+            };
+            let helpers = d.helpers;
+            let finished = with_model(d, config, |model| {
+                products_for(helpers, |p| {
+                    decode::prefill_finish_with(model, &mut session, &prefill, p)
+                })
+                .map_err(CallError::Decode)
+            });
+            d.session = Some(session);
+            // A refused finish leaves the prefill to finish later.
+            if finished.is_err() {
+                d.prefill = Some(prefill);
+            }
+            stepped_answer(&finished?)
+        })
+    })
+}
+
+/// What the probe read: one binary32 bit pattern per value, four bytes each,
+/// little-endian.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_probed() -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let session = d.session.as_mut().ok_or(CallError::NothingRead)?;
+            let read = session.probed().ok_or(CallError::NothingRead)?;
+            Ok(read.iter().flat_map(|w| w.to_le_bytes()).collect())
+        })
+    })
+}
+
+// ─── Helpers: one model's products on several instances (GP-52) ───────────
+//
+// Why: a token's time is its products (#106's profile: 86 per cent), and
+// each output row of one is that row's weights times an input put on its
+// integers the same way for every row (EN-92). So the instance that runs the
+// model hands each product to helpers, fresh instances of this same module
+// each holding one slice of every matrix's rows, and joins their rows: the
+// same bits, computed at once. The page passes the input and the rows between
+// instances; nothing here decides who computes what but the row ranges.
+
+/// Asks the page's helpers for one product: its number, its input and room
+/// for its rows; true when every helper answered.
+fn helped(number: u32, given: &[u8], answer: &mut [u8]) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        #[allow(
+            unsafe_code,
+            reason = "the one way a model's products reach the page's helpers"
+        )]
+        // SAFETY: the import is called with the address and length of `given`
+        // and of `answer`, two buffers the caller holds for the whole call;
+        // the page writes at most `capacity` bytes into `answer` and reads
+        // nothing else.
+        let status = unsafe {
+            page_product(
+                number,
+                address(given),
+                given.len() as u32,
+                address(answer),
+                answer.len() as u32,
+            )
+        };
+        status == 0
+    }
+    // Outside a browser there are no helpers to ask.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (number, given, answer);
+        false
+    }
+}
+
+/// How many helpers answer the open model's products: 0, the default,
+/// computes every product here.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_helpers(count: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| d.helpers = count);
+        Ok(Vec::new())
+    })
+}
+
+/// Helper `helper` of `helpers`'s slice of every product of the open model:
+/// for each, four little-endian words (its number, its first row, the slice's
+/// length) then the slice as `hologram-ai-cpu-decode` writes it.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn decode_slices(helper: u32, helpers: u32) -> u32 {
+    answer(|_| {
+        DECODE.with_borrow_mut(|d| {
+            let config = d.config.ok_or(CallError::NothingRead)?;
+            if helper >= helpers {
+                return Err(CallError::WrongSize);
+            }
+            with_model(d, config, |model| {
+                let (h, n) = (helper as usize, helpers as usize);
+                let mut out = Vec::new();
+                for which in model.products() {
+                    let rows = model.height(which);
+                    let start = rows * h / n;
+                    let bytes = model.slice(which, start..rows * (h + 1) / n).to_bytes();
+                    for word in [which.number(model.dims.layers), start, bytes.len()] {
+                        out.extend_from_slice(&(word as u32).to_le_bytes());
+                    }
+                    out.extend_from_slice(&bytes);
+                }
+                Ok(out)
+            })
+        })
+    })
+}
+
+thread_local! {
+    /// A helper's slices, by product number: the first row and the rows.
+    static HELD: RefCell<BTreeMap<u32, (u32, decode::Held)>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Hold the slices `decode_slices` wrote, in a helper.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn slices_hold(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let mut held = BTreeMap::new();
+        let mut i = 0;
+        while i < given.len() {
+            let (number, start, length) = (
+                word(&given, i)?,
+                word(&given, i + 4)?,
+                word(&given, i + 8)? as usize,
+            );
+            let bytes = given
+                .get(i + 12..i + 12 + length)
+                .ok_or(CallError::WrongSize)?;
+            held.insert(
+                number,
+                (start, decode::Held::read(bytes).map_err(CallError::Decode)?),
+            );
+            i += 12 + length;
+        }
+        HELD.with_borrow_mut(|h| *h = held);
+        Ok(Vec::new())
+    })
+}
+
+/// A helper's rows of product `number` times the input at `at`, `len`
+/// bytes: its first row, four bytes, then one bit pattern per row.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn slices_run(at: u32, len: u32, number: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        let input: Vec<u32> = given
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        HELD.with_borrow(|held| {
+            let (start, slice) = held.get(&number).ok_or(CallError::NothingRead)?;
+            let rows = slice.product(&input).map_err(CallError::Decode)?;
+            let mut out = Vec::with_capacity(4 + 4 * rows.len());
+            out.extend_from_slice(&start.to_le_bytes());
+            for bits in rows {
                 out.extend_from_slice(&bits.to_le_bytes());
             }
             Ok(out)
@@ -1581,6 +1950,26 @@ pub extern "C" fn encode_classify(at: u32, len: u32) -> u32 {
             let label = encode::label(&scores).unwrap_or(u32::MAX);
             Ok(std::iter::once(label).chain(scores).collect())
         })
+    })
+}
+
+/// A classifier's scores, as binary32 bits four bytes each, to its label
+/// probabilities (`hologram_ai_cpu_encode::probabilities`, EN-95), the same
+/// layout, as transformers.js scores a text-classification.
+#[allow(unsafe_code, reason = "a module that exports nothing cannot be called")]
+#[no_mangle]
+pub extern "C" fn encode_probabilities(at: u32, len: u32) -> u32 {
+    answer(|state| {
+        let given = taken(state, at, len)?;
+        if given.len() % TOKEN_BYTES != 0 {
+            return Err(CallError::WrongSize);
+        }
+        let scores: Vec<u32> = given
+            .chunks_exact(TOKEN_BYTES)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let probabilities = encode::probabilities(&scores).map_err(CallError::Encode)?;
+        Ok(probabilities.iter().flat_map(|b| b.to_le_bytes()).collect())
     })
 }
 

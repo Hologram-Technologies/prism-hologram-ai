@@ -560,7 +560,7 @@ Feature: engine
     Given q4 blocks as the engine stores them, at both ends of the sum's range, with every weight zero, and drawn at random, each with an activation of magnitude 127
     When hologram-ai-exact quantises each block's activations and takes its group sum, and the kernel client writes decision 34's request for that sum and for that sum plus one
     Then the request read as Kernel.Block reads it gives the crate's sum and the claim written
-    And claims.json lists the crate's sum as exact and the sum plus one as differs
+    And the decision's claims file lists the crate's sum as exact and the sum plus one as differs
     And the app recipe runs every claim through the compiled guest of the holo it built, which answers each as listed
 
   @EN-36 @build
@@ -568,7 +568,7 @@ Feature: engine
     Given group sums at both ends of a block's range and zero, and halves that are one, the largest, the smallest subnormal, the smallest normal, negative and negative zero
     When hologram-ai-exact multiplies each sum by its half as an exact count of 2^-24, and the kernel client writes decision 37's request for that product and for that product plus one
     Then the request read as Kernel.Scale reads it gives the crate's product and the claim written
-    And claims.json lists the crate's product as exact and the product plus one as differs, and the app recipe's replay of the guest answers each as listed
+    And the decision's claims file lists the crate's product as exact and the product plus one as differs, and the app recipe's replay of the guest answers each as listed
     And a half that is an infinity or a NaN has no product in the crate
 
   @FL-54 @build
@@ -616,7 +616,7 @@ Feature: engine
     Given values that are exact, ties broken both ways, the largest finite value and the carry past it, overflow, subnormals, underflow to a signed zero, full 64-bit magnitudes, zero, and draws
     When hologram-ai-exact places each in a row register and rounds it with round_to_binary32, and the kernel client writes decision 42's request for those bits and for those bits with the last flipped
     Then the request read as Kernel.Round reads it gives the crate's bits
-    And claims.json lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
+    And the decision's claims file lists the crate's bits as exact and the flipped bits as differs, and the app recipe's replay of the guest answers each as listed
 
   @EN-43 @build
   Scenario: The softmax exponent is base two: 256 table entries, each the integer nearest 2^(30 - j/256), certified exactly by (2T - 1)^256 < 2^(7936 - j) < (2T + 1)^256; exp2_neg(d) for d in units of 2^-8 shifts the fractional entry by d's whole part, rounded half to even, and is within one unit of 2^(30 - d/256) for every d below 7936
@@ -845,3 +845,76 @@ Feature: engine
     And it fails, naming both addresses, unless the module's BLAKE3 is the address app/src/Kernel/Seal.lex.tex seals
     And the engine-twice recipe builds it twice, from two copies of the tree with two cargo homes of different lengths and a host flag in the environment of the second, and fails on any byte that differs
     And engine.yml runs engine-twice on every change to the engine's inputs, keyed by every one of them, and re-derives the address of a kept module before it is trusted
+
+  @EN-95 @build
+  Scenario: A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do
+    Given a classifier's label scores as binary32 bits
+    When hologram-ai-cpu-encode::probabilities and the module's encode_probabilities answer their softmax
+    Then two equal scores answer exactly a half each, wherever they lie
+    And each probability lies within 2^-12 of the double-precision softmax, they order as the scores do and sum to 1 within 2^-20
+    And a score that is not finite is refused, and the module answers the crate's bits
+
+  @EN-91 @build
+  Scenario: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt's ids but the last are advanced and the last is stepped, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the sixteen greedy tokens and every logit of each are the same bits
+    And an id past the vocabulary is refused by advance as by step
+
+  @EN-92 @build
+  Scenario: hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt and sixteen greedy steps run with every product answered by its slices, each written to bytes and read back, cut two, three and seven ways
+    Then each product's slices joined are the whole product's bits
+    And the tokens and every logit are step's, bit for bit
+
+  @FL-80 @build
+  Scenario: A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it
+    Given the fixture model
+    When a step's products are answered one row short
+    Then the step is refused as DecodeError::Elsewhere
+
+  @EN-96 @build
+  Scenario: The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+    Given a Qwen3-shaped fixture written as a q4 export, binary32 scales, embedding and norms
+    When hologram-ai-cpu-decode reads its graph and runs the prompt and sixteen greedy steps, twice
+    Then the tokens are the float reference's, every logit within 2^-7, and the two runs' bits agree
+
+  @EN-110 @build
+  Scenario: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures read by hologram-ai-cpu-decode
+    When the prompt is prefilled a layer at a time, the model read again with one more layer held before each layer, beside a run that steps every id
+    Then the two sessions hold the same keys and values, bit for bit
+    And the prefill's logits for the last prompt id are step's
+    And the sixteen greedy tokens after it and every logit of each are the same bits
+
+  @FL-110 @build
+  Scenario: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+    Given the fixture model read with only its first layer held
+    When it is stepped, prefilled past that layer, finished early, prefilled from an empty prompt, or prefilled on a cache another prefill has grown
+    Then each is refused as DecodeError::NotHeld and the session is left as it was
+
+  @EN-111 @build
+  Scenario: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+    Given EN-31's model of one 4-bit projection, its codes and scales inside the graph file
+    When its graph file is fed in pieces of 1, 7, 64 and 4096 bytes and whole, the import asked after each piece for the tensors that have arrived
+    Then each tensor is given once, in file order, after its last byte and no later than the piece that holds it
+    And the kernel was asked about the operators and the tensor's 4-bit shape before it was given
+    And the tensors given are the finished import's, each named by the BLAKE3 of its bytes
+    And a kernel that refuses an operator stops the import before any tensor is given
+
+  @EN-112 @build
+  Scenario: The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name
+    Given GP-19's Qwen3-, Qwen2- and Llama-shaped fixtures and the page's module
+    When each fixture's file is taken in pieces of 4 KiB, onnx_so_far asked after each, every tensor it gives handed to decode_tensor, the model opened once its first layer is held, and each layer prefilled with decode_prefill_layer told how many layers are held, a layer being held once every weight its nodes read is handed in
+    Then every layer has run before the file ends
+    And the next layer asked before its weights is refused as Decode(NotHeld) and the run carries on
+    And decode_prefill_finish's token and logits, and the sixteen steps after it, are the native run's, bit for bit
+
+  @EN-97 @build
+  Scenario: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused
+    Given GP-19's Qwen3-shaped fixture read by hologram-ai-cpu-decode
+    When its prompt and generated tokens run once without a probe and once with a probe set at a position
+    Then the tokens and logits are the same bits both times, and each component read has the residual stream's width
+    And a replay of the run's ids to that position reads the same bits, a layer past the model reads nothing, and the module refuses a fourth component

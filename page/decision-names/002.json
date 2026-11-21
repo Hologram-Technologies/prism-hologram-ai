@@ -1,0 +1,44 @@
+{
+  "decision": 2,
+  "name": "Preflight",
+  "asks": "May this model proceed to download?",
+  "fields": {
+    "1": {
+      "name": "Family recognised",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "Required keys missing",
+      "value": 0
+    },
+    "3": {
+      "name": "Manifest fits the recipe",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "4": {
+      "name": "Unsupported features",
+      "value": 0
+    }
+  },
+  "purpose": "whether a model may proceed"
+}

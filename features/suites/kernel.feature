@@ -442,11 +442,11 @@ Feature: kernel
     And the theorems of Proofs.Call state it and are pinned with their axioms
 
   @KN-49 @build
-  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+  Scenario: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request
     Given the byte-code printer in app/src/Engine/Code.lex.tex, decision 48 in app/src/Kernel/Render.lex.tex and its proofs in app/src/Proofs/GpuCode.lex.tex
-    When the Lean kernel checks the nine printed-text theorems during lexlean verify in the gate
+    When the Lean kernel checks the twelve printed-text theorems during lexlean verify in the gate
     Then the guest's text for each listed kernel is byte for byte the text renderKernel prints from the kernel's tree in app/src/Engine/Gpu.lex.tex
-    And the app recipe replays every piece of the 128-code q4 kernel and of the exponent kernel through the compiled guest, the empty piece past the end, and five refused requests
+    And the app recipe replays every piece of the 128-code q4 kernel, of the exponent kernel and of the three q4 product kernels through the compiled guest, the empty piece past each end, and the refused requests
 
   @KN-60 @build
   Scenario: A file streams into the guest in chunks of any size, from 0 to 6444 bytes (a request of 8 KiB), and the guest hashes it itself: decision 54 folds one chunk into a BLAKE3 state carried in the request as lowercase hex and answers the next state, or the file's BLAKE3 on the last chunk; the state after two chunks is the state after them joined, for every state and every two lists of bytes, and the guest reads its chunk as that fold; the digest is BLAKE3's on the official vectors; a request whose length is not its count's, whose flags pass 3 or whose carried state is not lowercase hex answers invalid request
@@ -494,3 +494,65 @@ Feature: kernel
     Then an address is sealed exactly when each of its eight big-endian 4-byte words is the model's word at that place
     And the answer to decision 80 is sealed for the sealed address, not the sealed engine for any other, and invalid request for any length but 33
     And the compiled guest answers sealed for the sealed address, not the sealed engine for it with one bit of its first byte flipped, and invalid request for a short request, as the claims it replays list
+
+  @KN-71 @build
+  Scenario: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+    Given the pick in app/src/Engine/Step.lex.tex over KN-55's key in app/src/Engine/Stage/Greedy.lex.tex, decision 71 in app/src/Kernel/Step.lex.tex and its proofs in app/src/Proofs/Step.lex.tex
+    When the Lean kernel checks step_cut, step_reads_its_chunk, picked_key_is_max, fresh_takes_first and five pick_is_greedy fixtures during lexlean verify in the gate
+    Then two chunks fed one after the other give the pick the two joined give, and the guest's loop over a chunk is that fold
+    And the picked logit's key is the largest key seen, and on the fixtures the pick is KN-55's greedy token, the first of equal keys included
+    And the app recipe replays through the compiled guest a step in one call and in two calls, a tie, the capacity limit and five refused requests
+
+  @KN-59 @build
+  Scenario: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+    Given the stage in app/src/Engine/Stage/RowSum.lex.tex and its proofs in app/src/Proofs/StageRowSum.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageRowSum in the gate
+    Then row_is_signed_total holds for every input: a row's twelve words have the value rowTotal
+    And run_row and run_starts_at_row_zero show run emits exactly those twelve words for each row in turn
+    And column_bound and negatives_bound hold for every input, so a row's running total stays below 2^64 for fewer than 2^31 groups
+    And add_exact, complement_twelve and subtract_exact hold for every register and term
+
+  @KN-81 @build
+  Scenario: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
+    Given the stage in app/src/Engine/Stage/Softmax.lex.tex and its proofs in app/src/Proofs/StageSoftmax.lex.tex, which are about the stage itself
+    When lexlean verify checks Proofs.StageSoftmax in the gate
+    Then no_key_above_top holds for every row: the truncated excess of every score over the largest sums to 0
+    And weight_is_exp2 holds for every distance, and total_at_least bounds a non-empty row's sum of weights by 2^30 from below
+    And softmax_row_0 to softmax_row_7 evaluate the stage on nine rows, and kernel_kn_81 replays each row through crates/exact's softmax_exp2 and finds the same words
+
+  @KN-82 @build
+  Scenario: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+    Given a request of the tag 82 carrying an encoder task, a pooling and whether to normalize, each in one byte, as transformers.js names them
+    When the kernel reads each code through Kernel.Encode
+    Then the answer is run for feature-extraction with mean pooling and normalizing, and for text-classification with neither
+    And any other pooling is refused as pooling, an unnormalized embedding as normalize, and another task as unsupported task
+    And the theorems of Proofs.Encode state it and are pinned with their axioms
+
+  @KN-73 @build
+  Scenario: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
+    Given the kernels q4Quantise, q4Accumulate and q4Finish in app/src/Engine/Gpu.lex.tex and their runs in app/src/Proofs/GpuQ4Chain.lex.tex
+    When the Lean kernel runs them through Engine.GpuRun during lexlean verify in the gate
+    Then the quantiser's codes and power are hologram_ai_exact's for the fixture's 32 activations
+    And the accumulator then the rounding kernel give hologram_ai_exact's binary32 for the fixture's first two rows, one negative and one positive
+
+  @KN-95 @build
+  Scenario: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+    Given app/src/Engine/Gpu.lex.tex's denseAccumulate and the guest's byte code of it in app/src/Engine/Code.lex.tex
+    When Lean checks dense_accumulate_code_prints_tree and dense_row_matches_exact, and the app recipe replays decision 48's claims for kernel 6 through the compiled guest
+    Then the guest prints renderKernel's text of the tree, and the kernels' rows are hologram_ai_exact's
+    And the printed text names no f32 or f16
+
+  @KN-62 @build
+  Scenario: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/Attention.lex.tex, its rounding in app/src/Engine/Stage/Binary32.lex.tex, and their proofs in app/src/Proofs/StageAttention.lex.tex and app/src/Proofs/StageBinary32.lex.tex
+    When lexlean verify checks Proofs.StageAttention and Proofs.StageBinary32 in the gate
+    Then attention_score_is_word and attention_out_is_word hold for every input, and attention_head_count gives head_dim words for every head
+    And binary32_round_is_word holds for every value the rounding takes
+    And attention_head_row_0 to attention_head_row_3 and binary32_row_0 to binary32_row_11 evaluate the stage, and kernel_kn_62 replays each through cpu-decode's attend_head and crates/exact's round_to_binary32 and finds the same words
+
+  @KN-63 @build
+  Scenario: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+    Given the stage in app/src/Engine/Stage/RowFinish.lex.tex and its proofs in app/src/Proofs/StageRowFinish.lex.tex
+    When lexlean verify checks Proofs.StageRowFinish in the gate
+    Then row_finish_is_word holds for every register, and row_finish_count gives one word a row
+    And row_finish_row_0 to row_finish_row_7 evaluate the stage, and kernel_kn_63 replays each register through crates/exact's round_to_binary32 and finds the same word

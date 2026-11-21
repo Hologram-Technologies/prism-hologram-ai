@@ -559,3 +559,19 @@ type = "CallError"
 variant = "Encode"
 suite = "engine"
 condition = "An encoder could not be read from the weights the page handed its module, or could not run, and the page is told the encoder's own failure"
+
+[[failure]]
+id = "FL-80"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "Elsewhere"
+suite = "engine"
+condition = "A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it"
+
+[[failure]]
+id = "FL-110"
+crate = "cpu-decode"
+type = "DecodeError"
+variant = "NotHeld"
+suite = "engine"
+condition = "A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt"

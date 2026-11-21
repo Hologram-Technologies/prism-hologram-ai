@@ -1,0 +1,28 @@
+{
+  "decision": 44,
+  "name": "Rounded quotient",
+  "asks": "Is this code the value divided by the divisor, rounded half to even?",
+  "fields": {
+    "1": {
+      "name": "Value",
+      "value": 1000
+    },
+    "9": {
+      "name": "Divisor",
+      "value": 3
+    },
+    "13": {
+      "name": "Half the floor quotient",
+      "value": 166
+    },
+    "17": {
+      "name": "Floor quotient is odd",
+      "value": 1
+    },
+    "18": {
+      "name": "Claimed code",
+      "value": 333
+    }
+  },
+  "purpose": "whether a code is a value divided by a divisor, rounded half to even"
+}

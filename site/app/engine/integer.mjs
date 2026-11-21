@@ -52,9 +52,10 @@ export const placed = (table, read) => Object.keys(table.places).map((name) => [
 // The forward pass in the worker, with the interface createIntegerEngine
 // answers; each call is awaited, and `run` hands `onToken` each token as the
 // worker makes it.
-export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity }) {
+// `gpu`, the kernels decision 48 printed, puts its products on WebGPU (GP-56).
+export async function startIntegerEngine({ module: m, table, read, config, rope = {}, capacity, helpers, gpu = null }) {
   const tensors = placed(table, read);
-  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity }, tensors.map(([, bytes]) => bytes.buffer));
+  const { ask, opened } = await openWorker(m, { engine: "decoder", table, tensors, config, rope, capacity, helpers, gpu }, tensors.map(([, bytes]) => bytes.buffer));
   let position = 0;
   const call = async (method, args, hooks) => {
     const said = await ask({ kind: "call", method, args }, [], hooks);
@@ -65,13 +66,20 @@ export async function startIntegerEngine({ module: m, table, read, config, rope 
     step: (token, options) => call("step", [token, options]),
     run: (prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) => call("run", [prompt, count, stops], { onToken, onFirst }),
     generate: (prompt, count) => call("generate", [prompt, count]),
+    probe: (ids, at, layer, component) => call("probe", [ids, at, layer, component]),
     saveState: (length) => call("saveState", [length]),
     restoreState: (state) => call("restoreState", [state]),
     reset: () => call("reset", []),
     get position() { return position; },
-    device: "cpu",
+    device: opened.gpu ? "webgpu" : "cpu",
     integer: true,
     sizes: opened.sizes,
+    // What WebGPU holds (GP-56): how many products its kernels answer, how
+    // many the module answers beside them, and the adapter.
+    gpu: opened.gpu,
+    // How many helpers answer its products (GP-52); 0 computes them all in
+    // the worker.
+    helpers: opened.helpers,
   };
 }
 
@@ -113,8 +121,16 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   // The prompt, then `count` greedy picks, stopping at any id in `stops`.
   async function run(prompt, count, { stops = new Set(), onToken = () => {}, onFirst = () => {} } = {}) {
     if (position + prompt.length + count > capacity) throw new Error(`context full: ${capacity} positions`);
+    // Every prompt id but the last goes through without the output head
+    // (GP-51): nothing reads those logits, and the head is a quarter of a
+    // token. The cache, and so every token after, is the same bits.
     let last = null;
-    for (const t of prompt) last = stepSync(t).token;
+    prompt.forEach((t, i) => {
+      if (i < prompt.length - 1) {
+        m.call("decode_advance", t);
+        position += 1;
+      } else last = stepSync(t).token;
+    });
     onFirst();
     const out = [];
     while (out.length < count) {
@@ -128,6 +144,22 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   async function generate(prompt, count) {
     return run(prompt, count);
   }
+  // EN-97: component `component` of layer `layer` at position `at` of the
+  // run `ids`, replayed from the start: its binary32 bit patterns, four bytes
+  // each. The engine is left with no run, as reset leaves it.
+  async function probe(ids, at, layer, component) {
+    m.call("decode_reset");
+    position = 0;
+    try {
+      for (const id of ids.slice(0, at)) m.call("decode_advance", id);
+      m.call("decode_probe", layer, component);
+      m.call("decode_advance", ids[at]);
+      return m.call("decode_probed").slice();
+    } finally {
+      m.call("decode_reset");
+      position = 0;
+    }
+  }
   // The run after its first `length` tokens, kept in the module.
   function saveState(length = position) {
     if (!(length >= 1 && length <= position)) throw new Error(`prefix: ${length} positions asked, ${position} computed`);
@@ -139,7 +171,7 @@ export function createIntegerEngine({ module: m, table, read, config, rope = {},
   }
 
   return {
-    step, run, generate, saveState, restoreState,
+    step, run, generate, probe, saveState, restoreState,
     reset: () => { m.call("decode_reset"); position = 0; },
     get position() { return position; },
     device: "cpu",

@@ -1,0 +1,56 @@
+\begin{lexlean}{Proofs.Encode}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\importmodule{Kernel.Encode}
+\title{Bounded byte buffer}
+\begin{semanticmodule}
+theorem{
+  name: encode_embedding_runs,
+  parameters: [pooling : Nat, normalize : Nat],
+  statement: ((pooling = 1) -> ((normalize = 1) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 0))),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [propext]
+}
+
+theorem{
+  name: encode_embedding_pooling_refused,
+  parameters: [pooling : Nat, normalize : Nat],
+  statement: (((pooling =? 1) = false) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 1)),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_embedding_normalize_refused,
+  parameters: [normalize : Nat],
+  statement: (((normalize =? 1) = false) -> ((Kernel.Encode::encodeCode 1 1 normalize) = 2)),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_classification_runs,
+  parameters: [pooling : Nat, normalize : Nat],
+  statement: ((pooling = 0) -> ((normalize = 0) -> ((Kernel.Encode::encodeCode 2 pooling normalize) = 0))),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_classification_options_refused,
+  parameters: [pooling : Nat, normalize : Nat],
+  statement: ((1 <= (pooling + normalize)) -> (1 <= (Kernel.Encode::encodeCode 2 pooling normalize))),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: encode_task_refused,
+  parameters: [task : Nat, pooling : Nat, normalize : Nat],
+  statement: ((3 <= task) -> ((Kernel.Encode::encodeCode task pooling normalize) = 3)),
+  proof: linear_arithmetic{definitions: [Kernel.Encode::encodeCode]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

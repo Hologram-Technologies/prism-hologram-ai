@@ -49,5 +49,16 @@ const refusals = {
   family: refusal(() => { const x = qwen25(); x.config.model_type = "gemma"; roles(x, x.config); }),
   layers: refusal(() => { const x = qwen25(); x.config.num_hidden_layers = 27; roles(x, x.config); }),
   interleaved: refusal(() => { const x = qwen3(); node(x, (n) => n[0] === "RotaryEmbedding")[3].interleaved = 1; roles(x, x.config); }),
+  // A float tensor read by an unplaced Gather is refused, as any weight is.
+  floatIndex: refusal(() => { const x = qwen25(); x.tensors["/model/Constant_4_output_0"] = ["f16", []]; x.nodes.push(["Gather", "/model/Gather_2", [null, "/model/Constant_4_output_0"]]); roles(x, x.config); }),
 };
-console.log(JSON.stringify({ exports, refusals }));
+// Qwen2.5's decomposed export gathers from its shapes by int64 constants, as
+// /model/Gather_2 does (read 2026-11-20 at d54957e); the importer holds each
+// such constant as a tensor, which indexes and is not a weight, so it is placed
+// nowhere and refused never. The recorded graph keeps only the nodes that read
+// weights, so the node is added here as the importer gives it.
+const indexed = qwen25();
+indexed.tensors["/model/Constant_4_output_0"] = ["i64", []];
+indexed.nodes.push(["Gather", "/model/Gather_2", [null, "/model/Constant_4_output_0"]]);
+const indexConstant = refusal(() => roles(indexed, indexed.config));
+console.log(JSON.stringify({ exports, refusals, indexConstant }));

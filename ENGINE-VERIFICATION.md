@@ -546,7 +546,7 @@ kernel's own modules — the tag each decision is routed by, the length its
 answer accepts, and the offset and width of every field it reads — and writes
 them into `site/decisions.json` and into `site/card.html`: the chooser's
 options, the first decision's fields, and the table itself as inline JSON. The
-page is whole before its script runs and fetches nothing. `site/decision-names.json`
+page is whole before its script runs and fetches nothing. `page/decision-names/NNN.json`
 holds what the model cannot: what a field is called and what the form starts
 with.
 
@@ -600,7 +600,7 @@ the next group, or to the end of the request, both of which the length its
 answer accepts gives: a constant and a multiple of the count. For a speculative
 commit that comes out as `k` drafted tokens from byte three and `k + 1`
 verified ones after them, which is what `7 + 8k` leaves room for. Nothing about
-the groups is written down a second time; `site/decision-names.json` gives each
+the groups is written down a second time; `page/decision-names/NNN.json` gives each
 one a name and a starting value, and nothing else.
 
 A request whose own format chooses its shape is drawn as one form per format,
@@ -1178,7 +1178,7 @@ the first planting. The thirteenth was missed, and is recorded below.
 ### The one that was missed
 
 The defect "the page offers a format decision 13 does not know" was first
-planted in `site/decision-names.json`, where the names are written, and EN-25
+planted in `page/decision-names/NNN.json`, where the names are written, and EN-25
 passed. The gate reads `site/decisions.json`, which is generated from that
 file, and the generated file had not been rewritten, so the planting never
 reached the gate it was aimed at. `cargo xtask page` would have caught it, as a
@@ -1629,7 +1629,9 @@ Nothing is decided here; the kernel is asked:
   taken;
 - **decision 5**, each whole file against its record's SHA-256 and length;
 - **decision 18**, each operator the graph names, in the fused style when any
-  node is in the `com.microsoft` domain and the decomposed style otherwise;
+  node other than `MatMulNBits` is in the `com.microsoft` domain and the
+  decomposed style otherwise: `MatMulNBits` stores 4-bit weights in either
+  style, and Qwen2.5's decomposed export names it;
 - **decision 20**, each MatMulNBits weight's codes and scales against the
   node's `N`, `K` and `block_size`.
 
@@ -1673,6 +1675,15 @@ Five, planted one at a time and then restored. Every one was rejected.
 
 Two of the plants were first written against lines `cargo fmt` had reflowed;
 they applied to nothing, and were planted again against the formatted text.
+
+On 2026-11-20 the style rule stopped counting `MatMulNBits`: Qwen2.5-1.5B's
+q4f16 export (onnx-community/Qwen2.5-1.5B-Instruct at `d54957e`) writes
+normalisation, rotation and attention out in standard operators, all 27 on
+the decomposed list, but stores its weights as `MatMulNBits`, so it was asked
+in the fused style and refused at its sixth operator, `Pow`. The old rule,
+planted back, fails EN-31 with `a graph whose only com.microsoft operator is
+MatMulNBits is decomposed`; restored, it passes. EN-31 also holds a graph
+naming `GroupQueryAttention` to the fused style.
 
 ### Run over a real export
 
@@ -2234,7 +2245,7 @@ each defect planted alone.
 | the chain based at the highest power, not the lowest | `engine_en_38`: a row that fits is reported too wide |
 | a negative term added as positive | `engine_en_38`: `a link's claimed partial is not its partial plus its terms` |
 | a sum written least significant first | `engine_en_38`: the same |
-| partials up to `2^63` chained | not rejected by `engine_en_38`: no case reaches `2^62`; the guest answers such a link `too wide`, as the edge requests in KERNEL-VERIFICATION.md's KN-40 section show |
+| partials up to `2^63` chained | not rejected by `engine_en_38`: no case reaches `2^62`; the guest answers such a link `too wide`, as the edge requests in kernel-verification/KN-40.md show |
 | none | passed |
 
 Over the real export, 3,640 rows of Qwen3-0.6B were chained, none too wide, and
@@ -2269,7 +2280,7 @@ code. Run on 2026-11-18; each defect planted alone.
 
 The test found one defect in decision 41 itself: an all-zero group was answered
 `not the largest power`. The fix is on branch `kn39` and recorded in
-KERNEL-VERIFICATION.md's KN-41 section. The transcription is checked by
+kernel-verification/KN-41.md. The transcription is checked by
 reading, not generated from the model; that the compiled guest answers these
 requests `exact` is not run, because building a holo needs
 `prism-code build --remote github`, which pushes.
@@ -2281,7 +2292,7 @@ and the fast path is gated equal to it. For the q4 group sum the definition
 is `Kernel.Block` (KN-34); this gate ties `hologram-ai-exact` to it. Eight
 blocks, at both ends of the sum's range, with every weight zero, and four
 drawn at random, are summed by the crate's own path and written by
-`block_check::request`. `crates/conformance/tests/kernel/claims.json` lists 17
+`block_check::request`. `crates/conformance/tests/kernel/claims/` lists 17
 claims: each sum `exact`, each sum plus one `differs`, and one 52-byte request
 `invalid request`. `engine_en_35` checks that every crate sum and sum plus one
 is listed, and that the `app` recipe runs
@@ -2299,7 +2310,7 @@ file has no such limit.
 fields, `byteFromEnd` and the high half for an even index, so a wrong layout
 fails in the Rust suite as well as in the guest.
 
-### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo claims.json`
+### The guest, locally: `node crates/conformance/tests/kernel/replay.mjs app.holo crates/conformance/tests/kernel/claims`
 
 The holo published from main at 2026-11-18 (`site/app.holo` on the project's
 Pages, which carries decision 34) answered all 17 claims as listed. With the
@@ -2341,7 +2352,7 @@ sums at both ends of a block's range and zero, times halves that are one, the
 largest, the smallest subnormal, the smallest normal, negative and negative
 zero, give 18 claims from the crate's `Dyadic::from_binary16`, each product
 `exact` and each product plus one `differs`, with one `not finite` and one
-`invalid request`. They join `crates/conformance/tests/kernel/claims.json`,
+`invalid request`. They join `crates/conformance/tests/kernel/claims/`,
 which the `app` recipe replays through the guest it builds.
 
 The first form of this change added its own `half_units` to the crate; #52
@@ -3142,3 +3153,126 @@ address, and anything else is a miss that builds twice in full.
 pins the recipe, the toolchain, the profile and the workflow, and runs
 `engine-seal` on a module that is not the engine: it must fail naming both
 addresses. Passed on 2026-11-19.
+
+## EN-95, a classifier's probabilities
+
+transformers.js scores a text-classification by the softmax of the label
+scores. `hologram_ai_cpu_encode::probabilities` gives it in integers: each
+score's base-two exponent from its binary32 bits with no scale, the certified
+exponent table and the exact sum (EN-43, EN-44), each probability in units of
+`2^-30` rounded once to binary32. The module answers it as
+`encode_probabilities`, a pure function of the scores, so `encode_classify` and
+the label it gives are unchanged.
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Two equal scores answer exactly a half each; each probability is within `2^-12` of the double-precision softmax, ordered as the scores, summing to 1 within `2^-20`; a score that is not finite is refused; the module answers the crate's bits | `engine_en_95` | tested |
+
+The engine's sealed address moves with this change, from `blake3:4eccff67…`
+to `blake3:5f6895f3…a2` (EN-90).
+
+## EN-92, a product's row slices are its bits
+
+`engine_en_92` runs GP-19's Qwen3, Qwen2 and Llama fixtures with every product answered by its rows cut two, three and seven ways. Each slice is written to bytes and read back before it computes, and every joined answer is compared with the whole product. The run's tokens and every logit must equal `step`'s, bit for bit.
+
+| Planted defect | Result |
+| --- | --- |
+| The head's slice begins at `start * width / 2` bytes instead of `start * width` (the offset counted in halves) | rejected: `Head: the slices joined are not the whole product` |
+| none | passed, with FL-80 (a product one row short is refused as `DecodeError::Elsewhere`), EN-91 and EN-49 |
+
+## EN-96, a q4 export on the integer engine
+
+onnx-community writes two precisions of each model. The q4f16 export stores
+its MatMulNBits scales, embedding, head and norm weights as halves; the q4
+export stores them as binary32. The integer forward pass read only halves, so
+a q4 export was refused at its embedding (`Unrecognised(Embedding)`), and the
+page reached it only through the float GPU engine. Every weight vector is now
+read as `exact::Dense`, halves or binary32, each value exactly
+(`Dense::at`), and the head's slices carry which they hold (kind 2 halves,
+kind 3 binary32), so a q4 export runs on the integer engine with the same
+rounding rules as a q4f16 one. The engine changed, so its seal moved to
+`blake3:b5fd8212…a7bb26` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| A Qwen3-shaped q4 export runs to the float reference's sixteen tokens, every logit within 2^-7, the same bits twice | `engine_en_96`, on `forward-fixture.mjs qwen3-q4` | tested |
+| The page's q4 visits load and answer on the integer engine | `just page-journey`, GP-31's `store q4` and `store short` | tested on CI |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_96`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `vector` reading binary32 vectors no longer | rejected: `the model reads: Unrecognised(InputNorm)` |
+| none | passed |
+
+## EN-110, a prompt a layer at a time
+
+A model's file arrives over seconds or minutes. So that a layer can run as soon as its weights are held, `hologram-ai-cpu-decode` reads a model as far as its layers have arrived (`read_first`) and prefills a prompt a layer at a time (`prefill_start`, `prefill_layer`, `prefill_finish`). Every prompt row goes through layer `l` before any row enters layer `l + 1`. Row `i`'s work in layer `l` reads its own row and layer `l`'s keys and values at positions up to its own. All of those are in the cache, with the same bits, whatever order the rows and layers run in. So the result is `step`'s.
+
+`engine_en_110` runs GP-19's Qwen3, Qwen2 and Llama fixtures. It reads the model again with one more layer held before each layer, and compares against a run that steps every id. Every key and value, the last prompt id's logits, and the sixteen tokens after it with each of their logits must be the same bits. `engine_fl_110` refuses with `DecodeError::NotHeld` each of: a step on a model with a layer missing, a layer the model does not hold, a finish before the last layer, an empty prompt, and a layer on a cache that another prefill has grown. A refusal leaves the session as it was.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_110 engine_fl_110`
+
+## EN-97, probes read the run's own values
+
+The session takes a probe for its next step, a layer and a component, and the
+step keeps what it computed there: the residual after the layer, attention's
+output projection or the feed-forward's down projection. `decode_probe` sets
+it and `decode_probed` reads it once. Nothing else changes, so a probed run is
+the run. The engine is resealed at `blake3:a8d3c758…3a3638` (EN-90).
+
+| Claim | Evidence | Kind |
+| --- | --- | --- |
+| Every component of every layer, two positions past GP-19's prompt, reads the residual stream's width, and a second replay reads the same bits | `engine_en_97` | tested |
+| Each layer's residual differs from the one before it; a layer past the model's reads nothing | the same | tested |
+| A run with a probe set gives every logit the run without one gives | the same | tested |
+| A fourth component is refused | the same | tested |
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_97`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| Every prompt row rotated at the prefill's first position (`start + i * 0`) | rejected: `qwen3: the prefill left another cache than step` |
+| none | passed, with FL-110, EN-91 and EN-49 |
+
+## EN-111, tensors given as they arrive
+
+So that the engine can place a layer before the file ends, the ONNX importer's `Graph::admit_so_far` gives each tensor inside the graph file once its last byte has passed, with the BLAKE3 its bytes hash to. Before a tensor is given, every operator named so far is put to the kernel (decision 18), and so is the tensor's 4-bit shape (decision 20); its span was put when it was found (decision 23). `Graph::finish` still asks every one of these again, and about the whole file (decision 5). So the end of the import decides exactly as before.
+
+`engine_en_111` feeds EN-31's model in pieces of 1, 7, 64 and 4,096 bytes and whole. It checks four things. Each tensor is given once, in file order, after its last byte and no later than the piece that holds it. The kernel was asked about the operators and the tensor's shape before it was given. The tensors given are the finished import's, with the same addresses. A kernel that refuses an operator stops the import before any tensor is given.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_111`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `admit_so_far` marks each operator asked without asking the kernel | rejected: `pieces of 1: no operator asked before w_Q4` |
+| none | passed, with EN-31 and the other EN-3x import tests |
+
+## EN-112, the page's module runs layers as the file arrives
+
+The page's module gains `onnx_so_far`, which gives the tensors EN-111 admits, one a line as text, and keeps the nodes read so far for the forward pass. It also gains `decode_prefill`, `decode_prefill_layer` and `decode_prefill_finish`, which drive EN-110 a layer at a time. `decode_open` and `decode_prefill_layer` are told how many layers are held, so the model is read that far. `decode_prefill_finish` reads it whole. `onnx_start` now clears the last model's forward pass, and `onnx_finish` keeps the weights handed in while the file arrived.
+
+`engine_en_112` takes GP-19's Qwen3, Qwen2 and Llama fixtures through the module in pieces of 4 KiB. It asks `onnx_so_far` after each piece and hands every tensor to `decode_tensor` as it is given. A layer is held once every weight its nodes read has been handed in, and the prompt is prefilled a layer at a time as layers are held. Every layer runs before the file ends. The next layer, asked before its weights, is refused as `Decode(NotHeld)` and the run carries on. The prefill's token and logits, and sixteen steps after it, are the native run's, bit for bit.
+
+### The gate: `cargo test -p repo-conformance --test engine engine_en_112`
+
+Planted on 2026-11-20:
+
+| Planted | Result |
+| --- | --- |
+| `onnx_finish` clears the forward pass as it did before (`*d = Decode { nodes, ..Decode::default() }`) | rejected: `decode_prefill_finish: NothingRead` |
+| none | passed, with EN-52, EN-53 and FL-59 |
+
+With EN-110 to EN-112 the module is 2,091,948 bytes by `just engine-build` (main's was 2,070,681), and EN-26's own build stays under 2,097,152. To fit, every forward function takes its products as `&mut dyn Products`, so each is compiled once rather than once per route, and `onnx_so_far` answers text lines rather than JSON. Decision 80 seals the module at `blake3:5e45aec59f1626b902e808d706ae16d205202e120f91a35192fa5cf629d15a83` (EN-90).
+
+Merged with EN-97's probes (#130), the module grew past EN-26's ceiling, to 2,101,194 bytes in EN-26's own build. The cause was `with_model`: it is generic over its closure, so the weight map and `read_first` were compiled once for every call that reads the model. They now sit in `model_of`, compiled once, and the module is 2,055,353 bytes by `just engine-build`. Decision 80 seals it at `blake3:8b4e99905330e261448ec7deccf7d4cde182ad9269f1938078e9c1f590d11c51` (EN-90). Merged with #113, whose attention is `attend_head` (KN-80), `layer_through` calls `attend_head` too. Decision 80 then seals `blake3:5c3b24bdb8f10938befc588e392567e606b4faa93507d1ba676b1f281ef2c712`, 2,055,222 bytes.
+
+| a fourth component read as the feed-forward's | rejected: `a fourth component is refused` |
+| none | passed |
+

@@ -1,0 +1,21 @@
+{
+  "decision": 30,
+  "claims": [
+    {
+      "request": "1e010100",
+      "answer": "everywhere"
+    },
+    {
+      "request": "1e000101",
+      "answer": "same hardware"
+    },
+    {
+      "request": "1e000000",
+      "answer": "none"
+    },
+    {
+      "request": "1e0101",
+      "answer": "invalid request"
+    }
+  ]
+}

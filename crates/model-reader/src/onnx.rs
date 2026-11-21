@@ -26,8 +26,12 @@ use hologram_ai_onnx_preflight::OnnxError;
 use crate::Kernel;
 
 /// The domain of the runtime's fused extension operators. A graph that names
-/// any of them is in the fused export style.
+/// any of them is in the fused export style, except `MatMulNBits`: that is how
+/// 4-bit weights are stored in either style, and Qwen2.5's decomposed export
+/// carries it beside a `Pow`, `ReduceMean` and `Softmax` that only the
+/// decomposed list holds.
 const FUSED_DOMAIN: &str = "com.microsoft";
+const EITHER_STYLE: &str = "MatMulNBits";
 
 /// One file of a model, as its record gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -241,6 +245,10 @@ pub struct Graph {
     external: Vec<(hologram_ai_onnx_preflight::stream::Tensor, TensorAt)>,
     records: usize,
     encoder: bool,
+    /// The operators already put to the kernel by [`Graph::admit_so_far`].
+    asked: BTreeSet<String>,
+    /// How many of `tensors` [`Graph::admit_so_far`] has given.
+    given: usize,
 }
 
 impl Graph {
@@ -256,6 +264,8 @@ impl Graph {
             external: Vec::new(),
             records: 0,
             encoder: false,
+            asked: BTreeSet::new(),
+            given: 0,
         }
     }
 
@@ -322,6 +332,80 @@ impl Graph {
         Ok(())
     }
 
+    /// The tensors inside the file that have arrived whole since the last
+    /// call, in file order, each with the BLAKE3 its own bytes hash to, while
+    /// the file is still arriving (EN-111). Before one is given, every
+    /// operator the graph has named so far is put to the kernel as
+    /// [`Graph::finish`] puts it, and so is the tensor's 4-bit shape when a
+    /// node read so far reads it as codes or scales; its span was put when it
+    /// was found. [`Graph::finish`] still asks every one of these again, and
+    /// about the whole file. A tensor arrives whole only after every tensor
+    /// before it in the file, so none is given out of order.
+    ///
+    /// # Errors
+    ///
+    /// [`ImportError::OperatorRefused`] and [`ImportError::WeightRefused`]
+    /// when the kernel refuses.
+    pub fn admit_so_far(&mut self, kernel: &mut dyn Kernel) -> Result<Vec<Tensor>, ImportError> {
+        let (style, operators) = self.operators();
+        for (index, operator) in operators.iter().enumerate() {
+            if self.asked.contains(operator) {
+                continue;
+            }
+            ask_operator(kernel, style, operator, index)?;
+            self.asked.insert(operator.clone());
+        }
+        let mut out = Vec::new();
+        for (tensor, place, offset, length) in &self.tensors[self.given..] {
+            let Some(address) = self.taking.done.get(offset) else {
+                break;
+            };
+            out.push(Tensor {
+                name: tensor.name.clone(),
+                dims: tensor.dims.clone(),
+                data_type: tensor.data_type,
+                file: 0,
+                offset: *offset,
+                length: *length,
+                address: *address,
+                at: *place,
+            });
+        }
+        weights(&self.nodes, &out, kernel)?;
+        self.given += out.len();
+        Ok(out)
+    }
+
+    /// The nodes read so far, in file order.
+    #[must_use]
+    pub fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
+    /// The style the operators are asked in, and the distinct operators the
+    /// nodes read so far name, in the order they first appear.
+    fn operators(&self) -> (opname::Style, Vec<String>) {
+        let fused = self
+            .nodes
+            .iter()
+            .any(|node| node.domain == FUSED_DOMAIN && node.op_type != EITHER_STYLE);
+        let style = if self.encoder {
+            opname::Style::Encoder
+        } else if fused {
+            opname::Style::Fused
+        } else {
+            opname::Style::Decomposed
+        };
+        let mut operators: Vec<String> = Vec::new();
+        let mut seen = BTreeSet::new();
+        for node in &self.nodes {
+            if seen.insert(node.op_type.clone()) {
+                operators.push(node.op_type.clone());
+            }
+        }
+        (style, operators)
+    }
+
     /// The file has ended. The graph's tensors with their data inside it, and
     /// what still has to be read from the data files beside it.
     ///
@@ -337,34 +421,13 @@ impl Graph {
             .map_err(ImportError::Unreadable)?;
         self.taking.finish(kernel)?;
 
-        let fused = self.nodes.iter().any(|node| node.domain == FUSED_DOMAIN);
-        let style = if self.encoder {
-            opname::Style::Encoder
-        } else if fused {
-            opname::Style::Fused
-        } else {
-            opname::Style::Decomposed
-        };
-        let mut operators: Vec<String> = Vec::new();
-        let mut seen = BTreeSet::new();
-        for node in &self.nodes {
-            if seen.insert(node.op_type.clone()) {
-                operators.push(node.op_type.clone());
-            }
-        }
+        let (style, operators) = self.operators();
+        let fused = self
+            .nodes
+            .iter()
+            .any(|node| node.domain == FUSED_DOMAIN && node.op_type != EITHER_STYLE);
         for (index, operator) in operators.iter().enumerate() {
-            // A name longer than any listed one is asked as the empty name,
-            // which no list holds, so the kernel refuses it in its own words.
-            let name = opname::name(operator).unwrap_or([0; 32]);
-            match opname::answer(&kernel.ask(&opname::request(style, &name))) {
-                opname::Verdict::Supported => {}
-                refused => {
-                    return Err(ImportError::OperatorRefused(
-                        OperatorAt(place(index)),
-                        refused,
-                    ))
-                }
-            }
+            ask_operator(kernel, style, operator, index)?;
         }
 
         let mut tensors = Vec::with_capacity(self.tensors.len());
@@ -552,6 +615,26 @@ pub struct ReadFile {
     name: String,
     index: u8,
     done: BTreeMap<u64, Label>,
+}
+
+/// Put one operator to the kernel in `style`; `index` is its place among the
+/// distinct operators.
+fn ask_operator(
+    kernel: &mut dyn Kernel,
+    style: opname::Style,
+    operator: &str,
+    index: usize,
+) -> Result<(), ImportError> {
+    // A name longer than any listed one is asked as the empty name, which no
+    // list holds, so the kernel refuses it in its own words.
+    let name = opname::name(operator).unwrap_or([0; 32]);
+    match opname::answer(&kernel.ask(&opname::request(style, &name))) {
+        opname::Verdict::Supported => Ok(()),
+        refused => Err(ImportError::OperatorRefused(
+            OperatorAt(place(index)),
+            refused,
+        )),
+    }
 }
 
 /// Put each 4-bit weight's codes and scales to the kernel against its shape.

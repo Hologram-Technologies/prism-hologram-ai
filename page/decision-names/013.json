@@ -1,0 +1,46 @@
+{
+  "decision": 13,
+  "name": "A block's length",
+  "asks": "How many bytes is one block of this shape?",
+  "fields": {
+    "1": {
+      "name": "Format",
+      "choice": [
+        [
+          "q4",
+          0
+        ],
+        [
+          "q3f",
+          1
+        ],
+        [
+          "t2",
+          2
+        ],
+        [
+          "t2r",
+          3
+        ],
+        [
+          "ternary per 128",
+          4
+        ],
+        [
+          "f32",
+          5
+        ]
+      ],
+      "value": 4
+    },
+    "2": {
+      "name": "Rows",
+      "value": 2048
+    },
+    "10": {
+      "name": "Columns",
+      "value": 2048
+    }
+  },
+  "purpose": "how long one block of weights is"
+}

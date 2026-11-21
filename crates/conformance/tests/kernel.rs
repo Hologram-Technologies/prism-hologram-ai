@@ -12,6 +12,9 @@
 //! read from the wrong offset, or a verdict decided some other way would still
 //! verify, and would no longer be the claim the register makes.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::path::PathBuf;
 
 fn root() -> PathBuf {
@@ -38,15 +41,31 @@ fn declaration<'a>(model: &'a str, name: &str) -> &'a str {
 }
 
 /// The proofs count only if the gate checks them. The `app` recipe must verify
-/// every module under `app/src/Proofs`, by a glob that fails when it matches
-/// nothing, and no theorem may sit where that command does not look.
+/// every module under `app/src/Proofs`, each either in this run or by an
+/// earlier verification of byte-identical inputs whose attestation it checks
+/// (`xtask proofs`), and fail when there is none; no theorem may sit where that
+/// command does not look.
 fn assert_proofs_are_gated() {
     let justfile = model("Justfile");
+    let app = justfile.split("\napp:\n").nth(1).expect("an app recipe");
+    let app = app.split("\n\n").next().unwrap_or(app);
     assert!(
-        justfile.contains("shopt -s failglob")
-            && justfile.contains("lexlean verify src/Proofs/*.lex.tex"),
+        app.contains("shopt -s failglob")
+            && app.contains("cargo run -q --locked -p xtask -- proofs"),
         "the app recipe must run lexlean verify over every proof module"
     );
+    let proofs = model("xtask/src/proofs.rs");
+    for needle in [
+        "const PROOFS: &str = \"src/Proofs\";",
+        "read_dir(app.join(PROOFS))",
+        "holds no proof module",
+        "let mut args = vec![\"verify\"];",
+    ] {
+        assert!(
+            proofs.contains(needle),
+            "xtask proofs must discover every proof module and verify each it cannot reuse: {needle}"
+        );
+    }
     // The executable modules are discovered, not listed: a list would go stale
     // the first time a decision was added, and a module nobody reads reports
     // nothing.
@@ -116,30 +135,88 @@ fn assert_pinned(proofs: &str, theorem: &str, statement: &str, axioms: &str) {
     );
 }
 
+/// The decisions after 80 have slots, one definition each, so a pull request
+/// that adds one edits only its own slot's body and its import.
+const SLOTS: std::ops::RangeInclusive<u8> = 81..=112;
+const INVALID: &str = "(prim utf8_encode \"invalid request\" : Bytes)";
+
+/// The slot table's `<=?` tree over `from..=to`, as `slots` must write it.
+fn slot_tree(from: u8, to: u8) -> String {
+    if from == to {
+        return format!("(slot{from} tag value)");
+    }
+    let mid = from + (to - from) / 2;
+    format!(
+        "(if (tag <=? {mid}) then {} else {})",
+        slot_tree(from, mid),
+        slot_tree(mid + 1, to)
+    )
+}
+
+/// The dispatch is a fixed table: the route's last fallback is `slots`, which
+/// reaches each slot by a `<=?` tree and names no tag of its own, and each slot
+/// is empty (the refusal, no axioms) or answers exactly its own tag. The entry
+/// module's imports are sorted, so two new imports land apart.
+fn assert_slot_table(kernel: &str) {
+    let route = declaration(kernel, "route");
+    assert!(
+        route.contains(" else (slots tag value))"),
+        "the route's last fallback must be the slot table:\n{route}"
+    );
+    let slots = declaration(kernel, "slots");
+    assert!(
+        slots.contains(&format!(
+            "body: {},",
+            slot_tree(*SLOTS.start(), *SLOTS.end())
+        )),
+        "the slot table must reach each slot by its <=? tree:\n{slots}"
+    );
+    for tag in SLOTS {
+        let slot = declaration(kernel, &format!("slot{tag}"));
+        let empty = slot.contains(&format!("body: {INVALID},")) && slot.contains("axioms: []");
+        let filled = slot.contains(&format!("body: (if (tag =? {tag}) then (Kernel."))
+            && slot.contains(&format!(" value) else {INVALID}),"))
+            && slot.matches("(tag =? ").count() == 1;
+        assert!(
+            empty ^ filled,
+            "slot{tag} must refuse, or answer exactly decision {tag}:\n{slot}"
+        );
+    }
+    let imports: Vec<&str> = kernel
+        .lines()
+        .filter(|line| line.starts_with("\\importmodule{"))
+        .collect();
+    let mut sorted = imports.clone();
+    sorted.sort_unstable();
+    assert_eq!(imports, sorted, "the entry module's imports are sorted");
+}
+
 /// Decision `tag` is answered by `answer`, and nothing else answers for it.
 fn assert_routed(tag: u8, answer: &str) {
     let kernel = model("app/src/Kernel.lex.tex");
-    let route = declaration(&kernel, "route");
+    assert_slot_table(&kernel);
+    let route = if SLOTS.contains(&tag) {
+        declaration(&kernel, &format!("slot{tag}"))
+    } else {
+        declaration(&kernel, "route")
+    };
     assert!(
         route.contains(&format!("(if (tag =? {tag}) then ({answer} value)")),
         "decision {tag} must be routed to {answer}:\n{route}"
     );
     assert_eq!(
-        route.matches(&format!("(tag =? {tag})")).count(),
+        kernel.matches(&format!("(tag =? {tag})")).count(),
         1,
         "decision {tag} is routed once"
     );
 }
 
-/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims.json`,
+/// Each `(request, answer)` is a claim in `crates/conformance/tests/kernel/claims/`,
 /// which the `app` recipe replays through the guest of the holo it has just built. So
 /// a refusal that row 10 of the plan names is the compiled kernel's own answer, not
 /// only a reading of the model's text.
 fn assert_claimed(decision: u8, cases: &[(Vec<u8>, &str)]) {
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let listed: Vec<(&str, &str)> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3399,10 +3476,7 @@ fn kernel_kn_37() {
     assert_routed(37, "Kernel.Scale::scaleAnswer");
     // The claims the crates make of decision 37 cover every answer, a scale
     // that is not finite included; the app recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -3912,10 +3986,7 @@ fn kernel_kn_42() {
     assert_routed(42, "Kernel.Round::roundAnswer");
     // The claims the crates make of decision 42 cover every answer; the app
     // recipe replays them in the guest.
-    let claims =
-        std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("the claims the crates make of the kernel");
-    let claims: serde_json::Value = serde_json::from_str(&claims).expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("a list of claims")
@@ -4179,11 +4250,7 @@ fn kernel_kn_46() {
     assert_routed(45, "Kernel.Template::templateAnswer");
     // The claims cover every answer; the app recipe replays them in the guest.
     use hologram_ai_kernel_client::template;
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let mine: Vec<(String, String)> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -4257,11 +4324,7 @@ fn kernel_kn_47() {
         declaration(&kernel, name);
     }
     assert_routed(46, "Kernel.Chat::chatAnswer");
-    let claims: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-            .expect("claims"),
-    )
-    .expect("claims.json is JSON");
+    let claims = claims_dir::document(&root());
     let answers: Vec<&str> = claims["claims"]
         .as_array()
         .expect("claims")
@@ -4725,7 +4788,7 @@ fn kernel_kn_70() {
     assert_routed(70, "Kernel.Call::callAnswer");
 }
 
-/// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, and the exponent table kernel; any other kernel, width, zero point or request length answers invalid request
+/// `KN-49`: Decision 48 answers a GPU kernel's WGSL text in pieces of 256 bytes, printed in the guest from the kernel's byte code, and only for kernels whose text Lean checks equal to the model printer's: q4 group sums at zero point 8 for rows of 128, 256, 1024, 1536, 2048, 3072, 8192 or 8960 codes, the exponent table kernel, and the q4 product's activation quantiser, row accumulator and row rounding; any other kernel, width, zero point or request length answers invalid request
 #[test]
 fn kernel_kn_49() {
     assert_proofs_are_gated();
@@ -4733,55 +4796,73 @@ fn kernel_kn_49() {
     assert_pinned(
         &proofs,
         "exp2_code_prints_tree",
-        "((Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1)))",
+        "((Engine.Code::renderKernelC 3 7 (record Engine.Code::Pieces {p0 := (Engine.Code::exp2NegCode0), p1 := (Engine.Code::exp2NegCode1), p2 := (Engine.Code::exp2NegCode2), p3 := (Engine.Code::exp2NegCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 7 (Engine.Gpu::exp2Neg 1)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k128",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000400000080) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 4 128 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k256",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000000800000100) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 8 256 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k1024",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000002000000400) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 32 1024 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k1536",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000003000000600) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 48 1536 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k2048",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000004000000800) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 64 2048 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k3072",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000006000000c00) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 96 3072 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k8192",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000010000002000) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 256 8192 0 false)))",
         "Quot.sound, propext",
     );
     assert_pinned(
         &proofs,
         "q4_code_prints_tree_k8960",
-        "((Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false)))",
+        "((Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x0000011800002300) = (Engine.Gpu::renderKernel 4 7 (Engine.Gpu::q4GroupSums 280 8960 0 false)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_quantise_code_prints_tree",
+        "((Engine.Code::renderKernelC 3 21 (record Engine.Code::Pieces {p0 := (Engine.Code::q4QuantiseCode0), p1 := (Engine.Code::q4QuantiseCode1), p2 := (Engine.Code::q4QuantiseCode2), p3 := (Engine.Code::q4QuantiseCode3), p4 := (Engine.Code::q4QuantiseCode4), p5 := (Engine.Code::q4QuantiseCode5), p6 := (Engine.Code::q4QuantiseCode6), p7 := (Engine.Code::q4QuantiseCode7), p8 := (Engine.Code::q4QuantiseCode8), p9 := (Engine.Code::q4QuantiseCode9), p10 := (Engine.Code::q4QuantiseCode10), p11 := (Engine.Code::q4QuantiseCode11), p12 := (Engine.Code::q4QuantiseCode12), p13 := (Engine.Code::q4QuantiseCode13), p14 := (Engine.Code::q4QuantiseCode14), p15 := (Engine.Code::q4QuantiseCode15), p16 := (Engine.Code::q4QuantiseCode16), p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 3 21 (Engine.Gpu::q4Quantise)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_finish_code_prints_tree",
+        "((Engine.Code::renderKernelC 5 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4FinishCode0), p1 := (Engine.Code::q4FinishCode1), p2 := (Engine.Code::q4FinishCode2), p3 := (Engine.Code::q4FinishCode3), p4 := (Engine.Code::q4FinishCode4), p5 := (Engine.Code::q4FinishCode5), p6 := (Engine.Code::q4FinishCode6), p7 := (Engine.Code::q4FinishCode7), p8 := (Engine.Code::q4FinishCode8), p9 := (Engine.Code::q4FinishCode9), p10 := (Engine.Code::q4FinishCode10), p11 := (Engine.Code::q4FinishCode11), p12 := (Engine.Code::q4FinishCode12), p13 := (Engine.Code::q4FinishCode13), p14 := (Engine.Code::q4FinishCode14), p15 := (Engine.Code::q4FinishCode15), p16 := (Engine.Code::q4FinishCode16), p17 := (Engine.Code::q4FinishCode17), p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 5 40 (Engine.Gpu::q4Finish)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_accumulate_code_prints_tree",
+        "((Engine.Code::renderKernelC 6 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4AccumulateCode0), p1 := (Engine.Code::q4AccumulateCode1), p2 := (Engine.Code::q4AccumulateCode2), p3 := (Engine.Code::q4AccumulateCode3), p4 := (Engine.Code::q4AccumulateCode4), p5 := (Engine.Code::q4AccumulateCode5), p6 := (Engine.Code::q4AccumulateCode6), p7 := (Engine.Code::q4AccumulateCode7), p8 := (Engine.Code::q4AccumulateCode8), p9 := (Engine.Code::q4AccumulateCode9), p10 := (Engine.Code::q4AccumulateCode10), p11 := (Engine.Code::q4AccumulateCode11), p12 := (Engine.Code::q4AccumulateCode12), p13 := (Engine.Code::q4AccumulateCode13), p14 := (Engine.Code::q4AccumulateCode14), p15 := (Engine.Code::q4AccumulateCode15), p16 := (Engine.Code::q4AccumulateCode16), p17 := (Engine.Code::q4AccumulateCode17), p18 := (Engine.Code::q4AccumulateCode18), p19 := (Engine.Code::q4AccumulateCode19), p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 40 (Engine.Gpu::q4Accumulate)))",
         "Quot.sound, propext",
     );
     let render = model("app/src/Kernel/Render.lex.tex");
@@ -4793,8 +4874,11 @@ fn kernel_kn_49() {
     );
     let found = declaration(&render, "renderText");
     assert!(
-        found.contains("(Engine.Code::renderKernelC 4 7 (Engine.Code::q4GroupSumsCode)")
-            && found.contains("(Engine.Code::renderKernelC 3 7 (Engine.Code::exp2NegCode) 0x)"),
+        found.contains("(Engine.Code::renderKernelC 4 7 (record Engine.Code::Pieces {p0 := (Engine.Code::q4GroupSumsCode0), p1 := (Engine.Code::q4GroupSumsCode1), p2 := (Engine.Code::q4GroupSumsCode2), p3 := (Engine.Code::q4GroupSumsCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x})")
+            && found.contains("(Engine.Code::renderKernelC 3 7 (record Engine.Code::Pieces {p0 := (Engine.Code::exp2NegCode0), p1 := (Engine.Code::exp2NegCode1), p2 := (Engine.Code::exp2NegCode2), p3 := (Engine.Code::exp2NegCode3), p4 := 0x, p5 := 0x, p6 := 0x, p7 := 0x, p8 := 0x, p9 := 0x, p10 := 0x, p11 := 0x, p12 := 0x, p13 := 0x, p14 := 0x, p15 := 0x, p16 := 0x, p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 3 21 (record Engine.Code::Pieces {p0 := (Engine.Code::q4QuantiseCode0), p1 := (Engine.Code::q4QuantiseCode1), p2 := (Engine.Code::q4QuantiseCode2), p3 := (Engine.Code::q4QuantiseCode3), p4 := (Engine.Code::q4QuantiseCode4), p5 := (Engine.Code::q4QuantiseCode5), p6 := (Engine.Code::q4QuantiseCode6), p7 := (Engine.Code::q4QuantiseCode7), p8 := (Engine.Code::q4QuantiseCode8), p9 := (Engine.Code::q4QuantiseCode9), p10 := (Engine.Code::q4QuantiseCode10), p11 := (Engine.Code::q4QuantiseCode11), p12 := (Engine.Code::q4QuantiseCode12), p13 := (Engine.Code::q4QuantiseCode13), p14 := (Engine.Code::q4QuantiseCode14), p15 := (Engine.Code::q4QuantiseCode15), p16 := (Engine.Code::q4QuantiseCode16), p17 := 0x, p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 6 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4AccumulateCode0), p1 := (Engine.Code::q4AccumulateCode1), p2 := (Engine.Code::q4AccumulateCode2), p3 := (Engine.Code::q4AccumulateCode3), p4 := (Engine.Code::q4AccumulateCode4), p5 := (Engine.Code::q4AccumulateCode5), p6 := (Engine.Code::q4AccumulateCode6), p7 := (Engine.Code::q4AccumulateCode7), p8 := (Engine.Code::q4AccumulateCode8), p9 := (Engine.Code::q4AccumulateCode9), p10 := (Engine.Code::q4AccumulateCode10), p11 := (Engine.Code::q4AccumulateCode11), p12 := (Engine.Code::q4AccumulateCode12), p13 := (Engine.Code::q4AccumulateCode13), p14 := (Engine.Code::q4AccumulateCode14), p15 := (Engine.Code::q4AccumulateCode15), p16 := (Engine.Code::q4AccumulateCode16), p17 := (Engine.Code::q4AccumulateCode17), p18 := (Engine.Code::q4AccumulateCode18), p19 := (Engine.Code::q4AccumulateCode19), p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)")
+            && found.contains("(Engine.Code::renderKernelC 5 40 (record Engine.Code::Pieces {p0 := (Engine.Code::q4FinishCode0), p1 := (Engine.Code::q4FinishCode1), p2 := (Engine.Code::q4FinishCode2), p3 := (Engine.Code::q4FinishCode3), p4 := (Engine.Code::q4FinishCode4), p5 := (Engine.Code::q4FinishCode5), p6 := (Engine.Code::q4FinishCode6), p7 := (Engine.Code::q4FinishCode7), p8 := (Engine.Code::q4FinishCode8), p9 := (Engine.Code::q4FinishCode9), p10 := (Engine.Code::q4FinishCode10), p11 := (Engine.Code::q4FinishCode11), p12 := (Engine.Code::q4FinishCode12), p13 := (Engine.Code::q4FinishCode13), p14 := (Engine.Code::q4FinishCode14), p15 := (Engine.Code::q4FinishCode15), p16 := (Engine.Code::q4FinishCode16), p17 := (Engine.Code::q4FinishCode17), p18 := 0x, p19 := 0x, p20 := 0x, p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x)"),
         "decision 48 must print the codes the proofs check:
 {found}"
     );
@@ -4814,7 +4898,15 @@ fn kernel_kn_49() {
             (q4(0, 0, 5, 128), "invalid request"),
             (q4(0, 0, 4, 128)[..16].to_vec(), "invalid request"),
             (
-                vec![48, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                vec![48, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "invalid request",
+            ),
+            (
+                vec![48, 3, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "invalid request",
+            ),
+            (
+                vec![48, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0],
                 "invalid request",
             ),
         ],
@@ -5233,7 +5325,7 @@ fn kernel_kn_80() {
     // The sealed address is sealedWord's eight words, each `then` literal and
     // the last `else` one, big-endian, as `xtask engine-seal` reads them. The
     // claims the guest replays are derived from it here, so the seal has one
-    // source: a moved seal fails until claims.json follows.
+    // source: a moved seal fails until claims/080.json follows.
     let chain = declaration(&kernel, "sealedWord");
     let tokens: Vec<&str> = chain
         .split(|c: char| !c.is_ascii_alphanumeric())
@@ -5259,15 +5351,637 @@ fn kernel_kn_80() {
     );
     // The page's form for decision 80 starts at the sealed address, so it
     // answers sealed as shown; it follows the seal as the claims do.
-    let names: serde_json::Value = serde_json::from_str(&model("site/decision-names.json"))
-        .expect("decision-names.json is JSON");
+    let names: serde_json::Value = serde_json::from_str(&model("page/decision-names/080.json"))
+        .expect("page/decision-names/080.json is JSON");
     for (i, word) in sealed.iter().enumerate() {
         assert_eq!(
-            names["decisions"]["80"]["fields"][(1 + 4 * i).to_string()]["value"],
+            names["fields"][(1 + 4 * i).to_string()]["value"],
             serde_json::json!(word),
-            "site/decision-names.json's decision-80 field {} is not sealedWord {i}",
+            "page/decision-names/080.json's field {} is not sealedWord {i}",
             1 + 4 * i
         );
     }
     assert_routed(80, "Kernel.Seal::sealAnswer");
+}
+
+/// `KN-71`: Tokens leave the guest one per step: decision 71 folds a step's logits, binary32 bit patterns streamed in chunks of up to 2037, into a greedy pick carried in the request as hex, and on the last chunk answers the picked token and the next position, or context full when the position is at capacity; feeding two chunks one after the other gives the pick that feeding them joined gives, the guest reads its chunk as that fold, the picked logit's key is the largest key the fold has seen (KN-55's order), and on fixed lists the pick is KN-55's greedy token; a request whose length is not its count's, whose flags pass 3, whose carried state is not lowercase hex, or a last chunk with no logits seen, answers invalid request
+#[test]
+fn kernel_kn_71() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/Step.lex.tex");
+    assert_pinned(
+        &proofs,
+        "step_cut",
+        "((Engine.Step::feedPick (Engine.Step::feedPick kept early) later) = (Engine.Step::feedPick kept (Engine.Stream::join early later)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "step_reads_its_chunk",
+        "((Kernel.Step::stepFeed fuel kept value index) = (Engine.Step::feedPick kept (Kernel.Step::stepChunk fuel value index)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "picked_key_is_max",
+        "((Engine.Stage.Greedy::key (project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) bits)) = (Engine.Step::maxKeyFrom (Engine.Stage.Greedy::key bits) logits))",
+        "Quot.sound, propext",
+    );
+    for fixture in [
+        "pick_is_greedy_ordered",
+        "pick_is_greedy_first_of_ties",
+        "pick_is_greedy_all_negative",
+        "pick_is_greedy_zeros_tie",
+        "pick_is_greedy_one",
+    ] {
+        let found = declaration(&proofs, fixture);
+        assert!(
+            found.contains("= (Engine.Stage.Greedy::greedy ")
+                && found.contains("proof: reflexivity{}"),
+            "{fixture} must check the pick against KN-55's greedy:
+{found}"
+        );
+    }
+    let step = model("app/src/Kernel/Step.lex.tex");
+    let found = declaration(&step, "stepAnswer");
+    assert!(
+        found.contains("(Foundation.Bytes::byteLength value) =? (44 + (prim multiply 4 (Kernel.Wire::fieldAt value 2 2) : Nat))")
+            && found.contains("(stepHexValid 40 value 0)")
+            && found.contains("(stepFeed (Kernel.Wire::fieldAt value 2 2)"),
+        "decision 71 must check its length and state, and fold exactly its chunk:\n{found}"
+    );
+    let found = declaration(&step, "tokenOut");
+    assert!(
+        found.contains("(capacity <? (position + 1))") && found.contains("context full"),
+        "decision 71 must refuse a step past the capacity:\n{found}"
+    );
+    assert_routed(71, "Kernel.Step::stepAnswer");
+    let state = |position: u32, capacity: u32| -> Vec<u8> {
+        let mut hex = String::new();
+        for word in [0u32, 0, 0, position, capacity] {
+            for byte in word.to_le_bytes() {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+        }
+        hex.into_bytes()
+    };
+    let request = |flags: u8, logits: &[u32], state: Vec<u8>| {
+        let mut r = vec![71, flags];
+        r.extend((logits.len() as u16).to_be_bytes());
+        r.extend(state);
+        for logit in logits {
+            r.extend(logit.to_be_bytes());
+        }
+        r
+    };
+    assert_claimed(
+        71,
+        &[
+            (
+                request(2, &[1065353216, 1077936128, 1073741824], state(5, 10)),
+                "1 6",
+            ),
+            (
+                request(2, &[1073741824, 1084227584, 1084227584], state(5, 10)),
+                "1 6",
+            ),
+            (request(2, &[1065353216], state(10, 10)), "context full"),
+            (request(2, &[], state(5, 10)), "invalid request"),
+        ],
+    );
+}
+
+/// `KN-59`: The row register is defined in LexLean, not Rust: Engine.Stage.RowSum::run places each group's product from KN-58 at bit offset + 168 - e, where e is the group's signed activation power, in a 384-bit two's complement register of twelve words whose bit 0 weighs 2^-192, adding it or, for a negative group, its complement plus one, column by column with one carry; Lean proves, for every input, that each row's twelve output words have the value Engine.Stage.Accumulate::rowTotal, the sum of the row's signed terms modulo 2^384, that run emits exactly those words row after row, that each column sum over n groups is at most n(2^32 - 1), and that adding a term, or its complement with carry one, into a register of words gives the register plus the term, or plus 2^384 minus it
+#[test]
+fn kernel_kn_59() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/RowSum.lex.tex");
+    let accumulate = model("app/src/Engine/Stage/Accumulate.lex.tex");
+    let proofs = model("app/src/Proofs/StageRowSum.lex.tex");
+    // The value both S3 and the accumulate kernel are proved to reach.
+    assert!(
+        declaration(&accumulate, "rowTotal").contains(
+            "body: (prim remainder (signedTotal entries powers units (prim multiply row units : Nat) units) 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 0 : Nat)"
+        ),
+        "rowTotal changed"
+    );
+    assert_pinned(
+        &proofs,
+        "row_is_signed_total",
+        "((rowValue e p u row) = (Engine.Stage.Accumulate::rowTotal e p u row))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_row",
+        "((Engine.Stage.RowSum::runWords e p u row 0 (total0 e p u row) (n + 12)) = (cons (Engine.Stage.RowSum::word (total0 e p u row)) (cons (Engine.Stage.RowSum::word (total1 e p u row)) (cons (Engine.Stage.RowSum::word (total2 e p u row)) (cons (Engine.Stage.RowSum::word (total3 e p u row)) (cons (Engine.Stage.RowSum::word (total4 e p u row)) (cons (Engine.Stage.RowSum::word (total5 e p u row)) (cons (Engine.Stage.RowSum::word (total6 e p u row)) (cons (Engine.Stage.RowSum::word (total7 e p u row)) (cons (Engine.Stage.RowSum::word (total8 e p u row)) (cons (Engine.Stage.RowSum::word (total9 e p u row)) (cons (Engine.Stage.RowSum::word (total10 e p u row)) (cons (Engine.Stage.RowSum::word (total11 e p u row)) (Engine.Stage.RowSum::runWords e p u (row + 1) 0 (total0 e p u (row + 1)) n))))))))))))))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "run_starts_at_row_zero",
+        "((Engine.Stage.RowSum::run e p u rows) = (Engine.Stage.RowSum::runWords e p u 0 0 (total0 e p u 0) (prim multiply 12 rows : Nat)))",
+        "propext",
+    );
+    assert_pinned(
+        &proofs,
+        "columns_are_signed_total",
+        "(((colValue e p u g n) + (Engine.Stage.RowSum::negatives e g n)) = (Engine.Stage.Accumulate::signedTotal e p u g n))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "carries_close",
+        "(((rowValue e p u row) + (prim multiply 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816 (prim quotient (total11 e p u row) 4294967296 0 : Nat) : Nat)) = ((colValue e p u (prim multiply row u : Nat) u) + (Engine.Stage.RowSum::negatives e (prim multiply row u : Nat) u)))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "column_bound",
+        "((Engine.Stage.RowSum::column e p u g i n) <= (prim multiply 4294967295 n : Nat))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "negatives_bound",
+        "((Engine.Stage.RowSum::negatives e g n) <= n)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "output_is_word",
+        "((Engine.Stage.RowSum::word x) < 4294967296)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "term_words_value",
+        "((Engine.Word::limbsValue (termFrom lo hi pos 12)) = (Engine.Stage.Accumulate::termValue lo hi pos))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "add_exact",
+        "((Engine.Word::sumOf register (termFrom lo hi pos 12) 0) = (((Engine.Word::limbsValue register) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) + 0))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "complement_twelve",
+        "(((Engine.Word::limbsValue (complement (termFrom lo hi pos 12))) + ((Engine.Word::limbsValue (termFrom lo hi pos 12)) + 1)) = 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816)",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "subtract_exact",
+        "((((Engine.Word::limbsValue (Engine.Word::addLimbs register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::carryWeight register (complement (termFrom lo hi pos 12)) 1)) + (Engine.Word::limbsValue (termFrom lo hi pos 12))) = ((Engine.Word::limbsValue register) + 39402006196394479212279040100143613805079739270465446667948293404245721771497210611414266254884915640806627990306816))",
+        "Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.RowSum}")
+            && !proofs.contains("\n  name: column,"),
+        "the proofs must read the stage, not restate it"
+    );
+    for (name, body) in [
+        (
+            "position",
+            "body: (word (((entryAt entries g 3) + 168) + (prim subtract 4294967296 (word (Engine.Stage.Greedy::nth powers (prim remainder g units 0 : Nat))) : Nat)))",
+        ),
+        (
+            "run",
+            "body: (runWords entries powers units 0 0 (startTotal entries powers units 0) (prim multiply 12 rows : Nat))",
+        ),
+    ] {
+        assert!(
+            declaration(&stage, name).contains(body),
+            "{name} changed"
+        );
+    }
+}
+
+/// `KN-81`: Softmax over a row of scores is defined in LexLean, not Rust: Engine.Stage.Softmax::run reads each score as a signed 64-bit value in two little-endian words, weights it by exp2Neg (KN-56) of the largest score less its own, and writes each weight times 2^30 over the exact sum of the weights, rounded half to even; Lean proves, for every row, that no score is above the largest, that each weight is exp2Neg's, and that a non-empty row's sum is at least 2^30, and evaluates the stage equal to crates/exact's softmax_exp2 on nine rows, which the kernel test replays against the Rust
+#[test]
+fn kernel_kn_81() {
+    assert_proofs_are_gated();
+    let stage = model("app/src/Engine/Stage/Softmax.lex.tex");
+    let proofs = model("app/src/Proofs/StageSoftmax.lex.tex");
+    assert_pinned(
+        &proofs,
+        "no_key_above_top",
+        "((excessOf words (Engine.Stage.Softmax::topOf words count) count) = 0)",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "weight_is_exp2",
+        "((Engine.Stage.Softmax::weightOf d) = (Engine.Stage.Exp2::exp2Neg d))",
+        "Quot.sound, propext",
+    );
+    assert_pinned(
+        &proofs,
+        "total_at_least",
+        "(1073741824 <= ((Engine.Stage.Softmax::totalOf words (Engine.Stage.Softmax::topOf words count) count) + (prim multiply 1073741824 (prim subtract 1 count : Nat) : Nat)))",
+        "Classical.choice, Quot.sound, propext",
+    );
+    assert!(
+        proofs.contains("\\importmodule{Engine.Stage.Softmax}")
+            && !proofs.contains("\n  name: run,"),
+        "the proofs must read the stage, not restate it"
+    );
+    assert!(
+        declaration(&stage, "weightAt").contains("Engine.Stage.Exp2::exp2Neg")
+            || declaration(&stage, "weightOf").contains("Engine.Stage.Exp2::exp2Neg"),
+        "the weights must be KN-56's exp2Neg"
+    );
+    // Each row Lean evaluated is replayed through the Rust: the stage and
+    // crates/exact agree on it, or this fails.
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: softmax_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("softmax_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "softmax_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Softmax::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("softmax_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let (count, rest) = rest.trim_start().split_once(')').expect("a count");
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let count: usize = count.parse().expect("a count");
+        assert_eq!(
+            words.len(),
+            2 * count,
+            "softmax_row_{rows}: two words per score"
+        );
+        let scores: Vec<i64> = words
+            .chunks(2)
+            .map(|pair| (pair[0] | (pair[1] << 32)) as i64)
+            .collect();
+        let rust: Vec<u64> = hologram_ai_exact::softmax_exp2(&scores)
+            .into_iter()
+            .map(u64::from)
+            .collect();
+        assert_eq!(
+            rust, expected,
+            "softmax_row_{rows}: crates/exact disagrees with the stage on {scores:?}"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 9, "nine rows are evaluated, found {rows}");
+}
+
+/// The numbers of a LexLean list `(cons a (cons b (nil Nat)))` at the start of
+/// `text`, and the text after it.
+fn cons_list(text: &str) -> (Vec<u64>, &str) {
+    let mut rest = text;
+    let mut values = Vec::new();
+    while let Some(after) = rest.strip_prefix("(cons ") {
+        let (value, tail) = after.split_once(' ').expect("a list element");
+        values.push(value.parse().expect("a number"));
+        rest = tail;
+    }
+    let mut rest = rest.strip_prefix("(nil Nat)").expect("the end of a list");
+    for _ in &values {
+        rest = rest.strip_prefix(')').expect("a closed list");
+    }
+    (values, rest)
+}
+
+/// `KN-73`: The q4 MatMulNBits product runs on WebGPU in integers only, as three kernels defined in LexLean: the quantiser gives each group of 32 activations hologram_ai_exact's 16-bit codes and its power of two, the accumulator adds each group sum times its half scale into a 384-bit two's-complement register at its exact bit position, and the rounding kernel rounds the register once to binary32, half to even, with subnormals and infinity; Lean runs the three kernels on a hologram_ai_exact fixture and gets its codes, its power and its rows
+#[test]
+fn kernel_kn_73() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/GpuQ4Chain.lex.tex");
+    assert_pinned(
+        &proofs,
+        "q4_quantise_codes_match_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 1) = (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))))",
+        "",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_quantise_power_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 300 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 1 (record Engine.Gpu::Machine {buffers := (cons (cons 3230518388 (cons 3218530955 (cons 3221225600 (cons 3238002944 (cons 3219485150 (cons 1074989101 (cons 3277979884 (cons 0 (cons 1048576512 (cons 1107296260 (cons 0 (cons 1073741832 (cons 3228613445 (cons 3187671044 (cons 0 (cons 3187671040 (cons 1100661729 (cons 1082130944 (cons 3187671040 (cons 1074029115 (cons 3229878535 (cons 1082051917 (cons 1048584192 (cons 3279814745 (cons 3179282496 (cons 1074790400 (cons 3183642790 (cons 3162505216 (cons 3204456448 (cons 1093931366 (cons 3212869632 (cons 1039367346 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 0 (nil Nat)) (nil (List Nat))))), locals := (Engine.Gpu::blank 21), invocation := 0, group := 0}) (Engine.Gpu::q4Quantise)) buffers) 2) = (cons 7 (nil Nat)))",
+        "",
+    );
+    assert_pinned(
+        &proofs,
+        "q4_row_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 205727 (cons 4294677669 (nil Nat))) (cons (cons 4097018798 (nil Nat)) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 1 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Accumulate)) buffers), locals := (Engine.Gpu::blank 40), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 3200310393 (cons 1276409465 (nil Nat))))",
+        "",
+    );
+    let gpu = model("app/src/Engine/Gpu.lex.tex");
+    for name in ["q4Quantise", "q4Accumulate", "q4Finish"] {
+        let found = declaration(&gpu, name);
+        assert!(
+            found.contains("parameters: []") && found.contains("result: Stmt"),
+            "{name} must be one kernel tree for every width:\n{found}"
+        );
+    }
+    let quarter =
+        |kind: u8, piece: u8| vec![48, kind, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let texts: Vec<String> = [3u8, 4, 5]
+        .iter()
+        .map(|&kind| {
+            let claims = std::fs::read_to_string(
+                root().join("crates/conformance/tests/kernel/claims/048.json"),
+            )
+            .expect("the claims the crates make of the kernel");
+            let claims: serde_json::Value =
+                serde_json::from_str(&claims).expect("048.json is JSON");
+            let mut text = String::new();
+            for piece in 0u8.. {
+                let request: String = quarter(kind, piece)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                let answer = claims["claims"]
+                    .as_array()
+                    .expect("a list of claims")
+                    .iter()
+                    .find(|one| one["request"].as_str() == Some(request.as_str()))
+                    .and_then(|one| one["answer"].as_str())
+                    .unwrap_or_else(|| panic!("no claim for decision 48's {request}"));
+                if answer.is_empty() {
+                    break;
+                }
+                text.push_str(answer);
+            }
+            text
+        })
+        .collect();
+    for text in &texts {
+        assert!(
+            !text.is_empty() && !text.contains("f32") && !text.contains("f16"),
+            "a q4 product kernel must be integers only:\n{text}"
+        );
+    }
+}
+
+/// `KN-82`: An encoder call in transformers.js's terms is answered run exactly when it asks for what the module's encoder gives: feature-extraction with mean pooling and normalizing, text-classification with neither; any other pooling, an unnormalized embedding or another task is refused by name
+#[test]
+fn kernel_kn_82() {
+    assert_proofs_are_gated();
+    let kernel = model("app/src/Kernel/Encode.lex.tex");
+    let proofs = model("app/src/Proofs/Encode.lex.tex");
+    for (name, statement, axioms) in [
+        (
+            "encode_embedding_runs",
+            "((pooling = 1) -> ((normalize = 1) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 0)))",
+            "propext",
+        ),
+        (
+            "encode_embedding_pooling_refused",
+            "(((pooling =? 1) = false) -> ((Kernel.Encode::encodeCode 1 pooling normalize) = 1))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_embedding_normalize_refused",
+            "(((normalize =? 1) = false) -> ((Kernel.Encode::encodeCode 1 1 normalize) = 2))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_runs",
+            "((pooling = 0) -> ((normalize = 0) -> ((Kernel.Encode::encodeCode 2 pooling normalize) = 0)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_classification_options_refused",
+            "((1 <= (pooling + normalize)) -> (1 <= (Kernel.Encode::encodeCode 2 pooling normalize)))",
+            "Quot.sound, propext",
+        ),
+        (
+            "encode_task_refused",
+            "((3 <= task) -> ((Kernel.Encode::encodeCode task pooling normalize) = 3))",
+            "Quot.sound, propext",
+        ),
+    ] {
+        assert_pinned(&proofs, name, statement, axioms);
+    }
+    for (name, body) in [
+        (
+            "encodeCode",
+            "body: (if (task =? 1) then (if (pooling =? 1) then (if (normalize =? 1) then 0 else 2) else 1) else (if (task =? 2) then (if (pooling =? 0) then (if (normalize =? 0) then 0 else 2) else 1) else 3))",
+        ),
+        ("encodeAnswer", "((Foundation.Bytes::byteLength value) =? 4)"),
+    ] {
+        let found = declaration(&kernel, name);
+        assert!(found.contains(body), "{name} changed:
+{found}");
+    }
+    assert_routed(82, "Kernel.Encode::encodeAnswer");
+}
+
+/// `KN-95`: The output head's dense product runs on WebGPU in integers only, as a fourth kernel defined in LexLean beside the q4 product's: denseAccumulate adds each input's 16-bit code times its half weight into the row's 384-bit two's-complement register at its group's power, up to 2048 inputs, skipping groups past the row's width; decision 48 prints it as kernel 6, Lean checks the guest prints it exactly as renderKernel does, and Lean runs it with the quantiser and the rounding kernel on a hologram_ai_exact fixture of two rows of 32 half weights, zero, subnormal and largest finite among them, and gets dense_product_with's rows
+#[test]
+fn kernel_kn_95() {
+    assert_proofs_are_gated();
+    assert_pinned(
+        &model("app/src/Proofs/GpuQ4Chain.lex.tex"),
+        "dense_row_matches_exact",
+        "((Engine.Gpu::nthBuffer (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (project (Engine.GpuRun::runAll 900 (fun (m : Engine.Gpu::Machine) (e : Engine.Gpu::Expr) => (Engine.Gpu::eval m e)) 2 (record Engine.Gpu::Machine {buffers := (cons (cons 4294966729 (cons 4294967081 (cons 4294967040 (cons 4294966272 (cons 4294967067 (cons 294 (cons 4294938368 (cons 0 (cons 32 (cons 4096 (cons 0 (cons 256 (cons 4294966815 (cons 4294967280 (cons 0 (cons 4294967280 (cons 2476 (cons 512 (cons 4294967280 (cons 265 (cons 4294966768 (cons 510 (cons 32 (cons 4294934784 (cons 4294967288 (cons 288 (cons 4294967284 (cons 4294967294 (cons 4294967232 (cons 1441 (cons 4294967168 (cons 15 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 1430144537 (cons 102202 (cons 3526847775 (cons 10704 (cons 1404628537 (cons 2830412270 (cons 1362921683 (cons 1180659896 (cons 3235834506 (cons 1228905597 (cons 3923659967 (cons 4104302296 (cons 3259627804 (cons 3599647722 (cons 2591308769 (cons 3617227430 (cons 1665251947 (cons 695883207 (cons 763283582 (cons 2229213358 (cons 846430211 (cons 3954447145 (cons 2187673206 (cons 598088509 (cons 2608081371 (cons 234716159 (cons 323262589 (cons 2808617743 (cons 702919287 (cons 2981642025 (cons 2392372116 (cons 2361431086 (nil Nat))))))))))))))))))))))))))))))))) (cons (cons 7 (nil Nat)) (cons (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (cons 0 (nil Nat))))))))))))))))))))))))) (cons (cons 0 (cons 0 (nil Nat))) (cons (cons 32 (nil Nat)) (nil (List Nat)))))))), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::denseAccumulate)) buffers), locals := (Engine.Gpu::blank 43), invocation := 0, group := 0}) (Engine.Gpu::q4Finish)) buffers) 4) = (cons 1250986792 (cons 3330998693 (nil Nat))))",
+        "",
+    );
+    assert_pinned(
+        &model("app/src/Proofs/GpuCode.lex.tex"),
+        "dense_accumulate_code_prints_tree",
+        "((Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0), p1 := (Engine.Code::denseAccumulateCode1), p2 := (Engine.Code::denseAccumulateCode2), p3 := (Engine.Code::denseAccumulateCode3), p4 := (Engine.Code::denseAccumulateCode4), p5 := (Engine.Code::denseAccumulateCode5), p6 := (Engine.Code::denseAccumulateCode6), p7 := (Engine.Code::denseAccumulateCode7), p8 := (Engine.Code::denseAccumulateCode8), p9 := (Engine.Code::denseAccumulateCode9), p10 := (Engine.Code::denseAccumulateCode10), p11 := (Engine.Code::denseAccumulateCode11), p12 := (Engine.Code::denseAccumulateCode12), p13 := (Engine.Code::denseAccumulateCode13), p14 := (Engine.Code::denseAccumulateCode14), p15 := (Engine.Code::denseAccumulateCode15), p16 := (Engine.Code::denseAccumulateCode16), p17 := (Engine.Code::denseAccumulateCode17), p18 := (Engine.Code::denseAccumulateCode18), p19 := (Engine.Code::denseAccumulateCode19), p20 := (Engine.Code::denseAccumulateCode20), p21 := 0x, p22 := 0x, p23 := 0x, p24 := 0x, p25 := 0x, p26 := 0x, p27 := 0x, p28 := 0x, p29 := 0x, p30 := 0x, p31 := 0x}) 0x) = (Engine.Gpu::renderKernel 6 43 (Engine.Gpu::denseAccumulate)))",
+        "Quot.sound, propext",
+    );
+    let gpu = model("app/src/Engine/Gpu.lex.tex");
+    let found = declaration(&gpu, "denseAccumulate");
+    assert!(
+        found.contains("parameters: []") && found.contains("result: Stmt"),
+        "denseAccumulate must be one kernel tree for every width:\n{found}"
+    );
+    let render = model("app/src/Kernel/Render.lex.tex");
+    let render = declaration(&render, "renderText");
+    assert!(
+        render.contains("(Engine.Code::renderKernelC 6 43 (record Engine.Code::Pieces {p0 := (Engine.Code::denseAccumulateCode0)"),
+        "decision 48 must print the dense kernel's checked code as kernel 6:\n{render}"
+    );
+    let claims: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims/048.json"))
+            .expect("the claims the crates make of the kernel"),
+    )
+    .expect("048.json is JSON");
+    let mut text = String::new();
+    for piece in 0u8.. {
+        let request: String = [48u8, 6, 0, piece, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let answer = claims["claims"]
+            .as_array()
+            .expect("a list of claims")
+            .iter()
+            .find(|one| one["request"].as_str() == Some(request.as_str()))
+            .and_then(|one| one["answer"].as_str())
+            .unwrap_or_else(|| panic!("no claim for decision 48's {request}"));
+        if answer.is_empty() {
+            break;
+        }
+        text.push_str(answer);
+    }
+    assert!(
+        !text.is_empty() && !text.contains("f32") && !text.contains("f16"),
+        "the dense kernel must be integers only:\n{text}"
+    );
+    assert_claimed(
+        48,
+        &[(
+            vec![48, 6, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "invalid request",
+        )],
+    );
+}
+
+/// `KN-62`: One attention head is defined in LexLean, not Rust: Engine.Stage.Attention::attend sums each cached key's binary32 products with the query exactly and rounds once by Engine.Stage.Binary32::round, takes each score's softmax exponent, runs KN-81's softmax, and sums the weights times each cached value exactly and rounds once, reading grouped-query key and value heads; Lean proves every score and output is a word and a head gives head_dim words, and evaluates heads and roundings that the kernel test replays through cpu-decode's attend_head and crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_62() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageAttention.lex.tex");
+    let rounding = model("app/src/Proofs/StageBinary32.lex.tex");
+    for (module, name) in [
+        (&proofs, "attention_score_is_word"),
+        (&proofs, "attention_out_is_word"),
+        (&proofs, "attention_head_count"),
+        (&rounding, "binary32_round_is_word"),
+    ] {
+        assert!(
+            module.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut heads = 0;
+    while proofs.contains(&format!("\n  name: attention_head_row_{heads},\n")) {
+        let found = declaration(&proofs, &format!("attention_head_row_{heads}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "attention_head_row_{heads} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Attention::attend ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("attention_head_row_{heads} is not an evaluation of attend"));
+        let (query, rest) = cons_list(statement);
+        let (keys, rest) = cons_list(rest.trim_start());
+        let (values, rest) = cons_list(rest.trim_start());
+        let (numbers, rest) = rest.trim_start().split_once(')').expect("the head's sizes");
+        let n: Vec<usize> = numbers
+            .split_whitespace()
+            .map(|x| x.parse().expect("a size"))
+            .collect();
+        let [hq, group, kv_heads, head_dim, seen, root] = n[..] else {
+            panic!("attention_head_row_{heads}: six sizes")
+        };
+        let expected = cons_list(rest.trim_start().strip_prefix("= ").expect("an equation")).0;
+        let words = |xs: &[u64]| xs.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+        let (query, keys, values) = (words(&query), words(&keys), words(&values));
+        let rust: Vec<u64> = hologram_ai_cpu_decode::attend_head(
+            &query[hq * head_dim..(hq + 1) * head_dim],
+            &keys[..seen * kv_heads * head_dim],
+            &values[..seen * kv_heads * head_dim],
+            hq / group,
+            kv_heads,
+            root as i128,
+        )
+        .expect("finite values")
+        .into_iter()
+        .map(u64::from)
+        .collect();
+        assert_eq!(
+            rust, expected,
+            "attention_head_row_{heads}: cpu-decode disagrees with the stage"
+        );
+        heads += 1;
+    }
+    assert!(heads >= 4, "four heads are evaluated, found {heads}");
+    let mut rows = 0;
+    while rounding.contains(&format!("\n  name: binary32_row_{rows},\n")) {
+        let found = declaration(&rounding, &format!("binary32_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "binary32_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.Binary32::round ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("binary32_row_{rows} is not an evaluation of round"));
+        let (args, result) = statement.split_once(") = ").expect("an equation");
+        let args: Vec<u128> = args
+            .split_whitespace()
+            .map(|x| x.parse().expect("a number below 2^128"))
+            .collect();
+        let (negative, n, k) = (args[0] == 1, args[1], args[2] as i32);
+        let expected: u32 = result
+            .split(')')
+            .next()
+            .unwrap_or(result)
+            .parse()
+            .expect("bits");
+        let mut row = hologram_ai_exact::Row::ZERO;
+        row.add_scaled(n & u128::from(u64::MAX), -k, negative);
+        row.add_scaled(n >> 64, 64 - k, negative);
+        assert_eq!(
+            hologram_ai_exact::round_to_binary32(&row),
+            expected,
+            "binary32_row_{rows}: crates/exact rounds (-1)^{negative} {n} 2^-{k} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 12, "twelve roundings are evaluated, found {rows}");
+}
+
+/// `KN-63`: A row's register is rounded to binary32 in LexLean, not Rust: Engine.Stage.RowFinish::run reads each row's twelve words from KN-59 as a 384-bit two's-complement value whose bit 0 weighs 2^-192 and rounds it once by Engine.Stage.Binary32::round, ties to even; Lean proves every output is a word and run gives one word a row, and evaluates rows that the kernel test replays through crates/exact's round_to_binary32
+#[test]
+fn kernel_kn_63() {
+    assert_proofs_are_gated();
+    let proofs = model("app/src/Proofs/StageRowFinish.lex.tex");
+    for name in ["row_finish_is_word", "row_finish_count"] {
+        assert!(
+            proofs.contains(&format!("\n  name: {name},\n")),
+            "{name} is the stage's guarantee"
+        );
+    }
+    let mut rows = 0;
+    while proofs.contains(&format!("\n  name: row_finish_row_{rows},\n")) {
+        let found = declaration(&proofs, &format!("row_finish_row_{rows}"));
+        assert!(
+            found.contains("proof: reflexivity{}") && found.contains("axioms: []"),
+            "row_finish_row_{rows} must be evaluated by Lean:\n{found}"
+        );
+        let statement = found
+            .split("statement: ((Engine.Stage.RowFinish::run ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("row_finish_row_{rows} is not an evaluation of run"));
+        let (words, rest) = cons_list(statement);
+        let rest = rest.trim_start().strip_prefix("1) = ").expect("one row");
+        let expected = cons_list(rest).0;
+        assert_eq!(words.len(), 12, "row_finish_row_{rows}: twelve words");
+        // The register's magnitude, two's complement over 384 bits.
+        let negative = words[11] >> 31 == 1;
+        let mut magnitude: Vec<u64> = words.clone();
+        if negative {
+            let mut carry = 1u64;
+            for word in &mut magnitude {
+                let flipped = (!*word & 0xffff_ffff) + carry;
+                *word = flipped & 0xffff_ffff;
+                carry = flipped >> 32;
+            }
+        }
+        let mut row = hologram_ai_exact::Row::ZERO;
+        for (i, &word) in magnitude.iter().enumerate() {
+            row.add_scaled(u128::from(word), 32 * i as i32 - 192, negative);
+        }
+        let rust = vec![u64::from(hologram_ai_exact::round_to_binary32(&row))];
+        assert_eq!(
+            rust, expected,
+            "row_finish_row_{rows}: crates/exact rounds the register {words:?} differently"
+        );
+        rows += 1;
+    }
+    assert!(rows >= 8, "eight rows are evaluated, found {rows}");
 }

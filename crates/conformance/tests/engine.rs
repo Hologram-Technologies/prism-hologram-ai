@@ -5,6 +5,9 @@
 //! restates them: they are read from `app/src/Kernel.lex.tex`, so an example
 //! added to or changed in the model is tested the next time this runs.
 
+#[path = "kernel/claims.rs"]
+mod claims_dir;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -118,28 +121,6 @@ fn container_header(entries: &[(&str, &str, u64, u64, u64, u64)]) -> serde_json:
 /// The name one of the module's own failures reaches the page by.
 fn named(why: wasm::CallError) -> Vec<u8> {
     format!("{why:?}").into_bytes()
-}
-
-/// The text after `needle` in `text`, if it is there.
-fn after_in<'a>(text: &'a str, needle: &str) -> Option<&'a str> {
-    text.find(needle).map(|at| &text[at + needle.len()..])
-}
-
-/// The first word of `text`, which is how a name is written.
-fn first_word(text: &str) -> String {
-    text.chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect()
-}
-
-/// A statement as the page draws it: the same words, the symbols drawn.
-fn drawn(statement: &str) -> String {
-    let joined = statement.split_whitespace().collect::<Vec<_>>().join(" ");
-    joined
-        .replace("<->", "\u{2194}")
-        .replace("->", "\u{2192}")
-        .replace("/\\", "\u{2227}")
-        .replace("\\/", "\u{2228}")
 }
 
 /// The bytes, written as hexadecimal digits.
@@ -2077,10 +2058,11 @@ fn engine_en_13() {
 // kernel's own examples have it, every byte of a request accounted for, and
 // every value the examples use offered to whoever is filling the form.
 
-/// The table the page reads, from `site/decisions.json`.
+/// The table the page reads, from `site/decisions.json`, which `cargo xtask
+/// page --write` (and `xtask validate`, which `just vv` runs first) writes.
 fn page_table() -> serde_json::Value {
     let text = std::fs::read_to_string(root().join("site/decisions.json"))
-        .expect("the page's decision table");
+        .expect("site/decisions.json is generated: run `cargo xtask page --write`");
     serde_json::from_str(&text).expect("the table is JSON")
 }
 
@@ -2485,12 +2467,21 @@ fn engine_en_14() {
         String::from_utf8_lossy(&ran.stdout)
     );
 
-    // The page says what the kernel does: its description names every decision
-    // the kernel routes.
+    // The page says what the kernel does: the description written beside its
+    // table names every decision the kernel routes, each by the phrase its own
+    // file in page/decision-names/ gives it, after app.json's purpose.
     let described = std::fs::read_to_string(root().join("site/app.json"))
         .expect("what the page says about the app");
     let described: serde_json::Value = serde_json::from_str(&described).expect("app.json is JSON");
-    let purpose = described["purpose"].as_str().unwrap_or_default();
+    let lead = described["purpose"].as_str().unwrap_or_default();
+    let purpose = page_table()["purpose"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        !lead.is_empty() && purpose.starts_with(lead),
+        "the page's description does not open with app.json's purpose"
+    );
     for tag in &routed {
         assert!(
             purpose.contains(&format!("({tag})")),
@@ -2498,67 +2489,39 @@ fn engine_en_14() {
         );
     }
 
-    // The page names every theorem the proofs carry, in the proofs' own words.
-    // A theorem added to a module and not named here would be a proof the page
-    // never mentions; one named here and not proved would be a claim with
-    // nothing behind it.
-    let mut proved: BTreeMap<String, String> = BTreeMap::new();
-    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
-        let path = entry.expect("a proof module").path();
-        let text = std::fs::read_to_string(&path).expect("the module reads");
-        for block in text.split("theorem{").skip(1) {
-            let block = block.split("\n}").next().unwrap_or(block);
-            let Some(name) = after_in(block, "name: ").map(first_word) else {
-                continue;
-            };
-            let Some(statement) = after_in(block, "statement: ") else {
-                continue;
-            };
-            let statement = statement
-                .split("\n  proof:")
-                .next()
-                .unwrap_or(statement)
-                .split("\n  axioms:")
-                .next()
-                .unwrap_or(statement)
-                // A theorem lexlean fmt keeps on one line ends its statement here.
-                .split(", proof: ")
-                .next()
-                .unwrap_or(statement)
-                .split(", axioms: ")
-                .next()
-                .unwrap_or(statement);
-            proved.insert(name, drawn(statement.trim().trim_end_matches(',')));
-        }
-    }
+    // The page names every theorem the proofs carry. The page reads them from
+    // the LexLean source itself, so what is checked is the page it builds: the
+    // `page-journey` recipe runs `kernel/page-theorems.mjs` on the assembled
+    // page, after `bootstrap/page.mjs` and before the journey, and it fails
+    // unless every `theorem{}` in app/src/Proofs is named in its proof section.
+    // A second list in site/app.json, which every decision edited, is gone.
     assert!(
-        proved.len() >= 49,
-        "only {} theorems were read",
-        proved.len()
+        described.get("theorems").is_none(),
+        "site/app.json lists theorems again: the page reads them from app/src"
     );
-    let listed: BTreeMap<String, String> = described["theorems"]
-        .as_array()
-        .expect("the theorems the page names")
-        .iter()
-        .map(|one| {
-            (
-                one["name"].as_str().unwrap_or_default().to_string(),
-                one["statement"].as_str().unwrap_or_default().to_string(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        listed.keys().collect::<Vec<_>>(),
-        proved.keys().collect::<Vec<_>>(),
-        "the page and the proofs disagree about which theorems there are"
+    let justfile = std::fs::read_to_string(root().join("Justfile")).expect("the Justfile");
+    let journey = justfile
+        .split("\npage-journey assembled=\"\":\n")
+        .nth(1)
+        .expect("a page-journey recipe");
+    let journey = journey.split("\n\n").next().unwrap_or(journey);
+    let theorems = journey
+        .find("node crates/conformance/tests/kernel/page-theorems.mjs \"$site\"")
+        .expect("page-journey checks the page names every theorem");
+    let drive = journey
+        .find("node crates/conformance/tests/gpu/journey.mjs")
+        .expect("page-journey drives the page");
+    assert!(
+        theorems < drive,
+        "the theorems are checked before the journey"
     );
-    for (name, statement) in &proved {
-        assert_eq!(
-            listed.get(name).map(String::as_str),
-            Some(statement.as_str()),
-            "the page states {name} differently from the module that proves it"
-        );
+    let mut proved = 0;
+    for entry in std::fs::read_dir(root().join("app/src/Proofs")).expect("the proofs") {
+        let text = std::fs::read_to_string(entry.expect("a proof module").path())
+            .expect("the module reads");
+        proved += text.matches("theorem{").count();
     }
+    assert!(proved >= 49, "only {proved} theorems were read");
 
     // Every answer the kernel gives to an example is one the page knows how to
     // colour, or the refusal it names.
@@ -4323,7 +4286,7 @@ import { readFileSync } from "node:fs";
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
 // The module asks the kernel through one import; these calls never reach it.
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0, product: () => 1 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -6215,9 +6178,11 @@ fn engine_en_31() {
         );
         assert_eq!((model.tensors[3].file, model.tensors[3].offset), (1, 256));
         assert_eq!(model.operators, ["MatMulNBits", "Mul"]);
+        // MatMulNBits stores 4-bit weights in either style, so a graph whose
+        // only com.microsoft operator it is stays decomposed (Qwen2.5's export).
         assert!(
-            model.fused,
-            "a graph naming a com.microsoft operator is fused"
+            !model.fused,
+            "a graph whose only com.microsoft operator is MatMulNBits is decomposed"
         );
         match &first {
             None => first = Some((model, kernel.asked)),
@@ -6233,7 +6198,7 @@ fn engine_en_31() {
     let (model, asked) = first.expect("an import");
 
     // What was asked, and in what order: each inline span as the graph passes
-    // it, after the previous; the graph whole; each operator in the fused
+    // it, after the previous; the graph whole; each operator in the decomposed
     // style; the data file's spans before any of its bytes; that file whole;
     // and each 4-bit part against its shape.
     let graph_file = chunk::File {
@@ -6263,8 +6228,8 @@ fn engine_en_31() {
             graph.len() as u64,
         )
         .to_vec(),
-        opname::request(opname::Style::Fused, &name("MatMulNBits")).to_vec(),
-        opname::request(opname::Style::Fused, &name("Mul")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("MatMulNBits")).to_vec(),
+        opname::request(opname::Style::Decomposed, &name("Mul")).to_vec(),
         chunk::request(data_file, 0, 256, 0).to_vec(),
         chunk::request(data_file, 256, 64, 256).to_vec(),
         admission::request(
@@ -6299,6 +6264,28 @@ fn engine_en_31() {
     assert_eq!(
         kernel.asked.last().expect("asked"),
         &opname::request(opname::Style::Decomposed, &name("Add")).to_vec()
+    );
+
+    // Any other com.microsoft operator makes the graph fused.
+    let fused = onnx_file(
+        &[opset("", 21), opset("com.microsoft", 1)],
+        Some(&proto_field_bytes(
+            1,
+            &node(b"GroupQueryAttention", "com.microsoft"),
+        )),
+    );
+    let mut kernel = accepting();
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &fused));
+    reading.take(&fused, &mut kernel).expect("it reads");
+    let model = import::whole(
+        reading.finish(&mut kernel).expect("it finishes"),
+        &mut kernel,
+    )
+    .expect("it imports");
+    assert!(model.fused);
+    assert_eq!(
+        kernel.asked.last().expect("asked"),
+        &opname::request(opname::Style::Fused, &name("GroupQueryAttention")).to_vec()
     );
 }
 
@@ -6996,7 +6983,8 @@ fn engine_en_33() {
             table["operators"],
             serde_json::json!(["MatMulNBits", "Mul"])
         );
-        assert_eq!(table["fused"], serde_json::json!(true));
+        // MatMulNBits alone stores weights; it does not make a graph fused.
+        assert_eq!(table["fused"], serde_json::json!(false));
     }
 }
 
@@ -7589,7 +7577,7 @@ import { readFileSync } from "node:fs";
 const [, , modulePath, casesPath] = process.argv;
 const cases = JSON.parse(readFileSync(casesPath, "utf8"));
 // The module asks the kernel through one import; these calls never reach it.
-const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0 } });
+const { instance } = await WebAssembly.instantiate(readFileSync(modulePath), { kernel: { ask: () => 0, product: () => 1 } });
 const call = instance.exports;
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 const enhex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -8764,12 +8752,10 @@ fn engine_en_35() {
     assert_kernel_replays_claims();
 }
 
-/// The claims `crates/conformance/tests/kernel/claims.json` lists, as (the
+/// The claims `crates/conformance/tests/kernel/claims/` lists, as (the
 /// request in hex, the answer the guest must give).
 fn kernel_claims() -> Vec<(String, String)> {
-    let text = std::fs::read_to_string(root().join("crates/conformance/tests/kernel/claims.json"))
-        .expect("the claims the crates make of the kernel");
-    let value: serde_json::Value = serde_json::from_str(&text).expect("claims.json is JSON");
+    let value = claims_dir::document(&root());
     value["claims"]
         .as_array()
         .expect("a list of claims")
@@ -8796,7 +8782,7 @@ fn assert_kernel_replays_claims() {
     let replay = app
         .find(
             "node crates/conformance/tests/kernel/replay.mjs \"${holos[0]}\" \
-             crates/conformance/tests/kernel/claims.json",
+             crates/conformance/tests/kernel/claims",
         )
         .expect("the app recipe replays the claims through the holo's guest");
     assert!(
@@ -10170,6 +10156,12 @@ fn engine_en_51() {
     en_49_check("llama");
 }
 
+/// `EN-96`: The integer CPU path runs a q4 export as onnx-community writes it, whose MatMulNBits scales, embedding, head and norm weights are binary32 where a q4f16 export has halves: every weight vector is read exactly as halves or as binary32, and the head's slices carry which they hold; on a Qwen3-shaped fixture so written its sixteen greedy tokens after the prompt are the float reference's, every logit within 2^-7, and a second run gives the same bits
+#[test]
+fn engine_en_96() {
+    en_49_check("qwen3-q4");
+}
+
 /// GP-19's fixture imported through the page's module and opened there for
 /// the forward pass: the module's answer to `decode_open`.
 fn en_52_open(fixture: &En49) -> String {
@@ -10178,9 +10170,9 @@ fn en_52_open(fixture: &En49) -> String {
     String::from_utf8(said).expect("the sizes are JSON")
 }
 
-/// GP-19's fixture imported through the page's module, then `decode_open`
-/// with `config` as config.json's text: its status and its answer.
-fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
+/// The stand-in kernel GP-19's fixture is imported under in the page's
+/// module, installed there.
+fn en_52_kernel() {
     // The stand-in of EN-33, answering decision 20 for this fixture's shapes:
     // the codes are half a byte a weight, the scales one per block.
     let mut base = accepting();
@@ -10207,6 +10199,12 @@ fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
     };
     let kept = std::rc::Rc::new(std::cell::RefCell::new(kernel));
     wasm::install_kernel(Box::new(Shared(kept)));
+}
+
+/// GP-19's fixture imported through the page's module, then `decode_open`
+/// with `config` as config.json's text: its status and its answer.
+fn en_52_opened(fixture: &En49, config: &str) -> (u32, Vec<u8>) {
+    en_52_kernel();
     let graph = &fixture.graph;
     let root = import_record("model.onnx", 0, graph).address.0;
     let at = wasm::given(&root);
@@ -12029,4 +12027,685 @@ fn engine_en_90() {
         said.contains("seals blake3:") && said.contains("is blake3:"),
         "engine-seal must name both addresses: {said}"
     );
+}
+
+/// `EN-91`: hologram-ai-cpu-decode's advance takes one token through the model as step does but computes no output head, and leaves the session exactly as step leaves it: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prompt whose ids but the last are advanced leaves every key and value step leaves and gives step's sixteen tokens and every one of their logits bit for bit, and an id past the vocabulary is refused as step refuses it
+#[test]
+fn engine_en_91() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let model =
+            decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        // The same prompt with every id but the last advanced, no head.
+        let (last, head) = fixture.prompt.split_last().expect("a prompt");
+        let mut session = decode::Session::new(&model);
+        for &id in head {
+            decode::advance(&model, &mut session, id).expect("the prompt advances");
+        }
+        // Every key and value in the cache is the bits step leaves.
+        let mut by_step = decode::Session::new(&model);
+        for &id in head {
+            decode::step(&model, &mut by_step, id).expect("the prompt steps");
+        }
+        assert_eq!(
+            session, by_step,
+            "{family}: advance left another cache than step"
+        );
+        let mut logits =
+            decode::step(&model, &mut session, *last).expect("the last prompt id steps");
+        let (mut tokens, mut all) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            let next = decode::greedy(&logits).expect("a token");
+            tokens.push(next);
+            all.push(logits);
+            logits = decode::step(&model, &mut session, next).expect("a token steps");
+        }
+        assert_eq!(
+            (tokens, all),
+            stepped,
+            "{family}: advancing the prompt changed a token or a logit's bits"
+        );
+        // An id past the vocabulary is refused as step refuses it.
+        assert_eq!(
+            decode::advance(&model, &mut session, u32::MAX).err(),
+            decode::step(&model, &mut session, u32::MAX).err(),
+            "{family}: advance refuses otherwise than step"
+        );
+    }
+}
+
+/// `EN-95`: A classifier's label probabilities are the softmax of its scores in integers: each score's base-two exponent from its binary32 bits, the certified exponent table and the exact sum, each probability in units of 2^-30 rounded once to binary32; equal scores answer equal probabilities and the probabilities order as the scores do
+#[test]
+fn engine_en_95() {
+    let f = |x: f32| x.to_bits();
+    let read = |bits: &[u32]| {
+        bits.iter()
+            .map(|&b| f32::from_bits(b))
+            .collect::<Vec<f32>>()
+    };
+    // Equal scores answer equal probabilities: two labels a half each,
+    // exactly, wherever the scores lie.
+    for s in [0.0f32, 1.5, -3.25, 40.0] {
+        let p = encode::probabilities(&[f(s), f(s)]).expect("finite scores");
+        assert_eq!(p, vec![f(0.5), f(0.5)], "two equal scores at {s}");
+    }
+    assert!(encode::probabilities(&[]).expect("no scores").is_empty());
+    // Against the double-precision softmax: within 2^-12 of each, ordered as
+    // the scores are, summing to 1 within 2^-20.
+    for scores in [
+        vec![2.0f32, -1.0],
+        vec![0.25, 0.5, -4.0, 3.0],
+        vec![-7.5, 6.5, 0.0],
+    ] {
+        let bits: Vec<u32> = scores.iter().map(|&s| f(s)).collect();
+        let p = read(&encode::probabilities(&bits).expect("finite scores"));
+        let top = scores.iter().copied().fold(f32::MIN, f32::max) as f64;
+        let e: Vec<f64> = scores.iter().map(|&s| (s as f64 - top).exp()).collect();
+        let sum: f64 = e.iter().sum();
+        for (i, (&got, &w)) in p.iter().zip(&e).enumerate() {
+            assert!(
+                (got as f64 - w / sum).abs() < 2f64.powi(-12),
+                "{scores:?}[{i}]: {got} against {}",
+                w / sum
+            );
+        }
+        for i in 0..scores.len() {
+            for j in 0..scores.len() {
+                if scores[i] > scores[j] {
+                    assert!(
+                        p[i] >= p[j],
+                        "{scores:?}: probabilities do not order as the scores"
+                    );
+                }
+            }
+        }
+        let total: f64 = p.iter().map(|&x| x as f64).sum();
+        assert!(
+            (total - 1.0).abs() < 2f64.powi(-20),
+            "{scores:?}: the probabilities sum to {total}"
+        );
+    }
+    // A score that is not finite is refused.
+    assert!(encode::probabilities(&[f(f32::NAN)]).is_err());
+    // The module answers the same bits as the crate.
+    let scores: Vec<u32> = [1.0f32, -2.0, 0.5].iter().map(|&s| f(s)).collect();
+    let bytes: Vec<u8> = scores.iter().flat_map(|b| b.to_le_bytes()).collect();
+    let at = wasm::given(&bytes);
+    assert_eq!(wasm::encode_probabilities(at, bytes.len() as u32), 0);
+    let said: Vec<u32> = wasm::last_answer()
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    assert_eq!(said, encode::probabilities(&scores).expect("finite scores"));
+}
+
+/// Answers every product with the matrix's rows cut `parts` ways, each slice
+/// written to bytes and read back before it computes, and checks each joined
+/// answer against the whole product.
+struct EnSlices {
+    parts: usize,
+}
+
+impl hologram_ai_cpu_decode::Products for EnSlices {
+    fn product(
+        &mut self,
+        model: &hologram_ai_cpu_decode::Model<'_>,
+        which: hologram_ai_cpu_decode::Product,
+        input: &[u32],
+    ) -> Result<Vec<u32>, hologram_ai_cpu_decode::DecodeError> {
+        let rows = model.height(which);
+        let mut joined = Vec::with_capacity(rows);
+        for part in 0..self.parts {
+            let range = rows * part / self.parts..rows * (part + 1) / self.parts;
+            let bytes = model.slice(which, range).to_bytes();
+            let held = hologram_ai_cpu_decode::Held::read(&bytes).expect("a slice reads back");
+            joined.extend(held.product(input)?);
+        }
+        let whole = model.slice(which, 0..rows).product(input)?;
+        assert_eq!(
+            joined, whole,
+            "{which:?}: the slices joined are not the whole product"
+        );
+        Ok(joined)
+    }
+}
+
+/// `EN-92`: hologram-ai-cpu-decode cuts each of a model's products into slices of its output rows, and a slice computes those rows' bits exactly as the whole product does, also when carried as bytes and held apart from the model: on GP-19's Qwen3, Qwen2 and Llama fixtures, steps whose every product is answered by slices cut two, three and seven ways give step's tokens and every logit bit for bit, and each product's slices joined are the whole product's bits
+#[test]
+fn engine_en_92() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let model =
+            decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        for parts in [2, 3, 7] {
+            let mut slices = EnSlices { parts };
+            let mut session = decode::Session::new(&model);
+            let (last, head) = fixture.prompt.split_last().expect("a prompt");
+            for &id in head {
+                decode::advance_with(&model, &mut session, id, &mut slices).expect("advances");
+            }
+            let mut logits =
+                decode::step_with(&model, &mut session, *last, &mut slices).expect("steps");
+            let (mut tokens, mut all) = (Vec::new(), Vec::new());
+            for _ in 0..16 {
+                let next = decode::greedy(&logits).expect("a token");
+                tokens.push(next);
+                all.push(logits);
+                logits = decode::step_with(&model, &mut session, next, &mut slices).expect("steps");
+            }
+            assert_eq!(
+                (tokens, all),
+                stepped,
+                "{family}, {parts} slices: a token or a logit's bits differ from step's"
+            );
+        }
+    }
+}
+
+/// `FL-80`: A product answered outside the model, by the engine's helpers, came back with another number of rows than the matrix has, so the step is refused rather than run on it
+#[test]
+fn engine_fl_80() {
+    use hologram_ai_cpu_decode as decode;
+    struct Short;
+    impl decode::Products for Short {
+        fn product(
+            &mut self,
+            model: &decode::Model<'_>,
+            which: decode::Product,
+            input: &[u32],
+        ) -> Result<Vec<u32>, decode::DecodeError> {
+            let rows = model.height(which);
+            model.slice(which, 0..rows - 1).product(input)
+        }
+    }
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model =
+        decode::read(&nodes, &initializers, en_49_config(&fixture)).expect("the model reads");
+    let mut session = decode::Session::new(&model);
+    assert_eq!(
+        decode::step_with(&model, &mut session, fixture.prompt[0], &mut Short).err(),
+        Some(decode::DecodeError::Elsewhere)
+    );
+    // A slice that does not read back is refused the same way.
+    assert_eq!(
+        decode::Held::read(&[1, 0, 0]).err(),
+        Some(decode::DecodeError::Elsewhere)
+    );
+}
+
+/// `EN-110`: hologram-ai-cpu-decode takes a prompt through the model a layer at a time, each layer as soon as its weights are held: on GP-19's Qwen3, Qwen2 and Llama fixtures, a prefill that reads the model again with one more layer held before each layer leaves every key and value step leaves and gives step's logits for the last prompt id, and the sixteen greedy tokens after it and every one of their logits, bit for bit
+#[test]
+fn engine_en_110() {
+    use hologram_ai_cpu_decode as decode;
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        let (nodes, initializers) = en_49_graph(&fixture.graph);
+        let config = en_49_config(&fixture);
+        let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+        let stepped = en_49_run(&model, &fixture.prompt);
+        let mut by_step = decode::Session::new(&model);
+        let mut last = Vec::new();
+        for &id in &fixture.prompt {
+            last = decode::step(&model, &mut by_step, id).expect("the prompt steps");
+        }
+        // The embedding alone first, then one more layer before each layer.
+        let first =
+            decode::read_first(&nodes, &initializers, config, 0).expect("the embedding reads");
+        let mut session = decode::Session::new(&first);
+        let mut prefill =
+            decode::prefill_start(&first, &session, &fixture.prompt).expect("the prefill starts");
+        for l in 0..model.dims.layers {
+            let held = decode::read_first(&nodes, &initializers, config, l + 1)
+                .expect("the layers so far read");
+            decode::prefill_layer(&held, &mut session, &mut prefill).expect("the layer runs");
+            assert_eq!(prefill.layers(), l + 1);
+        }
+        let mut logits =
+            decode::prefill_finish(&model, &mut session, &prefill).expect("the prefill finishes");
+        assert_eq!(
+            session, by_step,
+            "{family}: the prefill left another cache than step"
+        );
+        assert_eq!(
+            logits, last,
+            "{family}: the prefill's logits are not step's"
+        );
+        let (mut tokens, mut all) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            let next = decode::greedy(&logits).expect("a token");
+            tokens.push(next);
+            all.push(logits);
+            logits = decode::step(&model, &mut session, next).expect("a token steps");
+        }
+        assert_eq!(
+            (tokens, all),
+            stepped,
+            "{family}: a token or a logit's bits changed"
+        );
+    }
+}
+
+/// `FL-110`: A model read before its weights all arrived is refused where it is not yet whole: a step while a layer is missing, a layer the prefill is not at or does not hold, a finish before every layer has run, and an empty prompt
+#[test]
+fn engine_fl_110() {
+    use hologram_ai_cpu_decode::{self as decode, DecodeError};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let config = en_49_config(&fixture);
+    let model = decode::read(&nodes, &initializers, config).expect("the model reads");
+    let partial = decode::read_first(&nodes, &initializers, config, 1).expect("one layer reads");
+    let mut session = decode::Session::new(&partial);
+    assert_eq!(
+        decode::step(&partial, &mut session, 1).err(),
+        Some(DecodeError::NotHeld),
+        "a step ran on a model with a layer missing"
+    );
+    assert_eq!(session.position(), 0, "a refused step moved the session");
+    assert_eq!(
+        decode::prefill_start(&partial, &session, &[]).err(),
+        Some(DecodeError::NotHeld),
+        "an empty prompt started"
+    );
+    let mut prefill =
+        decode::prefill_start(&partial, &session, &fixture.prompt).expect("the prefill starts");
+    decode::prefill_layer(&partial, &mut session, &mut prefill).expect("layer 0 runs");
+    let before = session.clone();
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut prefill).err(),
+        Some(DecodeError::NotHeld),
+        "layer 1 ran without its weights"
+    );
+    assert_eq!(session, before, "a refused layer changed the cache");
+    assert_eq!(
+        decode::prefill_finish(&model, &mut session, &prefill).err(),
+        Some(DecodeError::NotHeld),
+        "a prefill finished before its last layer"
+    );
+    // A second prefill on a session the first one is midway through.
+    let mut other =
+        decode::prefill_start(&partial, &decode::Session::new(&partial), &fixture.prompt)
+            .expect("a second prefill starts");
+    assert_eq!(
+        decode::prefill_layer(&partial, &mut session, &mut other).err(),
+        Some(DecodeError::NotHeld),
+        "a layer ran on a cache another prefill had grown"
+    );
+}
+
+/// `EN-111`: The ONNX importer gives each tensor inside the graph file as soon as its last byte has passed, while the file is still arriving: in file order, each once, named by the BLAKE3 of its own bytes, after every operator named so far and its own 4-bit shape were put to the kernel; and the tensors so given are exactly those the finished import gives, fed in pieces of any size
+#[test]
+fn engine_en_111() {
+    use hologram_ai_kernel_client::opname;
+    let (graph, beside, _) = import_model();
+    for piece in [1usize, 7, 64, 4096, graph.len()] {
+        let mut kernel = accepting();
+        let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+        let mut given = Vec::new();
+        let mut taken = 0u64;
+        for chunk in graph.chunks(piece) {
+            reading
+                .take(chunk, &mut kernel)
+                .expect("the chunk is taken");
+            taken += chunk.len() as u64;
+            let before = kernel.asked.len();
+            for tensor in reading
+                .admit_so_far(&mut kernel)
+                .expect("the tensors so far admit")
+            {
+                // Whole, and no sooner than its last byte.
+                assert!(
+                    tensor.offset + tensor.length <= taken,
+                    "pieces of {piece}: {} given early",
+                    tensor.name
+                );
+                assert!(
+                    tensor.offset + tensor.length > taken - chunk.len() as u64,
+                    "pieces of {piece}: {} given late",
+                    tensor.name
+                );
+                // Its operators and 4-bit shape were asked before it was given.
+                let asked = &kernel.asked[..];
+                assert!(
+                    asked.iter().any(|q| q[0] == 18),
+                    "pieces of {piece}: no operator asked before {}",
+                    tensor.name
+                );
+                if tensor.name.starts_with("w_") {
+                    assert!(
+                        asked[before..].iter().any(|q| q[0] == 20)
+                            || asked.iter().any(|q| q[0] == 20),
+                        "pieces of {piece}: {}'s shape was not asked",
+                        tensor.name
+                    );
+                }
+                given.push(tensor);
+            }
+        }
+        let imported = reading.finish(&mut kernel).expect("the graph finishes");
+        let mut read = Vec::new();
+        for name in imported.data_files() {
+            let mut file = imported
+                .data(import_record(&name, 1, &beside), &mut kernel)
+                .expect("the data file starts");
+            file.take(&beside);
+            read.push(file.finish(&mut kernel).expect("the data file ends"));
+        }
+        let model = imported
+            .finish(read, &mut kernel)
+            .expect("the import finishes");
+        let inside: Vec<_> = model
+            .tensors
+            .iter()
+            .filter(|t| t.file == 0)
+            .cloned()
+            .collect();
+        assert_eq!(
+            given, inside,
+            "pieces of {piece}: the tensors given so far are not the finished import's"
+        );
+        for tensor in &given {
+            let (from, to) = (
+                tensor.offset as usize,
+                (tensor.offset + tensor.length) as usize,
+            );
+            assert_eq!(
+                tensor.address,
+                blake3_of(&graph[from..to]),
+                "pieces of {piece}: {}'s address",
+                tensor.name
+            );
+        }
+    }
+    // An operator the kernel refuses stops the import before any tensor is given.
+    let mut kernel = accepting();
+    let refuse = kernel_says("Opnames", "unsupported operator");
+    let mut refusing = Scripted {
+        answer: Box::new(move |request| {
+            if request[0] == 18 {
+                refuse.clone()
+            } else {
+                (kernel.answer)(request)
+            }
+        }),
+        asked: Vec::new(),
+    };
+    let mut reading = import::Graph::new(import_record("model.onnx", 0, &graph));
+    reading
+        .take(&graph, &mut refusing)
+        .expect("the graph is taken");
+    assert!(
+        matches!(
+            reading.admit_so_far(&mut refusing),
+            Err(import::ImportError::OperatorRefused(
+                _,
+                opname::Verdict::Unsupported
+            ))
+        ),
+        "a refused operator let a tensor through"
+    );
+}
+
+/// The module's answer to a call, its status checked.
+fn en_112_said(what: &str, status: u32) -> Vec<u8> {
+    let said = wasm::last_answer();
+    assert_eq!(status, 0, "{what}: {}", String::from_utf8_lossy(&said));
+    said
+}
+
+/// `EN-112`: The page's module runs a prompt while the model's file is still arriving: each tensor is handed to the forward pass as the import gives it, the model is opened once its first layer is held, and the prompt goes through each layer as soon as that layer's weights are held; on GP-19's Qwen3, Qwen2 and Llama fixtures fed in pieces of 4 KiB, the token and every logit the prefill answers, and the sixteen steps after it, are the native run's bit for bit, and a layer asked before its weights is refused by its DecodeError name
+#[test]
+fn engine_en_112() {
+    for family in ["qwen3", "qwen2", "llama"] {
+        let fixture = en_49_fixture(family);
+        en_52_kernel();
+        let graph = &fixture.graph;
+        let root = import_record("model.onnx", 0, graph).address.0;
+        let at = wasm::given(&root);
+        en_112_said(
+            "onnx_start",
+            wasm::onnx_start(at, 32, graph.len() as u64, 0),
+        );
+        wasm::release(at);
+        let (nodes, initializers) = en_49_graph(graph);
+        // A layer's weights are those its nodes read, as the page finds them.
+        let reads = |l: usize| -> Vec<&String> {
+            let prefix = format!("/model/layers.{l}/");
+            initializers
+                .keys()
+                .filter(|w| {
+                    nodes
+                        .iter()
+                        .any(|n| n.name.starts_with(&prefix) && n.inputs.contains(w))
+                })
+                .collect()
+        };
+        let layers = (0..)
+            .take_while(|l| {
+                let prefix = format!("/model/layers.{l}/");
+                nodes
+                    .iter()
+                    .any(|n| n.name.starts_with(&prefix) && n.name.contains("q_proj"))
+            })
+            .count();
+        let mut handed: Vec<String> = Vec::new();
+        let (mut opened, mut held, mut ran, mut refused) = (false, 0usize, 0usize, false);
+        // The scaling as the page passes it once the loader confirmed it.
+        let scaling = match en_49_config(&fixture).scaling {
+            exact::RopeScaling::Llama3 {
+                factor,
+                low,
+                high,
+                original,
+            } => {
+                serde_json::json!({ "factor": factor, "low": low, "high": high, "original": original })
+            }
+            exact::RopeScaling::None => serde_json::Value::Null,
+        };
+        let opening = |held: usize| {
+            serde_json::json!({ "config": fixture.config.to_string(), "scaling": scaling, "held": held })
+                .to_string()
+        };
+        let prompt: Vec<u8> = fixture
+            .prompt
+            .iter()
+            .flat_map(|t| t.to_le_bytes())
+            .collect();
+        for chunk in graph.chunks(4096) {
+            let at = wasm::given(chunk);
+            en_112_said("onnx_take", wasm::onnx_take(at, chunk.len() as u32));
+            wasm::release(at);
+            let so_far = en_112_said("onnx_so_far", wasm::onnx_so_far());
+            let so_far = String::from_utf8(so_far).expect("text");
+            for line in so_far.lines() {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let name = fields[0];
+                let offset: usize = fields[2].parse().expect("an offset");
+                let length: usize = fields[3].parse().expect("a length");
+                assert_eq!(
+                    fields[4],
+                    format!(
+                        "blake3:{}",
+                        blake3_of(&graph[offset..offset + length])
+                            .0
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    ),
+                    "{family}: {name}'s address"
+                );
+                let Some(init) = initializers.get(name) else {
+                    continue;
+                };
+                assert_eq!(
+                    &graph[offset..offset + length],
+                    init.bytes,
+                    "{family}: {name}'s bytes"
+                );
+                let mut given = (name.len() as u32).to_le_bytes().to_vec();
+                given.extend_from_slice(name.as_bytes());
+                given.extend_from_slice(&(init.data_type as u32).to_le_bytes());
+                given.extend_from_slice(init.bytes);
+                let at = wasm::given(&given);
+                en_112_said("decode_tensor", wasm::decode_tensor(at, given.len() as u32));
+                wasm::release(at);
+                handed.push(name.to_string());
+            }
+            // A layer is held once every one of its weights has been handed in.
+            while held < layers && reads(held).into_iter().all(|n| handed.contains(n)) {
+                held += 1;
+            }
+            if held == 0 || !handed.iter().any(|n| n.contains("embed")) {
+                continue;
+            }
+            if !opened {
+                let opening = opening(held);
+                let at = wasm::given(opening.as_bytes());
+                en_112_said("decode_open", wasm::decode_open(at, opening.len() as u32));
+                wasm::release(at);
+                let at = wasm::given(&prompt);
+                en_112_said(
+                    "decode_prefill",
+                    wasm::decode_prefill(at, prompt.len() as u32),
+                );
+                wasm::release(at);
+                opened = true;
+            }
+            while ran < held {
+                let said = en_112_said(
+                    "decode_prefill_layer",
+                    wasm::decode_prefill_layer(held as u32),
+                );
+                ran = u32::from_le_bytes([said[0], said[1], said[2], said[3]]) as usize;
+            }
+            // The next layer, before its weights, is refused by name and
+            // leaves the run as it was.
+            if !refused && held < layers {
+                assert_eq!(
+                    wasm::decode_prefill_layer(held as u32),
+                    1,
+                    "{family}: a layer ran before its weights"
+                );
+                assert_eq!(wasm::last_answer(), b"Decode(NotHeld)");
+                refused = true;
+            }
+        }
+        assert_eq!(
+            ran, layers,
+            "{family}: every layer ran while the file arrived"
+        );
+        en_112_said("onnx_graph_finish", wasm::onnx_graph_finish());
+        en_112_said("onnx_finish", wasm::onnx_finish());
+        let words = |said: Vec<u8>| -> (u32, Vec<u32>) {
+            let w: Vec<u32> = said
+                .chunks_exact(4)
+                .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+                .collect();
+            (w[0], w[1..].to_vec())
+        };
+        let mut last = words(en_112_said(
+            "decode_prefill_finish",
+            wasm::decode_prefill_finish(),
+        ));
+        let (mut tokens, mut logits) = (Vec::new(), Vec::new());
+        for _ in 0..16 {
+            tokens.push(last.0);
+            logits.push(last.1.clone());
+            last = words(en_112_said("decode_step", wasm::decode_step(last.0)));
+        }
+        let (nodes, initializers) = en_49_graph(graph);
+        let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+            .expect("the model reads");
+        let native = en_49_run(&model, &fixture.prompt);
+        assert_eq!(
+            (tokens, logits),
+            native,
+            "{family}: the streamed run is not the native run, bit for bit"
+        );
+        assert_eq!(wasm::decode_clear(), 0);
+    }
+}
+
+/// `EN-97`: A probe reads one component of one layer at one position of a run, binary32 bit patterns of the residual stream's width, as the step computed it: the residual after the layer, attention's output or the feed-forward's; set on the session for the next step and read once after it, it leaves every token and logit of the run as they were, a replay of the run's ids to the same position reads the same bits, every layer's residual differs from the one before it, a layer past the model's reads nothing, and a component past the third is refused
+#[test]
+fn engine_en_97() {
+    use hologram_ai_cpu_decode::{advance, step, Component, Session};
+    let fixture = en_49_fixture("qwen3");
+    let (nodes, initializers) = en_49_graph(&fixture.graph);
+    let model = hologram_ai_cpu_decode::read(&nodes, &initializers, en_49_config(&fixture))
+        .expect("the model reads");
+    let hidden = model.dims.hidden;
+    let layers = model.dims.layers;
+    let (tokens, logits) = en_49_run(&model, &fixture.prompt);
+    let ids: Vec<u32> = fixture.prompt.iter().chain(&tokens).copied().collect();
+    // Every component of every layer at one position past the prompt, each
+    // read on a replay of the run's ids to that position.
+    let at = fixture.prompt.len() + 3;
+    let read = |layer: usize, component: Component| -> Option<Vec<u32>> {
+        let mut session = Session::new(&model);
+        for &id in &ids[..at] {
+            advance(&model, &mut session, id).expect("a step");
+        }
+        session.probe(layer, component);
+        step(&model, &mut session, ids[at]).expect("the probed step");
+        session.probed()
+    };
+    let mut residuals = Vec::new();
+    for layer in 0..layers {
+        for component in [
+            Component::Residual,
+            Component::Attention,
+            Component::FeedForward,
+        ] {
+            let bits = read(layer, component).expect("the probe read its layer");
+            assert_eq!(
+                bits.len(),
+                hidden,
+                "layer {layer} {component:?}: one value per width"
+            );
+            assert_eq!(
+                read(layer, component),
+                Some(bits.clone()),
+                "layer {layer} {component:?}: a second replay read other bits"
+            );
+            if component == Component::Residual {
+                residuals.push(bits);
+            }
+        }
+    }
+    // The residual moves at every layer: no probe read a stale copy.
+    assert!(
+        residuals.windows(2).all(|w| w[0] != w[1]),
+        "two layers' residuals are the same bits"
+    );
+    // Past the last layer, nothing is read.
+    assert_eq!(read(layers, Component::Residual), None);
+    // The run with a probe set is the run without one, bit for bit.
+    let mut session = Session::new(&model);
+    let mut probed_logits = Vec::new();
+    for (i, &id) in ids.iter().enumerate().take(at + 1) {
+        if i == at {
+            session.probe(0, Component::Attention);
+        }
+        let out = step(&model, &mut session, id).expect("a step");
+        if i >= fixture.prompt.len() - 1 {
+            probed_logits.push(out);
+        }
+    }
+    assert!(session.probed().is_some(), "the probe set read nothing");
+    for (k, row) in probed_logits.iter().enumerate() {
+        assert_eq!(row, &logits[k], "step {k}: a probe changed the logits");
+    }
+    assert_eq!(
+        Component::numbered(3),
+        None,
+        "a fourth component is refused"
+    );
+    assert_eq!(Component::COUNT, 3);
 }

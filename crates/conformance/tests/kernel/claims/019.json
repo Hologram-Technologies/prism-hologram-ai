@@ -1,0 +1,21 @@
+{
+  "decision": 19,
+  "claims": [
+    {
+      "request": "1367656d6d6132000067656c7500000000000800040100001a000009000003e800",
+      "answer": "rejected: unknown family"
+    },
+    {
+      "request": "136d69787472616c0073696c750000000000200008008000200000100000007d00",
+      "answer": "rejected: unknown family"
+    },
+    {
+      "request": "136c6c616d6100000067656c7500000000000c00020080001c0000060000025180",
+      "answer": "rejected: unsupported shape"
+    },
+    {
+      "request": "137177656e3200000073696c7500000000000c00020080001c0000060000025180",
+      "answer": "supported"
+    }
+  ]
+}

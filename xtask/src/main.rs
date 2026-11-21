@@ -13,6 +13,7 @@ use repo_model::{codegen, Model};
 mod audit;
 mod bootstrap;
 mod page;
+mod proofs;
 mod scaffold;
 
 /// The most the page's engine may be, uncompressed.
@@ -87,8 +88,8 @@ fn engine_seal(root: &Path, path: &Path) -> Result<(), Fail> {
         return Err(format!(
             "{} is blake3:{found}, but {SEAL} seals blake3:{sealed}. \
              If the change to the engine's inputs is meant, seal it in the same change: \
-             sealedWord's words become {}, and the decision-80 claims in claims.json and \
-             fields in site/decision-names.json follow (EN-90).",
+             sealedWord's words become {}, and the claims in crates/conformance/tests/kernel/claims/080.json and \
+             fields in page/decision-names/080.json follow (EN-90).",
             path.display(),
             new.join(" ")
         )
@@ -117,6 +118,7 @@ fn main() -> ExitCode {
         "audit-bootstrap" => bootstrap::audit(&root),
         "audit-dependency-updates" => bootstrap::audit_dependency_updates(&root),
         "validate" => validate(&root),
+        "proofs" => proofs::verify(&root),
         "engine-size" => {
             let named = std::env::args().nth(2).unwrap_or_default();
             engine_size(&root.join(named))
@@ -145,6 +147,7 @@ fn main() -> ExitCode {
                  audit-bootstrap   immutable SDK and least-privilege workflow trust root\n\
                  audit-dependency-updates   SDK ownership and ordinary dependency maintenance\n\
                  validate          run every gate above\n\
+                 proofs            lexlean verify app/src/Proofs, reusing unchanged modules by content address\n\
                  engine-size <path>  the page's engine is within the size a page may ask for\n\
                  engine-seal <path>  EN-90: the page's engine is the address the model seals\n\
                  new-capability <ID> <level> <suite> <statement>\n\
@@ -210,7 +213,9 @@ fn check_model(root: &Path, write: bool) -> Result<(), Fail> {
 /// The whole normative acceptance gate, in one place.
 fn validate(root: &Path) -> Result<(), Fail> {
     check_model(root, false)?;
-    page::page(root, false)?;
+    // The page's table and card are generated, not committed, and the suites
+    // after this read them, so validate writes them.
+    page::page(root, true)?;
     audit::audit_limits(root)?;
     audit::audit_deferral(root)?;
     audit::audit_float(root)?;

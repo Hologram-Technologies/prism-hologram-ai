@@ -1,0 +1,26 @@
+{
+  "decision": 27,
+  "name": "Prefix reuse",
+  "asks": "May this computed prefix be reused for this prompt?",
+  "fields": {
+    "1": {
+      "name": "Label asked for",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "33": {
+      "name": "Label held",
+      "kind": "label",
+      "value": "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+    },
+    "65": {
+      "name": "Positions held",
+      "value": 400
+    },
+    "69": {
+      "name": "Prompt length",
+      "value": 440
+    }
+  },
+  "purpose": "whether a computed prefix may be reused"
+}

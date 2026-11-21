@@ -1,0 +1,25 @@
+{
+  "decision": 45,
+  "claims": [
+    {
+      "request": "2d72e8302eb275e75b189b6a9ebfaa7aaba1b868c610b169b3b16c5cae2172148e",
+      "answer": "qwen2.5"
+    },
+    {
+      "request": "2d45fdf00a05e3daa5751bcd1de40a0a8280bde6328765dfe3828f9dac093b584b",
+      "answer": "qwen3"
+    },
+    {
+      "request": "2dda36d51c844b3c4444f4d82ac911f4a580d010a71e3a8ab35e21edf6ca4238b6",
+      "answer": "llama3.2"
+    },
+    {
+      "request": "2d29a5add3e0477038928de3d0ddb75ac2712d545a77c5e21d467d475b36b469f1",
+      "answer": "refused: unknown template"
+    },
+    {
+      "request": "2d45fdf00a05e3daa5751bcd1de40a0a8280bde6328765dfe3828f9dac093b58",
+      "answer": "invalid request"
+    }
+  ]
+}

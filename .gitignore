@@ -37,3 +37,7 @@ screens/
 .prism-proof/
 .prism-proof.log
 site/app/engine/engine.wasm
+# The page's decision table and card, written by `cargo xtask page --write`
+# (and by `xtask validate`) from the kernel and page/decision-names/.
+site/decisions.json
+site/card.html

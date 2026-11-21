@@ -1,0 +1,50 @@
+{
+  "decision": 30,
+  "name": "Reproducibility",
+  "asks": "Where will this run give the same answer again?",
+  "fields": {
+    "1": {
+      "name": "Products exact",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "2": {
+      "name": "Other stages exact",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 1
+    },
+    "3": {
+      "name": "Float reductions in a fixed order",
+      "choice": [
+        [
+          "no",
+          0
+        ],
+        [
+          "yes",
+          1
+        ]
+      ],
+      "value": 0
+    }
+  },
+  "purpose": "where a run gives the same answer again"
+}

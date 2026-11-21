@@ -518,7 +518,9 @@ pub fn quantise(input: &[u32]) -> Result<Quantised, ExactError> {
         .map(|x| {
             let magnitude = x.mantissa.unsigned_abs();
             let shift = x.exponent + exponent;
-            let code = if shift >= 0 {
+            let code = if magnitude == 0 {
+                0
+            } else if shift >= 0 {
                 magnitude << shift as u32
             } else {
                 shift_right_even(magnitude, (-shift) as u32)
@@ -901,7 +903,11 @@ impl Dense<'_> {
     }
 
     /// Weight `at`, exactly.
-    fn at(self, at: usize) -> Result<Dyadic, ExactError> {
+    ///
+    /// # Errors
+    ///
+    /// [`ExactError::ScaleNotFinite`] for an infinity or a NaN.
+    pub fn at(self, at: usize) -> Result<Dyadic, ExactError> {
         let read = match self {
             Self::F32(bytes) => {
                 let b = at * 4;
@@ -1169,7 +1175,9 @@ fn scale_onto(read: &[Dyadic], limit: u128) -> (Vec<i16>, i32) {
         .map(|x| {
             let magnitude = x.mantissa.unsigned_abs();
             let shift = x.exponent + exponent;
-            let code = if shift >= 0 {
+            let code = if magnitude == 0 {
+                0
+            } else if shift >= 0 {
                 magnitude << shift as u32
             } else {
                 shift_right_even(magnitude, (-shift) as u32)

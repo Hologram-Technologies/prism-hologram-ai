@@ -3,7 +3,8 @@
 //
 // Every layout comes from the kernel itself: `cargo xtask page --write` reads
 // the offsets, widths, lengths, groups and tags out of `app/src/Kernel` and
-// writes them into this page and into site/decisions.json, which `EN-14`
+// writes them into this page (site/card.html, from page/card.template.html)
+// and into site/decisions.json, both generated and not committed, which `EN-14`
 // checks against the kernel's own examples. A field at the wrong offset or of
 // the wrong width fails the gate rather than quietly asking the kernel
 // something else. Nothing in this file decides anything; it writes the request

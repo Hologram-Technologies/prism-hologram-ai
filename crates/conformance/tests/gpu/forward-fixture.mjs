@@ -5,7 +5,8 @@
 //
 //   node crates/conformance/tests/gpu/forward-fixture.mjs <repository root> <family>
 //
-// qwen3: GP-19's fixture, fused, with query and key norms. qwen2: Qwen2.5's
+// qwen3: GP-19's fixture, fused, with query and key norms. qwen3-q4: the same
+// as a q4 export, binary32 where q4f16 has halves. qwen2: Qwen2.5's
 // decomposed export, with query, key and value biases. llama: Llama's fused
 // export, with Llama 3 rotary scaling.
 
@@ -21,6 +22,12 @@ if (family === "qwen3") {
   graph = fixture.files.get(fixture.path);
   config = JSON.parse(fixture.files.get("config.json").toString("utf8"));
   prompt = fixture.prompt;
+} else if (family === "qwen3-q4") {
+  // EN-96: the same Qwen3 shape as onnx-community's q4 export writes it, with
+  // binary32 scales, embedding and norms.
+  model = tinyQwen2(16, "onnx", "f32", "dense", { qkNorm: true });
+  ({ bytes: graph, config } = onnxFile(model, "qwen3"));
+  prompt = model.prompt;
 } else {
   const llama3 = { factor: 4, low: 1, high: 4, orig: 64 };
   model = tinyQwen2(16, "onnx", "f16", "dense", family === "llama" ? { vectors: "f16", llama3 } : { vectors: "f16" });
