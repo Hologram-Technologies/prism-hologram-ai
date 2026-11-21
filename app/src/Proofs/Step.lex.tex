@@ -166,5 +166,89 @@ theorem{
   statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons 3212836864 (nil Nat))) best) = (Engine.Stage.Greedy::greedy (cons 3212836864 (nil Nat)))),
   proof: reflexivity{}
 }
+
+theorem{
+  name: step_bound_moves,
+  parameters: [rest : (List Nat), f : Nat, count : Nat, best : Nat, moved : Nat],
+  statement: (((project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 2), best := (Engine.Stage.Greedy::pick f (count + 1) best), bits := moved}) rest) best) < (((Engine.Stage.Greedy::maxOf (Engine.Stage.Greedy::pick f (count + 1) best) (count + 1)) + 1) + (Engine.Stage.Greedy::size rest))) -> ((project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 2), best := (Engine.Stage.Greedy::pick f (count + 1) best), bits := moved}) rest) best) < (((Engine.Stage.Greedy::maxOf best count) + 1) + ((Engine.Stage.Greedy::size rest) + 1)))),
+  proof: induction{
+    branches: [
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::maxOf, Engine.Stage.Greedy::pick]
+        },
+        binders: [],
+        constructor: zero
+      },
+      {
+        proof: linear_arithmetic{
+          definitions: [Engine.Stage.Greedy::maxOf, Engine.Stage.Greedy::pick]
+        },
+        binders: [less, hypothesis],
+        constructor: succ
+      }
+    ],
+    generalizing: [],
+    scrutinee: f
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: step_bound_starts,
+  parameters: [best : Nat, count : Nat],
+  statement: (best < (((Engine.Stage.Greedy::maxOf best count) + 1) + 0)),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::maxOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: step_index_below,
+  parameters: [logits : (List Nat), count : Nat, best : Nat, bits : Nat],
+  statement: ((project (Engine.Step::feedPick (record Engine.Step::Pick {seen := (count + 1), best := best, bits := bits}) logits) best) < (((Engine.Stage.Greedy::maxOf best count) + 1) + (Engine.Stage.Greedy::size logits))),
+  proof: induction{
+    branches: [
+      {
+        proof: simplify{
+          definitions: [step_bound_starts, Engine.Stage.Greedy::size, Engine.Step::feedPick]
+        },
+        binders: [],
+        constructor: nil
+      },
+      {
+        proof: simplify{
+          definitions: [
+            advance_counted,
+            hypothesis,
+            step_bound_moves,
+            Engine.Stage.Greedy::size,
+            Engine.Step::feedPick
+          ]
+        },
+        binders: [head, rest, hypothesis],
+        constructor: cons
+      }
+    ],
+    generalizing: [best, bits, count],
+    scrutinee: logits
+  },
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: step_fresh_bound,
+  parameters: [r : Nat, s : Nat],
+  statement: ((r < (((Engine.Stage.Greedy::maxOf 0 0) + 1) + s)) -> (r < (1 + s))),
+  proof: linear_arithmetic{definitions: [Engine.Stage.Greedy::maxOf]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: picked_below_seen,
+  parameters: [opening : Nat, logits : (List Nat)],
+  statement: ((project (Engine.Step::feedPick (Engine.Step::freshPick) (cons opening logits)) best) < (1 + (Engine.Stage.Greedy::size logits))),
+  proof: simplify{definitions: [fresh_takes_first, step_fresh_bound, step_index_below]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}
