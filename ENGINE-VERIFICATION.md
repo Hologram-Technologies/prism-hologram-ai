@@ -3191,6 +3191,7 @@ SIGSEGV (run 44828663585), and the job had already spent 39 of its 45 minutes.
 | the same build on x86 with rustc naming an aarch64 host | the same module, `blake3:5d2ee896…`: the host string alone makes the difference |
 | the host rename removed from `engine-build` | rejected by `engine_en_90`: ``engine-build does not `if [[ $(uname -m) != x86_64 ]]; then` `` |
 | none, WSL on x86 | `engine_en_90` passed; `just engine-build` gave the sealed `blake3:b5fd8212…` |
+| none, CI on arm64, `bootstrap` run 44835369567 dispatched on this branch | passed: `engine-build: aarch64 host, cargo told the host is x86_64-unknown-linux-gnu`, built in 43 s, `engine-seal` found the sealed `blake3:b5fd8212…`, `vv: the acceptance gate passed`; the amd64 leg passed too |
 
 ## EN-95, a classifier's probabilities
 
