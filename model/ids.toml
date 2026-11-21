@@ -1056,6 +1056,12 @@ suite = "gpu"
 statement = "A past answer opens at any layer, position and component: the receipt is run again and confirmed (decision 31), the kernel says whether the replay is exact (decision 32), and the engine replays the run's ids to that position and reads the component there, its values named by their BLAKE3; the same answer probed on the CPU and on WebGPU reads the same bits, and a layer past the model's is out of range"
 
 [[id]]
+id = "KN-89"
+level = "build"
+suite = "kernel"
+statement = "The residual and bias additions are defined in LexLean, not Rust: Engine.Stage.Residual::addWord is two binary32 values summed exactly at 2^-149 and rounded once by KN-62's Binary32::round, as cpu-decode's add; Lean proves every sum is a word and the addition commutes, for every input, and evaluates sums that the kernel test replays through cpu-decode's add arithmetic on crates/exact's Row and round_to_binary32"
+
+[[id]]
 id = "KN-90"
 level = "build"
 suite = "kernel"

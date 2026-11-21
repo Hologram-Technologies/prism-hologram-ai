@@ -570,3 +570,10 @@ Feature: kernel
     When lexlean verify checks Proofs.StageGated in the gate
     Then gated_is_word holds for every pair of values, and gated_entry_count and gated_count give one output an input
     And gated_entry_row_0 and gated_row_0 evaluate the stage on eight values, and kernel_kn_90 replays them through cpu-decode's arithmetic and finds the same words
+
+  @KN-89 @build
+  Scenario: The residual and bias additions are defined in LexLean, not Rust: Engine.Stage.Residual::addWord is two binary32 values summed exactly at 2^-149 and rounded once by KN-62's Binary32::round, as cpu-decode's add; Lean proves every sum is a word and the addition commutes, for every input, and evaluates sums that the kernel test replays through cpu-decode's add arithmetic on crates/exact's Row and round_to_binary32
+    Given the stage in app/src/Engine/Stage/Residual.lex.tex and its proofs in app/src/Proofs/StageResidual.lex.tex
+    When lexlean verify checks Proofs.StageResidual in the gate
+    Then residual_add_is_word and residual_add_commutes hold for every pair of values, and residual_count gives one sum a pair
+    And residual_row_0 evaluates nine sums, and kernel_kn_89 replays them through cpu-decode's add arithmetic and finds the same words
